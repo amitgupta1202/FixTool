@@ -239,6 +239,13 @@
     <p>An example is a <em>copy</em>, into a folder you name. Nothing is mixed into your own profiles or
     scenarios, so there is nothing to uninstall, and what you change in it is yours to keep or commit.
     Open it again under a different name whenever you want a clean one.</p>
+    <p>Both examples are written to the <strong>bundled FIX 4.4 dictionary</strong>. The dictionary does not
+    move with the workspace (see <a href="#settings">Settings</a>), so an installation that has a venue's
+    own dictionary loaded under Settings &rarr; Protocol runs the examples against that dialect. Where the
+    dialect renames or relocates a tag the example uses, a bundled expectation goes red on that tag: one
+    dealer's dictionary defines tag 132 as a header field, so the RFQ venue's BidPx lands in the header
+    there and <em>RFQ book a trade</em> fails on its Quote step. Switch to the bundled dictionary to run
+    the examples as shipped.</p>
 
     <h3>Opening an Example</h3>
     <ol>

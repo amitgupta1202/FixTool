@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.AcceptorLatencyConfig
+import com.knapsack.fixtool.model.FixConnectionConfig
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -26,8 +28,8 @@ class ExampleWorkspacesTest {
     }
 
     @Test
-    fun `the index lists the FX venue`() {
-        assertEquals(listOf(ExampleWorkspaces.FX_VENUE), ExampleWorkspaces.all().map { it.id })
+    fun `the index lists the FX venue first and the RFQ venue after it`() {
+        assertEquals(listOf(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.RFQ_VENUE), ExampleWorkspaces.all().map { it.id })
     }
 
     @Test
@@ -226,6 +228,133 @@ class ExampleWorkspacesTest {
         assertEquals("workspace", ExampleWorkspaces.slug("   "))
         assertEquals("workspace", ExampleWorkspaces.slug("///"))
         assertEquals("a-b", ExampleWorkspaces.slug("a/b"))
+    }
+
+    // ---------------------------------------------------------------- the RFQ venue
+
+    private val rfqVenue = assertNotNull(ExampleWorkspaces.byId(ExampleWorkspaces.RFQ_VENUE), "rfq-venue is not in the build")
+
+    private fun openRfqInTemp(): File {
+        val location = Files.createTempDirectory("rfq-example-open").toFile()
+        return ExampleWorkspaces
+            .open(ExampleWorkspaces.RFQ_VENUE, "RFQ Venue", location, now = 1_700_000_000_000L)
+            .getOrThrow()
+    }
+
+    @Test
+    fun `every file the RFQ manifest names is in the build`() {
+        rfqVenue.files.forEach { relative ->
+            assertNotNull(
+                ExampleWorkspaces::class.java.getResourceAsStream("/examples/${ExampleWorkspaces.RFQ_VENUE}/$relative"),
+                "manifest names '$relative', which is not in the build",
+            )
+        }
+    }
+
+    /** The same pin as the FX venue's: the bundle carries exactly the preset's rules in the menu's order. */
+    @Test
+    fun `the RFQ venue carries the RFQ preset's rules, all of them, in the order the preset menu places them`() {
+        val venue = profilesIn(openRfqInTemp()).first { it.id == "rfq-profile-venue" }
+        val preset = assertNotNull(AcceptorPresets.byId(RfqVenuePreset.ID))
+        assertEquals(AcceptorPresets.insert(emptyList(), preset).rules, venue.config.acceptorResponseRules)
+        assertEquals(preset.rules.size, venue.config.acceptorResponseRules.size)
+        assertEquals(preset.rules.toSet(), venue.config.acceptorResponseRules.toSet())
+    }
+
+    /** Its own port, so both examples can be described without sharing a number. No injected latency. */
+    @Test
+    fun `the RFQ venue is an acceptor open to any client, on its own port, with no injected latency`() {
+        val venue = profilesIn(openRfqInTemp()).first { it.id == "rfq-profile-venue" }
+        assertEquals("RFQ_SERVER", venue.config.senderCompID)
+        assertEquals("*", venue.config.targetCompID)
+        assertEquals("19877", venue.config.socketAcceptPort)
+        assertEquals(AcceptorLatencyConfig.Mode.NONE, venue.config.acceptorLatency.mode)
+    }
+
+    @Test
+    fun `two RFQ clients point at the venue, and reconnect fast enough to win the startup race`() {
+        val clients = profilesIn(openRfqInTemp()).filter { it.id.startsWith("rfq-profile-RFQ_CLIENT") }
+        assertEquals(listOf("RFQ Client 1", "RFQ Client 2"), clients.map { it.name })
+        clients.forEach {
+            assertEquals("RFQ_SERVER", it.config.targetCompID)
+            assertEquals("19877", it.config.port)
+            assertEquals("5", it.config.reconnectInterval)
+            assertTrue(it.config.resetOnLogon)
+        }
+    }
+
+    /**
+     * The example is load-ready out of the box: five lanes on a memory store with no message log, which is
+     * #42's setting and the one `fixtool load` wants. Memory needs Reset on Logon, so that is pinned too.
+     */
+    @Test
+    fun `the RFQ load client is five lanes on a memory store with no log, and Reset on Logon on`() {
+        val load = profilesIn(openRfqInTemp()).first { it.id == "rfq-profile-RFQ_LOAD" }
+        assertEquals("RFQ Load Client", load.name)
+        assertEquals("RFQLG{n}", load.config.senderCompID)
+        assertEquals(5, load.config.sessionCount)
+        assertEquals(FixConnectionConfig.MessageStoreKind.MEMORY, load.config.messageStore)
+        assertEquals(FixConnectionConfig.MessageLogKind.NONE, load.config.messageLog)
+        assertTrue(load.config.resetOnLogon)
+        assertEquals(null, load.config.storeProblem(), "the bundled load client would be refused at connect")
+    }
+
+    @Test
+    fun `the RFQ templates come across, tagged to the clients and the load client that send them`() {
+        val workspace = openRfqInTemp()
+        val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
+        val forClientOne = messages.loadMessagesForProfile("rfq-profile-RFQ_CLIENT1").map { it.id }
+        assertTrue("rfq-quote-request-eurusd" in forClientOne, "the quote request template is missing")
+        assertTrue("rfq-lift-last-quote" in forClientOne, "the lift template is missing")
+        assertTrue("rfq-load-quote-request" !in forClientOne, "a load template is offered to a single-session client")
+        val forLoad = messages.loadMessagesForProfile("rfq-profile-RFQ_LOAD").map { it.id }
+        assertEquals(setOf("rfq-load-quote-request", "rfq-load-quote-response"), forLoad.toSet())
+    }
+
+    /** What the load run's two phases rely on: both templates vary from the same `run` seed. */
+    @Test
+    fun `the RFQ load templates address the same quotes from the same seed`() {
+        val workspace = openRfqInTemp()
+        val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
+        val byId = messages.loadMessagesForProfile("rfq-profile-RFQ_LOAD").associateBy { it.id }
+        fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
+        assertEquals("RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-request", "131"))
+        assertEquals("Q-RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-response", "117"))
+        assertEquals("RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-response", "11"))
+        assertEquals("1.09010", value("rfq-load-quote-response", "44"), "the lift is at the EUR/USD offer the venue quotes")
+    }
+
+    @Test
+    fun `both RFQ scenarios come across and parse`() {
+        val scenarios = ScenarioService(customDir = File(openRfqInTemp(), "scenarios").absolutePath).list()
+        assertEquals(
+            setOf("rfq-scenario-book-a-trade", "rfq-scenario-pass-and-counter"),
+            scenarios.map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun `the RFQ bundle carries no password, no path off this machine, and stamps no clock`() {
+        rfqVenue.files.forEach { relative ->
+            val body =
+                ExampleWorkspaces::class.java
+                    .getResourceAsStream("/examples/rfq-venue/$relative")!!
+                    .use { it.readBytes().decodeToString() }
+            assertFalse(body.contains("\"password\""), "$relative carries a password field")
+            assertFalse(body.contains("/Users/"), "$relative carries an absolute path from a developer's machine")
+            assertFalse(body.contains("/home/"), "$relative carries an absolute path from a developer's machine")
+            assertFalse(body.contains("fileStorePath"), "$relative pins the sequence store outside the workspace")
+            assertFalse(body.contains("fileLogPath"), "$relative pins the session log outside the workspace")
+        }
+        val bundled = ExampleWorkspaces::class.java.getResourceAsStream("/examples/rfq-venue/connection_profiles.json")!!
+        assertTrue(bundled.use { it.readBytes().decodeToString() }.contains("\"createdAt\": 0"))
+        profilesIn(openRfqInTemp()).forEach { assertEquals(1_700_000_000_000L, it.createdAt) }
+    }
+
+    @Test
+    fun `the two examples land in different folders`() {
+        assertEquals("fx-venue", ExampleWorkspaces.slug(fxVenue.defaultWorkspaceName))
+        assertEquals("rfq-venue", ExampleWorkspaces.slug(rfqVenue.defaultWorkspaceName))
     }
 
     private fun profilesIn(workspace: File) =

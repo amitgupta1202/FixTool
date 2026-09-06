@@ -84,7 +84,8 @@ fun SplitView(
     onUnfollowTrace: (() -> Unit)? = null,
     /** For the empty state only. See [NoSessionsPlaceholder]. */
     hasProfiles: Boolean = false,
-    onOpenExample: (() -> Unit)? = null,
+    examples: List<ExampleEntry> = emptyList(),
+    onOpenExample: ((String) -> Unit)? = null,
     onOpenWorkspace: (() -> Unit)? = null,
     onOpenConnectionPanel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -92,6 +93,7 @@ fun SplitView(
     if (sessions.isEmpty()) {
         NoSessionsPlaceholder(
             hasProfiles = hasProfiles,
+            examples = examples,
             onOpenExample = onOpenExample,
             onOpenWorkspace = onOpenWorkspace,
             onOpenConnectionPanel = onOpenConnectionPanel,

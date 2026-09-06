@@ -34,8 +34,10 @@ import androidx.compose.ui.unit.sp
 fun NoSessionsPlaceholder(
     /** There are saved profiles, so this is not a fresh install and the example withdraws. */
     hasProfiles: Boolean = false,
-    /** Copies the bundled example into a workspace and opens it. Null hides the button. */
-    onOpenExample: (() -> Unit)? = null,
+    /** The bundled examples, one button each, exactly what the workspace switcher offers under Open. */
+    examples: List<ExampleEntry> = emptyList(),
+    /** Copies the named example into a workspace and opens it. Null hides the buttons. */
+    onOpenExample: ((String) -> Unit)? = null,
     /** Browses to a workspace folder. Null hides the button. */
     onOpenWorkspace: (() -> Unit)? = null,
     /** Opens (never toggles) the connection panel. Null hides the button. */
@@ -61,8 +63,9 @@ fun NoSessionsPlaceholder(
                     if (hasProfiles) {
                         "Reconnect a profile from Quick Connect in the toolbar, or open another workspace."
                     } else {
-                        "Open a workspace, or take the bundled FX Venue example: a venue, two clients, " +
-                            "message templates and scenarios that run green, copied into a workspace of your own."
+                        "Open a workspace, or take a bundled example, copied into a workspace of your own: " +
+                            "a venue whose rules you can read, clients pointed at it, message templates and " +
+                            "scenarios that run green."
                     },
                 color = AppTheme.Colors.textDisabled,
                 fontSize = 11.sp,
@@ -70,12 +73,14 @@ fun NoSessionsPlaceholder(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (onOpenExample != null && !hasProfiles) {
-                    SlimButton(
-                        text = "Open FX Venue example",
-                        onClick = onOpenExample,
-                        color = AppTheme.Colors.primary,
-                        modifier = Modifier.testTag("empty-open-example"),
-                    )
+                    examples.forEach { example ->
+                        SlimButton(
+                            text = "Open ${example.displayName} example",
+                            onClick = { onOpenExample(example.id) },
+                            color = AppTheme.Colors.primary,
+                            modifier = Modifier.testTag("empty-open-example-${example.id}"),
+                        )
+                    }
                 }
                 if (onOpenWorkspace != null) {
                     SlimButton(

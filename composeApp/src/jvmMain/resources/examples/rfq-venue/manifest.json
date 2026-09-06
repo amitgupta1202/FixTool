@@ -1,0 +1,12 @@
+{
+  "id": "rfq-venue",
+  "displayName": "RFQ Venue",
+  "summary": "A request-for-quote desk that quotes firm and books a hit, two clients, a load-ready client, templates and two scenarios that run green.",
+  "defaultWorkspaceName": "RFQ Venue",
+  "files": [
+    "connection_profiles.json",
+    "saved_messages.json",
+    "scenarios/rfq-book-a-trade--demo-sce.json",
+    "scenarios/rfq-pass-and-counter--demo-sce.json"
+  ]
+}

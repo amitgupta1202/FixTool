@@ -1,5 +1,6 @@
 {
   "examples": [
-    "fx-venue"
+    "fx-venue",
+    "rfq-venue"
   ]
 }

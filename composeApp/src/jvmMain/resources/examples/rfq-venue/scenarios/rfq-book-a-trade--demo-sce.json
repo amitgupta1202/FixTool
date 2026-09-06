@@ -1,0 +1,147 @@
+{
+  "id": "rfq-scenario-book-a-trade",
+  "name": "RFQ book a trade",
+  "binding": "this_run",
+  "createdAt": 1788700000000,
+  "setup": [
+    {
+      "stepId": "99c94355-3e84-4fb2-a2ac-7fdaeef0647a",
+      "type": "clearMessages",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "14b6a2b9-4c3a-4831-849c-7c38b5071491",
+      "type": "clearOrderBook",
+      "session": "RFQ Demo Venue ← RFQ_CLIENT1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "b6c3ef21-ebf6-4fbd-ac18-8873da615767",
+      "type": "send",
+      "raw": "35=R|131=DEMO-RFQ-1|146=1|55=EUR/USD|54=1|38=1000000",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "3d5023de-f36a-47bc-9c79-7d3e96874a39",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "S",
+        "fields": [
+          {
+            "tag": 131,
+            "value": "DEMO-RFQ-1"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "S",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 131,
+            "matcher": {
+              "type": "exact",
+              "value": "DEMO-RFQ-1"
+            }
+          },
+          {
+            "tag": 117,
+            "matcher": {
+              "type": "exact",
+              "value": "Q-DEMO-RFQ-1"
+            }
+          },
+          {
+            "tag": 132,
+            "matcher": {
+              "type": "presence"
+            }
+          },
+          {
+            "tag": 133,
+            "matcher": {
+              "type": "presence"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "ed0a44f3-fba0-4571-8a2b-a96597424095",
+      "type": "send",
+      "raw": "35=AJ|693=DEMO-RESP-1|694=1|117=Q-DEMO-RFQ-1|11=DEMO-TRADE-1|55=EUR/USD|54=1|38=1000000|44=${in.S.133}",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "00b69e00-a8dd-4ec8-91e1-acf5e742603b",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": [
+          {
+            "tag": 11,
+            "value": "DEMO-TRADE-1"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 11,
+            "matcher": {
+              "type": "exact",
+              "value": "DEMO-TRADE-1"
+            }
+          },
+          {
+            "tag": 31,
+            "matcher": {
+              "type": "reference",
+              "expression": "${in.S.133}"
+            }
+          },
+          {
+            "tag": 32,
+            "matcher": {
+              "type": "exact",
+              "value": "1000000"
+            }
+          },
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "2"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "F"
+            }
+          },
+          {
+            "tag": 693,
+            "matcher": {
+              "type": "exact",
+              "value": "DEMO-RESP-1"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "teardown": [],
+  "userTags": [],
+  "version": 1
+}

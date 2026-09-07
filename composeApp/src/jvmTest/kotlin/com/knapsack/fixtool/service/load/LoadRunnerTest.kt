@@ -33,24 +33,45 @@ class LoadRunnerTest {
         private val clock: FakeClock,
         private val answer: (String) -> List<String>,
         private val accept: Boolean = true,
+        private val deferStamps: Boolean = false,
     ) : LoadLane {
         override val lane = Lane(slot, "LOADGEN [$slot]", "LOADGEN%02d".format(slot), "")
         override val sessionId: SessionID = SessionID("FIX.4.4", lane.senderCompID, "VENUE")
         val sent = CopyOnWriteArrayList<String>()
         var discardedCount = 0L
         private val listeners = CopyOnWriteArrayList<(SocketStamp) -> Unit>()
+        private val unwritten = CopyOnWriteArrayList<String>()
 
         override fun send(message: Message): Boolean {
             if (!accept) return false
             val wire = message.toString()
             sent += wire
+            if (deferStamps) {
+                unwritten += wire
+                return true
+            }
+            writeToSocket(wire)
+            return true
+        }
+
+        /**
+         * **The engine's writer thread getting its turn.** A lane built with `deferStamps` accepts a message
+         * and stamps nothing, which is every lane on a machine too busy to schedule the write before the
+         * pacer returns. Calling this is that thread finally running.
+         */
+        fun flush() {
+            val queued = unwritten.toList()
+            unwritten.clear()
+            queued.forEach { writeToSocket(it) }
+        }
+
+        private fun writeToSocket(wire: String) {
             clock.nanos += 1_000
             emit(SocketStamp(sessionId, WireDirection.SEND, wire, clock.micros()))
             answer(wire).forEach { reply ->
                 clock.nanos += 1_000
                 emit(SocketStamp(sessionId, WireDirection.RECEIVE, reply, clock.micros()))
             }
-            return true
         }
 
         fun emit(stamp: SocketStamp) = listeners.forEach { it(stamp) }
@@ -82,6 +103,8 @@ class LoadRunnerTest {
         private val clock: FakeClock,
         private val lanes: List<FakeLane>,
         private val listeners: List<FakeLane> = emptyList(),
+        /** Called on every sleep, which is where a settling run spends its time. */
+        private val onSleep: () -> Unit = {},
     ) : LoadHost {
         var released = false
         var openedWith: StoreAndLogOverride? = null
@@ -109,6 +132,7 @@ class LoadRunnerTest {
 
         override fun sleep(ms: Long) {
             clock.nanos += ms * 1_000_000
+            onSleep()
         }
     }
 
@@ -187,6 +211,42 @@ class LoadRunnerTest {
         assertEquals(listOf("ORD-t1-7"), outcome.unmatched.map { it.id })
         assertTrue(outcome.unmatched.single().wire.contains("11=ORD-t1-7"))
         assertTrue(r.finishedAt!! - r.startedAt >= 3_000, "with something pending the window runs its full length: ${r.finishedAt!! - r.startedAt}ms")
+    }
+
+    @Test
+    fun `a send the engine has not written yet holds the window open, instead of being reported as never sent`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, ::echo, deferStamps = true) }
+        var sleeps = 0
+        // The writer thread gets its turn on the second poll of the settle window, and not before: at the
+        // moment the pacer returns, ten messages are with the engine and none has been stamped out.
+        val host = FakeHost(clock, lanes, onSleep = { if (++sleeps == 2) lanes.forEach { it.flush() } })
+
+        val r = LoadRunner(host, clock = clock).run(plan(shape = LoadShape.Burst(10), settleMs = 5_000)).report
+
+        assertEquals(10L, r.issue.handedToEngine)
+        assertEquals(10L, r.issue.leftSocket, "the window waited for the issue path to drain rather than closing on an empty pending set")
+        assertEquals(0L, r.tool.neverLeftSocket, "nothing was stranded, so the tool takes no blame")
+        assertTrue(!r.tool.limited, "a busy machine is not a limited run")
+        assertEquals(10L, r.replies.matched)
+        assertEquals(LoadReport.Completeness.COMPLETE, r.verdict.completeness)
+        assertEquals(0, r.verdict.exitCode)
+    }
+
+    @Test
+    fun `a send that truly never leaves is still tool-limited, at the cost of the whole window`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, ::echo, deferStamps = true) }
+        val host = FakeHost(clock, lanes) // nothing ever flushes: the engine took them and wrote none
+
+        val r = LoadRunner(host, clock = clock).run(plan(shape = LoadShape.Burst(10), settleMs = 3_000)).report
+
+        assertEquals(10L, r.issue.handedToEngine)
+        assertEquals(0L, r.issue.leftSocket)
+        assertEquals(10L, r.tool.neverLeftSocket)
+        assertTrue(r.tool.limited)
+        assertEquals(1, r.verdict.exitCode)
+        assertTrue(r.finishedAt!! - r.startedAt >= 3_000, "only the full window proves it never went: ${r.finishedAt!! - r.startedAt}ms")
     }
 
     @Test

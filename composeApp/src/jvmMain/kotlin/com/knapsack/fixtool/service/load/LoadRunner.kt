@@ -112,10 +112,22 @@ class LoadRunner(
             progress.handed = stats.handedToEngine
             progress.stats = stats
 
-            // Settle: the window closes early the moment nothing is pending, and it never ages a send out.
+            // Settle: the window closes early the moment nothing is outstanding, and it never ages a send out.
+            // Outstanding is two things, not one. A request stamped out of the socket and unanswered is
+            // pending; a message handed to the engine and not yet stamped has not left the socket at all, and
+            // is not pending because the matcher has never seen it. Closing on `pendingNow` alone therefore
+            // closes the window at the instant the pacer returns on any machine where the engine's writer
+            // thread has not been scheduled yet — the run then reports every one of its own messages as
+            // "handed to the engine, never left the socket" and blames itself for a send it never waited for.
+            // The tool's own verdict is the one number a load report exists to keep honest, so the window
+            // waits for the issue path to drain as well. A message that truly never leaves is still reported
+            // as such, having cost the settle window to establish it, which is the only way to know.
             val settleStart = host.now()
             var stoppedInSettle = false
-            while (matcher.snapshot().pendingNow > 0 && host.now() - settleStart < plan.settleMs) {
+            while (host.now() - settleStart < plan.settleMs) {
+                val counts = matcher.snapshot()
+                val undrained = stats.handedToEngine - counts.leftSocket
+                if (counts.pendingNow <= 0 && undrained <= 0) break
                 if (cancelled()) {
                     stoppedInSettle = true
                     break

@@ -180,8 +180,11 @@ object HeadlessLoad {
             } else {
                 null
             }
-        (override?.applyTo(profile.config) ?: profile.config).storeProblem()?.let {
-            err.appendLine("fixtool load: $it")
+        // One list, three surfaces: the dialog refused a template reading a name nothing seeds and this
+        // command did not, so a CLI run got the same refusal from LoadRunner after opening every lane.
+        val problems = LoadPlan.problems(template, options.seed, profile.name, profile.config, override, LoadPlan.Surface.CLI)
+        if (problems.isNotEmpty()) {
+            problems.forEach { err.appendLine("fixtool load: $it") }
             return HeadlessRun.EXIT_USAGE
         }
 

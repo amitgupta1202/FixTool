@@ -28,6 +28,7 @@ import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.ScenarioSort
+import com.knapsack.fixtool.model.LoadRunDefaults
 import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.TagRole
@@ -290,6 +291,14 @@ class FixMessageViewModel(
 
     /** Rail: how the list is ordered within each section. */
     fun setScenarioSort(sort: ScenarioSort) = mutateViewState { it.copy(sortMode = sort) }
+
+    /** What the load dialog was last asked for on this profile, or the defaults on a profile never used. */
+    fun loadRunDefaults(profileId: String?): LoadRunDefaults =
+        profileId?.let { _scenarioViewState.value.loadRuns[it] } ?: LoadRunDefaults()
+
+    /** Remembers this run's shape for the next time the dialog opens on the same profile. */
+    fun rememberLoadRunDefaults(profileId: String, defaults: LoadRunDefaults) =
+        mutateViewState { it.copy(loadRuns = it.loadRuns + (profileId to defaults)) }
 
     /** Rail: star or un-star a scenario. Weightless — it writes only scenario_view.json, never the scenario. */
     fun toggleScenarioFavourite(id: String) =

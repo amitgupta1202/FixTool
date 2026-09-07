@@ -1776,7 +1776,6 @@ class ControlServer(
                 }
                 else -> return Coded(HTTP_OK, errorObject("a load run needs a 'template' (saved message name), 'fields' or 'raw'"))
             }
-        if (template.msgType == null) return Coded(HTTP_OK, errorObject("the template has no MsgType (35)"))
         val count = body["count"]?.jsonPrimitive?.intOrNull
         val perSecond = body["rate"]?.jsonPrimitive?.intOrNull
         val forMs = body["forMs"]?.jsonPrimitive?.longOrNull
@@ -1792,10 +1791,14 @@ class ControlServer(
                 LoadMatch(req, m["replyTag"]?.jsonPrimitive?.intOrNull ?: req, m["replyType"]?.jsonPrimitive?.contentOrNull)
             } ?: template.inferMatch()?.copy(replyType = body["replyType"]?.jsonPrimitive?.contentOrNull)
                 ?: return Coded(HTTP_OK, errorObject("'${template.name}' carries no tag a reply is matched on — pass match:{requestTag, replyTag}"))
+        val seed = (body["seed"] as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content }
         val store = body["store"]?.jsonPrimitive?.contentOrNull?.let { k -> FixConnectionConfig.MessageStoreKind.entries.firstOrNull { it.name.equals(k, true) } }
         val log = body["log"]?.jsonPrimitive?.contentOrNull?.let { k -> FixConnectionConfig.MessageLogKind.entries.firstOrNull { it.name.equals(k, true) } }
         val override = if (store != null || log != null) StoreAndLogOverride(store ?: profile.config.messageStore, log ?: profile.config.messageLog) else null
-        (override?.applyTo(profile.config) ?: profile.config).storeProblem()?.let { return Coded(HTTP_OK, errorObject(it)) }
+        // The same list the dialog and `fixtool load` read, so a run refused in one is refused in all three.
+        LoadPlan.problems(template, seed, profile.name, profile.config, override, LoadPlan.Surface.API).firstOrNull()?.let {
+            return Coded(HTTP_OK, errorObject(it))
+        }
         val listen =
             (body["listen"] as? JsonArray).orEmpty().mapNotNull { e ->
                 val key = e.jsonPrimitive.content
@@ -1813,7 +1816,7 @@ class ControlServer(
                 shape = shape,
                 match = match,
                 settleMs = body["settleMs"]?.jsonPrimitive?.longOrNull ?: LoadPlan.DEFAULT_SETTLE_MS,
-                seed = (body["seed"] as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content },
+                seed = seed,
                 storeAndLog = override,
                 strictRate = body["strictRate"]?.jsonPrimitive?.booleanOrNull ?: false,
             )

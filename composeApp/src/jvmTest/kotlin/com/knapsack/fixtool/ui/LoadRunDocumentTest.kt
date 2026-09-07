@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -199,6 +200,17 @@ class LoadRunDocumentTest {
 
         composeTestRule.onNodeWithTag("load-chart-seconds").assertExists()
         composeTestRule.onNodeWithText("the pacer's own floor", substring = true).assertExists()
+    }
+
+    /** A rate run that ended before its schedule was judged is not a burst, whatever its rate report says. */
+    @Test
+    fun `a rate run with no rate report says why, instead of calling itself a burst`() {
+        val base = LoadFixtures.burstReport(unmatched = 0, status = LoadStatus.STOPPED)
+        val interrupted = base.copy(shape = LoadShape.Rate(500, 600_000), rate = null)
+
+        composeTestRule.setContent { LoadReportView(interrupted, emptyList(), File("loads/x"), onStop = {}, modifier = Modifier.fillMaxSize()) }
+
+        composeTestRule.onNodeWithTag("load-tool-rate").assertTextContains("never judged", substring = true)
     }
 
     @Test

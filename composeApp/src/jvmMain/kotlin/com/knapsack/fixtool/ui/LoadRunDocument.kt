@@ -634,8 +634,15 @@ private fun ToolPart(r: LoadReport) {
             StripItem("discarded by the panes", LoadReportCodec.fmt(r.tool.discarded), "load-tool-discarded")
             StripItem("accepted that never left the socket", LoadReportCodec.fmt(r.tool.neverLeftSocket), "load-tool-never-left")
             StripItem("refused", LoadReportCodec.fmt(r.tool.issueFailures), "load-tool-refused")
-            r.rate?.let { StripItem("rate", LoadReportCodec.rateSentence(it), "load-tool-rate") }
-                ?: StripItem("rate", "burst, so no schedule to lag", "load-tool-rate")
+            // Read off the shape, not off the absence of a rate report. A rate run that ended before its
+            // schedule was judged has no report either, and calling that one "burst" is a plain lie about
+            // what was asked for — which is exactly what a 500/s run interrupted mid-flight showed.
+            val rate = r.rate
+            when {
+                rate != null -> StripItem("rate", LoadReportCodec.rateSentence(rate), "load-tool-rate")
+                r.shape is LoadShape.Burst -> StripItem("rate", "burst, so no schedule to lag", "load-tool-rate")
+                else -> StripItem("rate", "the run did not finish, so its schedule was never judged", "load-tool-rate")
+            }
         }
     }
 }

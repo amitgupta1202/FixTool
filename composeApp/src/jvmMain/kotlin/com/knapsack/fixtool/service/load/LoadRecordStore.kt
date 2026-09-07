@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.load.LoadPhase
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
@@ -55,14 +56,17 @@ class LoadRecordStore(
         }
 
     /** Writes `load.json`. Called at start, on every progress tick, and once more at the end. */
+    fun write(report: LoadReport): Boolean = write(LoadRecord.of(report))
+
+    /** The same file, whether one phase or several. One shape on disk is the whole point — see [LoadRecord]. */
     @Suppress("TooGenericExceptionCaught")
-    fun write(report: LoadReport): Boolean =
+    fun write(record: LoadRecord): Boolean =
         try {
-            directoryFor(report.id).mkdirs()
-            File(directoryFor(report.id), REPORT_FILE).writeText(json.encodeToString(JsonObject.serializer(), LoadReportCodec.toJson(report)))
+            directoryFor(record.id).mkdirs()
+            File(directoryFor(record.id), REPORT_FILE).writeText(json.encodeToString(JsonObject.serializer(), LoadReportCodec.recordToJson(record)))
             true
         } catch (e: Exception) {
-            logger.error("Could not write load record '${report.id}': ${e.message}", e)
+            logger.error("Could not write load record '${record.id}': ${e.message}", e)
             false
         }
 
@@ -81,12 +85,21 @@ class LoadRecordStore(
             false
         }
 
+    /** The phase a single run is. Every surface but Compare wants this one. */
+    fun read(id: String): LoadReport? = readRecord(id)?.only
+
+    /**
+     * The whole record, phases and all, in whichever shape it was written. What Compare reads.
+     *
+     * A record that says RUNNING with nobody running it is healed on the way out, phase by phase, and
+     * written back once so every later reader finds the same answer.
+     */
     @Suppress("TooGenericExceptionCaught")
-    fun read(id: String): LoadReport? =
+    fun readRecord(id: String): LoadRecord? =
         try {
             val file = File(directoryFor(id), REPORT_FILE).takeIf { it.isFile } ?: return null
-            val report = LoadReportCodec.fromJson(Json.parseToJsonElement(file.readText()).jsonObject)
-            if (report.status == LoadStatus.RUNNING && !isLive(report.id)) healInterrupted(report, file.lastModified()) else report
+            val record = LoadReportCodec.recordFromJson(Json.parseToJsonElement(file.readText()).jsonObject)
+            if (record.status == LoadStatus.RUNNING && !isLive(record.id)) healInterrupted(record, file.lastModified()) else record
         } catch (e: Exception) {
             logger.error("Could not read load record '$id': ${e.message}", e)
             null
@@ -97,9 +110,12 @@ class LoadRecordStore(
         File(directoryFor(id), UNMATCHED_FILE).takeIf { it.isFile }?.readLines()?.filter { it.isNotBlank() }.orEmpty()
 
     /** Every record, newest first. */
-    fun list(): List<LoadReport> =
+    fun list(): List<LoadReport> = listRecords().map { it.only }
+
+    /** Every record whole, newest first. What Compare offers as the other run. */
+    fun listRecords(): List<LoadRecord> =
         (dir.listFiles { f -> f.isDirectory } ?: emptyArray())
-            .mapNotNull { read(it.name) }
+            .mapNotNull { readRecord(it.name) }
             .sortedByDescending { it.startedAt }
 
     /** Keeps the [keep] most recent runs and deletes the rest. Same setting as the run records. */
@@ -117,18 +133,24 @@ class LoadRecordStore(
      * A run that says RUNNING with nobody running it was interrupted. Stopped rather than failed, because
      * nothing is known about the venue, only that the process ended before it wrote its own verdict.
      */
-    private fun healInterrupted(report: LoadReport, lastWrite: Long): LoadReport {
+    private fun healInterrupted(record: LoadRecord, lastWrite: Long): LoadRecord {
         val healed =
-            report.copy(
-                status = LoadStatus.STOPPED,
-                phase = LoadPhase.DONE,
-                finishedAt = report.finishedAt ?: lastWrite.takeIf { it > 0 } ?: report.startedAt,
-                settleLeftMs = null,
-                verdict = LoadReport.verdict(LoadStatus.STOPPED, report.replies, report.rate, report.tool, strictRate = false),
+            record.copy(
+                finishedAt = record.finishedAt ?: lastWrite.takeIf { it > 0 } ?: record.startedAt,
+                phases = record.phases.map { if (it.status == LoadStatus.RUNNING) heal(it, lastWrite) else it },
             )
         write(healed)
         return healed
     }
+
+    private fun heal(report: LoadReport, lastWrite: Long): LoadReport =
+        report.copy(
+            status = LoadStatus.STOPPED,
+            phase = LoadPhase.DONE,
+            finishedAt = report.finishedAt ?: lastWrite.takeIf { it > 0 } ?: report.startedAt,
+            settleLeftMs = null,
+            verdict = LoadReport.verdict(LoadStatus.STOPPED, report.replies, report.rate, report.tool, strictRate = false),
+        )
 
     private fun sanitize(id: String): String = id.replace(Regex("[^A-Za-z0-9_.-]"), "_")
 

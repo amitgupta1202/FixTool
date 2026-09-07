@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service.load
 
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.RoundTripHistogram
@@ -7,6 +8,7 @@ import com.knapsack.fixtool.service.load.LoadFixtures.burstReport
 import com.knapsack.fixtool.service.load.LoadFixtures.shortfall
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -48,6 +50,49 @@ class LoadReportTest {
         val back = LoadReportCodec.fromJson(LoadReportCodec.toJson(report))
 
         assertEquals(report, back)
+    }
+
+    /**
+     * **One shape on disk.** A run is a set with one phase, so there is one reader, one schema and one
+     * Compare — and a load set later is not a second of each.
+     */
+    @Test
+    fun `a run is a one-phase record, and the record round-trips`() {
+        val record = LoadRecord.of(burstReport(rate = shortfall, strictRate = true))
+
+        val back = LoadReportCodec.recordFromJson(LoadReportCodec.recordToJson(record))
+
+        assertEquals(record, back)
+        assertEquals(record.only, back.only)
+        assertEquals(1, LoadReportCodec.recordToJson(record)["phases"]!!.jsonArray.size)
+    }
+
+    /** Every record already in ~/.fixtool/loads is a bare report, and none of them needs rewriting. */
+    @Test
+    fun `a record written before phases existed reads as the one phase it describes`() {
+        val report = burstReport(unmatched = 4)
+
+        val old = LoadReportCodec.toJson(report)
+        val back = LoadReportCodec.recordFromJson(old)
+
+        assertNull(old["phases"], "the fixture is the old shape, or this test proves nothing")
+        assertEquals(listOf(report), back.phases)
+        assertEquals(report.id, back.id)
+        assertEquals(report.startedAt, back.startedAt)
+        assertEquals(LoadStatus.DONE, back.status)
+        assertEquals(1, back.exitCode)
+    }
+
+    @Test
+    fun `a set is still running while any phase is, and stopped if any phase was`() {
+        val done = burstReport(unmatched = 0)
+        val running = burstReport(unmatched = 590, status = LoadStatus.RUNNING)
+        val stopped = burstReport(unmatched = 590, status = LoadStatus.STOPPED)
+
+        assertEquals(LoadStatus.RUNNING, LoadRecord(done.id, done.label, 0, null, listOf(done, running)).status)
+        assertEquals(LoadStatus.STOPPED, LoadRecord(done.id, done.label, 0, null, listOf(done, stopped)).status)
+        assertEquals(LoadStatus.DONE, LoadRecord(done.id, done.label, 0, null, listOf(done, done)).status)
+        assertNull(LoadRecord(done.id, done.label, 0, null, listOf(done, running)).exitCode, "no verdict while one is going")
     }
 
     @Test

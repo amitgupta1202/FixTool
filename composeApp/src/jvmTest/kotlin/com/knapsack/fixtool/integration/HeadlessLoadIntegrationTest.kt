@@ -2,6 +2,7 @@ package com.knapsack.fixtool.integration
 
 import com.knapsack.fixtool.headless.HeadlessRun
 import com.knapsack.fixtool.service.load.LoadRecordStore
+import com.knapsack.fixtool.service.load.LoadReportCodec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -75,11 +76,20 @@ class HeadlessLoadIntegrationTest {
         return Triple(code, out.toString(), err.toString())
     }
 
+    /**
+     * The record's one phase, and the assertion that it *is* one phase.
+     *
+     * `load.json` is a set with one phase, so that a load set is the same file, the same reader and the
+     * same Compare rather than a second of each — see [com.knapsack.fixtool.model.load.LoadRecord].
+     */
     private fun onlyRecord(): Pair<String, kotlinx.serialization.json.JsonObject> {
         val dirs = File(home, "loads").listFiles { f -> f.isDirectory }.orEmpty()
         assertEquals(1, dirs.size, "one record for one run: ${dirs.map { it.name }}")
         val json = Json.parseToJsonElement(File(dirs.single(), LoadRecordStore.REPORT_FILE).readText()).jsonObject
-        return dirs.single().name to json
+        assertEquals(LoadReportCodec.SCHEMA, json["schema"]!!.jsonPrimitive.int)
+        val phases = json["phases"]!!.jsonArray
+        assertEquals(1, phases.size, "a run is a set with one phase")
+        return dirs.single().name to phases.single().jsonObject
     }
 
     @Test

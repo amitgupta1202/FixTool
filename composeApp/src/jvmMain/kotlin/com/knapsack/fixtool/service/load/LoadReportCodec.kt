@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service.load
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPhase
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
@@ -35,6 +36,43 @@ import kotlinx.serialization.json.put
  */
 @Suppress("TooManyFunctions")
 object LoadReportCodec {
+    /**
+     * **The record on disk: a set with one phase.**
+     *
+     * The [SCHEMA] number is here so a reader can tell "written before phases existed" from "written by
+     * something newer than me", which a missing key alone cannot say.
+     */
+    fun recordToJson(record: LoadRecord): JsonObject =
+        buildJsonObject {
+            put("schema", SCHEMA)
+            put("id", record.id)
+            put("label", record.label)
+            put("startedAt", record.startedAt)
+            put("finishedAt", record.finishedAt?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("status", record.status.name)
+            put("exitCode", record.exitCode?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("phases", buildJsonArray { record.phases.forEach { add(toJson(it)) } })
+        }
+
+    /**
+     * A record, whichever shape it was written in.
+     *
+     * A file with no `phases` array is a report from before this schema, and is read as the one phase it
+     * describes. Every record already in `~/.fixtool/loads` is one of those, and none of them needs
+     * rewriting to stay readable.
+     */
+    fun recordFromJson(o: JsonObject): LoadRecord {
+        val phases = (o["phases"] as? JsonArray)?.map { fromJson(it.jsonObject) }
+        if (phases.isNullOrEmpty()) return LoadRecord.of(fromJson(o))
+        return LoadRecord(
+            id = o.strOrNull("id") ?: phases.first().id,
+            label = o.strOrNull("label") ?: phases.first().label,
+            startedAt = o.longOrNull("startedAt") ?: phases.first().startedAt,
+            finishedAt = o.longOrNull("finishedAt"),
+            phases = phases,
+        )
+    }
+
     fun toJson(r: LoadReport): JsonObject =
         buildJsonObject {
             put("id", r.id)
@@ -456,6 +494,9 @@ object LoadReportCodec {
     private const val MICROS_PER_MILLI = 1_000L
     private const val TEN_MILLIS_IN_MICROS = 10_000L
     private const val MICROS_PER_SECOND = 1_000_000L
+
+    /** The record schema. 1 was the bare report, which had no number and is recognised by its absence. */
+    const val SCHEMA = 2
 
     private const val XML_DECLARATION = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     private const val UNMATCHED_NAMED = 20

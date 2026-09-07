@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.humanDuration
 import com.knapsack.fixtool.service.RunSetStats
@@ -122,6 +123,7 @@ fun LoadReportView(
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 Leads(report, narrow)
                 QuietStrip(report)
+                Throughput(report, narrow)
                 RoundTrip(report, narrow)
                 if (report.unmatched.isNotEmpty()) UnmatchedTable(report, unmatchedWire, narrow, onReveal)
                 ToolPart(report)
@@ -375,6 +377,32 @@ private fun StripItem(label: String, value: String, tag: String, first: Boolean 
 // Sections
 // ---------------------------------------------------------------------------------------------------
 
+/**
+ * The per-second panel, when there was a per-second story to tell.
+ *
+ * Gated on [LoadReport.Issue.spanMs] rather than on the shape: a 4,000 burst leaves in 813ms and would
+ * draw three bars that say nothing, while a ×300,000 burst issues for a minute and has as much to say as
+ * a rate run does. At 460px the chart keeps its own horizontal scroll, so its columns stay a pixel each
+ * and the pane never scrolls sideways.
+ */
+@Composable
+private fun Throughput(r: LoadReport, narrow: Boolean) {
+    if (!LoadCharts.hasPerSecond(r)) return
+    val note =
+        (r.shape as? LoadShape.Rate)
+            ?.let { "red is any second under the pacer's own floor, ${it.perSecond}/s less Pacer.TOLERANCE" }
+            ?: "a burst has no schedule, so no second is behind one"
+    Section("Throughput and latency, second by second", note) {
+        if (narrow) {
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                PerSecondPanel(r, Modifier.width(WIDE_CHART))
+            }
+        } else {
+            PerSecondPanel(r)
+        }
+    }
+}
+
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun Section(title: String, note: String, content: @Composable () -> Unit) {
@@ -435,6 +463,7 @@ private fun RoundTrip(r: LoadReport, narrow: Boolean) {
             stats.chunked(if (narrow) NARROW_STATS else stats.size).forEach { row ->
                 Row(modifier = Modifier.fillMaxWidth()) { row.forEach { (k, v) -> Stat(k, v) } }
             }
+            OutstandingCurve(r)
         }
     }
 }
@@ -786,6 +815,7 @@ private val COPY_KEYS: String =
 private val NARROW = 460.dp
 private val NARROW_FIGURE = 20.sp
 private val MIN_SEGMENT = 4.dp
+private val WIDE_CHART = 720.dp
 private val ID_COL = 168.dp
 private val LANE_COL = 44.dp
 private val SENT_COL = 100.dp

@@ -171,6 +171,36 @@ class LoadRunDocumentTest {
         composeTestRule.onNodeWithTag("load-copy-json").assertDoesNotExist()
     }
 
+    /**
+     * Which chart you get follows the issue span, not the shape. A 4,000 burst leaves in 813ms and would
+     * draw three bars that say nothing; the curve is drawn for every run, in the stat card's own slot.
+     */
+    @Test
+    fun `a short burst gets the outstanding curve and no per-second panel`() {
+        val report = LoadFixtures.burstReport(unmatched = 4)
+
+        composeTestRule.setContent { LoadReportView(report, emptyList(), File("loads/x"), onStop = {}, modifier = Modifier.fillMaxSize()) }
+
+        composeTestRule.onNodeWithTag("load-chart-outstanding").assertExists()
+        composeTestRule.onNodeWithTag("load-chart-seconds").assertDoesNotExist()
+    }
+
+    /** A run that issued for minutes has a per-second story, whether it was a rate or a very long burst. */
+    @Test
+    fun `a run that issued for minutes gets the per-second panel, with the pacer's floor named`() {
+        val base = LoadFixtures.burstReport(unmatched = 0, rate = LoadFixtures.shortfall)
+        val long =
+            base.copy(
+                issue = base.issue.copy(lastSendAt = base.issue.firstSendAt!! + 600_000),
+                perSecond = (0 until 600).map { LoadReport.Second(it, 500, if (it == 42) 318 else 498, 4_000) },
+            )
+
+        composeTestRule.setContent { LoadReportView(long, emptyList(), File("loads/x"), onStop = {}, modifier = Modifier.fillMaxSize()) }
+
+        composeTestRule.onNodeWithTag("load-chart-seconds").assertExists()
+        composeTestRule.onNodeWithText("the pacer's own floor", substring = true).assertExists()
+    }
+
     @Test
     fun `a stored report that claims to be running reads as stopped, because nothing is running it`() {
         val abandoned = LoadFixtures.burstReport(unmatched = 590, status = LoadStatus.RUNNING).copy(finishedAt = null)

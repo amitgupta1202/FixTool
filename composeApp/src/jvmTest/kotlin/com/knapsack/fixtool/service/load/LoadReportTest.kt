@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.service.load.LoadFixtures.burstReport
 import com.knapsack.fixtool.service.load.LoadFixtures.shortfall
 import kotlinx.serialization.json.Json
@@ -54,7 +55,9 @@ class LoadReportTest {
         val json = LoadReportCodec.toJson(burstReport())
         val stripped =
             JsonObject(
-                json.filterKeys { it !in setOf("perSecond", "strictRate", "settleLeftMs", "unmatchedTotal") } +
+                json.filterKeys {
+                    it !in setOf("perSecond", "strictRate", "settleLeftMs", "unmatchedTotal", "roundTripHistogram", "perLane")
+                } +
                     ("replies" to JsonObject(json["replies"]!!.jsonObject.filterKeys { it != "strays" })) +
                     ("tool" to JsonObject(json["tool"]!!.jsonObject.filterKeys { it != "pendingPeak" })),
             )
@@ -62,6 +65,8 @@ class LoadReportTest {
         val back = LoadReportCodec.fromJson(Json.parseToJsonElement(stripped.toString()).jsonObject)
 
         assertEquals(emptyList(), back.perSecond)
+        assertEquals(RoundTripHistogram.empty(), back.roundTripHistogram, "a record from before the histogram reads as no samples")
+        assertEquals(emptyList(), back.perLane)
         assertEquals(0, back.replies.strays)
         assertEquals(0, back.tool.pendingPeak)
         assertEquals(false, back.strictRate)

@@ -38,7 +38,23 @@ data class LoadReport(
     val replies: Replies,
     val timing: Timing?,
     val roundTrip: RunSetStats.Distribution?,
+    /**
+     * The matched round trips as [RoundTripHistogram]: thirty counts, log-spaced, whatever the run's size.
+     *
+     * [roundTrip] is seven numbers and cannot be drawn — no sample used to reach this object at all, so
+     * neither a bucket histogram nor a share-still-outstanding curve could be recovered from a record.
+     * Thirty integers can be, they bound the memory, and because they are incremented as replies land they
+     * are correct while the run is still going. Nothing judges on them.
+     */
+    val roundTripHistogram: List<Int> = RoundTripHistogram.empty(),
     val perSecond: List<Second>,
+    /**
+     * Completeness per lane: matched, unanswered, duplicates. Empty for a run recorded before it existed.
+     *
+     * Completeness and not latency, on purpose: one pacer loop renders and sends every lane round-robin,
+     * so per-lane latency would partly measure FixTool's own ordering. See [LoadRunner]'s render-ahead work.
+     */
+    val perLane: List<LaneCounts> = emptyList(),
     val tool: Tool,
     /** The first [UNMATCHED_IN_JSON] unanswered requests. The whole set is in `unmatched.fix`. */
     val unmatched: List<UnmatchedRequest>,
@@ -108,6 +124,14 @@ data class LoadReport(
     data class Timing(
         val elapsedMs: Long,
         val drainMs: Long,
+    )
+
+    /** What one lane matched, what it never got an answer to, and what came back twice. */
+    data class LaneCounts(
+        val slot: Int,
+        val matched: Long,
+        val unanswered: Long,
+        val duplicates: Long,
     )
 
     /** One second of the run, counted from the first send. */

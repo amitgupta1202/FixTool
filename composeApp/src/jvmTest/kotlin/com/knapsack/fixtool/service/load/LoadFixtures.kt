@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.RunSetStats
 
@@ -44,6 +45,17 @@ object LoadFixtures {
             replies = replies,
             timing = LoadReport.Timing(elapsedMs = 2_701, drainMs = 1_888),
             roundTrip = RunSetStats.Distribution(p50 = 14_020, p95 = 212_300, max = 1_880_400, samples = 3_996, min = 912, p99 = 640_100, mean = 41_200),
+            roundTripHistogram =
+                RoundTripHistogram.empty().toMutableList().also {
+                    it[RoundTripHistogram.indexOf(14_020)] = 2_100
+                    it[RoundTripHistogram.indexOf(212_300)] = 1_700
+                    it[RoundTripHistogram.indexOf(1_880_400)] = 196
+                },
+            perLane =
+                listOf(
+                    LoadReport.LaneCounts(1, matched = 2_000, unanswered = 1, duplicates = 6),
+                    LoadReport.LaneCounts(2, matched = 1_996, unanswered = 3, duplicates = 6),
+                ),
             perSecond = listOf(LoadReport.Second(0, 4_000, 2_210, 188_000), LoadReport.Second(1, 0, 1_740, 402_000), LoadReport.Second(2, 0, 46, null)),
             tool = tool,
             unmatched =

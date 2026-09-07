@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.RunSetStats
 import quickfix.SessionID
@@ -219,7 +220,9 @@ class LoadRunner(
                     discarded = discarded,
                     neverLeftSocket = issue.neverLeftSocket,
                     issueFailures = issued?.issueFailures ?: 0,
-                    pendingPeak = result?.pendingPeak ?: 0,
+                    // Live too. The document leads on "outstanding · peak N" while a run is going, and this
+                    // read 0 for the whole of it because only the final report ever carried a Result.
+                    pendingPeak = result?.pendingPeak ?: matcher?.pendingPeakSoFar() ?: 0,
                 )
             val sorted = result?.roundTripsSorted ?: matcher?.roundTripsSoFar()
             val timing =
@@ -254,7 +257,18 @@ class LoadRunner(
                 replies = replies,
                 timing = timing,
                 roundTrip = sorted?.let { RunSetStats.of(it) },
-                perSecond = result?.perSecond?.map { LoadReport.Second(it.second, it.issued, it.matched, it.p95Micros) } ?: emptyList(),
+                // Live as well as final, which is the point of the matcher keeping these incrementally:
+                // `perSecond` used to be emptyList() for the whole run, because `result` is non-null only
+                // in the final report, so the live document had no data source at all.
+                roundTripHistogram = result?.histogram ?: matcher?.histogramSoFar() ?: RoundTripHistogram.empty(),
+                perLane =
+                    (result?.perLane ?: matcher?.perLaneSoFar()).orEmpty().map {
+                        LoadReport.LaneCounts(it.slot, it.matched, it.unanswered, it.duplicates)
+                    },
+                perSecond =
+                    (result?.perSecond ?: matcher?.bucketsSoFar())
+                        .orEmpty()
+                        .map { LoadReport.Second(it.second, it.issued, it.matched, it.p95Micros) },
                 tool = tool,
                 unmatched =
                     result?.unmatched.orEmpty().take(LoadReport.UNMATCHED_IN_JSON).map {

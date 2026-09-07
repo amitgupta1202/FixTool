@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.WireDirection
 import com.knapsack.fixtool.model.load.LoadMatch
+import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.service.RunSetStats
 import com.knapsack.fixtool.service.SocketStamp
 import org.junit.Test
@@ -51,6 +52,71 @@ class StampMatcherTest {
         assertEquals(emptyList(), result.unmatched)
         assertEquals(14_000L, result.roundTripsSorted.single())
         assertEquals(1, result.specimens.single().let { if (it.request.contains("35=D") && it.reply.contains("35=8")) 1 else 0 })
+    }
+
+    /**
+     * **The measurements the charts need, correct during the run and not only after it.**
+     *
+     * `perSecond` used to be rebuilt in `buckets()` and reached the report only through a `Result`, which
+     * exists once, at the end — so the live document had nothing to draw for the whole of a ten-minute run.
+     */
+    @Test
+    fun `the per-second story is readable while the run is still going`() {
+        val m = matcher()
+
+        m.onStamp(send(laneA, "ORD-1", at = 1_000_000))
+        m.onStamp(receive(laneA, "ORD-1", at = 1_004_000))
+        m.onStamp(send(laneA, "ORD-2", at = 2_500_000))
+        m.onStamp(receive(laneA, "ORD-2", at = 2_600_000))
+
+        val live = m.bucketsSoFar()
+        assertEquals(2, live.size, "two seconds have happened, and both are readable now")
+        assertEquals(1, live[0].issued)
+        assertEquals(1, live[0].matched)
+        assertEquals(4_000L, live[0].p95Micros)
+        assertEquals(100_000L, live[1].p95Micros)
+        assertEquals(live, m.finish().perSecond, "and the final report says exactly what the live read said")
+    }
+
+    /** Thirty counts, whatever the run's size, and correct as replies land rather than at the end. */
+    @Test
+    fun `the round-trip histogram counts every match into its own log bucket`() {
+        val m = matcher()
+
+        // 4ms, 40ms, 400ms: one decade apart, so five buckets apart.
+        listOf(4_000L, 40_000L, 400_000L).forEachIndexed { i, rtt ->
+            m.onStamp(send(laneA, "ORD-$i", at = 1_000_000L + i))
+            m.onStamp(receive(laneA, "ORD-$i", at = 1_000_000L + i + rtt))
+        }
+
+        val live = m.histogramSoFar()
+        assertEquals(RoundTripHistogram.BUCKETS, live.size)
+        assertEquals(3, live.sum(), "every match is in exactly one bucket")
+        val at = listOf(4_000L, 40_000L, 400_000L).map { RoundTripHistogram.indexOf(it) }
+        assertEquals(listOf(RoundTripHistogram.PER_DECADE, RoundTripHistogram.PER_DECADE), at.zipWithNext { a, b -> b - a })
+        at.forEach { assertEquals(1, live[it]) }
+        assertEquals(live, m.finish().histogram)
+    }
+
+    /**
+     * **Per-lane completeness, which is sound.** Per-lane *latency* is not, until each lane renders ahead
+     * of its own sends: one pacer loop drives every lane round-robin, so lane N is issued systematically
+     * later than lane 1 and would look worse forever. Completeness is unaffected by the ordering.
+     */
+    @Test
+    fun `completeness is counted per lane, duplicates included`() {
+        val m = matcher()
+
+        m.onStamp(send(laneA, "ORD-1", at = 1_000))
+        m.onStamp(receive(laneA, "ORD-1", at = 2_000))
+        m.onStamp(receive(laneA, "ORD-1", at = 3_000))
+        m.onStamp(send(laneB, "ORD-2", at = 1_000))
+        m.onStamp(receive(laneB, "ORD-2", at = 2_000))
+        m.onStamp(send(laneB, "ORD-3", at = 1_000))
+
+        val lanes = m.finish().perLane.associateBy { it.slot }
+        assertEquals(StampMatcher.LaneCounts(1, matched = 1, unanswered = 0, duplicates = 1), lanes.getValue(1))
+        assertEquals(StampMatcher.LaneCounts(2, matched = 1, unanswered = 1, duplicates = 0), lanes.getValue(2))
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.WireDirection
 import com.knapsack.fixtool.model.load.LoadMatch
+import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.service.SocketStamp
 import com.knapsack.fixtool.service.WireTags
 import quickfix.SessionID
@@ -79,19 +80,65 @@ class StampMatcher(
         val lastMatchedMicros: Long?,
     )
 
+    /** Matched, unanswered and duplicate replies for one lane. Completeness only — see [LoadRunner]. */
+    data class LaneCounts(
+        val slot: Int,
+        val matched: Long,
+        val unanswered: Long,
+        val duplicates: Long,
+    )
+
     /** Everything the matcher has to say once the run is over. */
     data class Result(
         val counts: Counts,
         /** Every matched round trip in microseconds, sorted ascending. */
         val roundTripsSorted: LongArray,
         val perSecond: List<SecondBucket>,
+        /** [RoundTripHistogram.BUCKETS] counts, log-spaced. What the charts are drawn from. */
+        val histogram: List<Int>,
+        val perLane: List<LaneCounts>,
         val unmatched: List<Unmatched>,
         val specimens: List<Specimen>,
         val pendingPeak: Int,
     )
 
+    /**
+     * One second of the run, accumulated as stamps arrive rather than rebuilt at the end.
+     *
+     * [buckets] used to walk every sample and every send to reconstruct these, which meant the live
+     * document had nothing to draw until the run was over: `perSecond` was `emptyList()` for its whole
+     * length, because the final report was the only place a `Result` existed. The p95 stays exact — the
+     * second's own round trips, sorted, nearest rank — and [p95] caches it so a progress tick that
+     * touches six hundred seconds re-sorts only the one that moved.
+     */
+    private class SecondAccumulator {
+        var issued = 0
+        var matched = 0
+        val rtts = LongList()
+        private var p95 = -1L
+
+        fun p95Micros(): Long? {
+            if (rtts.size == 0) return null
+            if (p95 < 0) p95 = nearestRank(rtts.toArray().also { it.sort() }, P95)
+            return p95
+        }
+
+        fun add(rtt: Long) {
+            rtts.add(rtt)
+            p95 = -1L
+        }
+    }
+
     private val pending = ConcurrentHashMap<String, Pending>()
-    private val matchedIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Id to the lane that issued it, kept for the run.
+     *
+     * A set until per-lane counts wanted it: a duplicate arrives after its request has left [pending], so
+     * the lane is only knowable if the match remembered it. The value is a small `Int`, and every lane
+     * slot a run has is inside `Integer`'s own cache, so the map holds the same boxes it started with.
+     */
+    private val matchedIds = ConcurrentHashMap<String, Int>()
     private val outstanding = AtomicInteger()
     private val leftSocket = AtomicLong()
     private val matched = AtomicLong()
@@ -113,8 +160,10 @@ class StampMatcher(
 
     // Guarded by `samples`: matches arrive on several I/O threads, one per MINA processor.
     private val samples = LongList()
-    private val sampleSeconds = IntList()
-    private val issuedSeconds = IntList()
+    private val seconds = ArrayList<SecondAccumulator>()
+    private val histogram = IntArray(RoundTripHistogram.BUCKETS)
+    private val laneMatched = HashMap<Int, Long>()
+    private val laneDuplicates = HashMap<Int, Long>()
     private val specimens = ArrayList<Specimen>()
 
     /** Any thread, any session, every stamp. Does nothing with a message that is not the run's business. */
@@ -137,7 +186,7 @@ class StampMatcher(
         synchronized(samples) {
             if (firstSendMicros == NONE) firstSendMicros = stamp.micros
             if (stamp.micros > lastSendMicros) lastSendMicros = stamp.micros
-            issuedSeconds.add(secondOf(stamp.micros))
+            secondAt(secondOf(stamp.micros)).issued++
         }
     }
 
@@ -149,7 +198,7 @@ class StampMatcher(
         when {
             request != null -> {
                 outstanding.decrementAndGet()
-                matchedIds += id
+                matchedIds[id] = request.laneSlot
                 if (settleClosed) {
                     late.incrementAndGet()
                 } else {
@@ -157,7 +206,11 @@ class StampMatcher(
                     record(request, stamp)
                 }
             }
-            id in matchedIds -> duplicates.incrementAndGet()
+            matchedIds.containsKey(id) -> {
+                duplicates.incrementAndGet()
+                val lane = matchedIds[id]
+                if (lane != null) synchronized(samples) { laneDuplicates.merge(lane, 1L, Long::plus) }
+            }
             else -> strays.incrementAndGet()
         }
     }
@@ -166,10 +219,21 @@ class StampMatcher(
         val rtt = (reply.micros - request.sentMicros).coerceAtLeast(0)
         synchronized(samples) {
             samples.add(rtt)
-            sampleSeconds.add(secondOf(reply.micros))
+            histogram[RoundTripHistogram.indexOf(rtt)]++
+            laneMatched.merge(request.laneSlot, 1L, Long::plus)
+            secondAt(secondOf(reply.micros)).let {
+                it.matched++
+                it.add(rtt)
+            }
             if (reply.micros > lastMatchedMicros) lastMatchedMicros = reply.micros
             if (specimens.size < specimenLimit) specimens += Specimen(request.wire, reply.wire, rtt)
         }
+    }
+
+    /** The accumulator for one second, growing the list to reach it. Callers hold the `samples` lock. */
+    private fun secondAt(second: Int): SecondAccumulator {
+        while (seconds.size <= second) seconds.add(SecondAccumulator())
+        return seconds[second]
     }
 
     private fun secondOf(micros: Long): Int {
@@ -212,6 +276,18 @@ class StampMatcher(
     /** The round trips so far, sorted, for a progress line's distribution. A copy: the run keeps writing. */
     fun roundTripsSoFar(): LongArray = synchronized(samples) { samples.toArray().also { it.sort() } }
 
+    /** The per-second story so far, so the live document has one. Beside [roundTripsSoFar], by design. */
+    fun bucketsSoFar(): List<SecondBucket> = synchronized(samples) { buckets() }
+
+    /** The round-trip histogram so far. Thirty counts, whatever the run's size. */
+    fun histogramSoFar(): List<Int> = synchronized(samples) { histogram.toList() }
+
+    /** The most requests outstanding at once so far. Counted all along; it just never reached a live report. */
+    fun pendingPeakSoFar(): Int = pendingPeak
+
+    /** Per-lane completeness so far. Unanswered is only known once the settle window has closed. */
+    fun perLaneSoFar(): List<LaneCounts> = synchronized(samples) { perLane(unmatchedAtClose.orEmpty()) }
+
     /** Everything, once. Closes the settle window if nobody has. */
     fun finish(): Result {
         val unmatched = closeSettle()
@@ -221,6 +297,8 @@ class StampMatcher(
                 counts = snapshot(),
                 roundTripsSorted = sorted,
                 perSecond = buckets(),
+                histogram = histogram.toList(),
+                perLane = perLane(unmatched),
                 unmatched = unmatched,
                 specimens = specimens.toList(),
                 pendingPeak = pendingPeak,
@@ -229,30 +307,29 @@ class StampMatcher(
     }
 
     /** Per-second issued and matched counts, and the p95 of the round trips that landed in each second. */
-    private fun buckets(): List<SecondBucket> {
-        val issued = issuedSeconds.toArray()
-        val matchedAt = sampleSeconds.toArray()
-        val rtts = samples.toArray()
-        val last = maxOf(issued.maxOrNull() ?: -1, matchedAt.maxOrNull() ?: -1)
-        if (last < 0) return emptyList()
-        val issuedPer = IntArray(last + 1)
-        for (s in issued) issuedPer[s]++
-        val matchedPer = IntArray(last + 1)
-        val perSecondRtts = Array(last + 1) { LongList() }
-        for (i in matchedAt.indices) {
-            matchedPer[matchedAt[i]]++
-            perSecondRtts[matchedAt[i]].add(rtts[i])
-        }
-        return (0..last).map { s ->
-            val bucket = perSecondRtts[s].toArray().also { it.sort() }
-            SecondBucket(s, issuedPer[s], matchedPer[s], bucket.takeIf { it.isNotEmpty() }?.let { nearestRank(it, P95) })
+    private fun buckets(): List<SecondBucket> = seconds.mapIndexed { s, a -> SecondBucket(s, a.issued, a.matched, a.p95Micros()) }
+
+    /**
+     * Completeness per lane: what it matched, what went unanswered, what came back twice.
+     *
+     * Completeness only, and deliberately. Per-lane *latency* would partly measure FixTool: one pacer loop
+     * renders and sends every lane round-robin, so lane N leaves systematically later than lane 1 by about
+     * (N−1) times the per-message cost. Small against a 3ms p50, systematic per lane, and therefore the
+     * exact shape of a false finding. Completeness is unaffected by the ordering.
+     */
+    private fun perLane(unmatched: List<Unmatched>): List<LaneCounts> {
+        val unansweredPer = unmatched.groupingBy { it.laneSlot }.eachCount()
+        val slots = (laneMatched.keys + laneDuplicates.keys + unansweredPer.keys).sorted()
+        return slots.map { slot ->
+            LaneCounts(slot, laneMatched[slot] ?: 0, (unansweredPer[slot] ?: 0).toLong(), laneDuplicates[slot] ?: 0)
         }
     }
 
     /** A growable primitive long array, so three hundred thousand round trips are not three hundred thousand boxes. */
     private class LongList {
         private var data = LongArray(INITIAL)
-        private var size = 0
+        var size = 0
+            private set
 
         fun add(v: Long) {
             if (size == data.size) data = data.copyOf(size * 2)
@@ -260,18 +337,6 @@ class StampMatcher(
         }
 
         fun toArray(): LongArray = data.copyOf(size)
-    }
-
-    private class IntList {
-        private var data = IntArray(INITIAL)
-        private var size = 0
-
-        fun add(v: Int) {
-            if (size == data.size) data = data.copyOf(size * 2)
-            data[size++] = v
-        }
-
-        fun toArray(): IntArray = data.copyOf(size)
     }
 
     companion object {

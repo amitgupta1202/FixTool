@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.model.load.humanDuration
 import com.knapsack.fixtool.service.RunSetStats
@@ -101,6 +102,24 @@ object LoadReportCodec {
             put(
                 "roundTrip",
                 r.roundTrip?.let { RunSetStats.toJson(RunSetStats.Stats(replyLatency = it, wallClock = null))["replyLatency"] } ?: JsonNull,
+            )
+            // Thirty counts on one line: the shape of the distribution, at a size that does not grow with
+            // the run. Written unconditionally, so a reader never has to tell "no samples" from "old record".
+            put("roundTripHistogram", buildJsonArray { r.roundTripHistogram.forEach { add(JsonPrimitive(it)) } })
+            put(
+                "perLane",
+                buildJsonArray {
+                    r.perLane.forEach { l ->
+                        add(
+                            buildJsonObject {
+                                put("lane", l.slot)
+                                put("matched", l.matched)
+                                put("unanswered", l.unanswered)
+                                put("duplicates", l.duplicates)
+                            },
+                        )
+                    }
+                },
             )
             put(
                 "perSecond",
@@ -248,6 +267,23 @@ object LoadReportCodec {
             roundTrip =
                 (o["roundTrip"] as? JsonObject)?.let { d ->
                     RunSetStats.fromJson(buildJsonObject { put("replyLatency", d) })?.replyLatency
+                },
+            // A record written before the histogram existed reads back as an empty one, which is the same
+            // thing a run with no matched reply says, and is what the charts already have to handle.
+            roundTripHistogram =
+                (o["roundTripHistogram"] as? JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.intOrNull }
+                    ?.takeIf { it.size == RoundTripHistogram.BUCKETS }
+                    ?: RoundTripHistogram.empty(),
+            perLane =
+                (o["perLane"] as? JsonArray).orEmpty().map { e ->
+                    val l = e.jsonObject
+                    LoadReport.LaneCounts(
+                        slot = l.intOrNull("lane") ?: 0,
+                        matched = l.longOrNull("matched") ?: 0,
+                        unanswered = l.longOrNull("unanswered") ?: 0,
+                        duplicates = l.longOrNull("duplicates") ?: 0,
+                    )
                 },
             perSecond =
                 (o["perSecond"] as? JsonArray).orEmpty().map { e ->

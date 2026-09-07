@@ -21,6 +21,7 @@ import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * **The rail's door to a load run, and Recent's row for one.** The menu item sits under fan-out with the
@@ -36,7 +37,11 @@ class LoadRunRailTest {
 
     @Before
     fun setup() {
-        testDir = File.createTempFile("fixtool-load-rail", "").apply { delete(); mkdirs() }
+        testDir =
+            File.createTempFile("fixtool-load-rail", "").apply {
+                delete()
+                mkdirs()
+            }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
@@ -52,7 +57,11 @@ class LoadRunRailTest {
         composeTestRule.onNodeWithTag("rail-run-menu").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("rail-run-load").assertIsDisplayed().assertIsNotEnabled().assertTextContains("Load run…  (0)")
+        composeTestRule
+            .onNodeWithTag("rail-run-load")
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
+            .assertTextContains("Load run…  (0)")
     }
 
     /**
@@ -60,6 +69,8 @@ class LoadRunRailTest {
      * active run set alone, so a five-lane profile that logged on after the rail was first composed left
      * Fan out and Load run reading (0) and disabled until a run set happened to start. Found by driving the
      * rail with the RFQ example's load client connected. The rail is composed first here, on purpose.
+     *
+     * And it now says what it counts. "(1)" was a count of *profiles* and read as one lane.
      */
     @Test
     fun `the lane count follows a profile whose lanes log on after the rail was drawn`() {
@@ -103,15 +114,29 @@ class LoadRunRailTest {
                 .onNodeWithTag("rail-run-load")
                 .assertIsDisplayed()
                 .assertIsEnabled()
-                .assertTextContains("Load run…  (1)")
+                .assertTextContains("Load run…  2 lanes on 1 profile")
             composeTestRule
                 .onNodeWithTag("rail-run-fanout")
                 .assertIsEnabled()
-                .assertTextContains("Fan out over sessions…  (1)")
+                .assertTextContains("Fan out over sessions…  2 lanes on 1 profile")
         } finally {
             viewModel.disconnectAllSessions()
             server.stop()
         }
+    }
+
+    /**
+     * **Verdict first, kind second, for both row types.** A load row used to lead with ⚡, which says kind,
+     * and a set row with ✓, which says verdict, so the first column meant two different things. And a
+     * passing load run got no mark at all, because the ✗ was appended only on a non-zero exit.
+     */
+    @Test
+    fun `a Recent row leads with its verdict and says its kind second, and a pass is marked`() {
+        val passed = LoadFixtures.burstReport(unmatched = 0)
+        val failed = LoadFixtures.burstReport(unmatched = 4)
+
+        assertTrue(RecentRun.Load(passed).line.startsWith("✓ ⚡ "), RecentRun.Load(passed).line)
+        assertTrue(RecentRun.Load(failed).line.startsWith("✗ ⚡ "), RecentRun.Load(failed).line)
     }
 
     @Test
@@ -123,7 +148,11 @@ class LoadRunRailTest {
         composeTestRule.onNodeWithTag("rail-run-menu").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("rail-recent-${report.id}").assertIsDisplayed().assertTextContains("⚡ ${report.label}  (4,000/4,000)", substring = true)
+        composeTestRule
+            .onNodeWithTag(
+                "rail-recent-${report.id}",
+            ).assertIsDisplayed()
+            .assertTextContains("⚡ ${report.label}  (4,000/4,000)", substring = true)
         composeTestRule.onNodeWithTag("rail-recent-${report.id}").performClick()
         composeTestRule.waitForIdle()
 

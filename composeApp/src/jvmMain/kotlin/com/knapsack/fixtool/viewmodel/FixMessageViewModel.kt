@@ -3593,6 +3593,23 @@ class FixMessageViewModel(
     }
 
     /**
+     * **Selects the request an unanswered row names, in whichever session pane still holds it.**
+     *
+     * By the correlation id off the wire, because that is the only handle the record keeps: the report
+     * stores an id, a lane and a send stamp, never a uid. False when no pane holds it any more — a lane
+     * that has since been cleared or reconnected — which the document says rather than doing nothing.
+     */
+    fun revealLoadRequest(id: String): Boolean {
+        _sessions.forEach { session ->
+            session.messages.value.filterIsInstance<FixMessage>().firstOrNull { it.rawMessage.contains(id) }?.let {
+                selectMessage(it)
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
      * **Starts a load run over this window's live sessions.** Null when it cannot, with the reason shown.
      *
      * The lanes are the profile's logged-on sessions, gathered here on the caller's thread and claimed the

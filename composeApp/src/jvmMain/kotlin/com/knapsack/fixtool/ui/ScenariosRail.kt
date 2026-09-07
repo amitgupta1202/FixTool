@@ -340,6 +340,12 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                                     viewModel.fanOutLanes(it.id) is FixMessageViewModel.FanOutLanes.Available
                                 }
                             },
+                        lanes =
+                            remember(activeSet, loggedOnSessions, viewModel.connectionProfiles.size) {
+                                viewModel.connectionProfiles.sumOf { p ->
+                                    (viewModel.fanOutLanes(p.id) as? FixMessageViewModel.FanOutLanes.Available)?.lanes?.size ?: 0
+                                }
+                            },
                         onRunExamples = { outlining = true },
                         onFanOut = { fanningOut = true },
                         onLoadRun = { loading = true },
@@ -1026,6 +1032,8 @@ private data class RunMenu(
     val outlines: Int,
     /** How many saved profiles could supply lanes — a multi-session initiator with sessions logged on. */
     val laneProfiles: Int,
+    /** How many lanes those profiles add up to, which is the number the count reads as. */
+    val lanes: Int,
     val onRunSaved: (String) -> Unit,
     val onRunFavourites: () -> Unit,
     val onRunFiltered: () -> Unit,
@@ -1036,7 +1044,16 @@ private data class RunMenu(
     val onFanOut: () -> Unit,
     val onLoadRun: () -> Unit,
     val onOpenRecent: (RecentRun) -> Unit,
-)
+) {
+    /**
+     * "5 lanes on 2 profiles", because "(2)" reads as two lanes and is a count of profiles.
+     *
+     * Zero keeps the bare count, so the item that is visible-and-disabled still says a number rather than
+     * a sentence about nothing.
+     */
+    val laneSentence: String
+        get() = if (laneProfiles == 0) "(0)" else "$lanes lane${if (lanes == 1) "" else "s"} on $laneProfiles profile${if (laneProfiles == 1) "" else "s"}"
+}
 
 /**
  * **One row of Recent, whichever kind of run it was.** A run set and a load run keep different records in
@@ -1054,7 +1071,7 @@ internal sealed interface RecentRun {
     ) : RecentRun {
         override val id: String get() = set.id
         override val startedAt: Long get() = set.startedAt
-        override val line: String get() = "${if (set.status == RunSetStatus.PASSED) "✓" else "✗"} ${set.label}  (${set.passed}/${set.total})"
+        override val line: String get() = "${mark(set.status == RunSetStatus.PASSED)} ▦ ${set.label}  (${set.passed}/${set.total})"
     }
 
     data class Load(
@@ -1064,11 +1081,22 @@ internal sealed interface RecentRun {
         override val startedAt: Long get() = report.startedAt
         override val line: String
             get() =
-                "⚡ ${report.label}  (${"%,d".format(report.replies.matched)}/${"%,d".format(report.issue.leftSocket)})" +
-                    if (report.verdict.exitCode == 0) "" else " ✗"
+                "${mark(report.verdict.exitCode == 0)} ⚡ ${report.label}  " +
+                    "(${"%,d".format(report.replies.matched)}/${"%,d".format(report.issue.leftSocket)})"
     }
 
     companion object {
+        /**
+         * **Verdict first, kind second, on every row.**
+         *
+         * The two columns used to mean different things per row type: a load row led with ⚡, which says
+         * *kind*, and a set row with ✓ or ✗, which says *verdict*, so the column an eye scans answered a
+         * different question depending on which row it landed on. And a passing load run carried no mark
+         * at all — the ✗ was appended only on a non-zero exit — so a pass rendered as whitespace, which
+         * reads as "no result" rather than "passed".
+         */
+        fun mark(passed: Boolean): String = if (passed) "✓" else "✗"
+
         fun merge(sets: List<RunSet>, loads: List<LoadReport>): List<RecentRun> =
             (sets.map(::Set) + loads.map(::Load)).sortedByDescending { it.startedAt }
     }
@@ -1118,7 +1146,7 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     // Disabled with its count showing, like the rest: "no scenario here has a table" and "this feature
     // does not exist" are different sentences, and only one of them is true.
     RailMenuItem(
-        "Fan out over sessions…  (${menu.laneProfiles})",
+        "Fan out over sessions…  ${menu.laneSentence}",
         enabled = !running && menu.laneProfiles > 0,
         tag = "rail-run-fanout",
     ) {
@@ -1127,8 +1155,9 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     }
     // Under fan-out, with the same count, because fan-out is the feature people reach for first and are
     // disappointed by: a lane is sequential, so fifty sessions give fifty outstanding, not four thousand.
+    // "(2)" is a count of *profiles* that can supply lanes, and read as two lanes. Say both numbers.
     RailMenuItem(
-        "Load run…  (${menu.laneProfiles})",
+        "Load run…  ${menu.laneSentence}",
         enabled = !running && menu.laneProfiles > 0,
         tag = "rail-run-load",
     ) {

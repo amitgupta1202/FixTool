@@ -250,9 +250,21 @@ fun LoadRunDialogContent(
             GroupHead("What to send")
             FormRow("Template") {
                 if (fixedTemplate != null) {
+                    // Opened from the editor, whose fields *are* the template: there is nothing to go and view.
                     Text(fixedTemplate.name, color = AppTheme.Colors.text, style = AppTheme.Type.body, modifier = Modifier.testTag("load-template"))
                 } else {
-                    Picker(template?.name ?: "pick a template", templates.map { it.name to it }, "load-template") { template = it }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Picker(template?.name ?: "pick a template", templates.map { it.name to it }, "load-template") { template = it }
+                        val saved = viewModel.savedMessages.firstOrNull { it.name == template?.name }
+                        if (saved != null) {
+                            Text(
+                                "view message",
+                                color = AppTheme.Colors.info,
+                                style = AppTheme.Type.meta,
+                                modifier = Modifier.clickable { viewModel.loadEditorMessage(saved) }.testTag("load-view-template"),
+                            )
+                        }
+                    }
                 }
                 compiled?.let {
                     Sub(

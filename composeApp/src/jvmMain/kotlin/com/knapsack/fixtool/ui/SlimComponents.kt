@@ -1,11 +1,16 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -19,9 +24,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -463,3 +478,261 @@ fun <T> SlimDropdownWithColor(
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Choice controls: radio, checkbox, segment.
+//
+// Bespoke rather than Material3 scaled down, the same call the app already made for its text fields and
+// buttons: M3's RadioButton is 20dp inside a 48dp minimum interactive size and will not sit in a 24dp row.
+//
+// What they add over the `"◉ " + label` Text with a bare `selectable` that they replace is narrower than
+// it looks, and worth stating exactly. The app is wrapped in MaterialTheme, so that Text was already
+// focusable, already toggled on Space and Enter, and already drew the ripple's hover and focus layers.
+// What it had not got: a Role, so a screen reader was never told it was a radio (and the multi-select row
+// claimed to be one anyway); a hit target bigger than one glyph plus its label; any affordance beyond a
+// character; and arrow keys inside a group, which is the difference between a radio group and N buttons.
+// ---------------------------------------------------------------------------------------------------
+
+/** The row chrome every choice control wears: 24dp, a focus border in [AppTheme.Colors.primary], no jump. */
+@Composable
+private fun ChoiceRow(
+    interactionSource: MutableInteractionSource,
+    modifier: Modifier,
+    testTag: String?,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val focused by interactionSource.collectIsFocusedAsState()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        modifier =
+            modifier
+                .height(24.dp)
+                // Always a border, transparent when unfocused, so gaining focus cannot reflow the row.
+                .border(1.dp, if (focused) AppTheme.Colors.primary else Color.Transparent, slimShape)
+                .padding(horizontal = 3.dp)
+                .let { if (testTag != null) it.testTag(testTag) else it },
+        content = content,
+    )
+}
+
+@Composable
+private fun RadioMark(selected: Boolean) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier
+                .size(11.dp)
+                .border(1.dp, if (selected) AppTheme.Colors.primary else AppTheme.Colors.borderDark, CircleShape),
+    ) {
+        if (selected) Box(Modifier.size(5.dp).background(AppTheme.Colors.primary, CircleShape))
+    }
+}
+
+@Composable
+private fun CheckMark(checked: Boolean) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier
+                .size(11.dp)
+                .background(if (checked) AppTheme.Colors.primary else Color.Transparent, slimShape)
+                .border(1.dp, if (checked) AppTheme.Colors.primary else AppTheme.Colors.borderDark, slimShape),
+    ) {
+        if (checked) {
+            Canvas(Modifier.size(7.dp)) {
+                val stroke = 1.4.dp.toPx()
+                val elbow = Offset(size.width * 0.38f, size.height * 0.82f)
+                drawLine(tickColor, Offset(size.width * 0.08f, size.height * 0.52f), elbow, stroke, StrokeCap.Round)
+                drawLine(tickColor, elbow, Offset(size.width * 0.94f, size.height * 0.16f), stroke, StrokeCap.Round)
+            }
+        }
+    }
+}
+
+/** One radio row. [SlimRadioGroup] is what gives a set of them arrow keys; this is the single-option form. */
+@Composable
+fun SlimRadio(
+    selected: Boolean,
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String? = null,
+    focusRequester: FocusRequester? = null,
+    label: @Composable RowScope.() -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    ChoiceRow(
+        interactionSource,
+        modifier
+            .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
+            .selectable(selected = selected, interactionSource = interactionSource, indication = null, role = Role.RadioButton, onClick = onSelect),
+        testTag,
+    ) {
+        RadioMark(selected)
+        label()
+    }
+}
+
+/**
+ * **A radio group: one selection, and arrow keys that move it.**
+ *
+ * The arrow keys are the point. `Modifier.selectable` on its own makes N independently focusable buttons
+ * that happen to be mutually exclusive; a radio *group* is one stop in the tab order whose members the
+ * arrows walk. [selectableGroup] tells the semantics tree the same thing.
+ */
+@Composable
+fun <T> SlimRadioGroup(
+    options: List<T>,
+    selected: T?,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    horizontal: Boolean = false,
+    optionTestTag: (T) -> String? = { null },
+    optionLabel: @Composable RowScope.(T) -> Unit,
+) {
+    val requesters = remember(options.size) { List(options.size) { FocusRequester() } }
+
+    fun move(step: Int): Boolean {
+        if (options.size < 2) return false
+        val from = options.indexOf(selected).takeIf { it >= 0 } ?: 0
+        val next = (from + step + options.size) % options.size
+        onSelect(options[next])
+        // The requester is attached to a row that exists; a composition that has not laid out yet is the
+        // one case it can throw, and losing the focus move there is better than losing the selection.
+        runCatching { requesters[next].requestFocus() }
+        return true
+    }
+    val forward = if (horizontal) Key.DirectionRight else Key.DirectionDown
+    val back = if (horizontal) Key.DirectionLeft else Key.DirectionUp
+    val keys =
+        Modifier.onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) {
+                false
+            } else {
+                when (event.key) {
+                    forward -> move(1)
+                    back -> move(-1)
+                    else -> false
+                }
+            }
+        }
+    val rows: @Composable (Modifier) -> Unit = { rowModifier ->
+        options.forEachIndexed { index, option ->
+            SlimRadio(
+                selected = option == selected,
+                onSelect = { onSelect(option) },
+                modifier = rowModifier,
+                testTag = optionTestTag(option),
+                focusRequester = requesters[index],
+                label = { optionLabel(option) },
+            )
+        }
+    }
+    if (horizontal) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = modifier.selectableGroup().then(keys),
+        ) { rows(Modifier) }
+    } else {
+        Column(modifier = modifier.selectableGroup().then(keys)) { rows(Modifier) }
+    }
+}
+
+/** One checkbox row, with [Role.Checkbox] semantics — which is what the glyph radios were borrowing. */
+@Composable
+fun SlimCheckbox(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String? = null,
+    label: @Composable RowScope.() -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    ChoiceRow(
+        interactionSource,
+        modifier.toggleable(
+            value = checked,
+            interactionSource = interactionSource,
+            indication = null,
+            role = Role.Checkbox,
+            onValueChange = onCheckedChange,
+        ),
+        testTag,
+    ) {
+        CheckMark(checked)
+        label()
+    }
+}
+
+/**
+ * **A segmented control**: two or three exclusive options in one 24dp track, for a choice whose options
+ * are one word each and belong side by side (Burst / Rate). Left and right walk it, as in a radio group.
+ */
+@Composable
+fun <T> SlimSegmented(
+    options: List<T>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    label: (T) -> String,
+    modifier: Modifier = Modifier,
+    optionTestTag: (T) -> String? = { null },
+) {
+    val requesters = remember(options.size) { List(options.size) { FocusRequester() } }
+
+    fun move(step: Int): Boolean {
+        if (options.size < 2) return false
+        val next = (options.indexOf(selected).coerceAtLeast(0) + step + options.size) % options.size
+        onSelect(options[next])
+        runCatching { requesters[next].requestFocus() }
+        return true
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            modifier
+                .height(24.dp)
+                .background(AppTheme.Colors.surfaceVariant, slimShape)
+                .border(1.dp, AppTheme.Colors.border, slimShape)
+                .selectableGroup()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) {
+                        false
+                    } else {
+                        when (event.key) {
+                            Key.DirectionRight -> move(1)
+                            Key.DirectionLeft -> move(-1)
+                            else -> false
+                        }
+                    }
+                },
+    ) {
+        options.forEachIndexed { index, option ->
+            val on = option == selected
+            val interactionSource = remember(option) { MutableInteractionSource() }
+            val focused by interactionSource.collectIsFocusedAsState()
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier =
+                    Modifier
+                        .fillMaxHeight()
+                        .focusRequester(requesters[index])
+                        .selectable(
+                            selected = on,
+                            interactionSource = interactionSource,
+                            indication = null,
+                            role = Role.RadioButton,
+                        ) { onSelect(option) }
+                        .background(if (on) AppTheme.Colors.selectionPrimary else Color.Transparent, slimShape)
+                        .border(1.dp, if (focused) AppTheme.Colors.primary else Color.Transparent, slimShape)
+                        .padding(horizontal = 9.dp)
+                        .let { optionTestTag(option)?.let { tag -> it.testTag(tag) } ?: it },
+            ) {
+                Text(label(option), color = if (on) AppTheme.Colors.text else AppTheme.Colors.textSecondary, fontSize = 11.sp, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** The tick, drawn dark on the primary fill rather than white, so it reads as ink and not as a highlight. */
+private val tickColor = AppTheme.Colors.background

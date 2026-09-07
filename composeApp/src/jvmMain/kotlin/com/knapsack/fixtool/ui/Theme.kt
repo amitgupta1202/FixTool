@@ -1,8 +1,12 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Global theme constants for the FixTool application.
@@ -47,6 +51,33 @@ object AppTheme {
     }
 
     /**
+     * **The four type roles, which is the scale the app did not have.**
+     *
+     * Sizes were literals at every call site, and the load screens used two of them for everything, so
+     * nothing told the eye where to land. Four roles cover a report screen: the figure that decides the
+     * verdict, the head that names a section, the body that carries a value or a sentence, and the meta
+     * that labels an axis or a group. Mono where a number has to line up under another number, sans where
+     * a sentence has to read.
+     *
+     * These are [TextStyle]s and not bare sizes so a call site cannot take the size and drop the family:
+     * a 26sp figure in the default sans is not the same token drawn slightly differently, it is a column
+     * of digits that no longer aligns.
+     */
+    object Type {
+        /** The two counts that decide the verdict, and nothing else. */
+        val figure = TextStyle(fontSize = 26.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Normal)
+
+        /** A verdict badge, a section head. */
+        val head = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+
+        /** A row's value, a table cell, a refusal. */
+        val body = TextStyle(fontSize = 11.5.sp)
+
+        /** A group head, an axis label, a records path. Always [Colors.textDisabled] or better. */
+        val meta = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+    }
+
+    /**
      * Comprehensive color palette organized by semantic meaning
      */
     object Colors {
@@ -70,8 +101,14 @@ object AppTheme {
         /** Secondary text - labels, inactive elements */
         val textSecondary = Color(0xFFB0B0B0)
 
-        /** Tertiary text - disabled, placeholders */
-        val textDisabled = Color(0xFF6A6A6A)
+        /**
+         * Tertiary text - disabled, placeholders, and everything [Type.meta] draws.
+         *
+         * #8A8A8A, not the #6A6A6A it was: on the [background] #1E1E1E that older value is about 3.1:1,
+         * which fails AA for 10sp text. A named 10sp token makes that pairing the house rule, so the pairing
+         * had to clear AA first. 4.6:1 at #8A8A8A.
+         */
+        val textDisabled = Color(0xFF8A8A8A)
 
         // ========== Border & Separator Colors ==========
         /** Standard borders and separators */

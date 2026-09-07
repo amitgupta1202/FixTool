@@ -97,6 +97,7 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
         records = viewModel.loadRecordStore.directoryFor(report.id),
         onStop = { viewModel.stopLoadRun(report.id) },
         onReveal = { id -> viewModel.revealLoadRequest(id) },
+        onCompare = { viewModel.openLoadCompare(report.id) },
         modifier = modifier,
     )
 }
@@ -109,6 +110,7 @@ fun LoadReportView(
     records: File,
     onStop: () -> Unit,
     onReveal: (String) -> Boolean = { false },
+    onCompare: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize().testTag("load-run-document")) {
@@ -117,7 +119,7 @@ fun LoadReportView(
         // actions collapse to an overflow rather than pushing the badge off the left.
         val narrow = maxWidth < NARROW
         Column(modifier = Modifier.fillMaxSize()) {
-            LoadHeader(report, records, narrow, onStop)
+            LoadHeader(report, records, narrow, onStop, onCompare)
             ProgressBar(report)
             BarLine(report)
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -142,7 +144,7 @@ fun LoadReportView(
  * a scroll region, which is the last place anyone looks for the answer to "did it pass".
  */
 @Composable
-private fun LoadHeader(r: LoadReport, records: File, narrow: Boolean, onStop: () -> Unit) {
+private fun LoadHeader(r: LoadReport, records: File, narrow: Boolean, onStop: () -> Unit, onCompare: (() -> Unit)?) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -174,8 +176,11 @@ private fun LoadHeader(r: LoadReport, records: File, narrow: Boolean, onStop: ()
         if (r.status == LoadStatus.RUNNING) {
             SlimButton("■ Stop", onClick = onStop, color = AppTheme.Colors.error, modifier = Modifier.testTag("load-stop"))
         } else if (narrow) {
-            Overflow(records)
+            Overflow(records, onCompare)
         } else {
+            // Load work is comparative by nature — the question is almost never "how fast is this" but
+            // "did the fix work" — and Recent already lists every run this one could be measured against.
+            onCompare?.let { SlimButton("Compare…", onClick = it, modifier = Modifier.testTag("load-compare")) }
             SlimButton("Copy JSON", onClick = { copyJson(records) }, modifier = Modifier.testTag("load-copy-json"))
             SlimButton("Reveal records", onClick = { reveal(records) }, modifier = Modifier.testTag("load-reveal"))
         }
@@ -184,11 +189,17 @@ private fun LoadHeader(r: LoadReport, records: File, narrow: Boolean, onStop: ()
 
 /** The header's actions at 460px, where three buttons would push the badge off the left edge. */
 @Composable
-private fun Overflow(records: File) {
+private fun Overflow(records: File, onCompare: (() -> Unit)?) {
     var open by remember { mutableStateOf(false) }
     Box {
         SlimButton("⋯", onClick = { open = true }, modifier = Modifier.testTag("load-overflow"))
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            onCompare?.let { compare ->
+                DropdownMenuItem(text = { Text("Compare…", style = AppTheme.Type.body) }, onClick = {
+                    compare()
+                    open = false
+                })
+            }
             DropdownMenuItem(text = { Text("Copy JSON", style = AppTheme.Type.body) }, onClick = {
                 copyJson(records)
                 open = false

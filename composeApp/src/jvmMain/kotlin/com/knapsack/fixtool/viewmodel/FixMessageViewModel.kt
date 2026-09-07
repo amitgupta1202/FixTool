@@ -3581,6 +3581,40 @@ class FixMessageViewModel(
     /** Whether a profile can supply lanes for a load run: the same question, and the same sentences, as fan-out. */
     fun loadLanes(profileId: String): FanOutLanes = fanOutLanes(profileId)
 
+    /**
+     * **The plan a record describes, ready to fire again — or the sentence saying what no longer exists.**
+     *
+     * "Run this plan again" is the natural next click after seeing a regression, and the plan is in the
+     * record. It refuses rather than substituting: a record names its template and its profile by name,
+     * and a run fired against a *different* template of the same name is the one thing worse than not
+     * being able to fire it at all.
+     */
+    fun replanLoad(report: LoadReport): Result<LoadPlan> {
+        val profile =
+            _connectionProfiles.firstOrNull { it.name == report.profileName }
+                ?: return Result.failure(IllegalStateException("The profile '${report.profileName}' this run used no longer exists."))
+        val template =
+            loadTemplates(profile.id).firstOrNull { it.name == report.template.name }
+                ?: return Result.failure(IllegalStateException("The template '${report.template.name}' this run used is no longer saved."))
+        val label = LoadPlan.label(template, report.shape, profile.name)
+        return Result.success(
+            LoadPlan(
+                id = RunSets.id(System.currentTimeMillis(), label),
+                label = label,
+                template = template,
+                profileId = profile.id,
+                profileName = profile.name,
+                listenProfileIds = report.listen,
+                shape = report.shape,
+                match = report.match,
+                settleMs = report.settleMs,
+                seed = report.seed,
+                storeAndLog = report.storeAndLog,
+                strictRate = report.strictRate,
+            ),
+        )
+    }
+
     fun isLoadRunning(id: String): Boolean = claims.any { it.setId == id }
 
     fun stopLoadRun(id: String) {
@@ -3590,6 +3624,11 @@ class FixMessageViewModel(
     /** Opens the document over a load record, live or from disk. What Recent does for a load row. */
     fun openLoadRun(id: String) {
         openDocument(ScenarioDoc.LoadRunView(id))
+    }
+
+    /** Opens Compare over this run, with the other one still to pick. */
+    fun openLoadCompare(afterId: String) {
+        openDocument(ScenarioDoc.LoadCompare(afterId))
     }
 
     /**

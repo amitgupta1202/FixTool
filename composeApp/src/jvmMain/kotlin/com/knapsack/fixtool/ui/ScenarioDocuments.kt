@@ -181,6 +181,21 @@ sealed interface ScenarioDoc {
         override val scenarioId: String? get() = null
     }
 
+    /**
+     * **Two load runs, subtracted.** Its own tab rather than a second column in the document, because a
+     * document that sometimes has two columns is two layouts pretending to be one.
+     *
+     * [beforeId] may be blank: the tab opens from one run's header and picks the other itself.
+     */
+    data class LoadCompare(
+        val afterId: String,
+        val beforeId: String = "",
+    ) : ScenarioDoc {
+        override val id: String get() = loadCompareId(afterId)
+        override val glyph: String get() = "⇄"
+        override val scenarioId: String? get() = null
+    }
+
     companion object {
         /** There is one session scan at a time, so there is one capture review at a time. */
         const val CAPTURE_ID = "capture"
@@ -188,6 +203,8 @@ sealed interface ScenarioDoc {
         fun runSetId(setId: String): String = "runset:$setId"
 
         fun loadRunId(loadId: String): String = "load:$loadId"
+
+        fun loadCompareId(loadId: String): String = "compare:$loadId"
 
         fun editorId(scenarioId: String): String = "editor:$scenarioId"
     }
@@ -450,6 +467,8 @@ fun documentTabsOf(documents: List<ScenarioDoc>, workspace: Map<String, Scenario
             // Never dirty: a record is what happened, and nothing in this tab can edit it.
             is ScenarioDoc.RunSetView -> DocumentTab(doc.id, "run: ${doc.setId.substringAfter('-', doc.setId).takeLast(RUN_TAB_TITLE)}", doc.glyph, dirty = false)
             is ScenarioDoc.LoadRunView -> DocumentTab(doc.id, "load: ${doc.loadId.substringAfter('-', doc.loadId).takeLast(RUN_TAB_TITLE)}", doc.glyph, dirty = false)
+            is ScenarioDoc.LoadCompare ->
+                DocumentTab(doc.id, "compare: ${doc.afterId.substringAfter('-', doc.afterId).takeLast(RUN_TAB_TITLE)}", doc.glyph, dirty = false)
             is ScenarioDoc.Editor -> {
                 val scenario = workspace[doc.scenarioId]
                 DocumentTab(

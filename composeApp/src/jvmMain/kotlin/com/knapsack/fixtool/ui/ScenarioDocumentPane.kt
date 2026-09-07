@@ -169,6 +169,7 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                 // A record is read, never edited, so this branch hands the whole document straight over.
                 is ScenarioDoc.RunSetView -> RunSetDocument(viewModel, doc)
                 is ScenarioDoc.LoadRunView -> LoadRunDocument(viewModel, doc)
+                is ScenarioDoc.LoadCompare -> LoadCompareDocument(viewModel, doc)
                 is ScenarioDoc.Capture ->
                     ScenarioCaptureReview(
                         candidates = doc.scan.candidates,

@@ -9,6 +9,7 @@ import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
@@ -197,7 +198,7 @@ class ControlServer(
         httpServer.createContext("/demo") { ex -> handle(ex) { demo(ex) } }
         httpServer.createContext("/workspace") { ex -> handle(ex) { workspace(ex) } }
         httpServer.createContext("/connect") { ex -> handle(ex) { connect(ex) } }
-        httpServer.createContext("/disconnect") { ex -> handle(ex) { disconnect(ex) } }
+        httpServer.createContext("/disconnect") { ex -> handleCoded(ex) { disconnect(ex) } }
         httpServer.createContext("/send/all") { ex -> handle(ex) { sendAll(ex) } }
         httpServer.createContext("/send") { ex -> handle(ex) { send(ex) } }
         httpServer.createContext("/templates/send") { ex -> handle(ex) { sendTemplate(ex) } }
@@ -2650,17 +2651,77 @@ class ControlServer(
         }
     }
 
-    private fun disconnect(ex: HttpExchange): JsonElement {
+    /**
+     * One profile down, or every session with `all: true`.
+     *
+     * The profile form keeps answering 200 with an error object in the body, which is what it always did
+     * and what every caller of it reads. Only the `all` form can answer 409, because only it has a
+     * refusal a caller has to branch on before it has a body.
+     */
+    private fun disconnect(ex: HttpExchange): Coded {
         val body = readJson(ex)
-        val key = body["profile"]?.jsonPrimitive?.content ?: return errorObject("missing 'profile'")
+        if (body["all"]?.jsonPrimitive?.booleanOrNull == true) return disconnectAll()
+        val key = body["profile"]?.jsonPrimitive?.content ?: return Coded(HTTP_OK, errorObject("missing 'profile'"))
         val profile =
             onEdt { viewModel.connectionProfiles.firstOrNull { it.id == key || it.name == key } }
-                ?: return errorObject("profile not found: $key")
+                ?: return Coded(HTTP_OK, errorObject("profile not found: $key"))
         onEdt { viewModel.disconnectProfile(profile.id) }
-        return buildJsonObject {
-            put("status", "disconnecting")
-            put("profile", profile.name)
+        return Coded(
+            HTTP_OK,
+            buildJsonObject {
+                put("status", "disconnecting")
+                put("profile", profile.name)
+            },
+        )
+    }
+
+    /**
+     * **Everything down in one call**, the control surface's half of the toolbar's Disconnect all.
+     *
+     * It asks nothing first, because a disconnect loses nothing: the books, the records and the panes all
+     * survive one, and Quick Connect puts the sessions back. The one thing that would be lost is a load
+     * run's own measurements, so a live run or set refuses in the sentence the toolbar's tooltip carries.
+     *
+     * **Nothing connected is a 200 with `sessions: 0`, not a refusal.** "Make sure nothing is up" is a
+     * reasonable thing for a script to say before it starts, and an error there would make every such
+     * script branch on a state it does not care about.
+     *
+     * The counts are taken before anything is dropped, because they are what the call did.
+     */
+    private fun disconnectAll(): Coded =
+        onEdt {
+            liveLoadRefusal()?.let { return@onEdt Coded(HTTP_CONFLICT, busyError(it)) }
+            val live =
+                viewModel.sessions
+                    .filter { it.connectionState.value != FixConnectionState.DISCONNECTED }
+                    .mapTo(mutableSetOf()) { it.id }
+            val profiles =
+                viewModel.connectionProfiles.count { profile ->
+                    viewModel.getProfileSessions(profile.id).any { it.id in live }
+                }
+            viewModel.disconnectAllSessions()
+            Coded(
+                HTTP_OK,
+                buildJsonObject {
+                    put("status", "disconnecting")
+                    put("sessions", live.size)
+                    put("profiles", profiles)
+                },
+            )
         }
+
+    /**
+     * Why Disconnect all is refused, or null when nothing is running.
+     *
+     * The live record names which of the two words to use, and the claim on the sessions is what says it
+     * is still going: `activeLoadRun` holds the finished record after the run ends, so the record alone
+     * would refuse for ever after the first run of the session.
+     */
+    private fun liveLoadRefusal(): String? {
+        val record = viewModel.activeLoadRun.value ?: return null
+        if (!viewModel.isLoadRunning(record.id)) return null
+        val what = if (record.set != null || record.phases.size > 1) "set" else "run"
+        return "A load $what is running. Stop it first."
     }
 
     /**
@@ -4068,7 +4129,8 @@ class ControlServer(
             "fixtool_demo" to { a -> demo(mcpExchange(a)) },
             "fixtool_workspace" to { a -> workspace(mcpExchange(a)) },
             "fixtool_connect" to { a -> connect(mcpExchange(a)) },
-            "fixtool_disconnect" to { a -> disconnect(mcpExchange(a)) },
+            // MCP has no status codes, so the 409 for a live load run is the body, as fixtool_load does.
+            "fixtool_disconnect" to { a -> disconnect(mcpExchange(a)).body },
             "fixtool_send" to { a -> send(mcpExchange(a)) },
             "fixtool_send_all" to { a -> sendAll(mcpExchange(a)) },
             "fixtool_send_template" to { a -> sendTemplate(mcpExchange(a)) },

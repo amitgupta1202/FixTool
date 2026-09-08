@@ -398,6 +398,99 @@ class ControlServerLoadIntegrationTest {
         assertEquals(listOf(sentence), unreadable["problems"]!!.jsonArray.map { it.jsonPrimitive.content })
     }
 
+    /**
+     * **`POST /disconnect {"all": true}` drops every session and says how many, over how many profiles.**
+     *
+     * The toolbar's Disconnect all and this are the same action, and this is the door a script uses to put
+     * a box back to nothing connected between jobs.
+     */
+    @Test
+    fun `disconnect all drops every session and reports what it dropped`() {
+        val venue = TestFixServer().also { it.start() }
+        this.venue = venue
+        connectLanes(venue)
+
+        val answer = post("/disconnect", """{"all":true}""")
+
+        assertEquals(200, answer.statusCode(), answer.body())
+        val json = obj(answer)
+        assertEquals("disconnecting", json["status"]!!.jsonPrimitive.content)
+        assertEquals(2, json["sessions"]!!.jsonPrimitive.int, "both lanes were up: $json")
+        assertEquals(1, json["profiles"]!!.jsonPrimitive.int, "and they are one profile's")
+
+        val start = System.currentTimeMillis()
+
+        fun stillUp() = viewModel.sessions.count { it.connectionState.value != FixConnectionState.DISCONNECTED }
+
+        while (stillUp() > 0 && System.currentTimeMillis() - start < 20_000) Thread.sleep(100)
+        assertEquals(0, stillUp(), "nothing should be left up: ${viewModel.sessions.joinToString { "${it.title}=${it.connectionState.value}" }}")
+    }
+
+    /**
+     * **Nothing connected is a 200 with `sessions: 0`, not a refusal.**
+     *
+     * "Make sure nothing is up" is a reasonable thing for a script to say before it starts, and an error
+     * there would make every such script branch on a state it does not care about.
+     */
+    @Test
+    fun `disconnect all with nothing connected is a zero, not an error`() {
+        viewModel.saveConnectionProfile(profile())
+
+        val answer = post("/disconnect", """{"all":true}""")
+
+        assertEquals(200, answer.statusCode(), answer.body())
+        val json = obj(answer)
+        assertEquals("disconnecting", json["status"]!!.jsonPrimitive.content)
+        assertEquals(0, json["sessions"]!!.jsonPrimitive.int)
+        assertEquals(0, json["profiles"]!!.jsonPrimitive.int)
+    }
+
+    /**
+     * **A live load run refuses Disconnect all, in the sentence the toolbar's tooltip carries.**
+     *
+     * The one thing a disconnect would lose is a run's own measurements: the books, the records and the
+     * panes all survive one, which is why nothing else about this button asks first. The venue answers
+     * nothing here, so the run sits in its settle window for the length of the refusal.
+     */
+    @Test
+    fun `disconnect all is refused while a load run is live, and works once it is stopped`() {
+        val venue = TestFixServer().also { it.start() }
+        this.venue = venue
+        connectLanes(venue)
+
+        val accepted = obj(post("/load", """{"profile":"LOADGEN","raw":"35=D|11=ORD-${'$'}{messageIndex}|55=EUR/USD|","count":4,"settleMs":20000}"""))
+        val id = assertNotNull(accepted["load"]?.jsonPrimitive?.contentOrNull, "the run was refused: $accepted")
+        awaitLive(id)
+
+        val refused = post("/disconnect", """{"all":true}""")
+        assertEquals(409, refused.statusCode(), refused.body())
+        val error = obj(refused)
+        assertEquals("A load run is running. Stop it first.", error["error"]!!.jsonPrimitive.content)
+        assertEquals("true", error["busy"]!!.jsonPrimitive.content, "carried as a flag, so nothing has to match on the sentence")
+        assertEquals(2, viewModel.sessions.count { it.connectionState.value == FixConnectionState.LOGGED_ON }, "and it dropped nothing")
+
+        assertEquals(202, post("/loads/$id/stop", "{}").statusCode())
+        awaitFinished(id)
+
+        val answer = post("/disconnect", """{"all":true}""")
+        assertEquals(200, answer.statusCode(), answer.body())
+        assertEquals(2, obj(answer)["sessions"]!!.jsonPrimitive.int, "the run is over, so the lanes go down")
+    }
+
+    /**
+     * The state Disconnect all reads: a live record whose id the claim still holds. Both are set on the
+     * runner's first tick, and the claim is what outlives the record, so waiting on the pair is waiting
+     * on exactly the condition the route asks about.
+     */
+    private fun awaitLive(id: String) {
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < 20_000) {
+            if (viewModel.activeLoadRun.value?.id == id && viewModel.isLoadRunning(id)) return
+            Thread.sleep(50)
+        }
+        throw AssertionError("the run never went live: active=${viewModel.activeLoadRun.value?.id}, claimed=${viewModel.isLoadRunning(id)}")
+    }
+
     /** Two lanes of LOADGEN, dialling [venue] and logged on, which is what a load set needs to start. */
     private fun connectLanes(venue: TestFixServer) {
         val live =

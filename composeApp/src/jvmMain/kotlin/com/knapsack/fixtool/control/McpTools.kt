@@ -185,9 +185,14 @@ object McpTools {
             ),
             tool(
                 "fixtool_disconnect",
-                "Disconnect a profile by name or id.",
-                props("profile" to string("profile name or id")),
-                required = listOf("profile"),
+                "Disconnect a profile by name or id, or every session with all=true. Disconnect all asks nothing " +
+                    "first, because a disconnect loses nothing: the books, the records and the panes survive one. " +
+                    "It reports how many sessions it dropped and over how many profiles, reports 0 rather than an " +
+                    "error when nothing was up, and is refused while a load run or set is live.",
+                props(
+                    "profile" to string("profile name or id"),
+                    "all" to boolean("disconnect every session; profile is then not needed"),
+                ),
             ),
             tool(
                 "fixtool_send",

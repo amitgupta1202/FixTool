@@ -67,6 +67,11 @@ data class LoadReport(
      * written before the names were in the JSON, which is the same thing as "the bare names".
      */
     val evidence: Evidence? = null,
+    /**
+     * Why this phase is what it is, when the numbers cannot say: "phase 2 did not pass and the set stops
+     * on failure". Null for a phase that ran.
+     */
+    val note: String? = null,
     val verdict: Verdict,
 ) {
     /** What the template was, and which of its tags were rendered per message. */
@@ -233,6 +238,54 @@ data class LoadReport(
     }
 
     companion object {
+        /**
+         * **A phase that has not run: its plan, no measurements, and nothing to judge.**
+         *
+         * A skipped phase carries what would have run, so a reader can still say what the set was for, and
+         * a pending one is drawn by the live document as a phase that has not started. Both are different
+         * pictures from "a phase with no replies", which is why they are statuses and not empty reports.
+         */
+        @Suppress("LongParameterList")
+        fun stub(
+            plan: LoadPlan,
+            status: LoadStatus,
+            lanes: Int,
+            template: TemplateInfo,
+            startedAt: Long,
+            note: String? = null,
+        ): LoadReport =
+            LoadReport(
+                id = plan.id,
+                label = plan.label,
+                status = status,
+                stage = LoadStage.PREPARING,
+                template = template,
+                profileName = plan.profileName,
+                lanes = lanes,
+                listen = plan.listenProfileIds,
+                shape = plan.shape,
+                indexFrom = plan.indexFrom,
+                match = plan.match,
+                settleMs = plan.settleMs,
+                seed = plan.seed,
+                storeAndLog = plan.storeAndLog,
+                strictRate = plan.strictRate,
+                startedAt = startedAt,
+                finishedAt = null,
+                settleLeftMs = null,
+                issue = Issue(plan.requested, 0, 0, null, null, 0),
+                rate = null,
+                replies = Replies(0, 0, 0, 0, 0, null),
+                timing = null,
+                roundTrip = null,
+                perSecond = emptyList(),
+                tool = Tool(0, 0, 0, 0),
+                unmatched = emptyList(),
+                unmatchedTotal = 0,
+                note = note,
+                verdict = Verdict(Completeness.PENDING, RateVerdict.NOT_APPLICABLE, ToolVerdict.CLEAN, exitCode = null),
+            )
+
         const val UNMATCHED_IN_JSON = 1_000
         const val EXIT_PASSED = 0
         const val EXIT_FAILED = 1
@@ -299,6 +352,10 @@ enum class LoadStatus {
      * the set was for, and it is not judged.
      */
     SKIPPED,
+    ;
+
+    /** Still to come, or going now. What a set has left to do. */
+    val isLive: Boolean get() = this == PENDING || this == RUNNING
 }
 
 /**

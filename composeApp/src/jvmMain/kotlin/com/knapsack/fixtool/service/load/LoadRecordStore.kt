@@ -156,7 +156,16 @@ class LoadRecordStore(
         val healed =
             record.copy(
                 finishedAt = record.finishedAt ?: lastWrite.takeIf { it > 0 } ?: record.startedAt,
-                phases = record.phases.map { if (it.status == LoadStatus.RUNNING) heal(it, lastWrite) else it },
+                phases =
+                    record.phases.map {
+                        when (it.status) {
+                            LoadStatus.RUNNING -> heal(it, lastWrite)
+                            // A phase of a set that had not started when the process ended never will.
+                            LoadStatus.PENDING ->
+                                it.copy(status = LoadStatus.SKIPPED, note = "the set's process ended before this phase")
+                            else -> it
+                        }
+                    },
             )
         write(healed)
         return healed

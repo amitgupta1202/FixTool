@@ -180,19 +180,56 @@ class StampMatcher(
     private val laneHistograms = HashMap<Int, IntArray>()
     private val specimens = ArrayList<Specimen>()
 
+    /**
+     * **What one matcher made of one stamp.**
+     *
+     * Three answers and not two, because a set has to tell "the wrong reply type, so try the phase
+     * before this one" apart from "a reply of exactly the shape I wait for, carrying an id I never
+     * issued". The first is nothing at all; the second is the stray count the "nothing matched"
+     * diagnosis reads, and it belongs to the phase that was running when it arrived.
+     */
+    enum class Claim {
+        /** Its own: a send it issued, a match, a late reply, or a duplicate of one it matched. */
+        MINE,
+
+        /** Nothing to do with this matcher and evidence of nothing: admin, the wrong type, no id. */
+        NOT_A_REPLY,
+
+        /** A reply of the shape this matcher waits for, carrying an id nothing here issued. */
+        UNKNOWN,
+    }
+
     /** Any thread, any session, every stamp. Does nothing with a message that is not the run's business. */
     fun onStamp(stamp: SocketStamp) {
-        val sessionId = stamp.sessionId ?: return
-        val type = WireTags.msgType(stamp.wire) ?: return
-        when (stamp.direction) {
+        if (offer(stamp) == Claim.UNKNOWN) countStray()
+    }
+
+    /**
+     * **Offer [stamp] to this matcher without deciding whose stray it is.**
+     *
+     * What a set's reply router calls. Every reply is offered to the live phase first, then to each
+     * finished phase newest first, and only a reply nobody issued is counted as a stray, on the phase that
+     * was running when it came. Against a matching venue that is not a corner case: phase 1's orders keep
+     * drawing fills while phase 2 cancels them, and one matcher per run would have counted every one of
+     * those fills as a phase 2 stray.
+     */
+    fun offer(stamp: SocketStamp): Claim {
+        val sessionId = stamp.sessionId ?: return Claim.NOT_A_REPLY
+        val type = WireTags.msgType(stamp.wire) ?: return Claim.NOT_A_REPLY
+        return when (stamp.direction) {
             WireDirection.SEND -> onSend(sessionId, type, stamp)
             WireDirection.RECEIVE -> onReceive(type, stamp)
         }
     }
 
-    private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp) {
-        if (sessionId !in issuing || type != requestType) return
-        val id = WireTags.tagValue(stamp.wire, match.requestTag) ?: return
+    /** A reply nobody issued, counted against this matcher. The router decides which phase that is. */
+    fun countStray() {
+        strays.incrementAndGet()
+    }
+
+    private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp): Claim {
+        if (sessionId !in issuing || type != requestType) return Claim.NOT_A_REPLY
+        val id = WireTags.tagValue(stamp.wire, match.requestTag) ?: return Claim.NOT_A_REPLY
         pending[id] = Pending(stamp.micros, laneOf(sessionId), stamp.wire)
         leftSocket.incrementAndGet()
         val now = outstanding.incrementAndGet()
@@ -202,14 +239,16 @@ class StampMatcher(
             if (stamp.micros > lastSendMicros) lastSendMicros = stamp.micros
             secondAt(secondOf(stamp.micros)).issued++
         }
+        return Claim.MINE
     }
 
-    private fun onReceive(type: String, stamp: SocketStamp) {
-        if (WireTags.isAdmin(type)) return
-        if (match.replyType != null && type != match.replyType) return
-        val id = WireTags.tagValue(stamp.wire, match.replyTag) ?: return
+    @Suppress("ReturnCount")
+    private fun onReceive(type: String, stamp: SocketStamp): Claim {
+        if (WireTags.isAdmin(type)) return Claim.NOT_A_REPLY
+        if (match.replyType != null && type != match.replyType) return Claim.NOT_A_REPLY
+        val id = WireTags.tagValue(stamp.wire, match.replyTag) ?: return Claim.NOT_A_REPLY
         val request = pending.remove(id)
-        when {
+        return when {
             request != null -> {
                 outstanding.decrementAndGet()
                 matchedIds[id] = request.laneSlot
@@ -219,13 +258,15 @@ class StampMatcher(
                     matched.incrementAndGet()
                     record(request, stamp)
                 }
+                Claim.MINE
             }
             matchedIds.containsKey(id) -> {
                 duplicates.incrementAndGet()
                 val lane = matchedIds[id]
                 if (lane != null) synchronized(samples) { laneDuplicates.merge(lane, 1L, Long::plus) }
+                Claim.MINE
             }
-            else -> strays.incrementAndGet()
+            else -> Claim.UNKNOWN
         }
     }
 

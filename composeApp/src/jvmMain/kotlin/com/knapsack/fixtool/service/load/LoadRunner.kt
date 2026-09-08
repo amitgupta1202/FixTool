@@ -32,6 +32,15 @@ class LoadRunner(
     private val host: LoadHost,
     private val store: LoadRecordStore? = null,
     private val clock: Pacer.Clock = Pacer.Clock.SYSTEM,
+    /**
+     * Where this phase's matcher goes to be fed stamps, and how it stops being fed.
+     *
+     * A single run puts a listener on every participating session, which is what [everySession] does and
+     * what this always did. A set hands its own reply router instead, because a reply belongs to the phase
+     * that asked for it however long after that phase ended it arrives, and the router is the only thing
+     * that knows which phase that was.
+     */
+    private val listen: (StampMatcher, List<LoadLane>) -> AutoCloseable = ::everySession,
 ) {
     /** The finished report, and the evidence the record keeps beside it. */
     data class Outcome(
@@ -96,7 +105,7 @@ class LoadRunner(
                 laneOf = { id: SessionID -> bySession[id] ?: 0 },
             )
         progress.matcher = matcher
-        val handles = all.map { it.addStampListener(matcher::onStamp) }
+        val listening = listen(matcher, all)
 
         // Each lane renders ahead of its own sends, so a lane's message is not queued behind every other
         // lane's rendering on the pacer thread. See RenderAhead: this is what makes a per-lane number
@@ -178,7 +187,7 @@ class LoadRunner(
             return Outcome(report, result.unmatched, result.specimens)
         } finally {
             producers.forEach { it.close() }
-            handles.forEach { it.close() }
+            listening.close()
         }
     }
 
@@ -316,6 +325,12 @@ class LoadRunner(
     }
 
     companion object {
+        /** One listener per participating session, closed together. What a single run has always done. */
+        fun everySession(matcher: StampMatcher, lanes: List<LoadLane>): AutoCloseable {
+            val handles = lanes.map { it.addStampListener(matcher::onStamp) }
+            return AutoCloseable { handles.forEach { it.close() } }
+        }
+
         const val SETTLE_POLL_MS = 100L
         private const val PROGRESS_EVERY_NANOS = 250_000_000L
         private const val NANOS_PER_MILLI = 1_000_000L

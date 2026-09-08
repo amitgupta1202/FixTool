@@ -237,13 +237,20 @@ object LoadReportCodec {
                     }
                 } ?: JsonNull,
             )
+            r.note?.let { put("note", it) }
+            // A phase that has not run is not judged, and says so rather than carrying a verdict of
+            // zeroes that a reader would have to know to disbelieve.
             put(
                 "verdict",
-                buildJsonObject {
-                    put("completeness", r.verdict.completeness.name)
-                    put("rate", r.verdict.rate.name)
-                    put("tool", r.verdict.tool.name)
-                    put("exitCode", r.verdict.exitCode?.let { JsonPrimitive(it) } ?: JsonNull)
+                if (r.status == LoadStatus.SKIPPED || r.status == LoadStatus.PENDING) {
+                    JsonNull
+                } else {
+                    buildJsonObject {
+                        put("completeness", r.verdict.completeness.name)
+                        put("rate", r.verdict.rate.name)
+                        put("tool", r.verdict.tool.name)
+                        put("exitCode", r.verdict.exitCode?.let { JsonPrimitive(it) } ?: JsonNull)
+                    }
                 },
             )
         }
@@ -392,6 +399,7 @@ object LoadReportCodec {
                     LoadReport.UnmatchedRequest(u.str("id"), u.intOrNull("lane") ?: 0, u.longOrNull("sentAt") ?: 0)
                 },
             unmatchedTotal = o.intOrNull("unmatchedTotal") ?: 0,
+            note = o.strOrNull("note"),
             evidence =
                 (o["evidence"] as? JsonObject)?.let { e ->
                     LoadReport.Evidence(

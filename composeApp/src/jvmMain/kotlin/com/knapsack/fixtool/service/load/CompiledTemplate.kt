@@ -209,7 +209,9 @@ class CompiledTemplate private constructor(
                 .filterIsInstance<Slot.PerMessage>()
                 .map { slot -> slot.copy(parts = slot.parts.map { asCaptured(it, captured) }) }
         val headerTags = perMessage.map { it.tag }.filter { prototype.header.isSetField(it) }.toSet()
-        return LanePrototype(prototype, perMessage, laneScope, headerTags, lookups)
+        val names = linkedSetOf<String>()
+        perMessage.forEach { slot -> slot.parts.forEach { collectCaptured(it, names) } }
+        return LanePrototype(prototype, perMessage, laneScope, headerTags, lookups, names.toList())
     }
 
     /**
@@ -222,6 +224,14 @@ class CompiledTemplate private constructor(
         private val laneScope: Map<String, String>,
         private val headerTags: Set<Int>,
         private val lookups: Map<String, (Int) -> String?> = emptyMap(),
+        /**
+         * Every captured name this message reads, in reading order, whether bare or behind a `${'$'}{id = …}`.
+         *
+         * Held as names rather than discovered while rendering, so one message asks the capture table
+         * once per name: the table is shared across a set's lanes, and the refusal below is decided
+         * before a single tag is written rather than half way down the message.
+         */
+        private val capturedNames: List<String> = emptyList(),
     ) {
         /** [messageIndex] is 1-based, so `${messageIndex}` counts the way "4,000 issued" counts. */
         fun render(messageIndex: Int): Message =
@@ -236,16 +246,17 @@ class CompiledTemplate private constructor(
          * refusal that looked like the venue's fault.
          */
         fun renderOrRefuse(messageIndex: Int): Rendered {
+            val captured = HashMap<String, String>(capturedNames.size)
+            for (name in capturedNames) {
+                val value =
+                    lookups[name]?.invoke(messageIndex) ?: return Rendered.Unaddressable(messageIndex, name)
+                captured[name] = value
+            }
             val message = prototype.clone() as Message
             val scope = HashMap(laneScope)
             scope[MESSAGE_INDEX] = messageIndex.toString()
             for (slot in perMessage) {
-                for (part in slot.parts) {
-                    if (part is Part.Captured && lookups[part.name]?.invoke(messageIndex) == null) {
-                        return Rendered.Unaddressable(messageIndex, part.name)
-                    }
-                }
-                val value = renderParts(slot.parts, scope, lookups, messageIndex)
+                val value = renderParts(slot.parts, scope, captured)
                 if (slot.tag in headerTags) message.header.setString(slot.tag, value) else message.setString(slot.tag, value)
             }
             return Rendered.Message(messageIndex, message)
@@ -319,32 +330,45 @@ class CompiledTemplate private constructor(
                 else -> part
             }
 
+        /**
+         * Every captured name [part] reads, added to [into] in reading order.
+         *
+         * Recurses into an [Part.Assign], because `${'$'}{id = quoteId}` reads the capture exactly as
+         * `${'$'}{quoteId}` does. A refusal that only looked at the top level rendered the assigned form as
+         * the literal `${'$'}{quoteId}` and put it on the wire.
+         */
+        private fun collectCaptured(part: Part, into: MutableSet<String>) {
+            when (part) {
+                is Part.Captured -> into += part.name
+                is Part.Assign -> collectCaptured(part.value, into)
+                else -> Unit
+            }
+        }
+
         private fun renderParts(
             parts: List<Part>,
             scope: MutableMap<String, String>,
-            lookups: Map<String, (Int) -> String?> = emptyMap(),
-            messageIndex: Int = 0,
+            captured: Map<String, String> = emptyMap(),
         ): String {
-            if (parts.size == 1) return renderPart(parts[0], scope, lookups, messageIndex)
+            if (parts.size == 1) return renderPart(parts[0], scope, captured)
             val sb = StringBuilder()
-            for (part in parts) sb.append(renderPart(part, scope, lookups, messageIndex))
+            for (part in parts) sb.append(renderPart(part, scope, captured))
             return sb.toString()
         }
 
         private fun renderPart(
             part: Part,
             scope: MutableMap<String, String>,
-            lookups: Map<String, (Int) -> String?> = emptyMap(),
-            messageIndex: Int = 0,
+            captured: Map<String, String> = emptyMap(),
         ): String =
             when (part) {
                 is Part.Text -> part.text
                 is Part.Variable -> scope[part.name] ?: "\${${part.name}}"
                 is Part.Generated -> generate(part.generator)
-                // Reached only when the prototype is being built, where a placeholder is what is wanted:
-                // renderOrRefuse has already refused the message when a capture is missing.
-                is Part.Captured -> lookups[part.name]?.invoke(messageIndex) ?: "\${${part.name}}"
-                is Part.Assign -> renderPart(part.value, scope, lookups, messageIndex).also { scope[part.name] = it }
+                // Already resolved for the whole message, or the message was refused. The placeholder is
+                // reached only when the prototype is being built, where a placeholder is what is wanted.
+                is Part.Captured -> captured[part.name] ?: "\${${part.name}}"
+                is Part.Assign -> renderPart(part.value, scope, captured).also { scope[part.name] = it }
             }
 
         /**

@@ -171,6 +171,59 @@ class CompiledTemplateTest {
         assertEquals("quoteId", refused.missing)
     }
 
+    /**
+     * **A capture read through an assignment is refused too**, because the wire cannot tell the difference.
+     *
+     * `${'$'}{id = quoteId}` keeps the value for a second tag in the same message, which is a fact about the
+     * message and not about where the value came from. A refusal that only looked at a bare `${'$'}{quoteId}`
+     * put the literal on the wire for the assigned form, and a venue answering `117=${'$'}{quoteId}` looks
+     * like a venue at fault.
+     */
+    @Test
+    fun `a capture read through an assignment renders, and refuses the message when it is missing`() {
+        val compiled =
+            CompiledTemplate.compile(template(117 to "\${id = quoteId}", 11 to "H-\${id}"))
+        val prototype =
+            compiled.prepare(
+                lane = lane(1),
+                seed = emptyMap(),
+                dictionary = dictionary,
+                lookups = mapOf("quoteId" to { i: Int -> if (i == 2) null else "QID-$i" }),
+            ) { it }
+
+        val first = assertIs<CompiledTemplate.Rendered.Message>(prototype.renderOrRefuse(1))
+        assertEquals("QID-1", first.message.getString(117))
+        assertEquals("H-QID-1", first.message.getString(11))
+
+        val refused = assertIs<CompiledTemplate.Rendered.Unaddressable>(prototype.renderOrRefuse(2))
+        assertEquals(2, refused.index)
+        assertEquals("quoteId", refused.missing)
+    }
+
+    /**
+     * **One call per name per message**, however many tags read it.
+     *
+     * The table is shared by every lane of a set, so a check-then-render pair doubled the reads on the
+     * per-message path for nothing: the same index cannot answer twice.
+     */
+    @Test
+    fun `a capture is looked up once per message, not once to check and once to render`() {
+        val calls = mutableListOf<Int>()
+        val compiled = CompiledTemplate.compile(template(117 to "\${quoteId}", 11 to "H-\${id = quoteId}"))
+        val prototype =
+            compiled.prepare(
+                lane = lane(1),
+                seed = emptyMap(),
+                dictionary = dictionary,
+                lookups = mapOf("quoteId" to { i: Int -> calls += i; "QID-$i" }),
+            ) { it }
+        calls.clear()
+
+        assertIs<CompiledTemplate.Rendered.Message>(prototype.renderOrRefuse(7))
+
+        assertEquals(listOf(7), calls, "one name, one read, though two tags render it")
+    }
+
     /** A captured name is not "unseeded": the set refused it if no earlier phase filled it. */
     @Test
     fun `a template reading a capture asks nothing of the seed, and says it reads the name`() {

@@ -445,7 +445,7 @@ object HeadlessLoad {
                 "set".padEnd(COL) +
                     listOfNotNull(
                         record.label,
-                        "${record.phases.size} phases",
+                        "${record.phases.size} phase${if (record.phases.size == 1) "" else "s"}",
                         profiles,
                         "$lanes lane${if (lanes == 1) "" else "s"}",
                         planned.storeAndLog?.describe(),

@@ -216,6 +216,48 @@ class HeadlessLoadTest {
         assertTrue(text.contains("records: /tmp/loads/set-1"), text)
     }
 
+    /**
+     * **A set of one is a set**, and its header line says so in English: "1 phase".
+     *
+     * The soak set in the editor's own sketch has one member, and a saved set of one is the natural way to
+     * park a burst that gets re-run.
+     */
+    @Test
+    fun `a one-phase set's summary says one phase`() {
+        val soak =
+            roundTrip.copy(name = "quote-stream-soak", label = "Quote stream soak", phases = listOf(spec("Stream quotes", 400)))
+        val planned =
+            soak.plan(
+                object : LoadSet.Resolver {
+                    override fun profile(key: String) = LoadSet.Profile("p", "RFQ Load Client", FixConnectionConfig())
+
+                    override fun template(key: String, profileId: String?) =
+                        LoadTemplate("RFQ Load QuoteRequest", listOf(35 to "R", 131 to "x"))
+                },
+                seedOverride = emptyMap(),
+                id = "soak-1",
+            )
+        val only =
+            LoadFixtures
+                .burstReport(unmatched = 0)
+                .copy(label = "Stream quotes", profileName = "RFQ Load Client", lanes = 1, startedAt = 0, finishedAt = 2_700)
+        val record =
+            LoadRecord(
+                id = "soak-1",
+                label = "Quote stream soak",
+                startedAt = 0,
+                finishedAt = 2_700,
+                phases = listOf(only),
+                set = LoadRecord.SetInfo("quote-stream-soak", OnFailure.STOP),
+                seed = mapOf("run" to "b7f2"),
+            )
+
+        val text = HeadlessLoad.setSummary(record, planned, File("/tmp/loads/soak-1"), null)
+
+        assertTrue(text.contains("set          Quote stream soak · 1 phase · RFQ Load Client · 1 lane"), text)
+        assertTrue(!text.contains("1 phases"), "a set of one does not say '1 phases': $text")
+    }
+
     /** One <testsuites> with a <testsuite> per phase, and three skipped cases for a phase that never ran. */
     @Test
     fun `a set's JUnit file is one testsuites, and a one-phase record keeps its bare testsuite`() {

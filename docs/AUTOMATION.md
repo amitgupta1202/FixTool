@@ -193,7 +193,7 @@ fixtool load --set <name> [--seed <k>=<v>]… [--on-failure stop|continue] [opti
 seed this release, with one line on stderr. Set names are slugs and cannot contain `=`, so the two never
 collide.
 
-**What varies per message.** `${messageIndex}` (1-based), the `--set` seeds, `${uuid}`, `${uuid:N}`,
+**What varies per message.** `${messageIndex}` (1-based), the `--seed` values, `${uuid}`, `${uuid:N}`,
 `${now}` and `${utcnow}` with their offsets and patterns are rendered per message by string substitution.
 `${sessionIndex}` and the other lane names are the lane's, as in a fan-out. Anything else, a `${out.D.11}`
 or a Kotlin expression, is evaluated **once per lane** and frozen, and the report lists its tag under

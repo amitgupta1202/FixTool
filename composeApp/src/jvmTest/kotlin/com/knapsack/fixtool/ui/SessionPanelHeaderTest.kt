@@ -1,0 +1,80 @@
+package com.knapsack.fixtool.ui
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
+import com.knapsack.fixtool.model.FixMessageSession
+import org.junit.Rule
+import org.junit.Test
+import kotlin.test.assertTrue
+
+/**
+ * **A pane header at ten-pane width.**
+ *
+ * Ten panes in the top-to-bottom grid leave each one about 190dp wide, and the header used to answer
+ * that by wrapping its title onto three lines, stacking the message count a digit per line, and
+ * measuring every button after the title at zero width, so a pane that narrow could not be minimized,
+ * moved or closed at all. These pin the three halves of the fix: one title line, one count line, and
+ * an overflow menu that appears only when the full button set does not fit.
+ */
+class SessionPanelHeaderTest {
+    @get:Rule
+    val rule = createComposeRule()
+
+    private fun renderHeader(
+        width: Dp,
+        title: String,
+        messageCount: Int,
+    ) {
+        val session = FixMessageSession(title = title)
+        rule.setContent {
+            Box(modifier = Modifier.width(width)) {
+                SessionPanelHeader(
+                    session = session,
+                    viewMode = FixMessageSession.ViewMode.RAW,
+                    messageCount = messageCount,
+                    isAtBottom = true,
+                    onScrollToBottom = {},
+                    onMinimize = {},
+                    onConnect = {},
+                    onDisconnect = {},
+                    onMoveLeft = {},
+                    onMoveRight = {},
+                    onClose = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `a 190dp header keeps one title line, its count and its close button, and folds the rest into a menu`() {
+        renderHeader(width = 190.dp, title = "RFQ Demo Venue ← RFQLG3", messageCount = 140)
+
+        // Two lines of 12sp would clear 30dp, so anything under 22dp is the single line asked for.
+        val titleHeight = rule.onNodeWithTag("pane-title").getUnclippedBoundsInRoot().height
+        assertTrue(titleHeight < 22.dp, "the title measured $titleHeight, which is more than one line")
+        rule.onNodeWithTag("pane-message-count").assertIsDisplayed().assertTextEquals("140").assertWidthIsAtLeast(8.dp)
+        rule.onNodeWithContentDescription("Close Session").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Minimize Pane").assertIsDisplayed()
+        rule.onNodeWithContentDescription("More actions").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a 700dp header draws every action as its own button, with no overflow menu`() {
+        renderHeader(width = 700.dp, title = "RFQ Demo Venue ← RFQLG3", messageCount = 140)
+
+        rule.onNodeWithContentDescription("More actions").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Toggle Filter").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Move Session Right").assertIsDisplayed()
+    }
+}

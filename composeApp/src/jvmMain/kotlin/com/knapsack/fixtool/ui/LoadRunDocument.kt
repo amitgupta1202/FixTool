@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStage
@@ -94,13 +95,25 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
     }
     // One phase draws today's document unchanged. Several draw the set, which is this document with two
     // things around it: a verdict that names the phase, and a timeline saying where the clock went.
-    val focused = if (record.phases.size > 1) (doc.phase ?: record.currentPhase ?: record.phases.size) else 1
+    val focused = if (record.phases.size > 1) (doc.phase ?: record.currentPhase ?: settledFocus(record)) else 1
     val report = record.phases.getOrElse(focused - 1) { record.only }
     val wire =
         remember(report.id, focused, report.status) {
             if (report.unmatched.isEmpty()) emptyList() else viewModel.loadRecordStore.unmatchedWire(report.id, report.evidence)
         }
     val records = viewModel.loadRecordStore.directoryFor(record.id)
+    // "Run set again" goes back through the saved set by name, which is the only thing that reruns all of
+    // it. Null when the record came from no file, which is what turns the button off.
+    val setName = record.set?.name
+    val rerunSet: (() -> Unit)? =
+        if (setName == null) {
+            null
+        } else {
+            {
+                viewModel.startSavedLoadSet(setName)
+                Unit
+            }
+        }
     if (record.phases.size > 1) {
         LoadSetView(
             record = record,
@@ -111,6 +124,7 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
             onStop = { viewModel.stopLoadRun(record.id) },
             onReveal = { id -> viewModel.revealLoadRequest(id) },
             onCompare = { viewModel.openLoadCompare(record.id) },
+            onRerun = rerunSet,
             modifier = modifier,
         )
         return
@@ -125,6 +139,21 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
         modifier = modifier,
     )
 }
+
+/**
+ * **Which phase a finished set opens on**: the one its verdict names, and otherwise the last phase that
+ * reached a verdict at all.
+ *
+ * Not the last phase in the list. A FAILED set stops on failure, so its last phase is the *skipped* one,
+ * and opening there put a report of zeroes and "not run" in front of a reader who came to see what broke.
+ */
+private fun settledFocus(record: LoadRecord): Int =
+    record.verdict.phase
+        ?: record.phases
+            .indexOfLast { it.status != LoadStatus.SKIPPED && it.status != LoadStatus.PENDING }
+            .takeIf { it >= 0 }
+            ?.plus(1)
+        ?: record.phases.size
 
 /**
  * **What a set puts around one phase's report**: which phase it is, and the two ends it replaces.

@@ -63,11 +63,13 @@ fun LoadSetView(
     onStop: () -> Unit,
     onReveal: (String) -> Boolean = { false },
     onCompare: (() -> Unit)? = null,
+    /** "Run set again": null when this record came from no saved set, which disables the button. */
+    onRerun: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val phase = record.phases.getOrElse(focused - 1) { record.only }
     Column(modifier = modifier.fillMaxSize().testTag("load-set-document")) {
-        SetHeader(record, records, onStop, onCompare)
+        SetHeader(record, records, onStop, onCompare, onRerun)
         SetTimeline(record)
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
         Row(modifier = Modifier.fillMaxSize()) {
@@ -98,7 +100,14 @@ fun LoadSetView(
  * **Stop set**, not Stop: one button, and its consequence is written into the skipped rows below it.
  */
 @Composable
-private fun SetHeader(record: LoadRecord, records: File, onStop: () -> Unit, onCompare: (() -> Unit)?) {
+@Suppress("LongParameterList")
+private fun SetHeader(
+    record: LoadRecord,
+    records: File,
+    onStop: () -> Unit,
+    onCompare: (() -> Unit)?,
+    onRerun: (() -> Unit)?,
+) {
     val (headline, tint) = setHeadline(record)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -141,9 +150,19 @@ private fun SetHeader(record: LoadRecord, records: File, onStop: () -> Unit, onC
             )
         } else {
             onCompare?.let { SlimButton("Compare…", onClick = it, modifier = Modifier.testTag("load-set-compare")) }
-            SlimButton("Copy JSON", onClick = { copyJson(records) }, modifier = Modifier.testTag("load-set-copy-json"))
-            SlimButton("Reveal records", onClick = { reveal(records) }, modifier = Modifier.testTag("load-set-reveal"))
+            // Off when the set came from no file, with the reason in the meta line above rather than in a
+            // notification nobody asked for by hovering a button.
+            SlimButton(
+                "Run set again",
+                onClick = onRerun ?: {},
+                enabled = onRerun != null,
+                modifier = Modifier.testTag("load-set-rerun"),
+            )
         }
+        // Always, in every state. A record on disk can be read and revealed while its set is still going,
+        // and withholding both for the length of a soak is the state a reader is most likely to be in.
+        SlimButton("Copy JSON", onClick = { copyJson(records) }, modifier = Modifier.testTag("load-set-copy-json"))
+        SlimButton("Reveal records", onClick = { reveal(records) }, modifier = Modifier.testTag("load-set-reveal"))
     }
 }
 
@@ -183,6 +202,9 @@ private fun setMetaLine(record: LoadRecord): String {
             record.verdict.counts().ifBlank { null },
             elapsed,
             record.exitCode?.let { "exit $it" },
+            // Why "Run set again" is off, beside everything else this line says about the set, rather than
+            // on a hover a reader has to go looking for.
+            if (record.status != LoadStatus.RUNNING && record.set?.name == null) "no saved set to run again" else null,
         )
     return parts.joinToString(" · ")
 }

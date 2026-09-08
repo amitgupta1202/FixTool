@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -127,8 +129,107 @@ class LoadSetDocumentTest {
         composeTestRule.onNodeWithTag("load-set-timeline-note").assertIsDisplayed()
         composeTestRule.onNodeWithTag("load-set-phase-1").assertTextContains("Ask for a quote", substring = true)
         composeTestRule.onNodeWithTag("load-set-phase-3").assertTextContains("skipped", substring = true)
-        // The live phase is the focused one, and here there is none, so the last is shown: the skipped one.
-        composeTestRule.onNodeWithText("not run", substring = true).assertIsDisplayed()
+        // **The verdict's phase is the focused one.** It used to be the last in the list, so a FAILED set
+        // opened on the phase that was skipped *because of* the failure, and put a report of zeroes and
+        // "not run" in front of a reader who came to see what broke.
+        composeTestRule.onNodeWithTag("load-set-phase-title").assertTextContains("2 · Hit the first 2,000")
+        composeTestRule.onNodeWithText("not run", substring = true).assertDoesNotExist()
+    }
+
+    /** A stopped set opens on the phase it stopped in, for the same reason a failed one does. */
+    @Test
+    fun `a stopped set opens on the phase it stopped in`() {
+        val phases =
+            listOf(
+                phase("Ask for a quote"),
+                phase("Hit the first 2,000", status = LoadStatus.STOPPED),
+                skipped("Pass the other 2,000", "the set was stopped"),
+            )
+
+        show(record(phases, id = "set-stopped-focus"))
+
+        composeTestRule.onNodeWithTag("load-set-phase-title").assertTextContains("2 · Hit the first 2,000")
+    }
+
+    /**
+     * The figure's header, in every state: Copy JSON and Reveal records **always**. Both used to be
+     * withheld for the length of a run, which is the state a reader watching a soak is in.
+     */
+    @Test
+    fun `the header keeps Copy JSON and Reveal records while the set is running`() {
+        val live =
+            record(
+                listOf(
+                    phase("Ask for a quote"),
+                    phase("Hit the first 2,000", status = LoadStatus.RUNNING).copy(stage = LoadStage.ISSUING),
+                ),
+                id = "set-header-live",
+            )
+
+        composeTestRule.setContent {
+            LoadSetView(
+                record = live,
+                focused = 2,
+                onFocus = {},
+                phaseWire = emptyList(),
+                records = File("loads/set-header-live"),
+                onStop = {},
+                onRerun = {},
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("load-set-stop").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-set-copy-json").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-set-reveal").assertIsDisplayed()
+        // One button while it runs, and its consequence is in the skipped rows.
+        composeTestRule.onNodeWithTag("load-set-rerun").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a finished set offers Run set again, beside Copy JSON and Reveal records`() {
+        val phases = listOf(phase("Ask for a quote"), phase("Hit the first 2,000", unmatched = 4))
+        var reran = false
+
+        composeTestRule.setContent {
+            LoadSetView(
+                record = record(phases, id = "set-rerun"),
+                focused = 2,
+                onFocus = {},
+                phaseWire = emptyList(),
+                records = File("loads/set-rerun"),
+                onStop = {},
+                onRerun = { reran = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("load-set-rerun").assertHasClickAction().performClick()
+        assertTrue(reran, "Run set again goes back through the saved set")
+        composeTestRule.onNodeWithTag("load-set-copy-json").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-set-reveal").assertIsDisplayed()
+    }
+
+    /** No file, no rerun. The button stays visible and off, with the reason in the line above it. */
+    @Test
+    fun `a set that came from no saved file says so beside a disabled Run set again`() {
+        val phases = listOf(phase("Ask for a quote"), phase("Hit them"))
+
+        composeTestRule.setContent {
+            LoadSetView(
+                record = record(phases, id = "set-no-file").copy(set = null),
+                focused = 1,
+                onFocus = {},
+                phaseWire = emptyList(),
+                records = File("loads/set-no-file"),
+                onStop = {},
+                onRerun = null,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("load-set-rerun").assertHasNoClickAction()
+        composeTestRule.onNodeWithTag("load-set-meta").assertTextContains("no saved set to run again", substring = true)
     }
 
     @Test

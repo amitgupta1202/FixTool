@@ -65,27 +65,41 @@ fun LoadSetsDialog(
     onRun: (LoadSet.Planned) -> Unit,
     /** The set to open on, unsaved: what "Make this a set…" in Load run… hands over. */
     initial: LoadSet? = null,
+    /**
+     * The **saved** set to open on, by name: what a refused `Load set ▸` hands over.
+     *
+     * By name rather than as a [initial] value, because it is on disk already and opening it as an unsaved
+     * draft would put "unsaved" in the footer of a set nobody has touched.
+     */
+    initialName: String? = null,
 ) {
     val state = rememberDialogState(width = 820.dp, height = 620.dp)
     Dialog(onCloseRequest = onDismiss, title = "Load sets", state = state) {
-        LoadSetsDialogContent(viewModel, onDismiss, onRun, initial)
+        LoadSetsDialogContent(viewModel, onDismiss, onRun, initial, initialName)
     }
 }
 
 /** The dialog's body without its window, so a test can drive it in a plain composition. */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-@Suppress("LongMethod", "CyclomaticComplexMethod")
+@Suppress("LongMethod", "CyclomaticComplexMethod", "LongParameterList")
 fun LoadSetsDialogContent(
     viewModel: FixMessageViewModel,
     onDismiss: () -> Unit,
     onRun: (LoadSet.Planned) -> Unit,
     initial: LoadSet? = null,
+    initialName: String? = null,
 ) {
     var saved by remember { mutableStateOf(viewModel.loadSets()) }
     var draft by
         remember {
-            mutableStateOf(initial ?: viewModel.lastLoadSet() ?: saved.firstOrNull() ?: blankSet(viewModel))
+            mutableStateOf(
+                initial
+                    ?: initialName?.let { viewModel.loadSet(it) }
+                    ?: viewModel.lastLoadSet()
+                    ?: saved.firstOrNull()
+                    ?: blankSet(viewModel),
+            )
         }
     var editing by remember { mutableStateOf<Int?>(null) }
     var dirty by remember { mutableStateOf(initial != null) }
@@ -93,9 +107,18 @@ fun LoadSetsDialogContent(
     val resolve = remember(draft) { viewModel.loadSetResolver() }
     val problems = remember(draft) { draft.problems(resolve, LoadPlan.Surface.DIALOG) }
 
-    // What a phase can read: the set's seed, plus whatever the phases before it keep. Per phase, because
-    // a capture is readable only from an earlier one.
-    fun seededFor(index: Int): Set<String> = draft.seed.keys + draft.phases.take(index).flatMap { it.capture.keys }
+    /**
+     * What the phases **before** [index] keep, to the number of the first phase that keeps it.
+     *
+     * Kept apart from the seed, which the phase editor takes separately: the template's sub-line says where
+     * each name comes from, and "from phase 1" is the half its reader does not already know.
+     */
+    fun capturedBefore(index: Int): Map<String, Int> =
+        buildMap {
+            draft.phases.take(index).forEachIndexed { i, spec ->
+                spec.capture.keys.forEach { name -> putIfAbsent(name, i + 1) }
+            }
+        }
 
     fun select(set: LoadSet) {
         draft = set
@@ -131,7 +154,8 @@ fun LoadSetsDialogContent(
                         n = index + 1,
                         setLabel = draft.label.ifBlank { draft.name },
                         spec = spec,
-                        seeded = seededFor(index),
+                        seeded = draft.seed.keys,
+                        captured = capturedBefore(index),
                         onBack = { editing = null },
                         onDone = { updated ->
                             draft = draft.copy(phases = draft.phases.toMutableList().also { it[index] = updated })
@@ -206,7 +230,10 @@ fun LoadSetsDialogContent(
             why = problems.firstOrNull()?.let { first -> first.describe(labelOf(draft, first.phase)) },
             runnable = problems.isEmpty() && draft.phases.isNotEmpty(),
             dirty = dirty,
-            onCopy = { copyToClipboard("fixtool load --set ${draft.name}") },
+            // It copies the *saved* name, so it saves first if it has to. A renamed or brand-new set
+            // otherwise put a name on the clipboard that no file on disk answers to, and the build that
+            // pasted it failed on a set nobody could find.
+            onCopy = { if (!dirty || save()) copyToClipboard("fixtool load --set ${draft.name}") },
             onSave = { save() },
             onDismiss = onDismiss,
             onRun = ::run,

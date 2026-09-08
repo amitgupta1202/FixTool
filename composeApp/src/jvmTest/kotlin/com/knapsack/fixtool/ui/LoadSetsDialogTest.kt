@@ -1,10 +1,12 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -65,7 +67,23 @@ class LoadSetsDialogTest {
                     ),
             ),
         )
-        SavedMessagesService(customPath = File(testDir, "saved_messages.json").absolutePath).saveMessage(
+        // A listen-only side, so a phase has something to also match on.
+        viewModel.saveConnectionProfile(
+            FixConnectionProfile(
+                id = "dc",
+                name = "DROPCOPY",
+                config =
+                    FixConnectionConfig(
+                        senderCompID = "DC",
+                        targetCompID = "VENUE",
+                        host = "localhost",
+                        port = "9",
+                        resetOnLogon = true,
+                    ),
+            ),
+        )
+        val messages = SavedMessagesService(customPath = File(testDir, "saved_messages.json").absolutePath)
+        messages.saveMessage(
             "lg",
             SavedFixMessage(
                 id = "quotes",
@@ -75,6 +93,21 @@ class LoadSetsDialogTest {
                     listOf(
                         SavedFixField("35", "R"),
                         SavedFixField("131", "Q-\${run}-\${messageIndex}"),
+                        SavedFixField("55", "EUR/USD"),
+                    ),
+            ),
+        )
+        // Reads a name no seed can cover: an earlier phase has to have kept it.
+        messages.saveMessage(
+            "lg",
+            SavedFixMessage(
+                id = "passes",
+                name = "Passes",
+                userTags = setOf("lg"),
+                fields =
+                    listOf(
+                        SavedFixField("35", "AJ"),
+                        SavedFixField("117", "\${quoteId}"),
                         SavedFixField("55", "EUR/USD"),
                     ),
             ),
@@ -186,7 +219,7 @@ class LoadSetsDialogTest {
         // The set owns the seed and the store, so the phase says so rather than showing fields it cannot fix.
         composeTestRule.onNodeWithTag("phase-label").assertTextContains("Ask for a quote")
         composeTestRule.onNodeWithTag("phase-index-from").assertTextContains("1")
-        composeTestRule.onNodeWithTag("load-seed-name-0").assertDoesNotExistSafely()
+        composeTestRule.onNodeWithTag("load-seed-name-0").assertDoesNotExist()
 
         composeTestRule.onNodeWithTag("phase-label").performTextClearance()
         composeTestRule.onNodeWithTag("phase-label").performTextInput("Ask again")
@@ -207,7 +240,7 @@ class LoadSetsDialogTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("load-set-phase-row-1").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("load-set-phase-row-2").assertDoesNotExistSafely()
+        composeTestRule.onNodeWithTag("load-set-phase-row-2").assertDoesNotExist()
     }
 
     @Test
@@ -228,6 +261,132 @@ class LoadSetsDialogTest {
         composeTestRule.onNodeWithTag("load-set-why").assertTextContains("unsaved", substring = true)
     }
 
+    /**
+     * The bug this pins: `listen` is saved as profile **names** and the checkbox row speaks profile **ids**,
+     * so seeding the editor from the spec unmapped left every box unticked and Done wrote back an empty
+     * list. Opening a phase and pressing Done must be a no-op.
+     */
+    @Test
+    fun `Done keeps the phase's listen profiles, which are saved by name and ticked by id`() {
+        viewModel.saveLoadSet(
+            roundTrip.copy(
+                phases = roundTrip.phases.mapIndexed { i, p -> if (i == 0) p.copy(listen = listOf("DROPCOPY")) else p },
+            ),
+        )
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-1").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-done").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val saved = assertNotNull(viewModel.loadSet("round-trip"))
+        assertEquals(listOf("DROPCOPY"), saved.phases[0].listen, "Done dropped the phase's listeners")
+    }
+
+    /** "${quoteId} from phase 1", because "from the seed" sends its reader to the wrong band to change it. */
+    @Test
+    fun `a captured name is attributed to the phase that keeps it, not to the seed`() {
+        viewModel.saveLoadSet(
+            LoadSet(
+                name = "captures",
+                label = "Captures",
+                seed = mapOf("run" to "b7f2"),
+                phases =
+                    listOf(
+                        LoadPhaseSpec(
+                            "Ask for a quote",
+                            "Quotes",
+                            "LOADGEN",
+                            match = LoadMatch(131, 131, "S"),
+                            shape = LoadShape.Burst(10),
+                            capture = mapOf("quoteId" to 117),
+                        ),
+                        LoadPhaseSpec("Pass them", "Passes", "LOADGEN", match = LoadMatch(117, 117, "AI"), shape = LoadShape.Burst(10)),
+                    ),
+            ),
+        )
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("\${quoteId} from phase 1", substring = true).assertExists()
+        composeTestRule.onNodeWithText("from the seed", substring = true).assertDoesNotExist()
+    }
+
+    /**
+     * A `Where.SEED` refusal has no field on this screen, so it must not hold Done: Esc was the only way
+     * out, and Esc discards the edit. The set band's phase row carries the sentence instead.
+     */
+    @Test
+    fun `a phase reading a name nothing seeds can still be edited and Done`() {
+        viewModel.saveLoadSet(roundTrip.copy(name = "unseeded", label = "Unseeded", seed = emptyMap()))
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-1").performClick()
+        composeTestRule.waitForIdle()
+
+        // The footer says what the phase will do, not a refusal it cannot act on.
+        composeTestRule.onNodeWithTag("phase-why").assertTextContains("settle", substring = true)
+        composeTestRule.onNodeWithTag("phase-label").performTextClearance()
+        composeTestRule.onNodeWithTag("phase-label").performTextInput("Ask again")
+        composeTestRule.onNodeWithTag("phase-done").assertHasClickAction().performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-set-phase-label-1").assertTextContains("Ask again")
+        // And the fix is on the phase's own row, one click from the Seed field that clears it.
+        composeTestRule.onNodeWithTag("load-set-phase-fixes-1").assertTextContains("1 fix", substring = true)
+    }
+
+    /** `${messageIndex}` restarts at 1 in every phase whatever its shape, so a rate phase needs the field too. */
+    @Test
+    fun `a rate phase can say where its message index starts`() {
+        viewModel.saveLoadSet(
+            roundTrip.copy(
+                phases = listOf(roundTrip.phases[0].copy(shape = LoadShape.Rate(500, 10_000), indexFrom = 2_001)),
+            ),
+        )
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-1").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-rate").assertTextContains("500")
+        composeTestRule.onNodeWithTag("phase-index-from").assertTextContains("2001")
+    }
+
+    /** It copies the saved name, so a renamed or brand-new set must be on disk before the name goes out. */
+    @Test
+    fun `Copy as fixtool load --set saves first, so the name it copies answers to a file`() {
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-name").performTextClearance()
+        composeTestRule.onNodeWithTag("load-set-name").performTextInput("Nightly soak")
+        composeTestRule.onNodeWithTag("load-set-copy-cli").performClick()
+        composeTestRule.waitForIdle()
+
+        assertNotNull(viewModel.loadSet("nightly-soak"), "the copied name has to be one a file answers to")
+    }
+
+    /** The refused set opens on **itself**, not on whichever set the editor would have selected. */
+    @Test
+    fun `initialName opens the editor on the saved set that was refused`() {
+        viewModel.saveLoadSet(roundTrip.copy(name = "aaa-first", label = "Aaa first"))
+        viewModel.saveLoadSet(roundTrip.copy(name = "zulu-broken", label = "Zulu broken", seed = emptyMap()))
+
+        composeTestRule.setContent {
+            LoadSetsDialogContent(viewModel, onDismiss = {}, onRun = {}, initialName = "zulu-broken")
+        }
+
+        composeTestRule.onNodeWithTag("load-set-name").assertTextContains("Zulu broken")
+        // Opened by name, so it is not a draft: nothing has been changed yet.
+        composeTestRule.onNodeWithTag("load-set-why").assertTextContains("Phase 1", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-fixes-1").assertTextContains("1 fix", substring = true)
+    }
+
     @Test
     fun `Run set saves first, then hands over a planned set`() {
         viewModel.saveLoadSet(roundTrip)
@@ -243,9 +402,4 @@ class LoadSetsDialogTest {
         assertTrue(ready.seed.getValue("run").length == 4, "the generator was rendered once: ${ready.seed}")
         assertEquals(listOf(ready.id), ready.phases.map { it.id }.distinct(), "one record for the set")
     }
-}
-
-/** `assertDoesNotExist` on a tag that never appeared, without the matcher throwing on the empty set. */
-private fun androidx.compose.ui.test.SemanticsNodeInteraction.assertDoesNotExistSafely() {
-    runCatching { assertDoesNotExist() }
 }

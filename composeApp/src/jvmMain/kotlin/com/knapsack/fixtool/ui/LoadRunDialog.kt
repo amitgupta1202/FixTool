@@ -105,10 +105,20 @@ data class PhaseEdit(
     val spec: LoadPhaseSpec,
     /** What the set seeds, so a `${'$'}{name}` the set covers is not refused on this screen. */
     val seeded: Set<String>,
+    /**
+     * What an **earlier** phase keeps, to the phase number that keeps it.
+     *
+     * Separate from [seeded] because the template's sub-line says where each name comes from, and a
+     * captured name attributed to the seed sends its reader to the wrong band to change it.
+     */
+    val captured: Map<String, Int> = emptyMap(),
     val onBack: () -> Unit,
     val onDone: (LoadPhaseSpec) -> Unit,
     val onRemove: () -> Unit,
-)
+) {
+    /** Every name already in scope here: the set's seed and whatever the phases before this one keep. */
+    val readable: Set<String> get() = seeded + captured.keys
+}
 
 /** The dialog's body without its window, so a test can drive it in a plain composition. */
 @Composable
@@ -143,7 +153,20 @@ fun LoadRunDialogContent(
                     ?: templates.firstOrNull(),
             )
         }
-    var listen by remember { mutableStateOf(phase?.spec?.listen?.toSet() ?: setOf()) }
+    // Profile **ids**, because that is what the checkbox row and the plan both speak. A phase's `listen`
+    // holds names (or ids, as `LoadPhaseSpec.listen` allows), so seeding this from it unmapped left every
+    // box unticked and Done wrote the phase back with no listeners at all.
+    var listen by
+        remember {
+            mutableStateOf(
+                phase
+                    ?.spec
+                    ?.listen
+                    ?.mapNotNull { key -> profiles.firstOrNull { it.id == key || it.name == key }?.id }
+                    ?.toSet()
+                    ?: emptySet(),
+            )
+        }
 
     // The shape, the settle window and the seed come back from the view-state store, per profile. They were
     // `remember` locals, so every open reset to 4000 / 500 / 60s however often a run had been tuned by hand.
@@ -204,7 +227,7 @@ fun LoadRunDialogContent(
             chosen == null || profile == null -> emptyList()
             // In a phase the seed and the store are the set's, and so are their refusals: this screen has
             // no field to fix either on, and the set's own band shows both.
-            phase != null -> LoadPlan.templateProblems(chosen, phase.seeded, LoadPlan.Surface.DIALOG)
+            phase != null -> LoadPlan.templateProblems(chosen, phase.readable, LoadPlan.Surface.DIALOG)
             else -> LoadPlan.problems(chosen, seed, profile.name, profile.config, override, LoadPlan.Surface.DIALOG)
         }
     val refusals =
@@ -228,14 +251,19 @@ fun LoadRunDialogContent(
                 (lanes as? FixMessageViewModel.FanOutLanes.Unavailable)?.let { add(Refusal(Where.PROFILE, it.why)) }
             }
         }
-    val hidden = refusals.firstOrNull { it.where in ADVANCED }
+    // **What may hold the button.** In a phase the seed and the store are the set's, and this screen has no
+    // field for either, so a `${'$'}{desk}` nothing seeds used to disable Done with the only way out being
+    // Esc, which discards the edit. Those two route to the set band instead, where the phase row carries
+    // the sentence and the Seed field is one click away.
+    val blocking = if (phase == null) refusals else refusals.filterNot { it.where in SET_OWNED }
+    val hidden = blocking.firstOrNull { it.where in ADVANCED }
 
     // The rule, and the reason LoadRunDialogTest can still reach the store radios: a refusal that names
     // something inside Advanced opens Advanced. It stays open afterwards — a group that shut itself the
     // instant its refusal cleared would take the control away in the middle of correcting it.
     LaunchedEffect(hidden != null) { if (hidden != null) advancedOpen = true }
 
-    val runnable = refusals.isEmpty() && (phase != null || lanes is FixMessageViewModel.FanOutLanes.Available)
+    val runnable = blocking.isEmpty() && (phase != null || lanes is FixMessageViewModel.FanOutLanes.Available)
 
     fun plan(): LoadPlan? {
         val t = template ?: return null
@@ -373,7 +401,7 @@ fun LoadRunDialogContent(
                     // covers, and which an earlier phase has to have kept.
                     if (phase != null) Sub(readsFrom(it, phase))
                 }
-                Refusals(refusals, Where.TEMPLATE)
+                Refusals(blocking, Where.TEMPLATE)
             }
             FormRow("Issue on") {
                 Picker(profile?.name ?: "pick a profile", profiles.map { p -> p.name to p.id }, "load-profile") { profileId = it }
@@ -388,7 +416,7 @@ fun LoadRunDialogContent(
                     val down = lanes as? FixMessageViewModel.FanOutLanes.Unavailable
                     down?.let { Sub(it.why, AppTheme.Colors.warning) }
                 }
-                Refusals(refusals, Where.PROFILE)
+                Refusals(blocking, Where.PROFILE)
             }
 
             GroupHead("How hard")
@@ -403,20 +431,22 @@ fun LoadRunDialogContent(
                     )
                     if (burst) {
                         SlimField(count, { count = it }, modifier = Modifier.width(64.dp).testTag("load-count"))
-                        if (phase != null) {
-                            Sub("from")
-                            SlimField(
-                                indexFrom,
-                                { indexFrom = it },
-                                modifier = Modifier.width(56.dp).testTag("phase-index-from"),
-                            )
-                        } else {
-                            Sub("messages, as fast as the lanes carry them")
-                        }
+                        if (phase == null) Sub("messages, as fast as the lanes carry them")
                     } else {
                         SlimField(rate, { rate = it }, modifier = Modifier.width(56.dp).testTag("load-rate"))
                         Sub("/s for")
                         SlimField(forText, { forText = it }, modifier = Modifier.width(52.dp).testTag("load-for"))
+                    }
+                    // Beside the count *and* beside the rate: `${messageIndex}` restarts at 1 in every
+                    // phase whatever its shape, so a rate phase has the same reason to count from where
+                    // another stopped and had no field to say it.
+                    if (phase != null) {
+                        Sub("from")
+                        SlimField(
+                            indexFrom,
+                            { indexFrom = it },
+                            modifier = Modifier.width(56.dp).testTag("phase-index-from"),
+                        )
                     }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -430,7 +460,7 @@ fun LoadRunDialogContent(
                         }
                     }
                 }
-                Refusals(refusals, Where.SHAPE)
+                Refusals(blocking, Where.SHAPE)
             }
             FormRow("Settle") {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -464,7 +494,7 @@ fun LoadRunDialogContent(
                         Sub(if (replyType.isBlank()) "optional" else msgTypeName(dictionary, replyType.trim()).trim())
                     }
                     Sub("tags read off the template. A reply carrying the tag under any other type is a stray.")
-                    Refusals(refusals, Where.MATCH)
+                    Refusals(blocking, Where.MATCH)
                 }
                 FormRow("Also match on") {
                     val others =
@@ -514,7 +544,7 @@ fun LoadRunDialogContent(
                         Sub("kept off each matched reply, at this message's own index, for a later phase to read as \${name}")
                     }
                     FormRow("Seed and store") {
-                        Sub("the set's, one level up. This phase reads " + readsList(compiled, phase.seeded))
+                        Sub("the set's, one level up. This phase reads " + readsList(compiled, phase.readable))
                     }
                 }
                 if (phase == null) {
@@ -546,7 +576,7 @@ fun LoadRunDialogContent(
                             }
                         }
                         Sub("in scope as \${name}, on every message this run issues")
-                        Refusals(refusals, Where.SEED)
+                        Refusals(blocking, Where.SEED)
                     }
                 }
                 if (phase == null) {
@@ -574,7 +604,7 @@ fun LoadRunDialogContent(
                                 )
                             }
                         }
-                        Refusals(refusals, Where.STORE)
+                        Refusals(blocking, Where.STORE)
                         if (forLoad &&
                             profile != null &&
                             refusals.none { it.where == Where.STORE } &&
@@ -597,7 +627,7 @@ fun LoadRunDialogContent(
 
         val why =
             when {
-                refusals.isNotEmpty() -> refusals.first().text
+                blocking.isNotEmpty() -> blocking.first().text
                 // A phase is edited with the lanes down as often as up: a set is authored before it is run,
                 // and the set's own footer is what refuses to run it.
                 phase == null && lanes !is FixMessageViewModel.FanOutLanes.Available ->
@@ -608,7 +638,7 @@ fun LoadRunDialogContent(
             PhaseFooter(
                 why = why,
                 summary = phaseSummary(shape, indexFrom, settle, lanes),
-                done = refusals.isEmpty(),
+                done = blocking.isEmpty(),
                 onRemove = phase.onRemove,
                 onDone = ::start,
             )
@@ -642,6 +672,9 @@ private enum class Where(
 }
 
 private val ADVANCED = setOf(Where.MATCH, Where.SEED, Where.STORE)
+
+/** The two the *set* owns. In a phase their refusals belong to the set band, which has the fields. */
+private val SET_OWNED = setOf(Where.SEED, Where.STORE)
 
 private data class Refusal(
     val where: Where,
@@ -892,12 +925,22 @@ private fun captureMap(rows: List<Pair<String, String>>): Map<String, Int> =
             if (n.isEmpty() || t == null) null else n to t
         }.toMap()
 
-/** "${run} from the seed · ${quoteId} from a phase before this one", per name the template reads. */
+/**
+ * "${run} from the seed · ${quoteId} from phase 1", per name the template reads.
+ *
+ * A captured name **names its phase**, because "from a phase before this one" is the one thing a reader
+ * already knows, and attributing it to the seed sent them to the wrong band to change it.
+ */
 private fun readsFrom(compiled: CompiledTemplate, phase: PhaseEdit): String {
     val names = compiled.variablesRead().filter { it != CompiledTemplate.MESSAGE_INDEX }
     if (names.isEmpty()) return "reads no name but \${messageIndex}"
     return names.joinToString(" · ") { name ->
-        val where = if (name in phase.seeded) "from the seed" else "from a phase before this one"
+        val where =
+            when {
+                name in phase.seeded -> "from the seed"
+                phase.captured.containsKey(name) -> "from phase ${phase.captured[name]}"
+                else -> "from nothing yet"
+            }
         "\${$name} $where"
     }
 }

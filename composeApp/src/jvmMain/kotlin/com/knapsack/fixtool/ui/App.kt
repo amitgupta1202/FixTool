@@ -358,6 +358,7 @@ fun App(
                     onOpenHelp = { viewModel.toggleHelpDialog() },
                     onOpenScenarios = { viewModel.toggleScenariosRail() },
                     onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
+                    runControls = { ToolbarRunControls(viewModel) },
                     showTerminal = TerminalController.visible,
                     onToggleTerminal = { TerminalController.toggle() },
                 )

@@ -1,6 +1,8 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -70,23 +72,36 @@ class RunSetRailTest {
     /**
      * Nothing starred and nothing filtered: the items stay **visible and disabled**, because an author
      * cannot tell "there is nothing to run" from "this feature does not exist" if they are withheld.
+     *
+     * Both menus, because the ways in are now split by kind: the rail keeps the items that read the list
+     * beside them, and `Run set ▸ nightly` runs a saved configuration by name, so it went to the toolbar.
      */
     @Test
-    fun `the run menu offers every way in, and disables the ones with nothing behind them`() {
+    fun `the run menus offer every way in, and disable the ones with nothing behind them`() {
         viewModel.scenarioService.save(scenario("book-a-trade"))
         viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade", repeat = 3))))
         viewModel.refreshScenarios()
 
-        composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+        composeTestRule.setContent {
+            Column {
+                ToolbarRunControls(viewModel)
+                ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
+            }
+        }
         composeTestRule.onNodeWithTag("rail-run-menu").performClick()
         composeTestRule.waitForIdle()
 
-        // A saved set carries its own size, so "run nightly" is not a leap of faith.
-        composeTestRule.onNodeWithTag("rail-run-set-nightly").assertIsDisplayed().assertIsEnabled()
         composeTestRule.onNodeWithTag("rail-run-favourites").assertIsDisplayed().assertIsNotEnabled()
         composeTestRule.onNodeWithTag("rail-run-filtered").assertIsDisplayed().assertIsNotEnabled()
         composeTestRule.onNodeWithTag("rail-run-repeat").assertIsEnabled()
         composeTestRule.onNodeWithTag("rail-save-set").assertIsEnabled()
+        composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+        composeTestRule.waitForIdle()
+
+        // A saved set carries its own size, so "run nightly" is not a leap of faith.
+        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("rail-run-set-nightly").assertIsDisplayed().assertIsEnabled()
     }
 
     /**
@@ -128,11 +143,16 @@ class RunSetRailTest {
         viewModel.refreshScenarios()
         val set = writeFinishedSet(scenario)
 
-        composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+        composeTestRule.setContent {
+            Column {
+                ToolbarRunControls(viewModel)
+                ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
+            }
+        }
         composeTestRule.waitForIdle()
-        // "Recent ▸" reaches a set the app has since been restarted out of — the records are on disk
+        // Recent reaches a set the app has since been restarted out of — the records are on disk
         // precisely so the answer does not depend on the process that produced it.
-        composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("rail-recent-${set.id}").performClick()
         composeTestRule.waitForIdle()
@@ -170,9 +190,14 @@ class RunSetRailTest {
         viewModel.refreshScenarios()
         val set = writeFinishedSet(scenario)
 
-        composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+        composeTestRule.setContent {
+            Column {
+                ToolbarRunControls(viewModel)
+                ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
+            }
+        }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("rail-recent-${set.id}").performClick()
         composeTestRule.waitForIdle()

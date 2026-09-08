@@ -365,17 +365,9 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         outlines = scenarios.count { it.examples?.live?.isNotEmpty() == true },
                         onSaveAsSet = { savingSet = true },
                         onRepeat = { repeating = true },
-                        laneProfiles =
-                            remember(activeSet, loggedOnSessions, viewModel.connectionProfiles.size) {
-                                viewModel.connectionProfiles.count {
-                                    viewModel.fanOutLanes(it.id) is FixMessageViewModel.FanOutLanes.Available
-                                }
-                            },
                         lanes =
                             remember(activeSet, loggedOnSessions, viewModel.connectionProfiles.size) {
-                                viewModel.connectionProfiles.sumOf { p ->
-                                    (viewModel.fanOutLanes(p.id) as? FixMessageViewModel.FanOutLanes.Available)?.lanes?.size ?: 0
-                                }
+                                Lanes.of(viewModel)
                             },
                         onRunExamples = { outlining = true },
                         onFanOut = { fanningOut = true },
@@ -1075,10 +1067,8 @@ private data class RunMenu(
     val recent: List<RecentRun>,
     /** How many saved scenarios carry a table — the count on the outline item. */
     val outlines: Int,
-    /** How many saved profiles could supply lanes — a multi-session initiator with sessions logged on. */
-    val laneProfiles: Int,
-    /** How many lanes those profiles add up to, which is the number the count reads as. */
-    val lanes: Int,
+    /** What the workspace can supply, for the one item here that fans out over sessions. */
+    val lanes: Lanes,
     /** The saved load sets, one runnable item each, the way `Run set ▸ nightly (12)` is. */
     val loadSets: List<LoadSet>,
     val onRunSaved: (String) -> Unit,
@@ -1093,15 +1083,39 @@ private data class RunMenu(
     val onRunLoadSet: (String) -> Unit,
     val onLoadSets: () -> Unit,
     val onOpenRecent: (RecentRun) -> Unit,
+)
+
+/**
+ * **How many lanes the workspace can supply, and how many profiles they come from.**
+ *
+ * One value carrying both numbers, and one place that counts them, because the rail's "Fan out over
+ * sessions…" and the toolbar's "Load run…" ask exactly the same question of exactly the same profiles.
+ * Two counters would be two chances to disagree about it.
+ */
+internal data class Lanes(
+    /** Saved profiles that could supply lanes — a multi-session initiator with sessions logged on. */
+    val profiles: Int,
+    /** How many lanes those profiles add up to, which is the number the count reads as. */
+    val lanes: Int,
 ) {
     /**
-     * "5 lanes on 2 profiles", because "(2)" reads as two lanes and is a count of profiles.
+     * "5 lanes on 2 profiles", because "2" on its own reads as two lanes and is a count of profiles.
      *
      * Zero keeps the bare count, so the item that is visible-and-disabled still says a number rather than
      * a sentence about nothing.
      */
-    val laneSentence: String
-        get() = if (laneProfiles == 0) "(0)" else "$lanes lane${if (lanes == 1) "" else "s"} on $laneProfiles profile${if (laneProfiles == 1) "" else "s"}"
+    val sentence: String
+        get() = if (profiles == 0) "0" else "$lanes lane${if (lanes == 1) "" else "s"} on $profiles profile${if (profiles == 1) "" else "s"}"
+
+    companion object {
+        fun of(viewModel: FixMessageViewModel): Lanes {
+            val available =
+                viewModel.connectionProfiles.mapNotNull {
+                    viewModel.fanOutLanes(it.id) as? FixMessageViewModel.FanOutLanes.Available
+                }
+            return Lanes(profiles = available.size, lanes = available.sumOf { it.lanes.size })
+        }
+    }
 }
 
 /**
@@ -1207,8 +1221,8 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     // Disabled with its count showing, like the rest: "no scenario here has a table" and "this feature
     // does not exist" are different sentences, and only one of them is true.
     RailMenuItem(
-        "Fan out over sessions…  ${menu.laneSentence}",
-        enabled = !running && menu.laneProfiles > 0,
+        "Fan out over sessions…  ${menu.lanes.sentence}",
+        enabled = !running && menu.lanes.profiles > 0,
         tag = "rail-run-fanout",
     ) {
         onChose()
@@ -1218,8 +1232,8 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     // disappointed by: a lane is sequential, so fifty sessions give fifty outstanding, not four thousand.
     // "(2)" is a count of *profiles* that can supply lanes, and read as two lanes. Say both numbers.
     RailMenuItem(
-        "Load run…  ${menu.laneSentence}",
-        enabled = !running && menu.laneProfiles > 0,
+        "Load run…  ${menu.lanes.sentence}",
+        enabled = !running && menu.lanes.profiles > 0,
         tag = "rail-run-load",
     ) {
         onChose()
@@ -1230,7 +1244,7 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     menu.loadSets.forEach { set ->
         RailMenuItem(
             "Load set ▸  ${set.label.ifBlank { set.name }}  (${set.phases.size} phase${if (set.phases.size == 1) "" else "s"})",
-            enabled = !running && menu.laneProfiles > 0,
+            enabled = !running && menu.lanes.profiles > 0,
             tag = "rail-run-load-set-${set.name}",
         ) {
             onChose()
@@ -1740,7 +1754,7 @@ private fun SaveRunSetDialog(scenarios: List<Scenario>, onDismiss: () -> Unit, o
 }
 
 @Composable
-private fun RailMenuItem(text: String, enabled: Boolean = true, tag: String, onClick: () -> Unit) {
+internal fun RailMenuItem(text: String, enabled: Boolean = true, tag: String, onClick: () -> Unit) {
     DropdownMenuItem(
         text = { Text(text, color = if (enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled, fontSize = 11.sp) },
         enabled = enabled,
@@ -2230,7 +2244,7 @@ private fun RunStatusLine(
 }
 
 /** How many past sets the Run menu offers — enough to find last night's, short of a scrolling list. */
-private const val RECENT_RUNS = 5
+internal const val RECENT_RUNS = 5
 
 /** Pick or unpick — the one operation a transient selection needs. */
 private fun Set<String>.toggle(id: String): Set<String> = if (id in this) this - id else this + id

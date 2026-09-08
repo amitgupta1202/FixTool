@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.ui
 
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -29,9 +30,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * **The rail's door to a load run, and Recent's row for one.** The menu item sits under fan-out with the
- * same lane count and stays visible and disabled when no profile can supply lanes. A finished load run is
- * a Recent row marked ⚡ that opens the document over its record.
+ * **The door to a load run, and Recent's row for one.** The door is the toolbar's Run ▾ rather than the
+ * Scenarios rail: a load run is a named configuration, not something that reads the scenario list. It
+ * carries the same lane count fan-out does and stays visible and disabled when no profile can supply
+ * lanes. A finished load run is a Recent row marked ⚡ that opens the document over its record.
  */
 class LoadRunRailTest {
     @get:Rule
@@ -56,34 +58,41 @@ class LoadRunRailTest {
     }
 
     @Test
-    fun `Load run sits in the Run menu, disabled with its count when nothing can supply lanes`() {
-        composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+    fun `Load run sits in the toolbar's Run menu, disabled with its count when nothing can supply lanes`() {
+        composeTestRule.setContent { ToolbarRunControls(viewModel) }
 
-        composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule
             .onNodeWithTag("rail-run-load")
             .assertIsDisplayed()
             .assertIsNotEnabled()
-            .assertTextContains("Load run…  (0)")
+            .assertTextContains("Load run…  0")
     }
 
     /**
-     * **The count follows the sessions, not the moment the rail was drawn.** It used to be remembered on the
-     * active run set alone, so a five-lane profile that logged on after the rail was first composed left
-     * Fan out and Load run reading (0) and disabled until a run set happened to start. Found by driving the
-     * rail with the RFQ example's load client connected. The rail is composed first here, on purpose.
+     * **The count follows the sessions, not the moment the controls were drawn.** It used to be remembered
+     * on the active run set alone, so a five-lane profile that logged on after the rail was first composed
+     * left Fan out and Load run reading (0) and disabled until a run set happened to start. Found by
+     * driving the rail with the RFQ example's load client connected. Both are composed first here, on
+     * purpose, and both are asserted: the two items ask one counter (`Lanes`) the same question, and this
+     * is what would catch them drifting apart now that they live in two different menus.
      *
      * And it now says what it counts. "(1)" was a count of *profiles* and read as one lane.
      */
     @Test
-    fun `the lane count follows a profile whose lanes log on after the rail was drawn`() {
+    fun `the lane count follows a profile whose lanes log on after the controls were drawn`() {
         val server = TestFixServer()
         server.start()
         val runId = System.nanoTime().toString().takeLast(6)
         try {
-            composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+            composeTestRule.setContent {
+                Column {
+                    ToolbarRunControls(viewModel)
+                    ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
+                }
+            }
             composeTestRule.waitForIdle()
 
             val profile =
@@ -113,13 +122,18 @@ class LoadRunRailTest {
             }
             composeTestRule.waitForIdle()
 
-            composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+            composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
             composeTestRule.waitForIdle()
             composeTestRule
                 .onNodeWithTag("rail-run-load")
                 .assertIsDisplayed()
                 .assertIsEnabled()
                 .assertTextContains("Load run…  2 lanes on 1 profile")
+            composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+            composeTestRule.waitForIdle()
+
+            composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+            composeTestRule.waitForIdle()
             composeTestRule
                 .onNodeWithTag("rail-run-fanout")
                 .assertIsEnabled()
@@ -168,7 +182,7 @@ class LoadRunRailTest {
     /**
      * **A refused `Load set ▸` opens the editor on the set that was refused.**
      *
-     * The rail only knew that nothing had started, so it opened the editor on whichever set the editor
+     * The menu only knew that nothing had started, so it opened the editor on whichever set the editor
      * happened to select, which was the first one alphabetically. "Zulu broken" is deliberately last in
      * that order, so an editor showing it can only have been sent there on purpose.
      */
@@ -215,14 +229,14 @@ class LoadRunRailTest {
                 ),
             )
 
-            composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+            composeTestRule.setContent { ToolbarRunControls(viewModel) }
             viewModel.connectProfile(profile.id, profile)
             composeTestRule.waitUntil(25_000) {
                 viewModel.getProfileSessions(profile.id).count { it.connectionState.value == FixConnectionState.LOGGED_ON } == 2
             }
             composeTestRule.waitForIdle()
 
-            composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+            composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
             composeTestRule.waitForIdle()
             composeTestRule
                 .onNodeWithTag("rail-run-load-set-zulu-broken")
@@ -277,8 +291,8 @@ class LoadRunRailTest {
         val report = LoadFixtures.burstReport(unmatched = 0)
         viewModel.loadRecordStore.write(report)
 
-        composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
-        composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+        composeTestRule.setContent { ToolbarRunControls(viewModel) }
+        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule

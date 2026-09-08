@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,6 +25,9 @@ import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.service.SavedRunSet
+import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 
 enum class ViewMode {
     TABS,
@@ -91,6 +95,8 @@ fun Toolbar(
     onOpenHelp: (() -> Unit)? = null,
     onOpenScenarios: (() -> Unit)? = null,
     onCaptureScenario: (() -> Unit)? = null,
+    /** Run ▾ and Disconnect all, sat beside Quick Connect. [ToolbarRunControls] is what goes in here. */
+    runControls: (@Composable () -> Unit)? = null,
     showTerminal: Boolean = false,
     onToggleTerminal: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -505,6 +511,15 @@ fun Toolbar(
             Spacer(modifier = Modifier.width(8.dp))
         }
 
+        // Run ▾ and Disconnect all, right of Quick Connect because the three are the same kind of action:
+        // app-level, about saved things, independent of which tool window happens to be open. Passed as a
+        // slot rather than as a dozen parameters: both controls read live session state and both own
+        // dialogs, and this file has no business knowing a ViewModel. See [ToolbarRunControls].
+        if (runControls != null) {
+            runControls()
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
         // Embedded terminal — a primary action, sat right of Quick Connect: opens a terminal where QA can
         // run `claude` and watch it drive FixTool over MCP without leaving the app.
         if (onToggleTerminal != null) {
@@ -826,3 +841,257 @@ private fun toggleDisabledColor(condition: Boolean, enabledColor: Color, disable
 
 private val tooltipModifier = Modifier.size(32.dp)
 private val tooltipIconModifier = Modifier.size(20.dp)
+
+/**
+ * **Run ▾ and Disconnect all — the app-level run controls, beside Quick Connect.**
+ *
+ * Run ▾ is the run-configurations chooser. Every item in it is a *named* door: it runs a saved
+ * configuration by name, or opens the chooser that edits them. That is why it is here and not in the
+ * Scenarios rail, where it grew: a load set has no steps, no expectations and no bindings, and its only
+ * connection to the scenario list was that the menu was already there. The rail keeps the *contextual*
+ * doors, the ones that read the list beside them.
+ *
+ * The state is the state the rail computed, through the same stores, the same [Lanes] count and the same
+ * ViewModel handlers, so there is one answer to "which sets are saved" and one to "how many lanes are
+ * there". Every item keeps the test tag it had in the rail, so the tests moved rather than being rewritten.
+ *
+ * Both dialogs are hosted here because both are opened from this menu. A `Dialog` is its own window
+ * composition and adds nothing to the toolbar's own layout.
+ */
+@Composable
+@Suppress("LongMethod")
+fun ToolbarRunControls(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
+    val running by viewModel.scenarioRunning.collectAsState()
+    val activeSet by viewModel.activeRunSet.collectAsState()
+    val activeLoad by viewModel.activeLoadRun.collectAsState()
+    // Which sessions are logged on, observed here so the lane count and Disconnect all's count follow
+    // them. A count remembered on anything coarser reads 0 until something unrelated happens to change.
+    val sessionStates = viewModel.sessions.map { it.connectionState.collectAsState().value }
+
+    var menuOpen by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var editingLoadSets by remember { mutableStateOf(false) }
+    var pendingLoadSet by remember { mutableStateOf<LoadSet?>(null) }
+    // The saved set a refused `Load set ▸` wants fixed. By name, because it is already on disk: opening it
+    // as an unsaved draft would put "unsaved" in the footer of a set nobody has touched.
+    var loadSetToFix by remember { mutableStateOf<String?>(null) }
+
+    // Re-read on every open, because a set saved from the rail or written by the control surface is on
+    // disk before anything in this composition has changed.
+    val savedSets = remember(menuOpen, activeSet) { viewModel.runSetStore.list() }
+    val loadSets = remember(menuOpen, activeLoad, editingLoadSets) { viewModel.loadSets() }
+    val recent =
+        remember(menuOpen, activeSet, activeLoad) {
+            RecentRun
+                .merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.listRecords())
+                .take(RECENT_RUNS)
+        }
+    val lanes = remember(menuOpen, sessionStates, viewModel.connectionProfiles.size) { Lanes.of(viewModel) }
+
+    if (loading) {
+        LoadRunDialog(
+            viewModel = viewModel,
+            fixedTemplate = null,
+            onDismiss = { loading = false },
+            onRun = { plan ->
+                loading = false
+                viewModel.startLoadRun(plan)
+            },
+            // The path from one burst to a set: tune the burst here, then want the cancel storm after it.
+            onMakeSet = { set ->
+                loading = false
+                pendingLoadSet = set
+                editingLoadSets = true
+            },
+        )
+    }
+    if (editingLoadSets) {
+        LoadSetsDialog(
+            viewModel = viewModel,
+            onDismiss = {
+                editingLoadSets = false
+                pendingLoadSet = null
+                loadSetToFix = null
+            },
+            onRun = { planned ->
+                editingLoadSets = false
+                pendingLoadSet = null
+                loadSetToFix = null
+                viewModel.startLoadSet(planned)
+            },
+            initial = pendingLoadSet,
+            initialName = loadSetToFix,
+        )
+    }
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box {
+            ToolbarChip(
+                icon = Icons.Default.PlayCircleOutline,
+                label = "Run",
+                tint = if (running) AppTheme.Colors.textDisabled else AppTheme.Colors.success,
+                chevron = true,
+                onClick = { menuOpen = true },
+                tag = "toolbar-run-menu",
+            )
+            DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                modifier = Modifier.background(AppTheme.Colors.surface).widthIn(min = 260.dp),
+            ) {
+                RunConfigurationsMenu(
+                    savedSets = savedSets,
+                    loadSets = loadSets,
+                    recent = recent,
+                    lanes = lanes,
+                    running = running,
+                    onChose = { menuOpen = false },
+                    onLoadRun = { loading = true },
+                    // A set that would be refused opens the editor **on that set**, rather than
+                    // half-running. "Cannot run now" is a different answer: no lane, or a run already
+                    // holding the sessions, is nothing the file can fix, so it stays a notification.
+                    onRunLoadSet = { name ->
+                        (viewModel.startSavedLoadSet(name) as? FixMessageViewModel.SavedLoadSetRun.Refused)?.let {
+                            loadSetToFix = it.set.name
+                            editingLoadSets = true
+                        }
+                    },
+                    onRunSaved = { name -> viewModel.startSavedRunSet(name) },
+                    onLoadSets = {
+                        loadSetToFix = null
+                        editingLoadSets = true
+                    },
+                    onOpenRecent = { run ->
+                        when (run) {
+                            is RecentRun.Set -> viewModel.focusRunSet(run.id)
+                            is RecentRun.Load -> viewModel.openLoadRun(run.id)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * **The run-configurations chooser's rows.**
+ *
+ * One row per saved load set and per saved scenario set, each running it at once, the chooser-editor under
+ * them, and Recent as its own titled group with the verdict first. Every item that cannot be used stays
+ * **visible and disabled with its count showing**, because an author cannot tell "no set is saved" from
+ * "this feature does not exist" if the item is withheld.
+ */
+@Composable
+@Suppress("LongParameterList")
+private fun RunConfigurationsMenu(
+    savedSets: List<SavedRunSet>,
+    loadSets: List<LoadSet>,
+    recent: List<RecentRun>,
+    lanes: Lanes,
+    running: Boolean,
+    onChose: () -> Unit,
+    onLoadRun: () -> Unit,
+    onRunLoadSet: (String) -> Unit,
+    onRunSaved: (String) -> Unit,
+    onLoadSets: () -> Unit,
+    onOpenRecent: (RecentRun) -> Unit,
+) {
+    // The lane sentence fan-out uses: "2" on its own is a count of *profiles* and reads as two lanes, and
+    // a lane is sequential, so fifty sessions give fifty outstanding rather than four thousand.
+    RailMenuItem(
+        "Load run…  ${lanes.sentence}",
+        enabled = !running && lanes.profiles > 0,
+        tag = "rail-run-load",
+    ) {
+        onChose()
+        onLoadRun()
+    }
+    loadSets.forEach { set ->
+        val phases = "${set.phases.size} phase${if (set.phases.size == 1) "" else "s"}"
+        RailMenuItem(
+            "Load set ▸  ${set.label.ifBlank { set.name }}  $phases",
+            enabled = !running && lanes.profiles > 0,
+            tag = "rail-run-load-set-${set.name}",
+        ) {
+            onChose()
+            onRunLoadSet(set.name)
+        }
+    }
+    if (savedSets.isEmpty()) {
+        RailMenuItem("Run set ▸  none saved", enabled = false, tag = "rail-run-set-none") {}
+    } else {
+        savedSets.forEach { set ->
+            val runs = set.entries.sumOf { it.repeat.coerceAtLeast(1) }
+            RailMenuItem(
+                "Run set ▸  ${set.name}  $runs scenario${if (runs == 1) "" else "s"}",
+                enabled = !running,
+                tag = "rail-run-set-${set.name}",
+            ) {
+                onChose()
+                onRunSaved(set.name)
+            }
+        }
+    }
+    HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+    RailMenuItem("Load sets…  ${loadSets.size} saved", enabled = !running, tag = "rail-load-sets") {
+        onChose()
+        onLoadSets()
+    }
+    // A menu about saved things is also where somebody looks for what they produced, and Recent already
+    // merges load runs with scenario sets. A titled group rather than "Recent ▸" on every row: the rows
+    // are a list of records, and the prefix was saying the same word five times over.
+    if (recent.isNotEmpty()) {
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        Text(
+            "recent",
+            color = AppTheme.Colors.textDisabled,
+            style = AppTheme.Type.meta,
+            modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 2.dp).testTag("toolbar-recent-group"),
+        )
+        recent.forEach { run ->
+            RailMenuItem(run.line, tag = "rail-recent-${run.id}") {
+                onChose()
+                onOpenRecent(run)
+            }
+        }
+    }
+}
+
+/** A 28dp toolbar chip in Quick Connect's shape: an icon, a label, and a chevron when it opens a menu. */
+@Composable
+@Suppress("LongParameterList")
+private fun ToolbarChip(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    chevron: Boolean,
+    onClick: () -> Unit,
+    tag: String,
+) {
+    Row(
+        modifier =
+            Modifier
+                .height(28.dp)
+                .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(16.dp))
+        Text(text = label, color = tint, fontSize = 11.sp)
+        if (chevron) {
+            Icon(
+                imageVector = Icons.Default.ArrowDropDown,
+                contentDescription = "Dropdown",
+                tint = tint,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}

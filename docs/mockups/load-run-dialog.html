@@ -1432,7 +1432,7 @@
         <div class="fold"><span class="car">▸</span><span class="t">How replies are counted</span><span class="sum">matching 131 QuoteReqID to 131 · any reply type counts · listening on RFQ Load Client only</span><span class="chg">change</span></div>
         <div class="fold"><span class="car">▸</span><span class="t">Identity and store</span><span class="sum">run = b7f2 · memory store, no log</span><span class="chg">change</span></div>
 
-        <div class="noteline"><span class="i">i</span><span>The far end is FixTool's own acceptor, so these numbers are the tool's ceiling, not a venue's. Point the lanes at the server under test to measure one.</span></div>
+        <div class="noteline"><span class="i">i</span><span>These lanes are connected to FixTool's own demo venue, which runs inside this app on one thread. The latencies will measure that venue, not a real one. To measure a real venue, connect the profile to it.</span></div>
 
         <div class="foot">
           <span class="ready">4,000 messages on 5 lanes · wait 60s</span>
@@ -1560,7 +1560,7 @@
       <tr><td>Also match on</td><td>listen only, never issue</td><td>Also listen on: other profiles that may receive the replies, such as a drop copy. They never send.</td></tr>
       <tr><td>Seed</td><td>in scope as ${name}, on every message this run issues</td><td>Available as ${run} in every message of this run. Mint a fresh one each run so ids never collide with the last run's.</td></tr>
       <tr><td>Store and log</td><td>As the profile: memory store, no log / Memory store, no log · recommended</td><td>One sentence when they agree. Two radios only when the profile differs, with why memory is faster.</td></tr>
-      <tr><td>Note</td><td>not / e (wrapped)</td><td>An icon, and the same sentence.</td></tr>
+      <tr><td>Note</td><td>The far end is FixTool's own acceptor, so these numbers are the tool's ceiling, not a venue's. Point the lanes at the server under test to measure one.</td><td>These lanes are connected to FixTool's own demo venue, which runs inside this app on one thread. The latencies will measure that venue, not a real one. To measure a real venue, connect the profile to it. With an icon marker instead of the word that wrapped.</td></tr>
     </tbody>
   </table>
 

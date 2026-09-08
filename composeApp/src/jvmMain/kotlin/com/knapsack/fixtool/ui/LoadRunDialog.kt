@@ -373,8 +373,16 @@ fun LoadRunDialogContent(
             }
             FormRow("Template") {
                 if (fixedTemplate != null) {
-                    // Opened from the editor, whose fields *are* the template: there is nothing to go and view.
-                    Text(fixedTemplate.name, color = AppTheme.Colors.text, style = AppTheme.Type.body, modifier = Modifier.testTag("load-template"))
+                    // Opened from the editor, whose fields *are* the template: there is nothing to go and
+                    // view, and nothing here is a saved message's name. The row said "message editor",
+                    // which reads as a template called that. It should say what it is, and the sub-line
+                    // below already carries the MsgType and its name.
+                    Text(
+                        "the message in the editor",
+                        color = AppTheme.Colors.text,
+                        style = AppTheme.Type.body,
+                        modifier = Modifier.testTag("load-template"),
+                    )
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Picker(template?.name ?: "pick a template", templates.map { it.name to it }, "load-template") { template = it }

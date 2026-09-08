@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
@@ -98,6 +99,27 @@ class LoadRunDialogTest {
         composeTestRule.onNodeWithTag("load-run").assertHasNoClickAction()
         val refusals = composeTestRule.onAllNodesWithTag("load-refusal").fetchSemanticsNodes()
         assertEquals(2, refusals.size, "a missing seed and no lane logged on")
+    }
+
+    /**
+     * **The Template row says where the message came from, not what it is called.**
+     *
+     * Opened from the editor's Load button the row read "message editor", which looks like the name of a
+     * saved template and sent an author looking for one. It says what it is instead, and the MsgType and
+     * its name stay on the sub-line beside it.
+     */
+    @Test
+    fun `opened from the editor, the Template row names the editor rather than a template`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-template").assertTextContains("the message in the editor")
+        // The MsgType and its name stay beside the row, so nothing was lost by renaming it.
+        assertTrue(
+            composeTestRule.onAllNodesWithText("35=D", substring = true).fetchSemanticsNodes().isNotEmpty(),
+            "the sub-line under Template should still describe the message",
+        )
     }
 
     @Test

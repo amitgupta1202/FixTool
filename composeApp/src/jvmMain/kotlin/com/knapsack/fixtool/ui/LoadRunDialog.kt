@@ -707,7 +707,14 @@ private fun Refusals(refusals: List<Refusal>, where: Where) {
     refusals.filter { it.where == where }.forEach { Notice(it.text, AppTheme.Colors.error, "fix", "load-refusal") }
 }
 
-/** A refusal or a warning, on a stripe, with the marker that says which of the two it is. */
+/**
+ * A refusal or a warning, on a stripe, with the marker that says which of the two it is.
+ *
+ * The marker column is a fixed width sized for the widest marker, "note" rather than "fix", because a
+ * refusal and a note can be on screen at once and their body text has to start in the same place. An
+ * intrinsic width would align each stripe to its own marker instead. The marker never wraps: at 22.dp
+ * "note" broke into "not" over "e" and doubled the stripe's height.
+ */
 @Composable
 private fun Notice(text: String, tint: Color, marker: String, tag: String) {
     Row(
@@ -720,8 +727,15 @@ private fun Notice(text: String, tint: Color, marker: String, tag: String) {
                 .padding(start = 6.dp, top = 3.dp, end = 6.dp, bottom = 3.dp),
     ) {
         Box(Modifier.width(2.dp).height(14.dp).background(tint))
-        Text(marker, color = tint, style = AppTheme.Type.meta, modifier = Modifier.width(22.dp))
-        Text(text, color = tint, style = AppTheme.Type.body, modifier = Modifier.testTag(tag))
+        Text(
+            marker,
+            color = tint,
+            style = AppTheme.Type.meta,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.width(30.dp),
+        )
+        Text(text, color = tint, style = AppTheme.Type.body, modifier = Modifier.weight(1f).testTag(tag))
     }
 }
 

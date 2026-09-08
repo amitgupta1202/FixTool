@@ -3550,7 +3550,7 @@ class FixMessageViewModel(
                 it.config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
                     it.config.socketAcceptPort.ifBlank { it.config.port } == client.config.port
             } ?: return null
-        return "The far end is '${venue.name}' — FixTool's own acceptor. It answers every session on one " +
+        return "The far end is '${venue.name}', FixTool's own acceptor. It answers every session on one " +
             "thread, so the latencies below are the tool's own ceiling, not a venue's. Point the lanes at " +
             "the server under test to measure one."
     }

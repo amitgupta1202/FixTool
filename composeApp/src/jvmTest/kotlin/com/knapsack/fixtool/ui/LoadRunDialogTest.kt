@@ -4,14 +4,19 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.LoadRunDefaults
@@ -79,6 +84,23 @@ class LoadRunDialogTest {
                     port = "9",
                     sessionCount = 5,
                     resetOnLogon = resetOnLogon,
+                ),
+        )
+
+    /**
+     * The acceptor the client's own port belongs to, which is the whole condition for the far-end note:
+     * a loopback connect host plus a FixTool acceptor listening on the port the lanes dial.
+     */
+    private fun venue() =
+        FixConnectionProfile(
+            id = "venue",
+            name = "VENUE",
+            config =
+                FixConnectionConfig(
+                    connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                    senderCompID = "VENUE",
+                    targetCompID = "LG{n}",
+                    socketAcceptPort = "9",
                 ),
         )
 
@@ -247,5 +269,39 @@ class LoadRunDialogTest {
         composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
         composeTestRule.onNodeWithTag("load-run").assertHasNoClickAction()
         composeTestRule.onNodeWithTag("load-shape-burst").assertHasClickAction()
+    }
+
+    /**
+     * **The far-end note is prose the tool speaks, so it obeys the same style rule as the rest.** It named
+     * the venue and then broke to an em dash before "FixTool's own acceptor", where a comma belongs. Read
+     * off the dialog rather than off the view model, because the dialog is where anybody meets it.
+     */
+    @Test
+    fun `the far-end note is on screen and carries no dash`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.saveConnectionProfile(venue())
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-far-end").assertIsDisplayed()
+        val note = texts("load-far-end").single()
+        assertTrue(note.contains("FixTool's own acceptor"), note)
+        assertTrue(!note.contains("—"), "the far-end sentence should not carry an em dash: $note")
+    }
+
+    /**
+     * **"note" is a whole word, or the stripe is twice as tall as every other one.** The marker column was
+     * 22.dp, which fits "fix" and not "note", so the warning's marker broke into "not" over "e".
+     */
+    @Test
+    fun `the note marker stays on one line`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.saveConnectionProfile(venue())
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        // One line of AppTheme.Type.meta is about 13.dp tall, so two of them clear 24.dp.
+        val marker = composeTestRule.onNodeWithText("note").getUnclippedBoundsInRoot().height
+        assertTrue(marker < 16.dp, "the note marker should be one line tall, it measured $marker")
     }
 }

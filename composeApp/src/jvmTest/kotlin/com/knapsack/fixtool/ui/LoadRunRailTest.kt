@@ -13,6 +13,8 @@ import com.knapsack.fixtool.integration.TestFixServer
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.load.LoadRecord
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
@@ -132,11 +134,32 @@ class LoadRunRailTest {
      */
     @Test
     fun `a Recent row leads with its verdict and says its kind second, and a pass is marked`() {
-        val passed = LoadFixtures.burstReport(unmatched = 0)
-        val failed = LoadFixtures.burstReport(unmatched = 4)
+        val passed = LoadRecord.of(LoadFixtures.burstReport(unmatched = 0))
+        val failed = LoadRecord.of(LoadFixtures.burstReport(unmatched = 4))
 
         assertTrue(RecentRun.Load(passed).line.startsWith("✓ ⚡ "), RecentRun.Load(passed).line)
         assertTrue(RecentRun.Load(failed).line.startsWith("✗ ⚡ "), RecentRun.Load(failed).line)
+    }
+
+    /** A set's row reads like a scenario set's: verdict, kind, name with its phase count, passed of total. */
+    @Test
+    fun `a set's Recent row carries its phase count and how many phases passed`() {
+        val one = LoadFixtures.burstReport(unmatched = 0).copy(label = "Ask for a quote")
+        val two = LoadFixtures.burstReport(unmatched = 4).copy(label = "Hit them")
+        val set =
+            LoadRecord(
+                id = "set-1",
+                label = "RFQ round trip",
+                startedAt = 0,
+                finishedAt = 1_000,
+                phases = listOf(one, two),
+                set = LoadRecord.SetInfo("rfq-round-trip", OnFailure.STOP),
+            )
+
+        val line = RecentRun.Load(set).line
+
+        assertTrue(line.startsWith("✗ ⚡ RFQ round trip (2) · LOADGEN"), line)
+        assertTrue(line.endsWith("(1/2)"), line)
     }
 
     @Test

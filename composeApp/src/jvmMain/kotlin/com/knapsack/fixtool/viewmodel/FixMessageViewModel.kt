@@ -3757,7 +3757,7 @@ class FixMessageViewModel(
      * scenario on any of those sessions is refused for the length of the set rather than between its
      * phases. The document opens the moment the set starts.
      */
-    @Suppress("ReturnCount")
+    @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")
     fun startLoadSet(planned: LoadSet.Planned): LoadSet.Planned? {
         val lanesByProfile = linkedMapOf<String, List<Pair<Lane, FixMessageSession>>>()
         for (profileId in planned.phases.map { it.profileId }.distinct()) {
@@ -3811,7 +3811,6 @@ class FixMessageViewModel(
             } catch (e: Throwable) {
                 // Throwable, not Exception, for the reason the single run's catch says: the first live run
                 // died of a StackOverflowError, which slipped past an Exception catch.
-                @Suppress("TooGenericExceptionCaught")
                 logger.error("Load set failed: ${e.message}", e, notifyUser = true)
             } finally {
                 host.release()

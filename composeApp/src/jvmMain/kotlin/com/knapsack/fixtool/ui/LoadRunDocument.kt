@@ -92,16 +92,33 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
         PrunedRecord(viewModel.loadRecordStore.directory, modifier)
         return
     }
-    // The phase the document leads on: the one running, or the last one, which for a single run is the run.
-    val report = record.phases.firstOrNull { it.status == LoadStatus.RUNNING } ?: record.only
+    // One phase draws today's document unchanged. Several draw the set, which is this document with two
+    // things around it: a verdict that names the phase, and a timeline saying where the clock went.
+    val focused = if (record.phases.size > 1) (doc.phase ?: record.currentPhase ?: record.phases.size) else 1
+    val report = record.phases.getOrElse(focused - 1) { record.only }
     val wire =
-        remember(report.id, report.status) {
+        remember(report.id, focused, report.status) {
             if (report.unmatched.isEmpty()) emptyList() else viewModel.loadRecordStore.unmatchedWire(report.id, report.evidence)
         }
+    val records = viewModel.loadRecordStore.directoryFor(record.id)
+    if (record.phases.size > 1) {
+        LoadSetView(
+            record = record,
+            focused = focused,
+            onFocus = { n -> viewModel.updateDocument(doc.copy(phase = n)) },
+            phaseWire = wire,
+            records = records,
+            onStop = { viewModel.stopLoadRun(record.id) },
+            onReveal = { id -> viewModel.revealLoadRequest(id) },
+            onCompare = { viewModel.openLoadCompare(record.id) },
+            modifier = modifier,
+        )
+        return
+    }
     LoadReportView(
         report = report,
         unmatchedWire = wire,
-        records = viewModel.loadRecordStore.directoryFor(report.id),
+        records = records,
         onStop = { viewModel.stopLoadRun(report.id) },
         onReveal = { id -> viewModel.revealLoadRequest(id) },
         onCompare = { viewModel.openLoadCompare(report.id) },
@@ -109,8 +126,23 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
     )
 }
 
+/**
+ * **What a set puts around one phase's report**: which phase it is, and the two ends it replaces.
+ *
+ * A set's header is the set's, naming the phase in its badge, and its footer has no records path because
+ * the set prints one. Everything between the two is the single-run document, unchanged, which is why
+ * nothing new had to be designed for a set's pane.
+ */
+data class PhaseFrame(
+    /** 1-based, for the strip's "late to phase 1". */
+    val number: Int,
+    val header: @Composable (narrow: Boolean) -> Unit,
+    val footer: @Composable () -> Unit,
+)
+
 /** The report drawn, with nothing of the view model in it, so a test can hand it a running report directly. */
 @Composable
+@Suppress("LongParameterList")
 fun LoadReportView(
     report: LoadReport,
     unmatchedWire: List<String>,
@@ -118,6 +150,8 @@ fun LoadReportView(
     onStop: () -> Unit,
     onReveal: (String) -> Boolean = { false },
     onCompare: (() -> Unit)? = null,
+    /** Null for a single run, which owns both ends itself. */
+    frame: PhaseFrame? = null,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize().testTag("load-run-document")) {
@@ -126,7 +160,7 @@ fun LoadReportView(
         // actions collapse to an overflow rather than pushing the badge off the left.
         val narrow = maxWidth < NARROW
         Column(modifier = Modifier.fillMaxSize()) {
-            LoadHeader(report, records, narrow, onStop, onCompare)
+            if (frame == null) LoadHeader(report, records, narrow, onStop, onCompare) else frame.header(narrow)
             ProgressBar(report)
             BarLine(report)
             // The scrollbar is the affordance, not a nicety: with the tool block and the three judgements
@@ -136,13 +170,13 @@ fun LoadReportView(
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize().verticalScroll(body)) {
                     Leads(report, narrow)
-                    QuietStrip(report)
+                    QuietStrip(report, frame?.number)
                     Throughput(report, narrow)
                     RoundTrip(report, narrow)
                     if (report.unmatched.isNotEmpty()) UnmatchedTable(report, unmatchedWire, narrow, onReveal)
                     Lanes(report, narrow)
                     ToolPart(report)
-                    Judgements(report, records)
+                    if (frame == null) Judgements(report, records) else frame.footer()
                 }
                 VerticalScrollbar(
                     adapter = rememberScrollbarAdapter(body),
@@ -171,7 +205,7 @@ private fun LoadHeader(r: LoadReport, records: File, narrow: Boolean, onStop: ()
         val (headline, tint) = verdictHeadline(r)
         // The long headline is what shoulders the title out of the header at 460px, so narrow gets the
         // word and the count and leaves the arithmetic to the bar line under it.
-        Badge(if (narrow) headline.substringBefore("  ") else headline, tint)
+        VerdictBadge(if (narrow) headline.substringBefore("  ") else headline, tint)
         Column(modifier = Modifier.weight(1f)) {
             Text(r.label, color = AppTheme.Colors.text, style = AppTheme.Type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -230,8 +264,13 @@ private fun Overflow(records: File, onCompare: (() -> Unit)?) {
     }
 }
 
+/**
+ * The verdict, in a box, at the top of the document.
+ *
+ * [tag] because a set draws two of these at once: its own, and the focused phase's.
+ */
 @Composable
-private fun Badge(text: String, tint: Color) {
+internal fun VerdictBadge(text: String, tint: Color, tag: String = "load-verdict") {
     Text(
         text,
         color = tint,
@@ -242,7 +281,7 @@ private fun Badge(text: String, tint: Color) {
                 .background(AppTheme.Colors.background, RoundedCornerShape(3.dp))
                 .border(1.dp, tint, RoundedCornerShape(3.dp))
                 .padding(horizontal = 6.dp, vertical = 2.dp)
-                .testTag("load-verdict"),
+                .testTag(tag),
     )
 }
 
@@ -373,15 +412,18 @@ private fun RowScope.Lead(label: String, value: String, sub: String, tag: String
  */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-private fun QuietStrip(r: LoadReport) {
+private fun QuietStrip(r: LoadReport, phase: Int? = null) {
     val running = r.status == LoadStatus.RUNNING
+    // In a set a late reply is one that came back after this phase's settle window closed, most often
+    // while a later phase was running, so the label says which phase it was late to.
+    val lateLabel = if (phase != null && r.replies.late > 0) "late to phase $phase" else "late"
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(0.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 2.dp),
     ) {
         StripItem("issued", if (running) LoadReportCodec.fmt(r.issue.leftSocket) else issuedSentence(r), "load-issued", first = true)
         StripItem("duplicates", LoadReportCodec.fmt(r.replies.duplicates), "load-duplicates")
-        StripItem("late", if (running) "— settle not closed" else LoadReportCodec.fmt(r.replies.late), "load-late")
+        StripItem(lateLabel, if (running) "— settle not closed" else LoadReportCodec.fmt(r.replies.late), "load-late")
         StripItem("strays", LoadReportCodec.fmt(r.replies.strays), "load-strays")
         StripItem("peak outstanding", LoadReportCodec.fmt(r.tool.pendingPeak.toLong()), "load-peak")
         r.issue.achievedPerSecond?.let { StripItem("achieved", "${LoadReportCodec.fmt(it)}/s", "load-achieved") }
@@ -759,7 +801,7 @@ internal fun laneSentence(sorted: List<LoadReport.LaneCounts>): String {
 private fun ToolPart(r: LoadReport) {
     Section("The tool's own part", "shown, never hidden") {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(0.dp), modifier = Modifier.fillMaxWidth()) {
-            Pill(if (r.tool.limited) "limited" else "clean", if (r.tool.limited) AppTheme.Colors.error else AppTheme.Colors.success)
+            JudgementPill(if (r.tool.limited) "limited" else "clean", if (r.tool.limited) AppTheme.Colors.error else AppTheme.Colors.success)
             StripItem("discarded by the panes", LoadReportCodec.fmt(r.tool.discarded), "load-tool-discarded")
             StripItem("accepted that never left the socket", LoadReportCodec.fmt(r.tool.neverLeftSocket), "load-tool-never-left")
             StripItem("refused", LoadReportCodec.fmt(r.tool.issueFailures), "load-tool-refused")
@@ -794,18 +836,18 @@ private fun Judgements(r: LoadReport, records: File) {
             modifier = Modifier.testTag("load-judgements"),
         ) {
             if (r.status == LoadStatus.STOPPED) {
-                Pill("not judged · the run did not finish", AppTheme.Colors.textDisabled)
+                JudgementPill("not judged · the run did not finish", AppTheme.Colors.textDisabled)
             } else if (r.status == LoadStatus.RUNNING) {
-                Pill("running · no verdict yet", AppTheme.Colors.info)
+                JudgementPill("running · no verdict yet", AppTheme.Colors.info)
             } else {
                 // The enum stays UNMATCHED, because that is what the codec writes and what a reader of an
                 // older load.json has to keep finding. The screen says "unanswered", like the rest of it.
                 val complete = r.verdict.completeness == LoadReport.Completeness.COMPLETE
-                Pill(
+                JudgementPill(
                     "completeness · " + if (complete) "complete" else "unanswered",
                     if (complete) AppTheme.Colors.success else AppTheme.Colors.error,
                 )
-                Pill(
+                JudgementPill(
                     "rate · " +
                         if (r.verdict.rate == LoadReport.RateVerdict.NOT_APPLICABLE) {
                             "n/a, burst"
@@ -819,7 +861,7 @@ private fun Judgements(r: LoadReport, records: File) {
                         LoadReport.RateVerdict.NOT_APPLICABLE -> AppTheme.Colors.textDisabled
                     },
                 )
-                Pill("tool · ${r.verdict.tool.name.lowercase()}", if (r.tool.limited) AppTheme.Colors.error else AppTheme.Colors.success)
+                JudgementPill("tool · ${r.verdict.tool.name.lowercase()}", if (r.tool.limited) AppTheme.Colors.error else AppTheme.Colors.success)
             }
         }
         Text(
@@ -836,7 +878,7 @@ private fun Judgements(r: LoadReport, records: File) {
 }
 
 @Composable
-private fun Pill(text: String, tint: Color) {
+internal fun JudgementPill(text: String, tint: Color) {
     Text(
         text,
         color = tint,
@@ -862,7 +904,7 @@ private fun PrunedRecord(loads: File, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier.fillMaxSize().padding(12.dp).testTag("load-run-document"),
     ) {
-        Badge("NO RECORD", AppTheme.Colors.textDisabled)
+        VerdictBadge("NO RECORD", AppTheme.Colors.textDisabled)
         Text("This load run is no longer on disk.", color = AppTheme.Colors.text, style = AppTheme.Type.head)
         Text(
             "The loads directory keeps the most recent runs, and this one has been pruned. Its plan went with it — " +
@@ -924,11 +966,11 @@ private fun copyText(text: String) {
     Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
 }
 
-private fun copyJson(records: File) {
+internal fun copyJson(records: File) {
     runCatching { copyText(File(records, "load.json").readText()) }
 }
 
-private fun reveal(dir: File) {
+internal fun reveal(dir: File) {
     runCatching { Desktop.getDesktop() }.getOrNull()?.let { desktop -> runCatching { desktop.open(dir) } }
 }
 
@@ -948,7 +990,7 @@ private val COPY_KEYS: String =
         "Ctrl+C"
     }
 
-private val NARROW = 460.dp
+internal val NARROW = 460.dp
 private val NARROW_FIGURE = 20.sp
 private val MIN_SEGMENT = 4.dp
 private val WIDE_CHART = 720.dp

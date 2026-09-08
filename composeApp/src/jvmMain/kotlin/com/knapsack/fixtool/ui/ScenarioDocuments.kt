@@ -175,6 +175,12 @@ sealed interface ScenarioDoc {
      */
     data class LoadRunView(
         val loadId: String,
+        /**
+         * The phase of a set this tab is showing, 1-based, or null to follow the live one.
+         *
+         * Not part of [id], so pinning a phase does not open a second tab over the same record.
+         */
+        val phase: Int? = null,
     ) : ScenarioDoc {
         override val id: String get() = loadRunId(loadId)
         override val glyph: String get() = "⚡"

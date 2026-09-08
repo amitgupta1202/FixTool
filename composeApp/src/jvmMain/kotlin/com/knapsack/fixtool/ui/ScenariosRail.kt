@@ -76,6 +76,7 @@ import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.ScenarioSort
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
@@ -309,7 +310,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         filtered = if (filter.isBlank()) 0 else visible.size,
                         recent =
                             remember(activeSet, activeLoad) {
-                                RecentRun.merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.list()).take(RECENT_RUNS)
+                                RecentRun.merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.listRecords()).take(RECENT_RUNS)
                             },
                         onRunSaved = { name -> viewModel.startSavedRunSet(name) },
                         onRunFavourites = {
@@ -1074,15 +1075,27 @@ internal sealed interface RecentRun {
         override val line: String get() = "${mark(set.status == RunSetStatus.PASSED)} ▦ ${set.label}  (${set.passed}/${set.total})"
     }
 
+    /**
+     * A load run or a load set. The record, not the report, so a set's row can read like a scenario set's:
+     * verdict, kind, name with its phase count, and passed-of-total.
+     */
     data class Load(
-        val report: LoadReport,
+        val record: LoadRecord,
     ) : RecentRun {
-        override val id: String get() = report.id
-        override val startedAt: Long get() = report.startedAt
+        override val id: String get() = record.id
+        override val startedAt: Long get() = record.startedAt
         override val line: String
-            get() =
-                "${mark(report.verdict.exitCode == 0)} ⚡ ${report.label}  " +
-                    "(${"%,d".format(report.replies.matched)}/${"%,d".format(report.issue.leftSocket)})"
+            get() {
+                val passed = record.exitCode == LoadReport.EXIT_PASSED
+                if (record.phases.size > 1) {
+                    val v = record.verdict
+                    return "${mark(passed)} ⚡ ${record.label} (${record.phases.size}) · ${record.only.profileName}  " +
+                        "(${v.passed}/${record.phases.size})"
+                }
+                val r = record.only
+                return "${mark(passed)} ⚡ ${r.label}  " +
+                    "(${"%,d".format(r.replies.matched)}/${"%,d".format(r.issue.leftSocket)})"
+            }
     }
 
     companion object {
@@ -1097,7 +1110,7 @@ internal sealed interface RecentRun {
          */
         fun mark(passed: Boolean): String = if (passed) "✓" else "✗"
 
-        fun merge(sets: List<RunSet>, loads: List<LoadReport>): List<RecentRun> =
+        fun merge(sets: List<RunSet>, loads: List<LoadRecord>): List<RecentRun> =
             (sets.map(::Set) + loads.map(::Load)).sortedByDescending { it.startedAt }
     }
 }

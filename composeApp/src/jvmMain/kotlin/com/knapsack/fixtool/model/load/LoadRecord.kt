@@ -22,7 +22,17 @@ data class LoadRecord(
     val finishedAt: Long?,
     /** One for a run, several for a set, in the order they were asked for. Never empty. */
     val phases: List<LoadReport>,
+    /** The set this came from, or null for a "Load run…" record, which is a set of one with no file. */
+    val set: SetInfo? = null,
+    /** The seed as rendered, once, and shared by every phase. */
+    val seed: Map<String, String> = emptyMap(),
 ) {
+    /** Which saved set produced this, and what it did between phases. */
+    data class SetInfo(
+        val name: String,
+        val onFailure: OnFailure,
+    )
+
     /** The phase a single run is. What the document draws and what every surface but Compare reads. */
     val only: LoadReport get() = phases.last()
 
@@ -53,6 +63,49 @@ data class LoadRecord(
             return judged.maxOf { it.verdict.exitCode ?: 0 }
         }
 
+    /** The phase running now, 1-based, or null when none is. */
+    val currentPhase: Int? get() = phases.indexOfFirst { it.status == LoadStatus.RUNNING }.takeIf { it >= 0 }?.plus(1)
+
+    /** How many phases have run to a verdict, whatever it was. */
+    val donePhases: Int get() = phases.count { it.status == LoadStatus.DONE || it.status == LoadStatus.STOPPED }
+
+    /**
+     * **The set's own verdict**, which is the thing the badge, the terminal's last line and the JUnit
+     * `<testsuites>` all read.
+     *
+     * A set passes when every phase did. It fails naming the **first** phase that did not, which is the
+     * one worth looking at whether the policy stopped there or carried on. Stopped by hand is its own
+     * outcome, because a build cannot pass on a run somebody ended.
+     */
+    val verdict: SetVerdict
+        get() {
+            val passed = phases.count { it.verdict.exitCode == LoadReport.EXIT_PASSED && it.status == LoadStatus.DONE }
+            val skipped = phases.count { it.status == LoadStatus.SKIPPED }
+            val failed = phases.count { it.status == LoadStatus.DONE && it.verdict.exitCode != LoadReport.EXIT_PASSED }
+            val stopped = phases.count { it.status == LoadStatus.STOPPED }
+            val stoppedAt = phases.indexOfFirst { it.status == LoadStatus.STOPPED }.takeIf { it >= 0 }?.plus(1)
+            val firstBad =
+                phases
+                    .indexOfFirst { it.status == LoadStatus.DONE && it.verdict.exitCode != LoadReport.EXIT_PASSED }
+                    .takeIf { it >= 0 }
+                    ?.plus(1)
+            val outcome =
+                when {
+                    stoppedAt != null -> SetOutcome.STOPPED
+                    status == LoadStatus.RUNNING -> SetOutcome.RUNNING
+                    firstBad != null -> SetOutcome.FAILED
+                    else -> SetOutcome.PASSED
+                }
+            val phase =
+                when (outcome) {
+                    SetOutcome.STOPPED -> stoppedAt
+                    SetOutcome.RUNNING -> currentPhase
+                    SetOutcome.FAILED -> firstBad
+                    SetOutcome.PASSED -> null
+                }
+            return SetVerdict(outcome, phase, passed = passed, failed = failed, stopped = stopped, skipped = skipped)
+        }
+
     companion object {
         /** The one-phase set a single run makes. */
         fun of(report: LoadReport): LoadRecord =
@@ -62,6 +115,37 @@ data class LoadRecord(
                 startedAt = report.startedAt,
                 finishedAt = report.finishedAt,
                 phases = listOf(report),
+                seed = report.seed,
             )
     }
+}
+
+/** What became of a set, in one word. Named on the badge and in the terminal's last line. */
+enum class SetOutcome {
+    RUNNING,
+    PASSED,
+    FAILED,
+
+    /** Ended by hand. Exit 1, because what it proved is a fraction of what was asked. */
+    STOPPED,
+}
+
+/** The set's verdict: the word, the phase it names, and the counts under it. */
+data class SetVerdict(
+    val outcome: SetOutcome,
+    /** The phase the outcome is about, 1-based. Null when every phase passed. */
+    val phase: Int?,
+    val passed: Int,
+    val failed: Int,
+    val stopped: Int = 0,
+    val skipped: Int = 0,
+) {
+    /** "1 passed, 1 failed, 1 skipped". Only the non-zero counts, so a clean set reads "3 passed". */
+    fun counts(): String =
+        listOfNotNull(
+            passed.takeIf { it > 0 }?.let { "$it passed" },
+            failed.takeIf { it > 0 }?.let { "$it failed" },
+            stopped.takeIf { it > 0 }?.let { "$it stopped" },
+            skipped.takeIf { it > 0 }?.let { "$it skipped" },
+        ).joinToString(", ")
 }

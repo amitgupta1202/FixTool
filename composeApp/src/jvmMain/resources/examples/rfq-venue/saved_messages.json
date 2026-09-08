@@ -383,6 +383,39 @@
             "lastUsedAt": 0,
             "modifiedAt": 0,
             "isFavorite": true
+        },
+        {
+            "id": "rfq-load-pass",
+            "name": "RFQ Load Pass",
+            "userTags": [
+                "rfq-profile-RFQ_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "P-RFQ-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "694",
+                    "value": "6"
+                },
+                {
+                    "tag": "117",
+                    "value": "Q-RFQ-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
         }
     ]
 }

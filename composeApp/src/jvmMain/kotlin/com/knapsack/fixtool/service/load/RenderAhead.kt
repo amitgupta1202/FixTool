@@ -108,12 +108,17 @@ class RenderAhead(
          * per-message field renders the same message every time, and a thread to hand it over is cost
          * with no benefit.
          */
-        fun forLanes(prototypes: List<CompiledTemplate.LanePrototype>, requested: Long): List<RenderAhead> {
+        fun forLanes(
+            prototypes: List<CompiledTemplate.LanePrototype>,
+            requested: Long,
+            /** The 1-based index the phase counts from, which `LoadPlan.indexFrom` says. */
+            indexFrom: Int = 1,
+        ): List<RenderAhead> {
             val lanes = prototypes.size
             return prototypes.mapIndexed { index, prototype ->
                 RenderAhead(
                     prototype = prototype,
-                    firstIndex = index + 1,
+                    firstIndex = indexFrom + index,
                     stride = lanes,
                     count = countFor(requested, lanes, index),
                     name = "fixtool-render-ahead-$index",

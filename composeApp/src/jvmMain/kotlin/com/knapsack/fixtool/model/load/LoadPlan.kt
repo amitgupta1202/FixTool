@@ -35,6 +35,13 @@ data class LoadPlan(
     val storeAndLog: StoreAndLogOverride? = null,
     /** Promote a rate shortfall from a reported verdict to a failing exit code. */
     val strictRate: Boolean = false,
+    /**
+     * Where `${messageIndex}` starts, 1-based, so a phase of a set can address the half another left.
+     *
+     * Added to the pacer's counter before the prototype renders, and nowhere else: one integer, and the
+     * only reason a three-phase RFQ set can say "hit the first 2,000, pass the other 2,000".
+     */
+    val indexFrom: Int = 1,
 ) {
     /** How many messages the plan asks for. */
     val requested: Long get() = shape.requested
@@ -57,6 +64,9 @@ data class LoadPlan(
      */
     fun problems(config: FixConnectionConfig, surface: Surface): List<String> =
         problems(template, seed, profileName, config, storeAndLog, surface)
+
+    /** The 1-based index of this plan's last message, which is what `indexFrom` shifts. */
+    val indexTo: Long get() = indexFrom - 1L + requested
 
     /**
      * Where a refusal is about to be read, which decides only how its remedy is phrased. The sentence and
@@ -84,10 +94,20 @@ data class LoadPlan(
             config: FixConnectionConfig,
             storeAndLog: StoreAndLogOverride?,
             surface: Surface,
-        ): List<String> {
+        ): List<String> =
+            templateProblems(template, seed.keys, surface) +
+                listOfNotNull(storeProblem(profileName, config, storeAndLog))
+
+        /**
+         * What is wrong with the message itself: no MsgType, or a name nothing seeds.
+         *
+         * Split from the store's own sentence because a set applies one store override to every phase, so
+         * the store is refused once for the whole set while the template is refused per phase.
+         */
+        fun templateProblems(template: LoadTemplate, seeded: Set<String>, surface: Surface): List<String> {
             val compiled =
                 template.takeIf { it.msgType != null }?.let { runCatching { CompiledTemplate.compile(it) }.getOrNull() }
-            val missing = compiled?.missingVariables(seed.keys + Lane.SEED_NAMES).orEmpty()
+            val missing = compiled?.missingVariables(seeded + Lane.SEED_NAMES).orEmpty()
             return listOfNotNull(
                 if (template.msgType == null) "The template has no MsgType (35)." else null,
                 if (missing.isEmpty()) {
@@ -96,12 +116,18 @@ data class LoadPlan(
                     "The template reads ${missing.joinToString(", ") { "\${$it}" }} and nothing seeds " +
                         "${if (missing.size == 1) "it" else "them"}. ${surface.seedRemedy(missing.first())}"
                 },
-                // Printed whole, prefixed only by the profile's name. storeProblem() already ends with its
-                // own remedy and eight callers share it, so a surface that appends a second one puts the
-                // same advice on screen twice — which is exactly what this dialog was doing.
-                (storeAndLog?.applyTo(config) ?: config).storeProblem()?.let { "$profileName: $it" },
             )
         }
+
+        /**
+         * The store the run's own sessions would open with, when it cannot work.
+         *
+         * Printed whole, prefixed only by the profile's name. `storeProblem()` already ends with its own
+         * remedy and eight callers share it, so a surface that appends a second one puts the same advice
+         * on screen twice, which is exactly what this dialog was doing.
+         */
+        fun storeProblem(profileName: String, config: FixConnectionConfig, storeAndLog: StoreAndLogOverride?): String? =
+            (storeAndLog?.applyTo(config) ?: config).storeProblem()?.let { "$profileName: $it" }
 
         /** The label every surface shows, built once so the CLI, the rail and the JSON cannot disagree. */
         fun label(template: LoadTemplate, shape: LoadShape, profileName: String): String =

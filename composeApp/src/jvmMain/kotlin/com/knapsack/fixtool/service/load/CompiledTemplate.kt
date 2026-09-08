@@ -168,6 +168,8 @@ class CompiledTemplate private constructor(
     companion object {
         const val MESSAGE_INDEX = "messageIndex"
 
+        private const val EXPRESSION_OPENER = "\${"
+
         private val EXPRESSION = """\$\{([^}]+)}""".toRegex()
         private val VARIABLE = """^[a-zA-Z_][a-zA-Z0-9_]*$""".toRegex()
         private val ASSIGNMENT = """^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$""".toRegex()
@@ -225,6 +227,24 @@ class CompiledTemplate private constructor(
                 is Part.Variable -> scope[part.name] ?: "\${${part.name}}"
                 is Part.Generated -> generate(part.generator)
                 is Part.Assign -> renderPart(part.value, scope).also { scope[part.name] = it }
+            }
+
+        /**
+         * **Renders the generators in [value] natively, once.** Anything else is left exactly as it stands.
+         *
+         * What a load set's seed goes through at start: `${'$'}{uuid:4}` becomes four hex characters, a
+         * literal stays itself, and a `${'$'}{out.D.11}` that a seed has no business carrying is left alone
+         * rather than silently emptied. The rendered map is what every phase carries and what every report
+         * records, so the file says `${'$'}{uuid:4}` and the record says `b7f2`.
+         */
+        fun renderGenerators(value: String): String =
+            if (!value.contains(EXPRESSION_OPENER)) {
+                value
+            } else {
+                EXPRESSION.replace(value) { match ->
+                    val generator = ShorthandTemplateExpander.generatorOf(match.groupValues[1].trim())
+                    if (generator == null) match.value else generate(generator)
+                }
             }
 
         /** The shorthand generators, rendered natively: what the expander's Kotlin would have produced. */

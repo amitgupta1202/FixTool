@@ -101,7 +101,7 @@ class LoadRunner(
         // Each lane renders ahead of its own sends, so a lane's message is not queued behind every other
         // lane's rendering on the pacer thread. See RenderAhead: this is what makes a per-lane number
         // worth showing rather than a picture of the round-robin.
-        val producers = RenderAhead.forLanes(prototypes, plan.requested)
+        val producers = RenderAhead.forLanes(prototypes, plan.requested, plan.indexFrom)
 
         try {
             progress.emit(LoadStage.ISSUING)
@@ -110,7 +110,10 @@ class LoadRunner(
             val stats =
                 Pacer(plan.shape, lanes.size, clock).run(
                     issue = { laneIndex, messageIndex ->
-                        val message = producers[laneIndex].next(messageIndex) ?: prototypes[laneIndex].render(messageIndex)
+                        // The pacer counts 1..requested. `indexFrom` shifts that once, here, so a phase of a
+                        // set can address the half another phase left: "pass the other 2,000" is index 2,001.
+                        val index = plan.indexFrom - 1 + messageIndex
+                        val message = producers[laneIndex].next(index) ?: prototypes[laneIndex].render(index)
                         val ok = lanes[laneIndex].send(message)
                         if (ok) handed.incrementAndGet()
                         progress.handed = handed.get()
@@ -262,6 +265,7 @@ class LoadRunner(
                 lanes = lanes,
                 listen = plan.listenProfileIds,
                 shape = plan.shape,
+                indexFrom = plan.indexFrom,
                 match = plan.match,
                 settleMs = plan.settleMs,
                 seed = plan.seed,

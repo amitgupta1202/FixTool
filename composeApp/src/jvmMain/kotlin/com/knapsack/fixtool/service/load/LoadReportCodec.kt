@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.model.load.humanDuration
@@ -51,6 +52,29 @@ object LoadReportCodec {
             put("finishedAt", record.finishedAt?.let { JsonPrimitive(it) } ?: JsonNull)
             put("status", record.status.name)
             put("exitCode", record.exitCode?.let { JsonPrimitive(it) } ?: JsonNull)
+            record.set?.let { set ->
+                put(
+                    "set",
+                    buildJsonObject {
+                        put("name", set.name)
+                        put("onFailure", set.onFailure.name)
+                    },
+                )
+            }
+            put("seed", buildJsonObject { record.seed.forEach { (k, v) -> put(k, v) } })
+            put(
+                "verdict",
+                record.verdict.let { v ->
+                    buildJsonObject {
+                        put("outcome", v.outcome.name)
+                        put("phase", v.phase?.let { JsonPrimitive(it) } ?: JsonNull)
+                        put("passed", v.passed)
+                        put("failed", v.failed)
+                        if (v.stopped > 0) put("stopped", v.stopped)
+                        put("skipped", v.skipped)
+                    }
+                },
+            )
             put("phases", buildJsonArray { record.phases.forEach { add(toJson(it)) } })
         }
 
@@ -70,6 +94,16 @@ object LoadReportCodec {
             startedAt = o.longOrNull("startedAt") ?: phases.first().startedAt,
             finishedAt = o.longOrNull("finishedAt"),
             phases = phases,
+            set =
+                (o["set"] as? JsonObject)?.let { set ->
+                    LoadRecord.SetInfo(
+                        name = set.strOrNull("name") ?: "",
+                        onFailure = enumOr(set.strOrNull("onFailure"), OnFailure.STOP),
+                    )
+                },
+            // The set's seed is every phase's seed, so a record written before it existed reads its own
+            // first phase rather than coming back empty.
+            seed = (o["seed"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content } ?: phases.first().seed,
         )
     }
 
@@ -93,6 +127,7 @@ object LoadReportCodec {
             put("lanes", r.lanes)
             put("listen", buildJsonArray { r.listen.forEach { add(it) } })
             put("shape", shapeJson(r.shape))
+            if (r.indexFrom != 1) put("indexFrom", r.indexFrom)
             put(
                 "match",
                 buildJsonObject {
@@ -215,7 +250,7 @@ object LoadReportCodec {
 
     private fun ints(list: List<Int>): JsonArray = buildJsonArray { list.forEach { add(it) } }
 
-    private fun shapeJson(shape: LoadShape): JsonObject =
+    fun shapeJson(shape: LoadShape): JsonObject =
         buildJsonObject {
             when (shape) {
                 is LoadShape.Burst -> {
@@ -278,6 +313,7 @@ object LoadReportCodec {
             lanes = o.int("lanes"),
             listen = (o["listen"] as? JsonArray).orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull },
             shape = shapeFrom(o.obj("shape")),
+            indexFrom = o.intOrNull("indexFrom") ?: 1,
             match =
                 o.obj("match").let { m ->
                     LoadMatch(m.int("requestTag"), m.intOrNull("replyTag") ?: m.int("requestTag"), m.strOrNull("replyType"))
@@ -374,7 +410,7 @@ object LoadReportCodec {
         )
     }
 
-    private fun shapeFrom(s: JsonObject): LoadShape =
+    fun shapeFrom(s: JsonObject): LoadShape =
         if (s.strOrNull("kind") == "rate") {
             LoadShape.Rate(s.int("perSecond"), s.long("forMs"))
         } else {

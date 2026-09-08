@@ -23,6 +23,8 @@ data class LoadReport(
     val lanes: Int,
     val listen: List<String>,
     val shape: LoadShape,
+    /** Where this phase's `${'$'}{messageIndex}` started. 1 for a single run and for a set's first phase. */
+    val indexFrom: Int = 1,
     val match: LoadMatch,
     val settleMs: Long,
     val seed: Map<String, String>,

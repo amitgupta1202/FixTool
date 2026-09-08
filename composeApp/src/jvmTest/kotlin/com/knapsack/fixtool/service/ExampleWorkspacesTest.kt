@@ -308,7 +308,7 @@ class ExampleWorkspacesTest {
         assertTrue("rfq-lift-last-quote" in forClientOne, "the lift template is missing")
         assertTrue("rfq-load-quote-request" !in forClientOne, "a load template is offered to a single-session client")
         val forLoad = messages.loadMessagesForProfile("rfq-profile-RFQ_LOAD").map { it.id }
-        assertEquals(setOf("rfq-load-quote-request", "rfq-load-quote-response"), forLoad.toSet())
+        assertEquals(setOf("rfq-load-quote-request", "rfq-load-quote-response", "rfq-load-pass"), forLoad.toSet())
     }
 
     /** What the load run's two phases rely on: both templates vary from the same `run` seed. */
@@ -322,6 +322,12 @@ class ExampleWorkspacesTest {
         assertEquals("Q-RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-response", "117"))
         assertEquals("RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-response", "11"))
         assertEquals("1.09010", value("rfq-load-quote-response", "44"), "the lift is at the EUR/USD offer the venue quotes")
+        // The third phase of an RFQ set passes the quotes the second one did not hit, so it addresses the
+        // same ids from the same seed and matches on 117, because a QuoteStatusReport carries no ClOrdID.
+        assertEquals("AJ", value("rfq-load-pass", "35"))
+        assertEquals("6", value("rfq-load-pass", "694"))
+        assertEquals("Q-RFQ-\${run}-\${messageIndex}", value("rfq-load-pass", "117"))
+        assertEquals("P-RFQ-\${run}-\${messageIndex}", value("rfq-load-pass", "693"))
     }
 
     @Test

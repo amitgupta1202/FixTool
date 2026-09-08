@@ -13,6 +13,7 @@ import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.SocketStamp
+import com.knapsack.fixtool.service.WireTags
 import org.junit.Test
 import quickfix.Message
 import quickfix.SessionID
@@ -137,13 +138,20 @@ class LoadRunnerTest {
     }
 
     private fun echo(wire: String): List<String> {
-        val id = com.knapsack.fixtool.service.WireTags.tagValue(wire, 11) ?: return emptyList()
+        val id = WireTags.tagValue(wire, 11) ?: return emptyList()
         return listOf("8=FIX.4.435=849=VENUE11=$id37=O-$id39=0")
     }
 
     private val template = LoadTemplate("NOS", listOf(35 to "D", 11 to "ORD-\${run}-\${messageIndex}", 55 to "EUR/USD", 58 to "\${out.D.11}"))
 
-    private fun plan(shape: LoadShape = LoadShape.Burst(40), settleMs: Long = 2_000, seed: Map<String, String> = mapOf("run" to "t1"), strict: Boolean = false) =
+    @Suppress("LongParameterList")
+    private fun plan(
+        shape: LoadShape = LoadShape.Burst(40),
+        settleMs: Long = 2_000,
+        seed: Map<String, String> = mapOf("run" to "t1"),
+        strict: Boolean = false,
+        indexFrom: Int = 1,
+    ) =
         LoadPlan(
             id = "test-run",
             label = "NOS ${shape.describe()} on LOADGEN",
@@ -157,7 +165,27 @@ class LoadRunnerTest {
             seed = seed,
             storeAndLog = StoreAndLogOverride.FOR_LOAD,
             strictRate = strict,
+            indexFrom = indexFrom,
         )
+
+    /**
+     * What lets a three-phase RFQ set say "the other 2,000": one integer, added to the pacer's counter
+     * before the prototype renders, and visible nowhere else.
+     */
+    @Test
+    fun `indexFrom shifts every message index and the count stays what was asked for`() {
+        val clock = FakeClock()
+        val lanes = (1..4).map { FakeLane(it, clock, ::echo) }
+        val host = FakeHost(clock, lanes)
+
+        val r = LoadRunner(host, clock = clock).run(plan(shape = LoadShape.Burst(10), indexFrom = 2_001)).report
+
+        val ids = lanes.flatMap { lane -> lane.sent.map { WireTags.tagValue(it, 11) } }
+        assertEquals(10, ids.size, "the count is the count, whatever the indices are")
+        assertEquals((2_001..2_010).map { "ORD-t1-$it" }.toSet(), ids.toSet())
+        assertEquals(2_001, r.indexFrom, "the report says where it counted from, so the record and the row can")
+        assertEquals(10L, r.replies.matched)
+    }
 
     @Test
     fun `a clean burst finishes settle early, matches everything, and releases the sessions`() {

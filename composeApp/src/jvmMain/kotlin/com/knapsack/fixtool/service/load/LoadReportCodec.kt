@@ -465,26 +465,72 @@ object LoadReportCodec {
      * under `--strict-rate`, and otherwise reports the shortfall in `system-out` where a reader finds it
      * and a gate does not trip on it. `tool` fails when FixTool limited the run and says which counter.
      */
-    fun toJUnitXml(r: LoadReport): String {
-        val suite = "load: ${r.label}"
-        val cases = listOf(completenessCase(r), rateCase(r), toolCase(r))
-        val sb = StringBuilder(XML_DECLARATION)
-        sb.append("<testsuite name=\"").append(ScenarioReport.esc(suite)).append("\" tests=\"").append(cases.size)
-            .append("\" failures=\"").append(cases.count { it.failure != null })
-            .append("\" skipped=\"").append(cases.count { it.skipped })
-            .append("\"").append(ScenarioReport.timeAttr(r.timing?.elapsedMs)).append(">\n")
-        for (case in cases) {
-            sb.append("  <testcase name=\"").append(case.name).append("\" classname=\"").append(ScenarioReport.esc(suite)).append("\">")
-            when {
-                case.skipped -> sb.append("<skipped/>")
-                case.failure != null -> sb.append("\n    <failure message=\"").append(ScenarioReport.esc(case.failure)).append("\"/>\n  ")
-                case.note != null -> sb.append("\n    <system-out>").append(ScenarioReport.esc(case.note)).append("</system-out>\n  ")
+    fun toJUnitXml(r: LoadReport): String = XML_DECLARATION + suiteXml(r, "load: ${r.label}", ScenarioReport.esc("load: ${r.label}"), indent = "")
+
+    /**
+     * **A set as one `<testsuites>` with a `<testsuite>` per phase**, the way `fixtool run --set` wraps its
+     * entries.
+     *
+     * A one-phase record keeps writing the bare `<testsuite>` it writes now, mirroring what `fixtool run`
+     * does for one scenario and for a set, so nobody's existing pipeline changes shape. A skipped phase is
+     * three `<skipped/>` cases carrying its note, which every build server draws as grey rather than as
+     * missing.
+     */
+    fun toJUnitXml(record: LoadRecord): String {
+        if (record.phases.size == 1) return toJUnitXml(record.only)
+        val setName = record.set?.name ?: record.label
+        val cases = record.phases.map { casesFor(it) }
+        val time = record.finishedAt?.let { it - record.startedAt }
+        val head =
+            "<testsuites name=\"" + ScenarioReport.esc("load set: ${record.label}") +
+                "\" tests=\"" + cases.sumOf { it.size } +
+                "\" failures=\"" + cases.sumOf { c -> c.count { it.failure != null } } +
+                "\" skipped=\"" + cases.sumOf { c -> c.count { it.skipped } } +
+                "\"" + ScenarioReport.timeAttr(time) + ">\n"
+        val suites =
+            record.phases.mapIndexed { index, phase ->
+                val n = index + 1
+                suiteXml(phase, "load: $n · ${phase.label}", ScenarioReport.esc("load.$setName.$n"), indent = "  ")
             }
-            sb.append("</testcase>\n")
-        }
-        sb.append("</testsuite>\n")
-        return sb.toString()
+        return XML_DECLARATION + head + suites.joinToString("") + "</testsuites>\n"
     }
+
+    private fun suiteXml(r: LoadReport, name: String, classname: String, indent: String): String {
+        val cases = casesFor(r)
+        val head =
+            indent + "<testsuite name=\"" + ScenarioReport.esc(name) +
+                "\" tests=\"" + cases.size +
+                "\" failures=\"" + cases.count { it.failure != null } +
+                "\" skipped=\"" + cases.count { it.skipped } +
+                "\"" + ScenarioReport.timeAttr(r.timing?.elapsedMs) + ">\n"
+        return head + cases.joinToString("") { caseXml(it, classname, indent) } + indent + "</testsuite>\n"
+    }
+
+    private fun caseXml(case: Case, classname: String, indent: String): String {
+        val open = indent + "  <testcase name=\"" + case.name + "\" classname=\"" + classname + "\">"
+        val message = case.note?.let { " message=\"" + ScenarioReport.esc(it) + "\"" } ?: ""
+        val body =
+            when {
+                case.skipped -> "<skipped" + message + "/>"
+                case.failure != null ->
+                    "\n" + indent + "    <failure message=\"" + ScenarioReport.esc(case.failure) +
+                        "\"/>\n" + indent + "  "
+                case.note != null ->
+                    "\n" + indent + "    <system-out>" + ScenarioReport.esc(case.note) +
+                        "</system-out>\n" + indent + "  "
+                else -> ""
+            }
+        return open + body + "</testcase>\n"
+    }
+
+    /** The three judgements as cases, or three skipped ones carrying the note for a phase that never ran. */
+    private fun casesFor(r: LoadReport): List<Case> =
+        if (r.status == LoadStatus.SKIPPED || r.status == LoadStatus.PENDING) {
+            val note = r.note ?: "this phase did not run"
+            listOf("completeness", "rate", "tool").map { Case(it, note = note, skipped = true) }
+        } else {
+            listOf(completenessCase(r), rateCase(r), toolCase(r))
+        }
 
     private class Case(
         val name: String,
@@ -503,7 +549,7 @@ object LoadReportCodec {
         }
 
     private fun rateCase(r: LoadReport): Case {
-        val rate = r.rate ?: return Case("rate", skipped = true)
+        val rate = r.rate ?: return Case("rate", note = "not applicable to a burst", skipped = true)
         val sentence = rateSentence(rate)
         val shortfall = r.verdict.rate == LoadReport.RateVerdict.SHORTFALL
         return if (shortfall && r.strictRate) Case("rate", failure = sentence) else Case("rate", note = sentence)

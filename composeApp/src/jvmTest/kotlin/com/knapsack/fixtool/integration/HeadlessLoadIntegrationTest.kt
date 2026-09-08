@@ -37,13 +37,76 @@ class HeadlessLoadIntegrationTest {
         home = File(System.getProperty("java.io.tmpdir"), "fixtool-load-$runId").apply { mkdirs() }
         writeProfiles(resetOnLogon = true)
         File(home, "nos.fix").writeText("8=FIX.4.4|35=D|11=ORD-\${run}-\${messageIndex}|55=EUR/USD|54=1|38=1000000|40=2|44=1.0842|59=0|60=\${utcnow}|\n")
+        File(home, "quotes.fix").writeText("35=R|131=Q-\${run}-\${messageIndex}|146=1|55=EUR/USD|54=1|38=1000000|\n")
+        File(
+            home,
+            "hits.fix",
+        ).writeText(
+            "35=AJ|693=R-\${run}-\${messageIndex}|694=1|117=Q-\${run}-\${messageIndex}|" +
+                "11=H-\${run}-\${messageIndex}|55=EUR/USD|54=1|38=1000000|44=1.09010|\n",
+        )
     }
+
+    /** A two-phase set on disk, exactly as `load-sets/<name>.json` holds one. */
+    private fun writeSet(name: String = "round-trip", onFailure: String = "STOP", seed: String = seedGeneratorJson) {
+        File(home, "load-sets").mkdirs()
+        File(home, "load-sets/$name.json").writeText(
+            """
+            {
+              "schema": 1,
+              "name": "$name",
+              "label": "Round trip",
+              "seed": $seed,
+              "storeAndLog": { "store": "MEMORY", "log": "NONE" },
+              "onFailure": "$onFailure",
+              "phases": [
+                { "label": "Ask for a quote", "template": "${File(home, "quotes.fix").absolutePath}",
+                  "profile": "LOADGEN",
+                  "match": { "requestTag": 131, "replyTag": 131, "replyType": "S" },
+                  "shape": { "kind": "burst", "count": 20 }, "settleMs": 10000 },
+                { "label": "Hit them", "template": "${File(home, "hits.fix").absolutePath}",
+                  "profile": "LOADGEN",
+                  "match": { "requestTag": 11, "replyTag": 11, "replyType": "8" },
+                  "shape": { "kind": "burst", "count": 20 }, "settleMs": 10000 }
+              ]
+            }
+            """.trimIndent(),
+        )
+    }
+
+    /** A Quote for a QuoteRequest and an ExecutionReport for a QuoteResponse, which is the RFQ round trip. */
+    private fun quoteThenBook(swallowQuoteFor: String? = null): (String) -> List<TestFixServer.Reply> =
+        { request ->
+            when (TestFixServer.fieldValue(request, 35)) {
+                "R" -> {
+                    val reqId = TestFixServer.fieldValue(request, 131) ?: "?"
+                    if (reqId.endsWith(swallowQuoteFor ?: "\u0000")) {
+                        emptyList()
+                    } else {
+                        listOf(
+                            TestFixServer.Reply(
+                                "S",
+                                listOf(
+                                    "117=QID-$reqId", "131=$reqId", "55=EUR/USD", "132=1.09000", "133=1.09010",
+                                    "134=1000000", "135=1000000", "15=EUR",
+                                ),
+                            ),
+                        )
+                    }
+                }
+                "AJ" -> listOf(TestFixServer.executionReportFor(request, "2"))
+                else -> emptyList()
+            }
+        }
 
     @After
     fun tearDown() {
         server.stop()
         home.deleteRecursively()
     }
+
+    /** A set's seed value may be a generator, rendered once when the set starts and then frozen. */
+    private val seedGeneratorJson = "{ \"run\": \"\${uuid:4}\" }"
 
     private fun writeProfiles(resetOnLogon: Boolean) {
         File(home, "connection_profiles.json").writeText(
@@ -68,6 +131,14 @@ class HeadlessLoadIntegrationTest {
               }}]}
             """.trimIndent(),
         )
+    }
+
+    /** The set form has no template positional and no --profile: the file names both, per phase. */
+    private fun loadSet(vararg args: String): Triple<Int, String, String> {
+        val out = StringBuilder()
+        val err = StringBuilder()
+        val code = HeadlessRun.execute(arrayOf("load", "--home", home.absolutePath, *args), out, err)
+        return Triple(code, out.toString(), err.toString())
     }
 
     private fun load(vararg args: String): Triple<Int, String, String> {
@@ -207,6 +278,100 @@ class HeadlessLoadIntegrationTest {
         assertTrue(err.contains("\${run}"), err)
         assertTrue(err.contains("--seed run="), err)
         assertEquals(0, server.logonCount.get(), err)
+    }
+
+    /**
+     * The set's exit criteria with a socket under them: two phases in order, one record, one `<testsuites>`.
+     */
+    @Test
+    fun `a two-phase set runs both phases under one seed and writes one record`() {
+        server.answer = quoteThenBook()
+        writeSet()
+        val junit = File(home, "reports/set.xml")
+        val jsonFile = File(home, "reports/set.json")
+
+        val (code, out, err) =
+            loadSet("--set", "round-trip", "--seed", "run=cli1", "--junit", junit.absolutePath, "--json", jsonFile.absolutePath)
+
+        assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
+        assertTrue(out.contains("set          Round trip · 2 phases · LOADGEN · 5 lanes · memory store, no log"), out)
+        assertTrue(out.contains("seed         run=cli1"), out)
+        assertTrue(out.contains("policy       stop when a phase does not pass"), out)
+        assertTrue(out.contains("1 · Ask for a quote"), out)
+        assertTrue(out.contains("2 · Hit them"), out)
+        assertTrue(out.contains("PASSED       2 passed"), out)
+        assertEquals(1, out.split("records: ").size - 1, "the record path is printed once")
+        assertTrue(err.contains("fixtool: phase 1 of 2 · Ask for a quote"), err)
+        assertTrue(err.contains("fixtool: phase 2 of 2 · Hit them"), err)
+
+        assertEquals(20, server.applicationMessages.count { TestFixServer.fieldValue(it, 35) == "R" })
+        val hits = server.applicationMessages.filter { TestFixServer.fieldValue(it, 35) == "AJ" }
+        assertEquals(20, hits.size)
+        assertTrue(hits.all { TestFixServer.fieldValue(it, 117) == "Q-cli1-" + TestFixServer.fieldValue(it, 11)!!.removePrefix("H-cli1-") })
+
+        val record = Json.parseToJsonElement(jsonFile.readText()).jsonObject
+        assertEquals(LoadReportCodec.SCHEMA, record["schema"]!!.jsonPrimitive.int)
+        assertEquals("round-trip", record["set"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertEquals(mapOf("run" to "cli1"), record["seed"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content })
+        assertEquals("PASSED", record["verdict"]!!.jsonObject["outcome"]!!.jsonPrimitive.content)
+        val phases = record["phases"]!!.jsonArray
+        assertEquals(2, phases.size)
+        assertEquals(listOf(20L, 20L), phases.map { it.jsonObject["replies"]!!.jsonObject["matched"]!!.jsonPrimitive.long })
+
+        val xml = junit.readText()
+        assertTrue(xml.contains("<testsuites name=\"load set: Round trip\""), xml)
+        assertTrue(xml.contains("<testsuite name=\"load: 1 · Ask for a quote\""), xml)
+        assertTrue(xml.contains("<testsuite name=\"load: 2 · Hit them\""), xml)
+        assertTrue(xml.contains("classname=\"load.round-trip.2\""), xml)
+
+        val dirs = File(home, "loads").listFiles { f -> f.isDirectory }.orEmpty()
+        assertEquals(1, dirs.size, "one record for the whole set: ${dirs.map { it.name }}")
+        assertTrue(File(dirs.single(), LoadReport.Evidence.forPhase(1).specimens).isFile)
+        assertTrue(File(dirs.single(), LoadReport.Evidence.forPhase(2).specimens).isFile)
+    }
+
+    @Test
+    fun `a phase that did not pass skips the rest, exits one, and phase two never dials`() {
+        server.answer = quoteThenBook(swallowQuoteFor = "-7")
+        writeSet()
+        val junit = File(home, "reports/set.xml")
+
+        val (code, out, err) = loadSet("--set", "round-trip", "--seed", "run=cli2", "--junit", junit.absolutePath)
+
+        assertEquals(1, code, "stdout:\n$out\nstderr:\n$err")
+        assertTrue(out.contains("UNMATCHED    1 of 20 unanswered"), out)
+        assertTrue(out.contains("SKIPPED      phase 1 did not pass and the set stops on failure"), out)
+        assertTrue(out.contains("FAILED       phase 1 · 1 failed, 1 skipped"), out)
+        assertEquals(0, server.applicationMessages.count { TestFixServer.fieldValue(it, 35) == "AJ" }, "phase 2 never dialled")
+        val xml = junit.readText()
+        assertTrue(xml.contains("<skipped message=\"phase 1 did not pass and the set stops on failure\"/>"), xml)
+    }
+
+    @Test
+    fun `under CONTINUE the set runs every phase and still exits one`() {
+        server.answer = quoteThenBook(swallowQuoteFor = "-7")
+        writeSet(onFailure = "CONTINUE")
+
+        val (code, out, err) = loadSet("--set", "round-trip", "--seed", "run=cli3")
+
+        assertEquals(1, code, "stdout:\n$out\nstderr:\n$err")
+        assertTrue(out.contains("policy       carry on, and report every phase"), out)
+        assertTrue(out.contains("FAILED       phase 1 · 1 passed, 1 failed"), out)
+        assertEquals(20, server.applicationMessages.count { TestFixServer.fieldValue(it, 35) == "AJ" }, "phase 2 ran anyway")
+    }
+
+    @Test
+    fun `a set nothing answers to, and one whose phase reads a name nothing seeds, exit two`() {
+        val missing = loadSet("--set", "nowhere")
+        assertEquals(HeadlessRun.EXIT_USAGE, missing.first, missing.third)
+        assertTrue(missing.third.contains("no load set 'nowhere'"), missing.third)
+
+        writeSet(seed = "{}")
+        val unseeded = loadSet("--set", "round-trip")
+        assertEquals(HeadlessRun.EXIT_USAGE, unseeded.first, unseeded.third)
+        assertTrue(unseeded.third.contains("Phase 1 · Ask for a quote:"), unseeded.third)
+        assertTrue(unseeded.third.contains("Pass --seed run=…"), unseeded.third)
+        assertEquals(0, server.logonCount.get(), "nothing dialled")
     }
 
     @Test

@@ -124,7 +124,13 @@ class LoadReportTest {
 
         val unmatched = LoadReportCodec.toJUnitXml(burstReport(unmatched = 4))
         assertTrue(unmatched.contains("""<testcase name="completeness""""), unmatched)
-        assertTrue(unmatched.contains("""<testcase name="rate" classname="load: NOS EUR/USD 1M ×4,000 on LOADGEN"><skipped/>"""), "a burst has no rate to hold: $unmatched")
+        assertTrue(
+            unmatched.contains(
+                """<testcase name="rate" classname="load: NOS EUR/USD 1M ×4,000 on LOADGEN">""" +
+                    """<skipped message="not applicable to a burst"/>""",
+            ),
+            "a burst has no rate to hold: $unmatched",
+        )
         assertTrue(unmatched.contains("4 of 4,000 unanswered within 1m"), unmatched)
         assertTrue(unmatched.contains("ORD-b7f2-1187 (lane 37)"), unmatched)
         assertEquals(1, failures(unmatched))

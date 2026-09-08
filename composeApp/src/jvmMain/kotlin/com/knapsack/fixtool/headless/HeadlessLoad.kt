@@ -2,14 +2,17 @@ package com.knapsack.fixtool.headless
 
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.model.load.humanDuration
 import com.knapsack.fixtool.service.AppSettingsService
@@ -22,6 +25,8 @@ import com.knapsack.fixtool.service.load.LoadRecordStore
 import com.knapsack.fixtool.service.load.LoadRefused
 import com.knapsack.fixtool.service.load.LoadReportCodec
 import com.knapsack.fixtool.service.load.LoadRunner
+import com.knapsack.fixtool.service.load.LoadSetRunner
+import com.knapsack.fixtool.service.load.LoadSetStore
 import com.knapsack.fixtool.service.load.LoadTemplates
 import java.io.File
 
@@ -36,6 +41,7 @@ import java.io.File
  * The verdicts are separate on purpose. A run where the venue answered everything and the tool could not
  * hold the rate for nineteen seconds says both, and exits 0 unless `--strict-rate` asked otherwise.
  */
+@Suppress("TooManyFunctions")
 object HeadlessLoad {
     /** Parsed argv after the `load` verb. Unknown flags are refused rather than ignored. */
     data class Options(
@@ -57,6 +63,10 @@ object HeadlessLoad {
         val home: String? = null,
         /** `--set k=v` was used to seed a value. Tolerated for one release, with a note on stderr. */
         val seededWithSet: Boolean = false,
+        /** `--set <name>`: the saved load set to run, instead of one template. */
+        val set: String? = null,
+        /** `--on-failure`, which overrides the set file's own policy. */
+        val onFailure: OnFailure? = null,
     ) {
         /** Burst or rate, or null when the arguments say neither or both. */
         val shape: LoadShape?
@@ -87,6 +97,8 @@ object HeadlessLoad {
                 var junit: String? = null
                 var home: String? = null
                 var seededWithSet = false
+                var setName: String? = null
+                var onFailure: OnFailure? = null
                 var i = 0
                 while (i < args.size) {
                     val arg = args[i]
@@ -109,11 +121,16 @@ object HeadlessLoad {
                         // note on stderr. A set name is a slug and cannot carry an `=`, so the two never
                         // collide.
                         arg == "--set" -> {
-                            val pair = args.getOrNull(++i) ?: return null
-                            val (k, v) = pair.split("=", limit = 2).takeIf { it.size == 2 && it[0].isNotBlank() } ?: return null
-                            seed[k.trim()] = v
-                            seededWithSet = true
+                            val value = args.getOrNull(++i) ?: return null
+                            if (!value.contains("=")) {
+                                setName = value.trim().takeIf { it.isNotBlank() } ?: return null
+                            } else {
+                                val (k, v) = value.split("=", limit = 2).takeIf { it[0].isNotBlank() } ?: return null
+                                seed[k.trim()] = v
+                                seededWithSet = true
+                            }
                         }
+                        arg == "--on-failure" -> onFailure = enumOrNull<OnFailure>(args.getOrNull(++i)) ?: return null
                         arg == "--store" -> store = enumOrNull<FixConnectionConfig.MessageStoreKind>(args.getOrNull(++i)) ?: return null
                         arg == "--log" -> log = enumOrNull<FixConnectionConfig.MessageLogKind>(args.getOrNull(++i)) ?: return null
                         arg == "--strict-rate" -> strictRate = true
@@ -128,7 +145,7 @@ object HeadlessLoad {
                 }
                 return Options(
                     template, profile, count, perSecond, forMs, settleMs, listen, match?.copy(replyType = replyType),
-                    replyType, seed, store, log, strictRate, json, junit, home, seededWithSet,
+                    replyType, seed, store, log, strictRate, json, junit, home, seededWithSet, setName, onFailure,
                 )
             }
 
@@ -165,6 +182,13 @@ object HeadlessLoad {
             err.appendLine(
                 "fixtool load: --set <k>=<v> now seeds through --seed <k>=<v>. --set <name> runs a saved load set.",
             )
+        }
+        if (options.set != null) {
+            if (options.template.isNotBlank()) {
+                err.appendLine("fixtool load: name a template or a --set, not both")
+                return HeadlessRun.EXIT_USAGE
+            }
+            return executeSet(options, options.set, out, err)
         }
         if (options.template.isBlank() || options.profile.isBlank()) {
             err.appendLine("fixtool load: name a template and a --profile")
@@ -250,6 +274,83 @@ object HeadlessLoad {
         return report.verdict.exitCode ?: HeadlessRun.EXIT_FAILED
     }
 
+    /**
+     * **`fixtool load --set <name>`**: a saved set, run in order, under one seed, with one report.
+     *
+     * Nothing dials until every phase is fine, which is why the refusals come out before the record
+     * directory is even reserved: a set of six must never fail on phase five for something that could have
+     * been said before phase one.
+     */
+    @Suppress("ReturnCount", "LongMethod")
+    private fun executeSet(options: Options, name: String, out: Appendable, err: Appendable): Int {
+        val settings = AppSettingsService().loadSettings()
+        val profiles = ConnectionProfileService().loadProfiles()
+        val savedMessages = SavedMessagesService()
+        val sets = LoadSetStore()
+        val set =
+            sets.load(name) ?: run {
+                err.appendLine("fixtool load: no load set '$name' under ${sets.directory}")
+                val saved = sets.list().map { it.name }
+                if (saved.isNotEmpty()) err.appendLine("fixtool load: saved sets: ${saved.joinToString(", ")}")
+                return HeadlessRun.EXIT_USAGE
+            }
+        val resolve = WorkspaceResolver(profiles, savedMessages)
+        val problems = set.problems(resolve, LoadPlan.Surface.CLI)
+        if (problems.isNotEmpty()) {
+            problems.forEach { problem ->
+                val label = problem.phase?.let { set.phases.getOrNull(it - 1)?.label }
+                err.appendLine("fixtool load: " + problem.describe(label))
+            }
+            return HeadlessRun.EXIT_USAGE
+        }
+
+        val store = LoadRecordStore()
+        val id = store.reserve(RunSets.id(System.currentTimeMillis(), set.name))
+        val planned =
+            set
+                .copy(onFailure = options.onFailure ?: set.onFailure)
+                .plan(resolve, options.seed, id)
+                .let { p ->
+                    // --strict-rate on the command line applies to every phase. A per-phase strictRate
+                    // stays in the file for the case where only the soak phase should gate the build.
+                    if (options.strictRate) p.copy(phases = p.phases.map { it.copy(strictRate = true) }) else p
+                }
+        val dictionary = HeadlessRun.dictionaryFor(settings, err)
+        val host = HeadlessLoadHost(profiles, dictionary, settings) { err.appendLine("fixtool: $it") }
+        val narrator = SetNarrator(err)
+        val record =
+            try {
+                LoadSetRunner(host, store).run(planned, onProgress = narrator::tell)
+            } catch (e: LoadRefused) {
+                err.appendLine("fixtool load: ${e.message}")
+                return HeadlessRun.EXIT_USAGE
+            } finally {
+                host.release()
+            }
+        store.prune(settings.runRecordsKept)
+
+        out.append(setSummary(record, planned, store.directoryFor(record.id), dictionary))
+        options.jsonFile?.let { write(it, LoadReportCodec.recordToJson(record).toString(), err) }
+        options.junitFile?.let { write(it, LoadReportCodec.toJUnitXml(record), err) }
+        return record.exitCode ?: HeadlessRun.EXIT_FAILED
+    }
+
+    /** The workspace as a set's [LoadSet.Resolver]: profiles by id or name, templates by path or name. */
+    private class WorkspaceResolver(
+        private val profiles: List<FixConnectionProfile>,
+        private val savedMessages: SavedMessagesService,
+    ) : LoadSet.Resolver {
+        override fun profile(key: String): LoadSet.Profile? =
+            profiles
+                .filter { it.id == key || it.name == key }
+                .distinctBy { it.id }
+                .singleOrNull()
+                ?.let { LoadSet.Profile(it.id, it.name, it.config) }
+
+        override fun template(key: String, profileId: String?): LoadTemplate? =
+            LoadTemplates.resolve(key, profileId, savedMessages, profiles)
+    }
+
     private fun pickProfile(key: String, profiles: List<FixConnectionProfile>, err: Appendable): FixConnectionProfile? {
         val matches = profiles.filter { it.id == key || it.name == key }.distinctBy { it.id }
         return when {
@@ -309,8 +410,103 @@ object HeadlessLoad {
         }
     }
 
+    /**
+     * The progress lines for a set: which phase, then that phase's own lines through [Narrator].
+     *
+     * A fresh narrator per phase, so each phase says "prepared", "issuing" and "settling" once, exactly as
+     * a single run does. Everything goes to stderr, so `> report.txt` keeps the report clean.
+     */
+    private class SetNarrator(
+        private val err: Appendable,
+    ) {
+        private var phase = 0
+        private var narrator: Narrator? = null
+
+        fun tell(record: LoadRecord) {
+            val running = record.phases.indexOfFirst { it.status == LoadStatus.RUNNING }.takeIf { it >= 0 } ?: return
+            if (running + 1 != phase) {
+                phase = running + 1
+                narrator = Narrator(err)
+                err.appendLine("fixtool: phase $phase of ${record.phases.size} · ${record.phases[running].label}")
+            }
+            narrator?.tell(record.phases[running])
+        }
+    }
+
+    /**
+     * **The set as a build log reads it**: three header lines, a block per phase under its heading, and the
+     * set's own line last. The record path is printed once.
+     */
+    fun setSummary(record: LoadRecord, planned: LoadSet.Planned, records: File, dictionary: FixDictionaryAdapter?): String =
+        buildString {
+            val profiles = record.phases.map { it.profileName }.distinct().joinToString(", ")
+            val lanes = record.phases.maxOfOrNull { it.lanes } ?: 0
+            appendLine(
+                "set".padEnd(COL) +
+                    listOfNotNull(
+                        record.label,
+                        "${record.phases.size} phases",
+                        profiles,
+                        "$lanes lane${if (lanes == 1) "" else "s"}",
+                        planned.storeAndLog?.describe(),
+                    ).joinToString(" · "),
+            )
+            if (record.seed.isNotEmpty()) {
+                appendLine("seed".padEnd(COL) + record.seed.entries.joinToString(" · ") { "${it.key}=${it.value}" })
+            }
+            appendLine("policy".padEnd(COL) + policySentence(planned.onFailure))
+            record.phases.forEachIndexed { index, phase ->
+                appendLine()
+                appendLine(phaseHeading(index + 1, phase, dictionary))
+                if (phase.status == LoadStatus.SKIPPED || phase.status == LoadStatus.PENDING) {
+                    appendLine("SKIPPED".padEnd(COL) + (phase.note ?: "this phase did not run"))
+                } else {
+                    append(phaseBlock(phase))
+                }
+            }
+            appendLine()
+            appendLine(setVerdictLine(record))
+            appendLine("".padEnd(COL) + "records: $records")
+        }
+
+    private fun policySentence(onFailure: OnFailure): String =
+        when (onFailure) {
+            OnFailure.STOP -> "stop when a phase does not pass"
+            OnFailure.CONTINUE -> "carry on, and report every phase"
+        }
+
+    /** "1 · Ask for a quote       RFQ Load QuoteRequest ×4,000 · 35=R → S · 131 QuoteReqID · settle 1m" */
+    private fun phaseHeading(n: Int, r: LoadReport, dictionary: FixDictionaryAdapter?): String {
+        val from = if (r.indexFrom > 1) " from ${LoadReportCodec.fmt(r.indexFrom.toLong())}" else ""
+        val tagName = dictionary?.getFieldName(r.match.requestTag)?.let { " $it" }.orEmpty()
+        val plan =
+            listOf(
+                "${r.template.name} ${r.shape.describe()}$from",
+                "35=${r.template.msgType} → ${r.match.replyType ?: "any"}",
+                "${r.match.requestTag}$tagName",
+                "settle ${humanDuration(r.settleMs)}",
+            ).joinToString(" · ")
+        return "$n · ${r.label}".padEnd(HEAD).let { if (it.length > HEAD) "$it  " else it } + plan
+    }
+
+    /** "FAILED       phase 2 · 1 passed, 1 failed, 1 skipped · 63.1s · exit 1" */
+    private fun setVerdictLine(record: LoadRecord): String {
+        val v = record.verdict
+        val elapsed = record.finishedAt?.let { RunSetStats.humanMs(it - record.startedAt) }
+        return v.outcome.name.padEnd(COL) +
+            listOfNotNull(
+                v.phase?.let { "phase $it" },
+                v.counts().ifBlank { null },
+                elapsed,
+                record.exitCode?.let { "exit $it" },
+            ).joinToString(" · ")
+    }
+
     /** The summary block a build log is read from: the counts, the timings, the tool's own part, the verdict. */
-    fun summary(r: LoadReport, records: File): String =
+    fun summary(r: LoadReport, records: File): String = phaseBlock(r) + "".padEnd(COL) + "records: $records\n"
+
+    /** The same block without the record path, which a set prints once at the end rather than per phase. */
+    fun phaseBlock(r: LoadReport): String =
         buildString {
             appendLine(
                 "issued".padEnd(COL) + LoadReportCodec.fmt(r.issue.leftSocket).padStart(NUM) +
@@ -340,7 +536,6 @@ object HeadlessLoad {
                     },
             )
             appendLine(verdictLine(r))
-            appendLine("".padEnd(COL) + "records: $records")
         }
 
     private fun verdictLine(r: LoadReport): String {
@@ -368,12 +563,14 @@ object HeadlessLoad {
     }
 
     private const val COL = 13
+    private const val HEAD = 26
     private const val NUM = 9
     private const val UNMATCHED_NAMED = 6
 
     val USAGE =
         """
         fixtool load <template> --profile <name> (--count <n> | --rate <r>/s --for <d>) [options]
+        fixtool load --set <name> [--seed <k>=<v>]… [--on-failure stop|continue] [options]
 
           <template>             a saved message's name or id, or a path to a .fix file holding one message
           --profile <name>       the multi-session initiator profile whose lanes issue
@@ -384,14 +581,22 @@ object HeadlessLoad {
           --listen <profile>     also match replies landing on this profile's sessions (repeatable)
           --match <req>=<rep>    request tag to reply tag (default: the template's first correlation tag, both sides)
           --reply-type <35>      count only replies of this MsgType as answers
-          --seed <k>=<v>         seed a value into every message's scope as ${'$'}{k} (repeatable)
+          --set <name>           run a saved load set (<home>/load-sets/<name>.json): several phases in
+                                 order, under one seed, with one report
+          --on-failure stop|continue   after a phase that did not pass (default: the file's, then stop)
+          --seed <k>=<v>         seed a value into every message's scope as ${'$'}{k} (repeatable); with
+                                 --set it overrides the file's value, so a build can pass its own run id
           --set <k>=<v>          still read as a seed this release, with a note on stderr to write --seed
           --store file|memory    message store for this run's sessions (default: the profile's)
           --log file|none        message log for this run's sessions (default: the profile's)
           --strict-rate          exit 1 on a rate shortfall, not only on unmatched replies
           --json <file>          write the record: the same JSON as loads/<id>/load.json and GET /loads/<id>
-          --junit <file>         write one <testsuite> with three cases: completeness, rate, tool
+          --junit <file>         write one <testsuite> with three cases: completeness, rate, tool. A set of
+                                 several phases writes one <testsuites> with a <testsuite> per phase
           --home <dir>           read profiles and templates from <dir> instead of ~/.fixtool
+
+        A set exits 0 when every phase passed, 1 when any did not or it was stopped, 2 when it could not
+        start. Under the default policy the phases after a failure are reported as skipped.
 
         Exits 0 when every message that left the socket was answered and the tool stayed out of the way.
         Exits 1 when anything was unmatched, when the tool limited the run, when the run was stopped, or on a

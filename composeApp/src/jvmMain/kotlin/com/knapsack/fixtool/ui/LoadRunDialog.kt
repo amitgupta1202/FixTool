@@ -45,8 +45,11 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.rememberDialogState
 import com.knapsack.fixtool.headless.HeadlessRun
@@ -390,300 +393,329 @@ fun LoadRunDialogContent(
                     }
                 },
     ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
+        // No padding and no spacing of its own: every rule is full bleed, and each section owns the
+        // gutter its rows sit in. A single padded column with 3.dp between everything is what made the
+        // dialog read as one continuous list however many headings were in it.
+        Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (phase == null) {
                 Text(
                     "Send one message many times across a profile's sessions, and count the replies.",
                     color = AppTheme.Colors.textSecondary,
                     style = AppTheme.Type.body,
+                    modifier = Modifier.padding(start = GUTTER, top = 12.dp, end = GUTTER, bottom = 4.dp),
                 )
             } else {
                 Breadcrumb(phase)
             }
 
-            SectionHead("What to send", "the message, and the lanes that carry it")
-            if (phase != null) {
-                FormRow("Label") {
-                    SlimField(
-                        phaseLabel,
-                        { phaseLabel = it },
-                        modifier = Modifier.fillMaxWidth().testTag("phase-label"),
-                    )
-                    Hint("What the report calls this phase.")
+            // The first section carries no rule: the lead sentence above it is its top edge.
+            Section(rule = null, title = "What to send", purpose = "the message, and the lanes that carry it") {
+                if (phase != null) {
+                    FormRow("Label") {
+                        SlimField(
+                            phaseLabel,
+                            { phaseLabel = it },
+                            modifier = Modifier.fillMaxWidth().testTag("phase-label"),
+                        )
+                        Hint("What the report calls this phase.")
+                    }
+                }
+                FormRow("Template") {
+                    if (fixedTemplate != null) {
+                        // Opened from the editor, whose fields *are* the template: there is nothing to go and
+                        // view, and nothing here is a saved message's name. The row said "message editor",
+                        // which reads as a template called that. It should say what it is, and the sub-line
+                        // below already carries the MsgType and its name.
+                        Text(
+                            "the message in the editor",
+                            color = AppTheme.Colors.text,
+                            style = AppTheme.Type.body,
+                            modifier = Modifier.testTag("load-template"),
+                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Picker(template?.name ?: "pick a template", templates.map { it.name to it }, "load-template") { template = it }
+                            if (savedMessage != null) {
+                                // Labelled by what it does, and it now does it: the message went into an editor
+                                // that could be shut, behind a dialog, which reads as a dead link. The panel
+                                // toggle is the one `POST /panel {"panel":"editor"}` drives.
+                                Text(
+                                    "view in editor",
+                                    color = AppTheme.Colors.info,
+                                    style = AppTheme.Type.body,
+                                    modifier =
+                                        Modifier
+                                            .clickable {
+                                                viewModel.loadEditorMessage(savedMessage)
+                                                viewModel.bringEditorForward()
+                                            }.testTag("load-view-template"),
+                                )
+                            }
+                        }
+                    }
+                    compiled?.let {
+                        Hint(templateHint(it, dictionary, savedUnder))
+                        // In a set the names a template reads are the interesting half: which of them the seed
+                        // covers, and which an earlier phase has to have kept.
+                        if (phase != null) Sub(readsFrom(it, phase))
+                    }
+                    Refusals(blocking, Where.TEMPLATE)
+                }
+                FormRow("Issue on") {
+                    Picker(profile?.name ?: "pick a profile", profiles.map { p -> p.name to p.id }, "load-profile") { profileId = it }
+                    (lanes as? FixMessageViewModel.FanOutLanes.Available)?.let { a ->
+                        Hint(lanesHint(a))
+                        a.shortfall?.let { Hint(it, AppTheme.Colors.warning) }
+                    }
+                    if (phase != null) {
+                        val down = lanes as? FixMessageViewModel.FanOutLanes.Unavailable
+                        down?.let { Hint(it.why, AppTheme.Colors.warning) }
+                    }
+                    Refusals(blocking, Where.PROFILE)
                 }
             }
-            FormRow("Template") {
-                if (fixedTemplate != null) {
-                    // Opened from the editor, whose fields *are* the template: there is nothing to go and
-                    // view, and nothing here is a saved message's name. The row said "message editor",
-                    // which reads as a template called that. It should say what it is, and the sub-line
-                    // below already carries the MsgType and its name.
-                    Text(
-                        "the message in the editor",
-                        color = AppTheme.Colors.text,
-                        style = AppTheme.Type.body,
-                        modifier = Modifier.testTag("load-template"),
-                    )
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Picker(template?.name ?: "pick a template", templates.map { it.name to it }, "load-template") { template = it }
-                        if (savedMessage != null) {
-                            // Labelled by what it does, and it now does it: the message went into an editor
-                            // that could be shut, behind a dialog, which reads as a dead link. The panel
-                            // toggle is the one `POST /panel {"panel":"editor"}` drives.
-                            Text(
-                                "view in editor",
-                                color = AppTheme.Colors.info,
-                                style = AppTheme.Type.body,
-                                modifier =
-                                    Modifier
-                                        .clickable {
-                                            viewModel.loadEditorMessage(savedMessage)
-                                            viewModel.bringEditorForward()
-                                        }.testTag("load-view-template"),
+
+            Section(
+                rule = "load-rule-how-much",
+                title = "How much",
+                purpose = "how many, how fast, and how long to wait",
+            ) {
+                FormRow("Shape") {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SlimSegmented(
+                            options = listOf(true, false),
+                            selected = burst,
+                            onSelect = { burst = it },
+                            label = { if (it) "Burst" else "Rate" },
+                            optionTestTag = { if (it) "load-shape-burst" else "load-shape-rate" },
+                        )
+                        if (burst) {
+                            SlimField(count, { count = it }, modifier = Modifier.width(64.dp).testTag("load-count"))
+                            if (phase == null) Hint("messages, as fast as the lanes accept them")
+                        } else {
+                            SlimField(rate, { rate = it }, modifier = Modifier.width(56.dp).testTag("load-rate"))
+                            Hint("a second, for")
+                            SlimField(forText, { forText = it }, modifier = Modifier.width(52.dp).testTag("load-for"))
+                        }
+                        // Beside the count *and* beside the rate: `${messageIndex}` restarts at 1 in every
+                        // phase whatever its shape, so a rate phase has the same reason to count from where
+                        // another stopped and had no field to say it.
+                        if (phase != null) {
+                            Sub("from")
+                            SlimField(
+                                indexFrom,
+                                { indexFrom = it },
+                                modifier = Modifier.width(56.dp).testTag("phase-index-from"),
                             )
                         }
                     }
-                }
-                compiled?.let {
-                    Hint(templateHint(it, dictionary, savedUnder))
-                    // In a set the names a template reads are the interesting half: which of them the seed
-                    // covers, and which an earlier phase has to have kept.
-                    if (phase != null) Sub(readsFrom(it, phase))
-                }
-                Refusals(blocking, Where.TEMPLATE)
-            }
-            FormRow("Issue on") {
-                Picker(profile?.name ?: "pick a profile", profiles.map { p -> p.name to p.id }, "load-profile") { profileId = it }
-                (lanes as? FixMessageViewModel.FanOutLanes.Available)?.let { a ->
-                    Hint(lanesHint(a))
-                    a.shortfall?.let { Hint(it, AppTheme.Colors.warning) }
-                }
-                if (phase != null) {
-                    val down = lanes as? FixMessageViewModel.FanOutLanes.Unavailable
-                    down?.let { Hint(it.why, AppTheme.Colors.warning) }
-                }
-                Refusals(blocking, Where.PROFILE)
-            }
-
-            SectionHead("How much", "how many, how fast, and how long to wait")
-            FormRow("Shape") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SlimSegmented(
-                        options = listOf(true, false),
-                        selected = burst,
-                        onSelect = { burst = it },
-                        label = { if (it) "Burst" else "Rate" },
-                        optionTestTag = { if (it) "load-shape-burst" else "load-shape-rate" },
-                    )
-                    if (burst) {
-                        SlimField(count, { count = it }, modifier = Modifier.width(64.dp).testTag("load-count"))
-                        if (phase == null) Hint("messages, as fast as the lanes accept them")
-                    } else {
-                        SlimField(rate, { rate = it }, modifier = Modifier.width(56.dp).testTag("load-rate"))
-                        Hint("a second, for")
-                        SlimField(forText, { forText = it }, modifier = Modifier.width(52.dp).testTag("load-for"))
-                    }
-                    // Beside the count *and* beside the rate: `${messageIndex}` restarts at 1 in every
-                    // phase whatever its shape, so a rate phase has the same reason to count from where
-                    // another stopped and had no field to say it.
-                    if (phase != null) {
-                        Sub("from")
-                        SlimField(
-                            indexFrom,
-                            { indexFrom = it },
-                            modifier = Modifier.width(56.dp).testTag("phase-index-from"),
-                        )
-                    }
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Sub("presets")
-                    PRESETS.forEach { preset ->
-                        Chip(preset.label, on = preset.matches(burst, count, rate, forText), tag = "load-preset-${preset.slug}") {
-                            burst = preset.burst
-                            preset.count?.let { count = it }
-                            preset.rate?.let { rate = it }
-                            preset.forText?.let { forText = it }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Sub("presets")
+                        PRESETS.forEach { preset ->
+                            Chip(preset.label, on = preset.matches(burst, count, rate, forText), tag = "load-preset-${preset.slug}") {
+                                burst = preset.burst
+                                preset.count?.let { count = it }
+                                preset.rate?.let { rate = it }
+                                preset.forText?.let { forText = it }
+                            }
                         }
                     }
+                    Refusals(blocking, Where.SHAPE)
                 }
-                Refusals(blocking, Where.SHAPE)
-            }
-            // "Wait for replies" here, `settle` everywhere else: the field's own name, the record, the
-            // report and `fixtool load --settle` keep the engine's word, which is read by people who know
-            // the engine and by scripts. The row is named by what it does for the person filling it in.
-            FormRow("Wait for replies") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SlimField(settle, { settle = it }, modifier = Modifier.width(52.dp).testTag("load-settle"))
-                    Hint("after the last send. Ends early once nothing is outstanding.")
+                // "Wait for replies" here, `settle` everywhere else: the field's own name, the record, the
+                // report and `fixtool load --settle` keep the engine's word, which is read by people who know
+                // the engine and by scripts. The row is named by what it does for the person filling it in.
+                FormRow("Wait for replies") {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SlimField(settle, { settle = it }, modifier = Modifier.width(52.dp).testTag("load-settle"))
+                        Hint("after the last send. Ends early once nothing is outstanding.")
+                    }
                 }
             }
 
-            Fold(
+            FoldRow(
                 open = repliesOpen,
                 title = "How replies are counted",
                 summary = repliesSummary(match, replyType, dictionary, profile?.name, listenNames),
                 changed = hiddenInReplies?.let { "open, because a refusal names ${it.where.noun}" },
                 fixes = blocking.count { it.where in REPLIES },
                 tag = "load-replies",
+                rule = "load-rule-replies",
                 onToggle = { repliesOpen = !repliesOpen },
             )
+            // An open fold's body is a section block with no rule of its own: the fold row is its top edge,
+            // and a second line one row below the first reads as an empty section.
             if (repliesOpen) {
-                FormRow("Match") {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        SlimField(requestTag, { requestTag = it }, monospace = true, modifier = Modifier.width(44.dp).testTag("load-request-tag"))
-                        Sub(tagName(dictionary, requestTag))
-                        Sub("→")
-                        SlimField(replyTag, { replyTag = it }, monospace = true, modifier = Modifier.width(44.dp).testTag("load-reply-tag"))
-                        Sub(tagName(dictionary, replyTag))
-                        Sub("reply type")
-                        SlimField(replyType, { replyType = it }, monospace = true, modifier = Modifier.width(36.dp).testTag("load-reply-type"))
-                        Sub(if (replyType.isBlank()) "optional" else msgTypeName(dictionary, replyType.trim()).trim())
-                    }
-                    Hint(matchHint(match, replyType, dictionary))
-                    Refusals(blocking, Where.MATCH)
-                }
-                FormRow("Also listen on") {
-                    val others =
-                        listenCandidates(profiles, profileId, viewModel.farEndProfile(profileId.orEmpty())?.id) { id ->
-                            viewModel.getProfileSessions(id).any { it.connectionState.value == FixConnectionState.LOGGED_ON }
+                Section(rule = null) {
+                    FormRow("Match") {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            SlimField(requestTag, { requestTag = it }, monospace = true, modifier = Modifier.width(44.dp).testTag("load-request-tag"))
+                            Sub(tagName(dictionary, requestTag))
+                            Sub("→")
+                            SlimField(replyTag, { replyTag = it }, monospace = true, modifier = Modifier.width(44.dp).testTag("load-reply-tag"))
+                            Sub(tagName(dictionary, replyTag))
+                            Sub("reply type")
+                            SlimField(replyType, { replyType = it }, monospace = true, modifier = Modifier.width(36.dp).testTag("load-reply-type"))
+                            Sub(if (replyType.isBlank()) "optional" else msgTypeName(dictionary, replyType.trim()).trim())
                         }
-                    if (others.isEmpty()) {
-                        Hint("No other profile is logged on that could receive these replies.")
-                    } else {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            others.forEach { p ->
-                                SlimCheckbox(
-                                    checked = p.id in listen,
-                                    onCheckedChange = { listen = if (p.id in listen) listen - p.id else listen + p.id },
-                                    testTag = "load-listen-${p.id}",
-                                ) { Text(p.name, color = AppTheme.Colors.text, style = AppTheme.Type.body) }
+                        Hint(matchHint(match, replyType, dictionary))
+                        Refusals(blocking, Where.MATCH)
+                    }
+                    FormRow("Also listen on") {
+                        val others =
+                            listenCandidates(profiles, profileId, viewModel.farEndProfile(profileId.orEmpty())?.id) { id ->
+                                viewModel.getProfileSessions(id).any { it.connectionState.value == FixConnectionState.LOGGED_ON }
                             }
-                        }
-                        Hint("Other profiles that may receive the replies, such as a drop copy. They never send.")
-                    }
-                }
-                if (phase != null) {
-                    FormRow("Capture") {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            captureRows.forEachIndexed { index, (name, tag) ->
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    SlimField(
-                                        name,
-                                        { captureRows = captureRows.replaceAt(index, it to tag) },
-                                        modifier = Modifier.width(76.dp).testTag("phase-capture-name-$index"),
-                                    )
-                                    Sub("←")
-                                    SlimField(
-                                        tag,
-                                        { captureRows = captureRows.replaceAt(index, name to it) },
-                                        monospace = true,
-                                        modifier = Modifier.width(40.dp).testTag("phase-capture-tag-$index"),
-                                    )
-                                    Sub(tagName(dictionary, tag))
-                                    Chip("−", on = false, tag = "phase-capture-remove-$index") {
-                                        captureRows = captureRows.filterIndexed { i, _ -> i != index }
-                                    }
+                        if (others.isEmpty()) {
+                            Hint("No other profile is logged on that could receive these replies.")
+                        } else {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                others.forEach { p ->
+                                    SlimCheckbox(
+                                        checked = p.id in listen,
+                                        onCheckedChange = { listen = if (p.id in listen) listen - p.id else listen + p.id },
+                                        testTag = "load-listen-${p.id}",
+                                    ) { Text(p.name, color = AppTheme.Colors.text, style = AppTheme.Type.body) }
                                 }
                             }
-                            Chip("+ capture", on = false, tag = "phase-capture-add") { captureRows = captureRows + ("" to "") }
+                            Hint("Other profiles that may receive the replies, such as a drop copy. They never send.")
                         }
-                        Hint(
-                            "Kept off each matched reply, at this message's own index, for a later phase to " +
-                                "read as **\${name}**.",
-                        )
+                    }
+                    if (phase != null) {
+                        FormRow("Capture") {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                captureRows.forEachIndexed { index, (name, tag) ->
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        SlimField(
+                                            name,
+                                            { captureRows = captureRows.replaceAt(index, it to tag) },
+                                            modifier = Modifier.width(76.dp).testTag("phase-capture-name-$index"),
+                                        )
+                                        Sub("←")
+                                        SlimField(
+                                            tag,
+                                            { captureRows = captureRows.replaceAt(index, name to it) },
+                                            monospace = true,
+                                            modifier = Modifier.width(40.dp).testTag("phase-capture-tag-$index"),
+                                        )
+                                        Sub(tagName(dictionary, tag))
+                                        Chip("−", on = false, tag = "phase-capture-remove-$index") {
+                                            captureRows = captureRows.filterIndexed { i, _ -> i != index }
+                                        }
+                                    }
+                                }
+                                Chip("+ capture", on = false, tag = "phase-capture-add") { captureRows = captureRows + ("" to "") }
+                            }
+                            Hint(
+                                "Kept off each matched reply, at this message's own index, for a later phase to " +
+                                    "read as **\${name}**.",
+                            )
+                        }
                     }
                 }
             }
             // The set owns the seed and the store, so a phase gets no Identity fold: what it gets is one
             // line saying where they live and which of the set's names this phase actually reads.
             if (phase != null) {
-                FormRow("Seed and store") {
-                    Hint("The set's, one level up. This phase reads **" + readsList(compiled, phase.readable) + "**.")
+                Section(rule = "load-rule-seed-and-store") {
+                    FormRow("Seed and store") {
+                        Hint("The set's, one level up. This phase reads **" + readsList(compiled, phase.readable) + "**.")
+                    }
                 }
             }
             if (phase == null) {
-                Fold(
+                FoldRow(
                     open = identityOpen,
                     title = "Identity and store",
                     summary = identitySummary(seed, override, profile?.config),
                     changed = hiddenInIdentity?.let { "open, because a refusal names ${it.where.noun}" },
                     fixes = blocking.count { it.where in IDENTITY },
                     tag = "load-advanced",
+                    rule = "load-rule-identity",
                     onToggle = { identityOpen = !identityOpen },
                 )
             }
             if (phase == null && identityOpen) {
-                FormRow("Seed") {
-                    seedRows.forEachIndexed { index, (name, value) ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            SlimField(
-                                name,
-                                { seedRows = seedRows.replaceAt(index, it to value) },
-                                modifier = Modifier.width(88.dp).testTag("load-seed-name-$index"),
-                            )
-                            Sub("=")
-                            SlimField(
-                                value,
-                                { seedRows = seedRows.replaceAt(index, name to it) },
-                                modifier = Modifier.width(88.dp).testTag("load-seed-value-$index"),
-                            )
-                            if (index == seedRows.lastIndex) {
-                                Chip("+ add", on = false, tag = "load-seed-add") {
-                                    seedRows = seedRows + ("" to "")
+                Section(rule = null) {
+                    FormRow("Seed") {
+                        seedRows.forEachIndexed { index, (name, value) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                SlimField(
+                                    name,
+                                    { seedRows = seedRows.replaceAt(index, it to value) },
+                                    modifier = Modifier.width(88.dp).testTag("load-seed-name-$index"),
+                                )
+                                Sub("=")
+                                SlimField(
+                                    value,
+                                    { seedRows = seedRows.replaceAt(index, name to it) },
+                                    modifier = Modifier.width(88.dp).testTag("load-seed-value-$index"),
+                                )
+                                // Mint and remove belong to the row they act on, which is a row with a name:
+                                // both were on whichever row happened to be last, so "mint a new one" sat
+                                // beside the empty placeholder and named `run` out of thin air, and a row
+                                // once added could never be taken away again.
+                                if (name.isNotBlank()) {
+                                    Chip("mint a new one", on = false, tag = "load-seed-mint-$index") {
+                                        seedRows = seedRows.replaceAt(index, name to mintSeed())
+                                    }
+                                    Chip("−", on = false, tag = "load-seed-remove-$index") {
+                                        seedRows = seedRowsWithout(seedRows, index)
+                                    }
                                 }
-                                Chip("mint a new one", on = false, tag = "load-seed-mint") {
-                                    seedRows = seedRows.replaceAt(index, name.ifBlank { "run" } to mintSeed())
+                                // On the last row, because a new row can only follow the last one. On the
+                                // empty last row that leaves "+ add" as its only chip, as the mockup draws it.
+                                if (index == seedRows.lastIndex) {
+                                    Chip("+ add", on = false, tag = "load-seed-add") {
+                                        seedRows = seedRows + ("" to "")
+                                    }
                                 }
                             }
                         }
+                        Hint(seedHint(seedRows))
+                        Refusals(blocking, Where.SEED)
                     }
-                    Hint(seedHint(seedRows))
-                    Refusals(blocking, Where.SEED)
-                }
-                FormRow("Store and log") {
-                    // Two radios that mean the same thing are a decision nobody has to make. When the
-                    // profile already runs a memory store with no log, the row says what will happen and
-                    // stops there.
-                    val sameAsProfile = profile != null && storeOf(profile.config) == StoreAndLogOverride.FOR_LOAD
-                    if (sameAsProfile) {
-                        Hint(
-                            "Lanes run on a **memory store with no message log**, as the profile already does.",
-                            tag = "load-store-same",
-                        )
-                    }
-                    if (!sameAsProfile) {
-                        SlimRadioGroup(
-                            options = listOf(false, true),
-                            selected = forLoad,
-                            onSelect = { forLoad = it },
-                            optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
-                        ) { memory ->
-                            if (memory) {
-                                Text(
-                                    "Memory store, no log for this run",
-                                    color = AppTheme.Colors.text,
-                                    style = AppTheme.Type.body,
-                                )
-                            } else {
-                                Text(
-                                    "As the profile" + (profile?.let { ": " + storeOf(it.config).describe() } ?: ""),
-                                    color = AppTheme.Colors.text,
-                                    style = AppTheme.Type.body,
-                                )
-                            }
+                    FormRow("Store and log") {
+                        // Two radios that mean the same thing are a decision nobody has to make. When the
+                        // profile already runs a memory store with no log, the row says what will happen and
+                        // stops there.
+                        val sameAsProfile = profile != null && storeOf(profile.config) == StoreAndLogOverride.FOR_LOAD
+                        if (sameAsProfile) {
+                            Hint(
+                                "Lanes run on a **memory store with no message log**, as the profile already does.",
+                                tag = "load-store-same",
+                            )
                         }
-                        Hint(memoryStoreHint(profile))
-                    }
-                    Refusals(blocking, Where.STORE)
-                    if (forLoad && !sameAsProfile && profile != null && refusals.none { it.where == Where.STORE }) {
-                        Hint("The lanes reconnect with it for this run, and reconnect back when the run ends.")
+                        if (!sameAsProfile) {
+                            SlimRadioGroup(
+                                options = listOf(false, true),
+                                selected = forLoad,
+                                onSelect = { forLoad = it },
+                                optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
+                            ) { memory ->
+                                if (memory) {
+                                    Text(
+                                        "Memory store, no log for this run",
+                                        color = AppTheme.Colors.text,
+                                        style = AppTheme.Type.body,
+                                    )
+                                } else {
+                                    Text(
+                                        "As the profile" + (profile?.let { ": " + storeOf(it.config).describe() } ?: ""),
+                                        color = AppTheme.Colors.text,
+                                        style = AppTheme.Type.body,
+                                    )
+                                }
+                            }
+                            Hint(memoryStoreHint(profile))
+                        }
+                        Refusals(blocking, Where.STORE)
+                        if (forLoad && !sameAsProfile && profile != null && refusals.none { it.where == Where.STORE }) {
+                            Hint("The lanes reconnect with it for this run, and reconnect back when the run ends.")
+                        }
                     }
                 }
             }
@@ -814,17 +846,16 @@ private fun Notice(text: String, tint: Color, marker: String, tag: String) {
  *
  * A circled "i" rather than the word "note", which is the whole fix: one character in a 14.dp circle is
  * always one line, where a four-letter word in a 22.dp column was two.
+ *
+ * A band in the section gutter under its own rule, not a stripe: it is the last thing the dialog says
+ * before the footer, and a stripe there read as one more refusal.
  */
 @Composable
 private fun NoteLine(text: String, tag: String) {
+    Rule("load-rule-note")
     Row(
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp)
-                .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(2.dp))
-                .padding(start = 6.dp, top = 4.dp, end = 6.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 8.dp),
     ) {
         Box(
             modifier =
@@ -846,40 +877,95 @@ private fun NoteLine(text: String, tag: String) {
         Text(
             text,
             color = AppTheme.Colors.warning,
-            style = AppTheme.Type.body,
+            style = NOTE,
             modifier = Modifier.weight(1f).testTag(tag),
         )
     }
 }
 
+/** Three lines of prose want the leading the body style does not carry: 11.sp at 1.45. */
+private val NOTE = AppTheme.Type.body.copy(fontSize = 11.sp, lineHeight = 15.95.sp)
+
 /**
- * **A section, with a rank the three grey nine-point labels never had.**
+ * **A section: a block of rows with a rule above it and a gutter around it.**
  *
- * The name at body size in weight, and beside it what the section is for in the dim colour. Ten rows at
- * one weight under three labels that read as more grey is what made the dialog feel like thirty rows.
+ * The words and the folding landed without the chrome, which left the dialog reading as the one continuous
+ * list it started as: nothing drew the boundary a section is. A 1.dp rule above, a [GUTTER] either side and
+ * [SECTION_ROW_GAP] between rows is the whole of it, and it is what makes four sections look like four.
+ *
+ * [rule] is null for the two blocks that have nothing to be separated from above: the first section, whose
+ * top edge is the lead sentence, and an open fold's body, whose top edge is the fold row.
+ */
+@Composable
+private fun Section(rule: String?, title: String? = null, purpose: String = "", content: @Composable () -> Unit) {
+    if (rule != null) Rule(rule)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(SECTION_ROW_GAP),
+        modifier = Modifier.fillMaxWidth().padding(start = GUTTER, top = 10.dp, end = GUTTER, bottom = 12.dp),
+    ) {
+        if (title != null) SectionHead(title, purpose)
+        content()
+    }
+}
+
+/** The line between one section and the next, tagged so a test can say it is there. */
+@Composable
+private fun Rule(tag: String) {
+    HorizontalDivider(
+        modifier = Modifier.testTag(tag),
+        color = AppTheme.Separators.color,
+        thickness = AppTheme.Separators.dividerThickness,
+    )
+}
+
+/**
+ * **A section head, with a rank the three grey nine-point labels never had.**
+ *
+ * The name at body size in weight, and beside it what the section is for in the dim colour, on the same
+ * baseline. Ten rows at one weight under three labels that read as more grey is what made the dialog feel
+ * like thirty rows.
  */
 @Composable
 private fun SectionHead(title: String, purpose: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 2.dp),
-    ) {
-        Text(title, color = AppTheme.Colors.text, style = SECTION_TITLE)
-        Text(purpose, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.body)
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        val baseline = Modifier.alignByBaseline()
+        Text(title, color = AppTheme.Colors.text, style = SECTION_TITLE, modifier = baseline)
+        Text(purpose, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.body, modifier = baseline)
     }
 }
 
 private val SECTION_TITLE = AppTheme.Type.body.copy(fontWeight = FontWeight.SemiBold)
 
-/** A label at a fixed width and everything the row says, stacked, so a refusal lands under its own cause. */
+/** The gutter every section, fold row and note line shares, so their contents line up down one edge. */
+private val GUTTER = 16.dp
+
+/** Rows inside a section are a row apart, not a hairline apart. */
+private val SECTION_ROW_GAP = 9.dp
+
+/**
+ * **A row: a right-aligned label in its own column, and everything the row says stacked beside it.**
+ *
+ * Right-aligned at [LABEL_COLUMN] so every label ends at the same edge, one gap from the control it names,
+ * rather than starting at the same edge and trailing off at ten different ones. The 4.dp on top drops the
+ * label onto the first control's baseline, and stacking the value column is what puts a refusal under its
+ * own cause.
+ */
 @Composable
 private fun FormRow(label: String, content: @Composable () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
-        Text(label, color = AppTheme.Colors.textSecondary, style = AppTheme.Type.body, modifier = Modifier.width(92.dp).padding(top = 5.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) { content() }
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            label,
+            color = AppTheme.Colors.textSecondary,
+            style = AppTheme.Type.body,
+            textAlign = TextAlign.Right,
+            modifier = Modifier.width(LABEL_COLUMN).padding(top = 4.dp),
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) { content() }
     }
 }
+
+/** Wide enough for "Wait for replies", which is what the 92.dp column could not hold. */
+internal val LABEL_COLUMN = 118.dp
 
 /**
  * A field's own micro-label: `=`, `→`, a tag's name beside the field that holds its number.
@@ -928,22 +1014,41 @@ private const val EMPHASIS = "**"
  * open it. Nothing is hidden by folding: the reader who never opens this one still knows the run matches
  * on 131 and seeds `run`. [changed] replaces the summary when a refusal inside forced the fold open,
  * because "why am I looking at this" is then the more useful line.
+ *
+ * The whole row is one rule-topped band in the section gutter, and the link is pinned to the far edge
+ * rather than left to land wherever the summary stops, which is what made a fold read as another row.
  */
 @Composable
 @Suppress("LongParameterList")
-private fun Fold(open: Boolean, title: String, summary: String, changed: String?, fixes: Int, tag: String, onToggle: () -> Unit) {
+private fun FoldRow(
+    open: Boolean,
+    title: String,
+    summary: String,
+    changed: String?,
+    fixes: Int,
+    tag: String,
+    rule: String,
+    onToggle: () -> Unit,
+) {
+    Rule(rule)
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp)
                 .clickable(onClick = onToggle)
                 .testTag(tag)
-                .padding(vertical = 2.dp),
+                .padding(horizontal = GUTTER, vertical = 8.dp),
     ) {
-        Text(if (open) "▾" else "▸", color = AppTheme.Colors.textSecondary, style = AppTheme.Type.meta)
+        // A slot rather than an intrinsic width, so the two folds' titles start in the same place whichever
+        // way each caret is pointing.
+        Text(
+            if (open) "▾" else "▸",
+            color = AppTheme.Colors.textDisabled,
+            style = AppTheme.Type.meta,
+            modifier = Modifier.width(10.dp),
+        )
         Text(title, color = AppTheme.Colors.text, style = SECTION_TITLE)
         if (fixes > 0) {
             Text(
@@ -958,16 +1063,20 @@ private fun Fold(open: Boolean, title: String, summary: String, changed: String?
             color = if (changed != null) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
             style = AppTheme.Type.body,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).testTag("$tag-summary"),
         )
         Text(
             if (open) "close" else "change",
             color = AppTheme.Colors.info,
-            style = AppTheme.Type.body,
+            style = LINK,
             modifier = Modifier.clickable(onClick = onToggle).testTag("$tag-change"),
         )
     }
 }
+
+/** A link on a fold row: a shade under body, because it labels the row rather than being read along it. */
+private val LINK = AppTheme.Type.body.copy(fontSize = 11.sp)
 
 /** The pinned footer: why Run is off, then the actions. Never inside the scroll region, which is the fix. */
 @Composable
@@ -1039,7 +1148,7 @@ private fun Breadcrumb(phase: PhaseEdit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = GUTTER, top = 12.dp, end = GUTTER, bottom = 4.dp),
     ) {
         Text(
             "‹ ${phase.setLabel}",
@@ -1424,6 +1533,15 @@ internal fun seedRefusals(rows: List<Pair<String, String>>): List<String> =
 private const val EXPRESSION_OPENER = "\${"
 
 private fun <T> List<T>.replaceAt(index: Int, value: T): List<T> = toMutableList().also { it[index] = value }
+
+/**
+ * One seed row gone, and never the band with it.
+ *
+ * Removing the only named row leaves one empty row rather than nothing, because a Seed row with no fields
+ * at all has no "+ add" to bring one back: the row that added itself would have removed the way in.
+ */
+internal fun seedRowsWithout(rows: List<Pair<String, String>>, index: Int): List<Pair<String, String>> =
+    rows.filterIndexed { i, _ -> i != index }.ifEmpty { listOf("" to "") }
 
 /** Four hex characters: enough to tell two runs apart in an id, short enough to read off a wire. */
 private fun mintSeed(): String = Random.nextInt(SEED_SPACE).toString(HEX).padStart(SEED_CHARS, '0')

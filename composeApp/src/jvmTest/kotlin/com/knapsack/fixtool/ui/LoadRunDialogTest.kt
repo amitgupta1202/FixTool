@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
+import androidx.compose.ui.unit.width
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
@@ -570,5 +571,117 @@ class LoadRunDialogTest {
         viewModel.rememberLoadDialogSize(900f, 820f)
 
         assertEquals(900f to 820f, viewModel.loadDialogSize())
+    }
+
+    /**
+     * **The chrome, which is what "it looks nothing like the mockup" meant.** The words and the folding
+     * landed without a single line between them, so four sections read as one continuous list however many
+     * headings were in it. Every section but the first is separated by a rule, and the first has none
+     * because the lead sentence above it is its top edge.
+     */
+    @Test
+    fun `every section but the first is separated by a rule`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.saveConnectionProfile(venue())
+        viewModel.rememberLoadRunDefaults("lg", LoadRunDefaults(seed = listOf(listOf("run", "b7f2"))))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        val rules = listOf("load-rule-how-much", "load-rule-replies", "load-rule-identity", "load-rule-note")
+        rules.forEach { composeTestRule.onNodeWithTag(it).assertIsDisplayed() }
+        val firstHead = composeTestRule.onNodeWithText("What to send").getUnclippedBoundsInRoot()
+        rules.forEach { tag ->
+            val rule = composeTestRule.onNodeWithTag(tag).getUnclippedBoundsInRoot()
+            assertTrue(rule.top > firstHead.bottom, "$tag should sit below the first section's head, it was at ${rule.top}")
+        }
+    }
+
+    /**
+     * **One label column, ending on one edge.** At 92.dp left-aligned, the labels started together and
+     * stopped at ten different places, and "Wait for replies" did not fit at all.
+     */
+    @Test
+    fun `the label column is one width, wide enough for the longest label`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        val settle = composeTestRule.onNodeWithText("Wait for replies").getUnclippedBoundsInRoot()
+        val template = composeTestRule.onNodeWithText("Template").getUnclippedBoundsInRoot()
+
+        assertEquals(LABEL_COLUMN, settle.width, "the label column is 118.dp, it measured ${settle.width}")
+        assertEquals(LABEL_COLUMN, template.width)
+        assertEquals(settle.right, template.right, "right aligned, so every label ends on the same edge")
+    }
+
+    /** The link is the row's own edge, not wherever the summary happened to stop. */
+    @Test
+    fun `the change link on a fold is pinned to the row's right edge`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        val row = composeTestRule.onNodeWithTag("load-replies").getUnclippedBoundsInRoot()
+        val link = composeTestRule.onNodeWithTag("load-replies-change", useUnmergedTree = true).getUnclippedBoundsInRoot()
+        val summary = composeTestRule.onNodeWithTag("load-replies-summary", useUnmergedTree = true).getUnclippedBoundsInRoot()
+
+        // The section gutter is all that is between the link and the edge of the dialog.
+        val gap = row.right - link.right
+        assertTrue(gap < 18.dp, "the change link should sit on the row's right edge, it stopped $gap short")
+        assertTrue(link.left > summary.left, "the summary takes the width and the link takes the edge")
+    }
+
+    /** Mint belongs beside the name it writes a value for, not beside the empty placeholder. */
+    @Test
+    fun `mint sits on the seed row that has a name, and the empty row carries only add`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.rememberLoadRunDefaults("lg", LoadRunDefaults(seed = listOf(listOf("run", "b7f2"))))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-advanced").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-seed-mint-0").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("load-seed-add").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-seed-name-1").assertExists()
+        composeTestRule.onNodeWithTag("load-seed-mint-1").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("load-seed-mint-0").assertExists()
+    }
+
+    /**
+     * **A row that can be added can be taken away.** There was no way back from a "+ add" pressed by
+     * mistake, so the row went on the wire with every message of the run.
+     */
+    @Test
+    fun `a seed row can be taken away again, and the last one leaves an empty row behind`() {
+        assertEquals(listOf("run" to "b7f2"), seedRowsWithout(listOf("run" to "b7f2", "desk" to "fx"), 1))
+        assertEquals(listOf("" to ""), seedRowsWithout(listOf("run" to "b7f2"), 0), "the band never disappears")
+
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.rememberLoadRunDefaults("lg", LoadRunDefaults(seed = listOf(listOf("run", "b7f2"))))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-advanced").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-seed-add").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-seed-name-1").performTextInput("desk")
+        composeTestRule.onNodeWithTag("load-seed-value-1").performTextInput("fx")
+        composeTestRule.waitForIdle()
+        assertTrue(
+            texts("load-advanced-summary", unmerged = true).single().contains("desk = fx"),
+            "the row is in the seed before it is removed",
+        )
+
+        composeTestRule.onNodeWithTag("load-seed-remove-1").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-seed-name-1").assertDoesNotExist()
+        val summary = texts("load-advanced-summary", unmerged = true).single()
+        assertTrue(!summary.contains("desk"), "the seed no longer carries the row that was removed: $summary")
     }
 }

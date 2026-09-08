@@ -28,6 +28,8 @@ import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.ScenarioSort
+import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
+import com.knapsack.fixtool.model.LOAD_DIALOG_WIDTH
 import com.knapsack.fixtool.model.LoadRunDefaults
 import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.SendReason
@@ -303,6 +305,15 @@ class FixMessageViewModel(
     /** Remembers this run's shape for the next time the dialog opens on the same profile. */
     fun rememberLoadRunDefaults(profileId: String, defaults: LoadRunDefaults) =
         mutateViewState { it.copy(loadRuns = it.loadRuns + (profileId to defaults)) }
+
+    /** The Load run dialog's size, as width to height in dp: the last one dragged, or the dialog's own. */
+    fun loadDialogSize(): Pair<Float, Float> =
+        (_scenarioViewState.value.loadDialogWidth ?: LOAD_DIALOG_WIDTH) to
+            (_scenarioViewState.value.loadDialogHeight ?: LOAD_DIALOG_HEIGHT)
+
+    /** Remembers the size the dialog was last left at, so the next open is the size that was made to fit. */
+    fun rememberLoadDialogSize(width: Float, height: Float) =
+        mutateViewState { it.copy(loadDialogWidth = width, loadDialogHeight = height) }
 
     /** The load set the editor was last on, when it is still saved. */
     fun lastLoadSet(): LoadSet? = _scenarioViewState.value.lastLoadSet?.let { loadSet(it) }
@@ -3542,17 +3553,47 @@ class FixMessageViewModel(
      * Null when the far end is somebody else's server, which is what fan-out is for.
      */
     fun fanOutFarEndNotice(profileId: String): String? {
-        val client = _connectionProfiles.find { it.id == profileId } ?: return null
-        val host = client.config.socketConnectHost.ifBlank { client.config.host }
-        if (host.lowercase() !in LOOPBACK_HOSTS) return null
-        val venue =
-            _connectionProfiles.firstOrNull {
-                it.config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
-                    it.config.socketAcceptPort.ifBlank { it.config.port } == client.config.port
-            } ?: return null
+        val venue = farEndProfile(profileId) ?: return null
         return "The far end is '${venue.name}', FixTool's own acceptor. It answers every session on one " +
             "thread, so the latencies below are the tool's own ceiling, not a venue's. Point the lanes at " +
             "the server under test to measure one."
+    }
+
+    /**
+     * **The profile at the far end of these lanes, when the far end is one of ours.**
+     *
+     * A loopback connect host plus a FixTool acceptor listening on the port the lanes dial: that is the
+     * whole condition, and it is what [fanOutFarEndNotice] is about. Also what "Also listen on" excludes,
+     * because a profile that is *answering* this run can never be a second place its replies arrive.
+     *
+     * Null when the far end is somebody else's server, which is the case a load run is for.
+     */
+    fun farEndProfile(profileId: String): FixConnectionProfile? {
+        val client = _connectionProfiles.find { it.id == profileId } ?: return null
+        val host = client.config.socketConnectHost.ifBlank { client.config.host }
+        if (host.lowercase() !in LOOPBACK_HOSTS) return null
+        return _connectionProfiles.firstOrNull {
+            it.config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
+                it.config.socketAcceptPort.ifBlank { it.config.port } == client.config.port
+        }
+    }
+
+    /**
+     * **Bring the message editor forward**: open the panel if it is shut, and raise the main window.
+     *
+     * "view in editor" in the Load run dialog loaded the message and left it behind a dialog in front of
+     * a panel that might not even be showing, which reads as a dead link. The panel toggle is the same one
+     * `POST /panel {"panel":"editor"}` drives, so the link and the control surface open the same thing.
+     */
+    fun bringEditorForward() {
+        if (!_showMessageEditor.value) toggleMessageEditor()
+        runCatching {
+            val title = com.knapsack.fixtool.control.ControlServer.MAIN_WINDOW_TITLE
+            val windows = java.awt.Window.getWindows()
+            val main = windows.firstOrNull { (it as? java.awt.Frame)?.title == title && it.isShowing }
+            main?.toFront()
+            main?.requestFocus()
+        }
     }
 
     /** Whether a profile can supply lanes, and which ones — or the sentence saying why it cannot. */

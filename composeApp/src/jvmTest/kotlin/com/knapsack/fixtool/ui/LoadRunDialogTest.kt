@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertHasClickAction
@@ -19,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
+import com.knapsack.fixtool.model.LOAD_DIALOG_WIDTH
 import com.knapsack.fixtool.model.LoadRunDefaults
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
@@ -274,7 +277,9 @@ class LoadRunDialogTest {
     /**
      * **The far-end note is prose the tool speaks, so it obeys the same style rule as the rest.** It named
      * the venue and then broke to an em dash before "FixTool's own acceptor", where a comma belongs. Read
-     * off the dialog rather than off the view model, because the dialog is where anybody meets it.
+     * off the dialog rather than off the view model, because the dialog is where anybody meets it. The
+     * dialog's own sentence is the shorter one and ends with what to do about it, and the view model's
+     * longer one still goes to the fan-out dialog and the control surface.
      */
     @Test
     fun `the far-end note is on screen and carries no dash`() {
@@ -285,23 +290,89 @@ class LoadRunDialogTest {
 
         composeTestRule.onNodeWithTag("load-far-end").assertIsDisplayed()
         val note = texts("load-far-end").single()
-        assertTrue(note.contains("FixTool's own acceptor"), note)
-        assertTrue(!note.contains("—"), "the far-end sentence should not carry an em dash: $note")
+        assertTrue(note.contains("FixTool's own demo venue"), note)
+        assertTrue(note.contains("connect the profile to it"), "the note ends with what to do about it: $note")
+        assertTrue(!note.contains("\u2014"), "the far-end sentence should not carry an em dash: $note")
     }
 
     /**
-     * **"note" is a whole word, or the stripe is twice as tall as every other one.** The marker column was
-     * 22.dp, which fits "fix" and not "note", so the warning's marker broke into "not" over "e".
+     * **The marker is one character, or the stripe is twice as tall as every other one.** The marker column
+     * was 22.dp, which fits "fix" and not "note", so the warning's marker broke into "not" over "e". It is
+     * a circled "i" now: one character in a 14.dp circle cannot split.
      */
     @Test
-    fun `the note marker stays on one line`() {
+    fun `the note marker is an icon on one line, never the word that split`() {
         viewModel.saveConnectionProfile(profile(resetOnLogon = true))
         viewModel.saveConnectionProfile(venue())
 
         composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
 
+        assertEquals(listOf("i"), texts("load-far-end-marker"), "the marker is the icon, whole")
+        assertTrue(
+            composeTestRule.onAllNodesWithText("note").fetchSemanticsNodes().isEmpty(),
+            "the word that wrapped is gone from the dialog",
+        )
         // One line of AppTheme.Type.meta is about 13.dp tall, so two of them clear 24.dp.
-        val marker = composeTestRule.onNodeWithText("note").getUnclippedBoundsInRoot().height
+        val marker = composeTestRule.onNodeWithTag("load-far-end-marker").getUnclippedBoundsInRoot().height
         assertTrue(marker < 16.dp, "the note marker should be one line tall, it measured $marker")
+    }
+
+    /**
+     * **Every row's explainer is a sentence about this run, not a field list.**
+     *
+     * The row read "35=D NewOrderSingle· per message 11 · fixed 35, 55", which is the same information in
+     * the shape of debug output. What a reader needs is which tags move, and how many do not.
+     */
+    @Test
+    fun `the Template row says what changes on every message, in a sentence`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithText("changes on every message", substring = true).assertExists()
+        composeTestRule.onNodeWithText("the other two tags are fixed", substring = true).assertExists()
+        // Opened from the editor there is no saved message behind it, and the hint says so.
+        composeTestRule.onNodeWithText("unsaved", substring = true).assertExists()
+    }
+
+    /** "Settle" is the engine's word. The row is named by what the person filling it in is waiting for. */
+    @Test
+    fun `the settle row is called Wait for replies in the dialog only`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithText("Wait for replies").assertExists()
+        assertTrue(
+            composeTestRule.onAllNodesWithText("Settle").fetchSemanticsNodes().isEmpty(),
+            "the dialog does not say Settle anywhere",
+        )
+        // The field, and everything downstream of it, keeps the engine's word.
+        composeTestRule.onNodeWithTag("load-settle").assertExists()
+    }
+
+    /** The facts inside a hint are drawn a shade stronger than the sentence around them. */
+    @Test
+    fun `a hint marks its facts, and drops the markers`() {
+        val hint = hintText("**35=D NewOrderSingle**, unsaved.", Color.Gray, Color.White)
+
+        assertEquals("35=D NewOrderSingle, unsaved.", hint.text)
+        val facts = hint.spanStyles.filter { it.item.color == Color.White }
+        assertEquals(1, facts.size, "one fact, and the markers themselves are gone")
+        assertEquals(0, facts.single().start, "the fact is the front of the sentence")
+        assertTrue(hint.spanStyles.any { it.item.color == Color.Gray }, "the sentence around the fact stays dim")
+    }
+
+    /**
+     * **780 by 700, and the user's last size after that.** In the view-state store, never in AppSettings:
+     * a window size is not a setting anybody edits on a settings page.
+     */
+    @Test
+    fun `the dialog opens at its own size until one is remembered`() {
+        assertEquals(LOAD_DIALOG_WIDTH to LOAD_DIALOG_HEIGHT, viewModel.loadDialogSize())
+
+        viewModel.rememberLoadDialogSize(900f, 820f)
+
+        assertEquals(900f to 820f, viewModel.loadDialogSize())
     }
 }

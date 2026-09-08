@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -22,6 +24,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,10 +41,16 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.rememberDialogState
 import com.knapsack.fixtool.headless.HeadlessRun
+import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.LoadRunDefaults
@@ -85,7 +94,15 @@ fun LoadRunDialog(
      */
     onMakeSet: ((LoadSet) -> Unit)? = null,
 ) {
-    Dialog(onCloseRequest = onDismiss, title = "Load run", state = rememberDialogState(width = 640.dp, height = 580.dp)) {
+    // Resizable and remembered: ten rows and two folds do not fit in 640 by 580, and the reader who drags
+    // it wider to read a refusal had to drag it again on the next run. The size lives in the view-state
+    // store, never in AppSettings — a window size is not a setting anybody edits on a settings page.
+    val (width, height) = remember { viewModel.loadDialogSize() }
+    val state = rememberDialogState(width = width.dp, height = height.dp)
+    DisposableEffect(Unit) {
+        onDispose { viewModel.rememberLoadDialogSize(state.size.width.value, state.size.height.value) }
+    }
+    Dialog(onCloseRequest = onDismiss, title = "Load run", state = state) {
         LoadRunDialogContent(viewModel, fixedTemplate, onDismiss, onRun, onMakeSet = onMakeSet)
     }
 }
@@ -194,6 +211,15 @@ fun LoadRunDialogContent(
     val profile = profiles.firstOrNull { it.id == profileId }
     val lanes = profileId?.let { viewModel.loadLanes(it) }
     val compiled = remember(template) { template?.takeIf { it.msgType != null }?.let { runCatching { CompiledTemplate.compile(it) }.getOrNull() } }
+    // The saved message behind the picked template, when the template is one: what "view in editor" opens,
+    // and which profile the Template hint says it is saved under.
+    val savedMessage = viewModel.savedMessages.firstOrNull { it.name == template?.name }
+    val savedUnder =
+        if (fixedTemplate != null) {
+            null
+        } else {
+            savedMessage?.userTags?.firstNotNullOfOrNull { tag -> profiles.firstOrNull { it.id == tag }?.name }
+        }
     val seed = remember(seedRows) { seedMap(seedRows) }
     val shape: LoadShape? =
         if (burst) {
@@ -351,8 +377,7 @@ fun LoadRunDialogContent(
         ) {
             if (phase == null) {
                 Text(
-                    "Issues this message across a profile's sessions without waiting for replies, then accounts " +
-                        "for every reply that lands on any session that is logged on.",
+                    "Send one message many times across a profile's sessions, and count the replies.",
                     color = AppTheme.Colors.textSecondary,
                     style = AppTheme.Type.body,
                 )
@@ -368,7 +393,7 @@ fun LoadRunDialogContent(
                         { phaseLabel = it },
                         modifier = Modifier.fillMaxWidth().testTag("phase-label"),
                     )
-                    Sub("what the report calls this phase")
+                    Hint("What the report calls this phase.")
                 }
             }
             FormRow("Template") {
@@ -386,25 +411,18 @@ fun LoadRunDialogContent(
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Picker(template?.name ?: "pick a template", templates.map { it.name to it }, "load-template") { template = it }
-                        val saved = viewModel.savedMessages.firstOrNull { it.name == template?.name }
-                        if (saved != null) {
+                        if (savedMessage != null) {
                             Text(
                                 "view message",
                                 color = AppTheme.Colors.info,
                                 style = AppTheme.Type.meta,
-                                modifier = Modifier.clickable { viewModel.loadEditorMessage(saved) }.testTag("load-view-template"),
+                                modifier = Modifier.clickable { viewModel.loadEditorMessage(savedMessage) }.testTag("load-view-template"),
                             )
                         }
                     }
                 }
                 compiled?.let {
-                    Sub(
-                        "35=${it.msgType} ${msgTypeName(
-                            dictionary,
-                            it.msgType,
-                        )}· per message ${it.perMessageTags.joinToString(", ").ifEmpty { "none" }} · " +
-                            "fixed ${it.fixedTags.joinToString(", ")}",
-                    )
+                    Hint(templateHint(it, dictionary, savedUnder))
                     // In a set the names a template reads are the interesting half: which of them the seed
                     // covers, and which an earlier phase has to have kept.
                     if (phase != null) Sub(readsFrom(it, phase))
@@ -414,15 +432,12 @@ fun LoadRunDialogContent(
             FormRow("Issue on") {
                 Picker(profile?.name ?: "pick a profile", profiles.map { p -> p.name to p.id }, "load-profile") { profileId = it }
                 (lanes as? FixMessageViewModel.FanOutLanes.Available)?.let { a ->
-                    Sub(
-                        "${a.lanes.size} lanes logged on · " + a.lanes.take(LANES_NAMED).joinToString(", ") { it.senderCompID } +
-                            (if (a.lanes.size > LANES_NAMED) " …" else ""),
-                    )
-                    a.shortfall?.let { Sub(it, AppTheme.Colors.warning) }
+                    Hint(lanesHint(a))
+                    a.shortfall?.let { Hint(it, AppTheme.Colors.warning) }
                 }
                 if (phase != null) {
                     val down = lanes as? FixMessageViewModel.FanOutLanes.Unavailable
-                    down?.let { Sub(it.why, AppTheme.Colors.warning) }
+                    down?.let { Hint(it.why, AppTheme.Colors.warning) }
                 }
                 Refusals(blocking, Where.PROFILE)
             }
@@ -439,10 +454,10 @@ fun LoadRunDialogContent(
                     )
                     if (burst) {
                         SlimField(count, { count = it }, modifier = Modifier.width(64.dp).testTag("load-count"))
-                        if (phase == null) Sub("messages, as fast as the lanes carry them")
+                        if (phase == null) Hint("messages, as fast as the lanes accept them")
                     } else {
                         SlimField(rate, { rate = it }, modifier = Modifier.width(56.dp).testTag("load-rate"))
-                        Sub("/s for")
+                        Hint("a second, for")
                         SlimField(forText, { forText = it }, modifier = Modifier.width(52.dp).testTag("load-for"))
                     }
                     // Beside the count *and* beside the rate: `${messageIndex}` restarts at 1 in every
@@ -470,10 +485,13 @@ fun LoadRunDialogContent(
                 }
                 Refusals(blocking, Where.SHAPE)
             }
-            FormRow("Settle") {
+            // "Wait for replies" here, `settle` everywhere else: the field's own name, the record, the
+            // report and `fixtool load --settle` keep the engine's word, which is read by people who know
+            // the engine and by scripts. The row is named by what it does for the person filling it in.
+            FormRow("Wait for replies") {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     SlimField(settle, { settle = it }, modifier = Modifier.width(52.dp).testTag("load-settle"))
-                    Sub("wait for replies after the last send, then judge")
+                    Hint("after the last send. Ends early once nothing is outstanding.")
                 }
             }
 
@@ -501,16 +519,16 @@ fun LoadRunDialogContent(
                         SlimField(replyType, { replyType = it }, monospace = true, modifier = Modifier.width(36.dp).testTag("load-reply-type"))
                         Sub(if (replyType.isBlank()) "optional" else msgTypeName(dictionary, replyType.trim()).trim())
                     }
-                    Sub("tags read off the template. A reply carrying the tag under any other type is a stray.")
+                    Hint(matchHint(match, replyType, dictionary))
                     Refusals(blocking, Where.MATCH)
                 }
-                FormRow("Also match on") {
+                FormRow("Also listen on") {
                     val others =
                         profiles.filter { p ->
                             p.id != profileId && viewModel.getProfileSessions(p.id).any { it.connectionState.value == FixConnectionState.LOGGED_ON }
                         }
                     if (others.isEmpty()) {
-                        Sub("no other profile is logged on")
+                        Hint("No other profile is logged on that could receive these replies.")
                     } else {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             others.forEach { p ->
@@ -521,7 +539,7 @@ fun LoadRunDialogContent(
                                 ) { Text(p.name, color = AppTheme.Colors.text, style = AppTheme.Type.body) }
                             }
                         }
-                        Sub("listen only, never issue")
+                        Hint("Other profiles that may receive the replies, such as a drop copy. They never send.")
                     }
                 }
                 if (phase != null) {
@@ -549,10 +567,13 @@ fun LoadRunDialogContent(
                             }
                             Chip("+ capture", on = false, tag = "phase-capture-add") { captureRows = captureRows + ("" to "") }
                         }
-                        Sub("kept off each matched reply, at this message's own index, for a later phase to read as \${name}")
+                        Hint(
+                            "Kept off each matched reply, at this message's own index, for a later phase to " +
+                                "read as **\${name}**.",
+                        )
                     }
                     FormRow("Seed and store") {
-                        Sub("the set's, one level up. This phase reads " + readsList(compiled, phase.readable))
+                        Hint("The set's, one level up. This phase reads **" + readsList(compiled, phase.readable) + "**.")
                     }
                 }
                 if (phase == null) {
@@ -583,7 +604,7 @@ fun LoadRunDialogContent(
                                 }
                             }
                         }
-                        Sub("in scope as \${name}, on every message this run issues")
+                        Hint(seedHint(seedRows))
                         Refusals(blocking, Where.SEED)
                     }
                 }
@@ -596,41 +617,36 @@ fun LoadRunDialogContent(
                             optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
                         ) { memory ->
                             if (memory) {
-                                Text("Memory store, no log", color = AppTheme.Colors.text, style = AppTheme.Type.body)
-                                Sub("recommended")
+                                Text(
+                                    "Memory store, no log for this run",
+                                    color = AppTheme.Colors.text,
+                                    style = AppTheme.Type.body,
+                                )
                             } else {
                                 Text(
-                                    "As the profile" +
-                                        (
-                                            profile?.let {
-                                                ": ${it.config.messageStore.name.lowercase()} store, " +
-                                                    (if (it.config.messageLog.name == "NONE") "no log" else "file log")
-                                            } ?: ""
-                                        ),
+                                    "As the profile" + (profile?.let { ": " + storeOf(it.config).describe() } ?: ""),
                                     color = AppTheme.Colors.text,
                                     style = AppTheme.Type.body,
                                 )
                             }
                         }
+                        Hint(memoryStoreHint(profile))
                         Refusals(blocking, Where.STORE)
                         if (forLoad &&
                             profile != null &&
                             refusals.none { it.where == Where.STORE } &&
-                            (
-                                profile.config.messageStore != StoreAndLogOverride.FOR_LOAD.store ||
-                                    profile.config.messageLog != StoreAndLogOverride.FOR_LOAD.log
-                            )
+                            storeOf(profile.config) != StoreAndLogOverride.FOR_LOAD
                         ) {
-                            Sub(
-                                "The lanes reconnect with a memory store and no log for this run, and " +
-                                    "reconnect back when it ends.",
-                            )
+                            Hint("The lanes reconnect with it for this run, and reconnect back when the run ends.")
                         }
                     }
                 }
             }
 
-            profileId?.let { id -> viewModel.fanOutFarEndNotice(id)?.let { Notice(it, AppTheme.Colors.warning, "note", "load-far-end") } }
+            // The profile's own `fanOutFarEndNotice` says the same thing at more length and names the
+            // acceptor profile. This is the shorter one, and the one that says what the reader is about to
+            // do about it. The rail's fan-out dialog still prints the view model's sentence.
+            profileId?.let { id -> viewModel.farEndProfile(id)?.let { NoteLine(FAR_END_NOTE, "load-far-end") } }
         }
 
         val why =
@@ -708,12 +724,12 @@ private fun Refusals(refusals: List<Refusal>, where: Where) {
 }
 
 /**
- * A refusal or a warning, on a stripe, with the marker that says which of the two it is.
+ * A refusal, on a stripe, with the marker that says so.
  *
- * The marker column is a fixed width sized for the widest marker, "note" rather than "fix", because a
- * refusal and a note can be on screen at once and their body text has to start in the same place. An
- * intrinsic width would align each stripe to its own marker instead. The marker never wraps: at 22.dp
- * "note" broke into "not" over "e" and doubled the stripe's height.
+ * The marker column is a fixed width rather than an intrinsic one, so two refusals on screen at once start
+ * their text in the same place. It never wraps: at 22.dp the old "note" marker broke into "not" over "e"
+ * and doubled the stripe's height, which is why the note is a [NoteLine] with an icon now and nothing but
+ * "fix" comes through here.
  */
 @Composable
 private fun Notice(text: String, tint: Color, marker: String, tag: String) {
@@ -739,6 +755,49 @@ private fun Notice(text: String, tint: Color, marker: String, tag: String) {
     }
 }
 
+/**
+ * **The far-end note: one line, and a marker that cannot wrap.**
+ *
+ * A circled "i" rather than the word "note", which is the whole fix: one character in a 14.dp circle is
+ * always one line, where a four-letter word in a 22.dp column was two.
+ */
+@Composable
+private fun NoteLine(text: String, tag: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp)
+                .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(2.dp))
+                .padding(start = 6.dp, top = 4.dp, end = 6.dp, bottom = 4.dp),
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .padding(top = 1.dp)
+                    .size(14.dp)
+                    .border(1.dp, AppTheme.Colors.warning, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "i",
+                color = AppTheme.Colors.warning,
+                style = AppTheme.Type.meta,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.testTag("$tag-marker"),
+            )
+        }
+        Text(
+            text,
+            color = AppTheme.Colors.warning,
+            style = AppTheme.Type.body,
+            modifier = Modifier.weight(1f).testTag(tag),
+        )
+    }
+}
+
 @Composable
 private fun GroupHead(title: String) {
     Text(title, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta, modifier = Modifier.padding(top = 8.dp, bottom = 1.dp))
@@ -753,10 +812,41 @@ private fun FormRow(label: String, content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * A field's own micro-label: `=`, `→`, a tag's name beside the field that holds its number.
+ *
+ * Not an explainer, which is why this is still the small monospace face. Every sentence that *explains* a
+ * row is a [Hint] instead: the sans body face, one sentence, with the facts a shade stronger.
+ */
 @Composable
 private fun Sub(text: String, color: Color = AppTheme.Colors.textDisabled) {
     if (text.isNotEmpty()) Text(text, color = color, style = AppTheme.Type.meta)
 }
+
+/**
+ * **A row's one sentence, in the same face as the labels.**
+ *
+ * The dialog used to carry ten monospace grey explainers written as field lists ("per message 131 · fixed
+ * 35, 146, 55"), which read as debug output and told nobody what the row meant for this run. A hint is a
+ * sentence, and the one or two facts inside it that matter are marked `**like this**` and drawn a shade
+ * stronger, as the mockup's `.hint b` does.
+ */
+@Composable
+private fun Hint(text: String, color: Color = AppTheme.Colors.textDisabled) {
+    if (text.isEmpty()) return
+    Text(hintText(text, color, AppTheme.Colors.textSecondary), style = AppTheme.Type.body)
+}
+
+/** The `**fact**` markers resolved to [strong], everything else to [dim]. Split out so a test can read it. */
+internal fun hintText(raw: String, dim: Color, strong: Color): AnnotatedString =
+    buildAnnotatedString {
+        raw.split(EMPHASIS).forEachIndexed { index, part ->
+            if (part.isEmpty()) return@forEachIndexed
+            withStyle(SpanStyle(color = if (index % 2 == 1) strong else dim)) { append(part) }
+        }
+    }
+
+private const val EMPHASIS = "**"
 
 /** The Advanced disclosure: a caret, the name, and either what is inside it or why it opened itself. */
 @Composable
@@ -1051,6 +1141,90 @@ private val PRESETS =
         Preset("500/s for 10m", "500", burst = false, rate = "500", forText = "10m"),
         Preset("2,000/s for 1h", "2000", burst = false, rate = "2000", forText = "1h"),
     )
+
+/**
+ * **What the picked message is, and what changes on every copy of it.**
+ *
+ * "35=R QuoteRequest, saved under RFQ Load Client. 131 QuoteReqID changes on every message, the other
+ * five tags are fixed." The row used to print a field list in monospace, which is the same information
+ * and answers nothing.
+ */
+internal fun templateHint(compiled: CompiledTemplate, dictionary: FixDictionary?, savedUnder: String?): String {
+    val what = "**35=${compiled.msgType} ${msgTypeName(dictionary, compiled.msgType).trim()}**"
+    val where = savedUnder?.let { ", saved under **$it**." } ?: ", unsaved."
+    val perMessage = compiled.perMessageTags
+    val fixed = compiled.fixedTags.size
+    val moves =
+        if (perMessage.isEmpty()) {
+            "Nothing changes between messages, all ${countWord(fixed)} tags are fixed."
+        } else {
+            val named = perMessage.joinToString(", ") { "$it ${dictionary?.getFieldName(it).orEmpty()}".trim() }
+            "**$named** ${if (perMessage.size == 1) "changes" else "change"} on every message, " +
+                "the other ${countWord(fixed)} ${if (fixed == 1) "tag is" else "tags are"} fixed."
+        }
+    return "$what$where $moves"
+}
+
+/** "RFQLG1 to RFQLG5, all logged on. Messages are dealt across the lanes in turn." */
+internal fun lanesHint(available: FixMessageViewModel.FanOutLanes.Available): String {
+    val names = available.lanes.map { it.senderCompID }
+    return when (names.size) {
+        0 -> "No lane is logged on."
+        1 -> "**${names.first()}**, logged on."
+        else ->
+            "**${names.first()} to ${names.last()}**, all logged on. " +
+                "Messages are dealt across the lanes in turn."
+    }
+}
+
+/** "Request 131 QuoteReqID is answered by reply 131 QuoteReqID. Any reply type counts." */
+internal fun matchHint(match: LoadMatch?, replyType: String, dictionary: FixDictionary?): String {
+    if (match == null) return "Name the tag the request carries and the tag the reply carries it back under."
+    val request = "${match.requestTag} ${dictionary?.getFieldName(match.requestTag).orEmpty()}".trim()
+    val reply = "${match.replyTag} ${dictionary?.getFieldName(match.replyTag).orEmpty()}".trim()
+    val type =
+        replyType.trim().ifBlank { null }?.let { "Only **35=$it** counts as the answer." }
+            ?: "Any reply type counts, which is what the empty type means."
+    return "Request **$request** is answered by reply **$reply**. $type"
+}
+
+/** "Available as ${run} in every message of this run." plus the reason to mint a fresh one each time. */
+internal fun seedHint(rows: List<Pair<String, String>>): String {
+    val names = rows.mapNotNull { (name, _) -> name.trim().ifBlank { null } }
+    val shown = if (names.isEmpty()) "**\${name}**" else names.joinToString(", ") { "**\${$it}**" }
+    return "Available as $shown in every message of this run. Mint a fresh one each run so ids never " +
+        "collide with the last run's."
+}
+
+/** Why the memory store is the one a load run wants, and the one thing it needs from the profile. */
+internal fun memoryStoreHint(profile: FixConnectionProfile?): String {
+    val name = profile?.name ?: "the profile"
+    val has = profile?.config?.resetOnLogon == true
+    return "A memory store is faster and leaves no files. It needs Reset on Logon, which **$name** " +
+        (if (has) "has." else "does not have yet.")
+}
+
+/** A profile's own store and log as the same value an override carries, so the two can be compared. */
+internal fun storeOf(config: FixConnectionConfig): StoreAndLogOverride =
+    StoreAndLogOverride(config.messageStore, config.messageLog)
+
+/** "five", so a sentence about five tags reads as a sentence. Digits above ten, which read as counts. */
+internal fun countWord(n: Int): String = COUNT_WORDS.getOrNull(n) ?: "%,d".format(n)
+
+private val COUNT_WORDS =
+    listOf("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+/**
+ * **The far end is this app, so say what the numbers measure before anybody believes them.**
+ *
+ * Shown whenever the lanes dial a FixTool acceptor on this machine. The view model's own
+ * [FixMessageViewModel.fanOutFarEndNotice] says the same thing at more length for the fan-out dialog and
+ * the control surface. This is one line, and it ends with what to do about it.
+ */
+internal const val FAR_END_NOTE =
+    "These lanes are connected to FixTool's own demo venue, which runs inside this app on one thread. " +
+        "The latencies will measure that venue, not a real one. To measure a real venue, connect the " +
+        "profile to it."
 
 /**
  * The seed rows as the map a plan carries. A name with no value seeds nothing, which is what a bare

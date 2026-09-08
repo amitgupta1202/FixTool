@@ -50,7 +50,22 @@ data class ScenarioViewState(
      * page, and losing it costs one click. A name that no longer answers to a file is simply inert.
      */
     val lastLoadSet: String? = null,
+    /**
+     * The Load run dialog's last size in dp, or null until somebody resizes it.
+     *
+     * Here rather than in [AppSettings] for the same reason as the rest of this file: a window size is not
+     * a setting anybody edits on a settings page, and losing it costs one drag of a corner. The dialog
+     * opens at [LOAD_DIALOG_WIDTH] by [LOAD_DIALOG_HEIGHT] until then.
+     */
+    val loadDialogWidth: Float? = null,
+    val loadDialogHeight: Float? = null,
 )
+
+/** What the Load run dialog opens at before anybody has resized it. Twenty percent up from 640 by 580. */
+const val LOAD_DIALOG_WIDTH = 780f
+
+/** See [LOAD_DIALOG_WIDTH]. Ten rows and two folds fit at this height without the footer being scrolled to. */
+const val LOAD_DIALOG_HEIGHT = 700f
 
 /**
  * The load dialog's last-used shape for one profile, so reopening it does not reset to 4,000 / 500 / 60s.

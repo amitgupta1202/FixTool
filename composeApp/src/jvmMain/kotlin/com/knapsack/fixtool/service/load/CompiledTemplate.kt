@@ -8,10 +8,13 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.ShorthandTemplateExpander
 import com.knapsack.fixtool.service.ShorthandTemplateExpander.Generator
 import quickfix.Message
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import java.util.concurrent.ThreadLocalRandom
 
 /**
  * **A load template read once, with every field sorted by when it has to be resolved.**
@@ -373,7 +376,24 @@ class CompiledTemplate private constructor(
                     val now = if (generator.utc) LocalDateTime.now(ZoneOffset.UTC) else LocalDateTime.now()
                     shifted(now, generator).format(formatter(generator.pattern))
                 }
+                is Generator.Random -> random(generator)
             }
+
+        /**
+         * A number in the closed range, quantised to the generator's decimals.
+         *
+         * `ThreadLocalRandom` because a burst renders on one thread per lane, and `BigDecimal` because the
+         * value goes on a wire as a price: the quantisation is the point, not a rounding of a double.
+         */
+        private fun random(g: Generator.Random): String {
+            val span = g.max.subtract(g.min)
+            val at = BigDecimal.valueOf(ThreadLocalRandom.current().nextDouble())
+            return span
+                .multiply(at)
+                .add(g.min)
+                .setScale(g.decimals, RoundingMode.HALF_UP)
+                .toPlainString()
+        }
 
         @Suppress("CyclomaticComplexMethod")
         private fun shifted(now: LocalDateTime, g: Generator.Timestamp): LocalDateTime {
@@ -381,6 +401,7 @@ class CompiledTemplate private constructor(
             val unit = g.unit?.lowercase() ?: return now
             val plus = g.sign != "-"
             return when (unit) {
+                "s" -> if (plus) now.plusSeconds(amount) else now.minusSeconds(amount)
                 "min" -> if (plus) now.plusMinutes(amount) else now.minusMinutes(amount)
                 "h" -> if (plus) now.plusHours(amount) else now.minusHours(amount)
                 "d" -> if (plus) now.plusDays(amount) else now.minusDays(amount)

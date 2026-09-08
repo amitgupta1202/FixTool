@@ -62,10 +62,61 @@ class AcceptorSendTimeGeneratorsTest {
         assertEquals(template, AcceptorResponder.resolveAtSendTime(template))
     }
 
+    /**
+     * Seconds, which a quote's validity needs and nothing else could say: `min` is still minutes and a
+     * bare `m` is still months, so the alternation has to keep `min` first.
+     */
+    @Test
+    fun `a seconds offset renders thirty seconds ahead, on the UTC clock`() {
+        val resolved = AcceptorResponder.resolveAtSendTime("35=S|62=\${utcnow+30s}|60=\${utcnow}")
+
+        assertFalse(FixMessageTemplate.hasTemplateExpressions(resolved), "an expression survived: $resolved")
+        val validUntil = LocalDateTime.parse(field(resolved, 62), fixPattern)
+        val ahead = Duration.between(LocalDateTime.now(ZoneOffset.UTC), validUntil).seconds
+        assertTrue(ahead in 25..35, "expected about thirty seconds ahead, was ${ahead}s: $resolved")
+    }
+
+    @Test
+    fun `five minutes is still five minutes and five months is still five months`() {
+        val minutes = LocalDateTime.parse(field(AcceptorResponder.resolveAtSendTime("62=\${utcnow+5min}"), 62), fixPattern)
+        val months = LocalDateTime.parse(field(AcceptorResponder.resolveAtSendTime("62=\${utcnow+5m}"), 62), fixPattern)
+        val now = LocalDateTime.now(ZoneOffset.UTC)
+
+        assertTrue(Duration.between(now, minutes).toMinutes() in 4..5, "5min read as something else: $minutes")
+        assertTrue(Duration.between(now, months).toDays() > 100, "5m should be five months: $months")
+    }
+
+    /**
+     * A venue prices its own quotes, and a price identical on four thousand of them is a venue nobody
+     * would recognise. Quantised, because the value goes on a wire as a price.
+     */
+    @Test
+    fun `a random price lands inside its band, with the decimals it was asked for`() {
+        val seen = mutableSetOf<String>()
+        repeat(200) {
+            val resolved = AcceptorResponder.resolveAtSendTime("35=S|133=\${random:1.09000:1.09090:5}")
+            assertFalse(FixMessageTemplate.hasTemplateExpressions(resolved), "an expression survived: $resolved")
+            val price = field(resolved, 133)!!
+            seen += price
+            assertEquals(5, price.substringAfter('.').length, "five decimals, plainly written: $price")
+            assertTrue(price.toBigDecimal() >= "1.09000".toBigDecimal(), price)
+            assertTrue(price.toBigDecimal() <= "1.09090".toBigDecimal(), price)
+        }
+        assertTrue(seen.size > 10, "every quote got the same price, which is no venue: $seen")
+    }
+
+    @Test
+    fun `a random whose numbers cannot mean anything is left for the engine to complain about`() {
+        val template = "133=\${random:1.09:1.08:5}"
+        assertEquals(template, AcceptorResponder.resolveAtSendTime(template), "max below min is not a band")
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.any { it.contains("min no greater than max") }, errors.toString())
+    }
+
     /** The claim that matters at load: a reply with only shorthand generators renders in microseconds. */
     @Test
     fun `a thousand generator-only replies render well inside a second`() {
-        val template = "35=S|117=\${uuid}|62=\${utcnow+1min}|60=\${now}|17=\${uuid:12}"
+        val template = "35=S|117=\${uuid}|62=\${utcnow+30s}|60=\${now}|17=\${uuid:12}|133=\${random:1.09:1.10:5}"
         val started = System.nanoTime()
         repeat(1_000) { AcceptorResponder.resolveAtSendTime(template) }
         val elapsedMs = (System.nanoTime() - started) / 1_000_000

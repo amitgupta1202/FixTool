@@ -179,4 +179,22 @@ class CompiledTemplateTest {
         assertEquals(setOf("quoteId"), compiled.missingVariables(emptySet()), "with nothing to fill it, it is missing")
         assertEquals(setOf("quoteId"), compiled.variablesRead())
     }
+
+    /**
+     * A random price is a per-message generator like `${'$'}{uuid}`, which is what makes it usable in a load
+     * template at all: a Kotlin expression would go through the script engine once per lane and freeze.
+     */
+    @Test
+    fun `a random price and a seconds offset are per-message, and every message gets its own`() {
+        val compiled = CompiledTemplate.compile(template(44 to "\${random:1.09000:1.09090:5}", 62 to "\${utcnow+30s}"))
+        val prototype = compiled.prepare(lane(1), emptyMap(), dictionary) { it }
+
+        assertEquals(listOf(44, 62), compiled.perMessageTags, "neither is frozen per lane")
+        val prices = (1..200).map { prototype.render(it).getString(44) }
+        assertTrue(prices.toSet().size > 10, "every message got the same price: ${prices.toSet()}")
+        prices.forEach {
+            assertEquals(5, it.substringAfter('.').length, it)
+            assertTrue(it.toBigDecimal() in "1.09000".toBigDecimal().."1.09090".toBigDecimal(), it)
+        }
+    }
 }

@@ -18,13 +18,17 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
  *   ValidUntilTime, …), so a replay's stamp does not carry the capturer's local offset. Takes the same
  *   `:pattern` and `+/-` offsets as `now`.
  * - `${now:pattern}` → current timestamp with custom pattern (e.g., ${now:yyyyMMdd})
- * - `${now+1h}` → timestamp 1 hour from now (units: min=minutes, h=hours, d=days, w=weeks, m=months, y=years)
+ * - `${now+1h}` → timestamp 1 hour from now (units: s=seconds, min=minutes, h=hours, d=days, w=weeks,
+ *   m=months, y=years)
+ * - `${random:1.09000:1.09090:5}` → a number in the closed range, quantised to 5 decimals — what a venue
+ *   prices its own quotes with, since a price that is identical on four thousand quotes is no venue
  * - `${now-2d}` → timestamp 2 days ago
  * - `${utcnow+5min}` → UTC timestamp 5 minutes from now (min is minutes; a bare `m` is months)
  * - `${now+1d:yyyyMMdd}` → timestamp with offset and custom format
  *
  * Non-shorthand expressions pass through unchanged for backwards compatibility.
  */
+@Suppress("TooManyFunctions")
 object ShorthandTemplateExpander {
     // Pattern to match ${...} expressions
     private val EXPRESSION_REGEX = """\$\{([^}]+)}""".toRegex()
@@ -49,6 +53,15 @@ object ShorthandTemplateExpander {
     // A dash-less UUID holds 32 hex chars; asking for more (or zero) is a typo worth naming.
     private val UUID_LEN_RANGE = 1..32
 
+    // Pattern: random:1.09000:1.09090:5 — a number in a closed range, quantised to that many decimals.
+    // A venue prices its own quotes, and a price that is the same on every one of four thousand is a
+    // venue nobody would recognise.
+    private val RANDOM_PATTERN =
+        """^\s*random:(-?\d+(?:\.\d+)?):(-?\d+(?:\.\d+)?):(\d+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // More than this many decimals is a typo, not a price: FIX prices go to five or six.
+    private val RANDOM_DECIMALS_RANGE = 0..10
+
     // Pattern: now / utcnow (case insensitive). 'now' is local; the optional 'utc' prefix is the UTC clock
     // (LocalDateTime.now(ZoneOffset.UTC)) — what capture mints so a replayed UTCTimestamp does not drift by
     // the capturer's local offset. 'now' (not 'ts') keeps it clear of variable names.
@@ -57,12 +70,14 @@ object ShorthandTemplateExpander {
     // Pattern: now:pattern / utcnow:pattern (custom format)
     private val TIMESTAMP_FORMAT_PATTERN = """^\s*(utc)?now:(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
-    // Pattern: now+1h, utcnow+5min, NOW-2d, etc. (offset without format). 'min' is minutes — spelled out and
-    // matched first so 5min never reads as 5 months; a bare 'm' is still months.
-    private val TIMESTAMP_OFFSET_PATTERN = """^\s*(utc)?now\s*([+-])\s*(\d+)\s*(min|[hdwmy])\s*$""".toRegex(RegexOption.IGNORE_CASE)
+    // Pattern: now+1h, utcnow+30s, utcnow+5min, NOW-2d, etc. (offset without format). 'min' is minutes,
+    // spelled out and matched first so 5min never reads as 5 months. A bare 'm' is still months, and 's'
+    // is seconds — which a quote's thirty-second validity needs and nothing else could say.
+    private val TIMESTAMP_OFFSET_PATTERN = """^\s*(utc)?now\s*([+-])\s*(\d+)\s*(min|[shdwmy])\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
     // Pattern: now+1d:yyyyMMdd, utcnow+5min:yyyyMMdd (offset with custom format)
-    private val TIMESTAMP_OFFSET_FORMAT_PATTERN = """^\s*(utc)?now\s*([+-])\s*(\d+)\s*(min|[hdwmy]):(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
+    private val TIMESTAMP_OFFSET_FORMAT_PATTERN =
+        """^\s*(utc)?now\s*([+-])\s*(\d+)\s*(min|[shdwmy]):(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
     // Pattern to detect variable assignment with shorthand keywords as variable name
     // e.g., ${uuid = something} or ${now = something}. 'utcnow' is matched before 'now' so the longer
@@ -74,7 +89,7 @@ object ShorthandTemplateExpander {
      * generators a scenario may reference without any step minting them. Matched case-insensitively
      * wherever it is used, because the patterns above are `IGNORE_CASE`.
      */
-    val SHORTHAND_KEYWORDS = setOf("uuid", "now", "utcnow")
+    val SHORTHAND_KEYWORDS = setOf("uuid", "now", "utcnow", "random")
 
     // Keywords and patterns that should NOT be treated as shorthand
     // (to avoid false matches with Kotlin expressions)
@@ -116,6 +131,18 @@ object ShorthandTemplateExpander {
             val unit: String?,
             val pattern: String?,
         ) : Generator
+
+        /**
+         * `random:<min>:<max>:<decimals>`: a number in the closed range, quantised to [decimals].
+         *
+         * `BigDecimal` and not a double, because the value goes on a wire as a price: `1.0901` and
+         * `1.09010000000000001` are the same number and only one of them is a quote.
+         */
+        data class Random(
+            val min: java.math.BigDecimal,
+            val max: java.math.BigDecimal,
+            val decimals: Int,
+        ) : Generator
     }
 
     /** The generator [expression] names, or null when it is not one of the shorthand generators. */
@@ -127,6 +154,7 @@ object ShorthandTemplateExpander {
             val n = m.groupValues[1].toIntOrNull()
             return if (n != null && n in UUID_LEN_RANGE) Generator.Uuid(n) else null
         }
+        RANDOM_PATTERN.matchEntire(e)?.let { m -> return randomOf(m) }
         TIMESTAMP_PATTERN.matchEntire(e)?.let { m -> return Generator.Timestamp(m.utc(), null, null, null, null) }
         TIMESTAMP_FORMAT_PATTERN.matchEntire(e)?.let { m ->
             return Generator.Timestamp(m.utc(), null, null, null, m.groupValues[2].trim())
@@ -138,6 +166,16 @@ object ShorthandTemplateExpander {
             return Generator.Timestamp(m.utc(), m.groupValues[2], m.groupValues[3].toLong(), m.groupValues[4], m.groupValues[5].trim())
         }
         return null
+    }
+
+    /** `random:1.09:1.10:5` as its generator, or null when the numbers cannot mean anything. */
+    @Suppress("ReturnCount")
+    private fun randomOf(m: MatchResult): Generator.Random? {
+        val min = m.groupValues[1].toBigDecimalOrNull() ?: return null
+        val max = m.groupValues[2].toBigDecimalOrNull() ?: return null
+        val decimals = m.groupValues[3].toIntOrNull() ?: return null
+        if (decimals !in RANDOM_DECIMALS_RANGE || max < min) return null
+        return Generator.Random(min, max, decimals)
     }
 
     /** The FIX UTCTimestamp pattern a bare `${now}` renders with. */
@@ -186,6 +224,9 @@ object ShorthandTemplateExpander {
                     // Out of range falls through unchanged, so validateShorthand can name the typo.
                     if (n != null && n in UUID_LEN_RANGE) return "$varName = ${expandUuidLen(n)}"
                 }
+                RANDOM_PATTERN.matchEntire(value)?.let { m ->
+                    randomOf(m)?.let { return "$varName = ${expandRandom(it)}" }
+                }
                 TIMESTAMP_PATTERN.matchEntire(value)?.let { m ->
                     return "$varName = ${expandTimestamp(m.utc(), null, null, null, null)}"
                 }
@@ -214,6 +255,11 @@ object ShorthandTemplateExpander {
         UUID_LEN_PATTERN.matchEntire(expression)?.let { m ->
             val n = m.groupValues[1].toIntOrNull()
             if (n != null && n in UUID_LEN_RANGE) return expandUuidLen(n)
+        }
+
+        // Try the random number: ${random:1.09000:1.09090:5}
+        RANDOM_PATTERN.matchEntire(expression)?.let { m ->
+            randomOf(m)?.let { return expandRandom(it) }
         }
 
         // Try timestamp shorthand: ${now}, ${utcnow}
@@ -349,6 +395,17 @@ object ShorthandTemplateExpander {
      */
     private fun expandUuidLen(n: Int): String = """UUID.randomUUID().toString().replace("-", "").take($n)"""
 
+    /**
+     * The Kotlin a `${random:…}` used to have to be written as, for the one path that still compiles.
+     *
+     * `BigDecimal` throughout, and `toPlainString()` at the end, so the wire never carries `1.0901E+0`.
+     */
+    private fun expandRandom(g: Generator.Random): String =
+        "java.math.BigDecimal.valueOf(java.util.concurrent.ThreadLocalRandom.current().nextDouble())" +
+            ".multiply(java.math.BigDecimal(\"${g.max.subtract(g.min).toPlainString()}\"))" +
+            ".add(java.math.BigDecimal(\"${g.min.toPlainString()}\"))" +
+            ".setScale(${g.decimals}, java.math.RoundingMode.HALF_UP).toPlainString()"
+
     /** True when the timestamp keyword carried the `utc` prefix — group 1 of every timestamp pattern. */
     private fun MatchResult.utc(): Boolean = groupValues[1].isNotEmpty()
 
@@ -357,7 +414,8 @@ object ShorthandTemplateExpander {
      *
      * `${now}` is the local clock (unchanged); `${utcnow}` is `LocalDateTime.now(ZoneOffset.UTC)` — what
      * capture mints for UTCTimestamp fields so a replay's stamp does not carry the capturer's local offset.
-     * Units: min=minutes, h/d/w/m/y = hours/days/weeks/months/years (m is months — minutes is `min`). Passing
+     * Units: s=seconds, min=minutes, h/d/w/m/y = hours/days/weeks/months/years (m is months, minutes is
+     * `min`). Passing
      * `sign`/`amount`/`unit` all null yields the bare clock with no offset.
      */
     private fun expandTimestamp(utc: Boolean, sign: String?, amount: Long?, unit: String?, pattern: String?): String {
@@ -366,6 +424,7 @@ object ShorthandTemplateExpander {
             if (sign != null && amount != null && unit != null) {
                 val method =
                     when (unit.lowercase()) {
+                        "s" -> if (sign == "+") "plusSeconds" else "minusSeconds"
                         "min" -> if (sign == "+") "plusMinutes" else "minusMinutes"
                         "h" -> if (sign == "+") "plusHours" else "minusHours"
                         "d" -> if (sign == "+") "plusDays" else "minusDays"
@@ -391,6 +450,7 @@ object ShorthandTemplateExpander {
      * @param dictionary Optional data dictionary for tag name resolution
      * @return List of error messages for any invalid shorthand expressions
      */
+    @Suppress("LongMethod")
     fun validateShorthand(template: String, dictionary: FixDictionaryAdapter?): List<String> {
         if (!template.contains("\${")) {
             return emptyList()
@@ -426,6 +486,19 @@ object ShorthandTemplateExpander {
                     errors.add(
                         "\${uuid:N} needs N between ${UUID_LEN_RANGE.first} and ${UUID_LEN_RANGE.last} " +
                             "(a dash-less UUID has 32 chars), got '\${$expression}'",
+                    )
+                }
+            }
+
+            // A random whose numbers cannot mean anything: named here, because expand() left it alone and
+            // the evaluator would otherwise report it as an inscrutable Kotlin error.
+            if (expression.substringAfter("=").trim().startsWith("random:", ignoreCase = true)) {
+                val matched = RANDOM_PATTERN.matchEntire(expression.substringAfter("=").trim())
+                if (matched == null || randomOf(matched) == null) {
+                    errors.add(
+                        "\${random:<min>:<max>:<decimals>} needs two numbers with min no greater than max and " +
+                            "decimals between ${RANDOM_DECIMALS_RANGE.first} and ${RANDOM_DECIMALS_RANGE.last}, " +
+                            "got '\${$expression}'",
                     )
                 }
             }

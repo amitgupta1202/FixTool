@@ -122,7 +122,7 @@ data class LoadSet(
             val template = resolve.template(spec.template, profile.id)
             if (template == null) {
                 found +=
-                    Problem(n, "no template '${spec.template}' — not a file, and no saved message of that id or name.")
+                    Problem(n, "no template '${spec.template}': not a file, and no saved message of that id or name.")
                 return@forEachIndexed
             }
             captureProblems(spec, index, claimed).forEach { found += Problem(n, it) }

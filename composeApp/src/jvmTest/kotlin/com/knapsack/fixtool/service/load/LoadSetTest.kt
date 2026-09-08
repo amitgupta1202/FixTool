@@ -316,6 +316,27 @@ class LoadSetTest {
         )
     }
 
+    /**
+     * **No em dash in a sentence the tool prints.** The repo's prose rule, asserted where it is easiest
+     * to break: a refusal copied from a neighbouring surface brings the neighbour's punctuation with it.
+     */
+    @Test
+    fun `no refusal a set can print carries an em dash`() {
+        val everyRefusal =
+            set(
+                phases =
+                    listOf(
+                        twoPhases[0].copy(template = "no such template", capture = mapOf("run" to 117)),
+                        twoPhases[1].copy(label = "Ask for a quote", profile = "no such profile"),
+                    ),
+            ).problems(Fake(), LoadPlan.Surface.CLI) +
+                set(phases = emptyList()).problems(Fake(), LoadPlan.Surface.CLI) +
+                set(seed = emptyMap()).problems(Fake(), LoadPlan.Surface.DIALOG)
+
+        assertTrue(everyRefusal.size >= 4, "the fixture stopped producing refusals: $everyRefusal")
+        everyRefusal.forEach { assertTrue('—' !in it.sentence, "em dash in: ${it.sentence}") }
+    }
+
     @Test
     fun `the phase row says what it keeps`() {
         val spec = twoPhases[0].copy(capture = mapOf("quoteId" to 117, "offer" to 133))

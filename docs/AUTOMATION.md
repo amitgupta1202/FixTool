@@ -215,8 +215,9 @@ that never left the socket, or sends the engine refused. `issued` is therefore t
 handed to the engine and left the socket, and completeness is judged over the last.
 
 **The report.** `loads/<id>/load.json` in the workspace, written as the run progresses and once more at the
-end, beside each phase's `NN-unmatched.fix` (the wire of every unanswered request) and `NN-specimens.fix`
-(fifty matched pairs, request then reply). Never every message. The file is a **record**: `schema`, `id`,
+end, beside each phase's `NN-unmatched.fix` (the wire of every unanswered request), `NN-specimens.fix`
+(fifty matched pairs, request then reply) and, for a phase that captures, `NN-captured.tsv`. Never every
+message. The file is a **record**: `schema`, `id`,
 `label`, `startedAt`, `finishedAt`, `status`, `exitCode`, the set's `seed` and `verdict`, and `phases[]`.
 Each phase carries `issue`, `rate`, `replies`, `timing` (`elapsedMs` first send to last matched reply,
 `drainMs` last send to last matched reply), `roundTrip` (min, p50, p95, p99, max, mean, samples),
@@ -269,6 +270,42 @@ than replaying one machine's four hex characters at the venue. `--seed` on the c
 
 **`indexFrom`** says where a phase's `${messageIndex}` starts, so a three-phase set can hit the first 2,000
 quotes and pass the other 2,000. Default 1.
+
+**`capture` is what makes a set work against a venue that mints its own ids.** The shared seed covers a
+round trip only against a venue built to be addressable from it: a real counterparty answers a
+QuoteRequest with a QuoteID the client could not have derived, and prices the quote itself. A phase's
+`capture` keeps named tag values off each **matched reply**, at that request's own message index:
+
+```jsonc
+{ "label": "Ask for a quote", "template": "RFQ Load QuoteRequest", "profile": "RFQ Load Client",
+  "match": { "requestTag": 131, "replyTag": 131, "replyType": "S" },
+  "shape": { "kind": "burst", "count": 4000 }, "settleMs": 60000,
+  "capture": { "quoteId": 117, "offer": 133 } }
+```
+
+A **later** phase then reads them as per-message names, resolved by the same `${messageIndex}` its own ids
+are built from: `117=${quoteId}`, `44=${offer}`. Only an earlier phase's captures are readable, and the
+refusal says so rather than sending you to the seed band: "Phase 2 · Hit the first 2,000: the template
+reads `${quoteId}` and no earlier phase captures it. Add a capture to a phase before it, or seed it." A
+capture name has to be a name a template can read, and it cannot shadow a seed, a lane's own name,
+`messageIndex`, or another phase's capture.
+
+**A message that could not be addressed fails the phase.** The bar is "every requested message answered",
+so a message the tool never built is a hole in the proof rather than a smaller proof. The completeness
+verdict is `INCOMPLETE`, the exit code is 1, and the report names which index and which name:
+
+```
+captured            19   quoteId on 19 · offer on 20
+not sent             1   no quoteId for 7
+INCOMPLETE   1 of 20 not sent: no quoteId for index 7
+```
+
+The counts per name are shown separately whenever they differ, because that is the venue answering without
+a tag, and one number for both would hide exactly the thing the next phase is about to trip over. The
+pacer keeps its schedule either way: a burst moves on, and a rate run's second genuinely falls short and is
+reported as a shortfall. The record's phase carries `capture: {names, captured}` and `unaddressable:
+[{index, missing}]` capped at 1,000 with the whole count on `issue.unaddressable`, and the values
+themselves are in `NN-captured.tsv` beside the phase's other evidence, one tab-separated line per index.
 
 **The store is the set's**, because applying it per phase would put a logon and a sequence reset in the
 middle of the set's clock.

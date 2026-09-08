@@ -74,6 +74,38 @@ class CompiledTemplate private constructor(
             val name: String,
             val value: Part,
         ) : Part
+
+        /**
+         * A name an earlier phase of a set captured, looked up by this message's own index.
+         *
+         * Its own kind rather than a [Variable] with a scope entry, because a capture can be **missing** —
+         * the venue answered without the tag, or never answered — and a missing capture must not render as
+         * `${'$'}{quoteId}` on the wire. See [Rendered.Unaddressable].
+         */
+        data class Captured(
+            val name: String,
+        ) : Part
+    }
+
+    /**
+     * **What rendering one message came back as.**
+     *
+     * A message, or the name that was not there. A load run's bar is "every requested message answered", so
+     * a message the tool could not build is a hole in the proof rather than a smaller proof, and the run has
+     * to be able to say which index and which name rather than putting a literal `${'$'}{quoteId}` on the wire.
+     */
+    sealed interface Rendered {
+        val index: Int
+
+        data class Message(
+            override val index: Int,
+            val message: quickfix.Message,
+        ) : Rendered
+
+        data class Unaddressable(
+            override val index: Int,
+            val missing: String,
+        ) : Rendered
     }
 
     /** The tags rendered afresh for every message. */
@@ -100,6 +132,8 @@ class CompiledTemplate private constructor(
             for (part in slot.parts) {
                 when (part) {
                     is Part.Variable -> if (part.name !in defined) missing += part.name
+                    // A captured part is already covered: the set refused it if no earlier phase filled it.
+                    is Part.Captured -> Unit
                     is Part.Assign -> {
                         (part.value as? Part.Variable)?.let { if (it.name !in defined) missing += it.name }
                         defined += part.name
@@ -137,28 +171,42 @@ class CompiledTemplate private constructor(
      * The lane's four names win over a seed of the same name, because the lane's identity is the whole
      * reason `${sessionIndex}` exists and a seed that collides with it is a mistake, not an override.
      */
+    @Suppress("LongParameterList")
     fun prepare(
         lane: Lane,
         seed: Map<String, String>,
         dictionary: FixDictionaryAdapter,
+        /**
+         * Names an earlier phase of a set captured, each a per-message lookup by index.
+         *
+         * A name here wins over the seed and over the lane, because a set's author who captured `quoteId`
+         * and also seeded it has been refused before this is reached.
+         */
+        lookups: Map<String, (Int) -> String?> = emptyMap(),
         resolveOnce: (template: String) -> String,
     ): LanePrototype {
         val laneScope = seed + lane.seed()
         val placeholderScope = HashMap(laneScope).also { it[MESSAGE_INDEX] = "0" }
+        // A captured name has no value to bake in, so the prototype carries a placeholder for its tag and
+        // every render replaces it. Anything else is exactly what it was.
+        val captured = lookups.keys
         val resolved =
             slots.map { slot ->
                 slot.tag to
                     when (slot) {
                         is Slot.Literal -> slot.value
                         is Slot.Once -> resolveOnce(slot.template)
-                        is Slot.PerMessage -> renderParts(slot.parts, placeholderScope)
+                        is Slot.PerMessage -> renderParts(slot.parts.map { asCaptured(it, captured) }, placeholderScope)
                     }
             }
         val raw = resolved.joinToString("|") { "${it.first}=${it.second}" } + "|"
         val prototype = if (dictionary.getDataDictionary() != null) raw.toQuickFixMessageManual(dictionary) else raw.toQuickFixMessage()
-        val perMessage = slots.filterIsInstance<Slot.PerMessage>()
+        val perMessage =
+            slots
+                .filterIsInstance<Slot.PerMessage>()
+                .map { slot -> slot.copy(parts = slot.parts.map { asCaptured(it, captured) }) }
         val headerTags = perMessage.map { it.tag }.filter { prototype.header.isSetField(it) }.toSet()
-        return LanePrototype(prototype, perMessage, laneScope, headerTags)
+        return LanePrototype(prototype, perMessage, laneScope, headerTags, lookups)
     }
 
     /**
@@ -170,20 +218,38 @@ class CompiledTemplate private constructor(
         private val perMessage: List<Slot.PerMessage>,
         private val laneScope: Map<String, String>,
         private val headerTags: Set<Int>,
+        private val lookups: Map<String, (Int) -> String?> = emptyMap(),
     ) {
         /** [messageIndex] is 1-based, so `${messageIndex}` counts the way "4,000 issued" counts. */
-        fun render(messageIndex: Int): Message {
+        fun render(messageIndex: Int): Message =
+            (renderOrRefuse(messageIndex) as? Rendered.Message)?.message
+                ?: error("message $messageIndex cannot be addressed")
+
+        /**
+         * The message, or the captured name that was not there.
+         *
+         * The whole message is refused on one missing name rather than sent with a hole in it: a hit that
+         * names no quote is not a smaller test, it is a different one, and the venue would answer it with a
+         * refusal that looked like the venue's fault.
+         */
+        fun renderOrRefuse(messageIndex: Int): Rendered {
             val message = prototype.clone() as Message
             val scope = HashMap(laneScope)
             scope[MESSAGE_INDEX] = messageIndex.toString()
             for (slot in perMessage) {
-                val value = renderParts(slot.parts, scope)
+                for (part in slot.parts) {
+                    if (part is Part.Captured && lookups[part.name]?.invoke(messageIndex) == null) {
+                        return Rendered.Unaddressable(messageIndex, part.name)
+                    }
+                }
+                val value = renderParts(slot.parts, scope, lookups, messageIndex)
                 if (slot.tag in headerTags) message.header.setString(slot.tag, value) else message.setString(slot.tag, value)
             }
-            return message
+            return Rendered.Message(messageIndex, message)
         }
     }
 
+    @Suppress("TooManyFunctions")
     companion object {
         const val MESSAGE_INDEX = "messageIndex"
 
@@ -192,6 +258,14 @@ class CompiledTemplate private constructor(
         private val EXPRESSION = """\$\{([^}]+)}""".toRegex()
         private val VARIABLE = """^[a-zA-Z_][a-zA-Z0-9_]*$""".toRegex()
         private val ASSIGNMENT = """^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$""".toRegex()
+
+        /**
+         * Whether [name] is a name a `${'$'}{…}` can read: the renderer's own rule, asked from outside.
+         *
+         * A capture becomes such a name in a later phase, so the set validates against this rather than
+         * against a second copy of the regex that could drift from it.
+         */
+        fun isVariableName(name: String): Boolean = VARIABLE.matches(name)
 
         fun compile(template: LoadTemplate): CompiledTemplate {
             val msgType = requireNotNull(template.msgType) { "a load template needs a message type (tag 35)" }
@@ -233,19 +307,41 @@ class CompiledTemplate private constructor(
             return if (VARIABLE.matches(expression)) Part.Variable(expression) else null
         }
 
-        private fun renderParts(parts: List<Part>, scope: MutableMap<String, String>): String {
-            if (parts.size == 1) return renderPart(parts[0], scope)
+        /** A [Part.Variable] whose name a later phase reads from a capture is a [Part.Captured]. */
+        private fun asCaptured(part: Part, captured: Set<String>): Part =
+            when {
+                part is Part.Variable && part.name in captured -> Part.Captured(part.name)
+                part is Part.Assign && part.value is Part.Variable && (part.value as Part.Variable).name in captured ->
+                    Part.Assign(part.name, Part.Captured((part.value as Part.Variable).name))
+                else -> part
+            }
+
+        private fun renderParts(
+            parts: List<Part>,
+            scope: MutableMap<String, String>,
+            lookups: Map<String, (Int) -> String?> = emptyMap(),
+            messageIndex: Int = 0,
+        ): String {
+            if (parts.size == 1) return renderPart(parts[0], scope, lookups, messageIndex)
             val sb = StringBuilder()
-            for (part in parts) sb.append(renderPart(part, scope))
+            for (part in parts) sb.append(renderPart(part, scope, lookups, messageIndex))
             return sb.toString()
         }
 
-        private fun renderPart(part: Part, scope: MutableMap<String, String>): String =
+        private fun renderPart(
+            part: Part,
+            scope: MutableMap<String, String>,
+            lookups: Map<String, (Int) -> String?> = emptyMap(),
+            messageIndex: Int = 0,
+        ): String =
             when (part) {
                 is Part.Text -> part.text
                 is Part.Variable -> scope[part.name] ?: "\${${part.name}}"
                 is Part.Generated -> generate(part.generator)
-                is Part.Assign -> renderPart(part.value, scope).also { scope[part.name] = it }
+                // Reached only when the prototype is being built, where a placeholder is what is wanted:
+                // renderOrRefuse has already refused the message when a capture is missing.
+                is Part.Captured -> lookups[part.name]?.invoke(messageIndex) ?: "\${${part.name}}"
+                is Part.Assign -> renderPart(part.value, scope, lookups, messageIndex).also { scope[part.name] = it }
             }
 
         /**

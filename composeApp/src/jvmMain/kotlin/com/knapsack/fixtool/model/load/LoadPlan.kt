@@ -42,6 +42,11 @@ data class LoadPlan(
      * only reason a three-phase RFQ set can say "hit the first 2,000, pass the other 2,000".
      */
     val indexFrom: Int = 1,
+    /**
+     * Named tag values this phase keeps off each matched reply, for a later phase to address. See
+     * [LoadPhaseSpec.capture]: a single run captures nothing, because it has no later phase to read them.
+     */
+    val capture: Map<String, Int> = emptyMap(),
 ) {
     /** How many messages the plan asks for. */
     val requested: Long get() = shape.requested
@@ -76,7 +81,7 @@ data class LoadPlan(
         internal val seedRemedy: (String) -> String,
     ) {
         DIALOG({ "Add $it=… under Seed." }),
-        CLI({ "Pass --seed $it=… on the command line." }),
+        CLI({ "Pass --seed $it=… on the command line, or capture it in an earlier phase of a set." }),
         API({ "Add \"$it\" to the request's seed object." }),
     }
 

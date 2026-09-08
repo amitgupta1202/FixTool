@@ -75,6 +75,9 @@ object LoadSetCodec {
             if (spec.indexFrom != 1) put("indexFrom", spec.indexFrom)
             put("settleMs", spec.settleMs)
             if (spec.strictRate) put("strictRate", true)
+            if (spec.capture.isNotEmpty()) {
+                put("capture", buildJsonObject { spec.capture.forEach { (name, tag) -> put(name, tag) } })
+            }
         }
 
     fun fromJson(o: JsonObject): LoadSet {
@@ -110,6 +113,11 @@ object LoadSetCodec {
             indexFrom = (o.intOrNull("indexFrom") ?: 1).coerceAtLeast(1),
             settleMs = o.longOrNull("settleMs") ?: LoadPlan.DEFAULT_SETTLE_MS,
             strictRate = (o["strictRate"] as? JsonPrimitive)?.contentOrNull == "true",
+            capture =
+                (o["capture"] as? JsonObject)
+                    ?.mapNotNull { (name, tag) -> (tag as? JsonPrimitive)?.intOrNull?.let { name to it } }
+                    ?.toMap()
+                    .orEmpty(),
         )
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =

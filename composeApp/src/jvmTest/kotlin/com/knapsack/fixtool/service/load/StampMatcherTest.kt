@@ -24,12 +24,26 @@ class StampMatcherTest {
     private val laneB = SessionID("FIX.4.4", "LOADGEN02", "VENUE")
     private val dropCopy = SessionID("FIX.4.4", "DROPCOPY", "VENUE")
 
-    private fun matcher(replyType: String? = null) =
-        StampMatcher(
-            match = LoadMatch(requestTag = 11, replyTag = 11, replyType = replyType),
-            requestType = "D",
-            issuing = setOf(laneA, laneB),
-            laneOf = { if (it == laneA) 1 else 2 },
+    private fun matcher(
+        replyType: String? = null,
+        captures: List<Pair<String, Int>> = emptyList(),
+        table: StampMatcher.CaptureTable? = null,
+    ) = StampMatcher(
+        match = LoadMatch(requestTag = 11, replyTag = 11, replyType = replyType),
+        requestType = "D",
+        issuing = setOf(laneA, laneB),
+        laneOf = { if (it == laneA) 1 else 2 },
+        captures = captures,
+        table = table,
+    )
+
+    /** A reply carrying a QuoteID and a price, which is what a capture is read off. */
+    private fun quote(id: String, at: Long, quoteId: String? = "QID-$id", offer: String? = "1.09010") =
+        SocketStamp(
+            laneA,
+            WireDirection.RECEIVE,
+            "8=FIX.4.4|35=8|49=VENUE|11=$id|" + (quoteId?.let { "117=$it|" } ?: "") + (offer?.let { "133=$it|" } ?: ""),
+            at,
         )
 
     private fun send(on: SessionID, id: String, at: Long, type: String = "D") =
@@ -257,5 +271,60 @@ class StampMatcherTest {
         assertEquals(100_000L, buckets[0].p95Micros)
         assertNull(buckets[1].p95Micros)
         assertEquals(1_300_000L, buckets[2].p95Micros)
+    }
+
+    /**
+     * **A captured value lands at the index its request was issued for**, which is the whole mechanism: a
+     * later phase looks its captures up by the same `${'$'}{messageIndex}` its own ids are built from.
+     */
+    @Test
+    fun `a capture is kept at the index its request was issued for`() {
+        val table = StampMatcher.CaptureTable(listOf("quoteId", "offer"), size = 5)
+        val m = matcher(captures = listOf("quoteId" to 117, "offer" to 133), table = table)
+
+        (1..3).forEach { i ->
+            m.issued("ORD-$i", i)
+            m.onStamp(send(laneA, "ORD-$i", at = i * 1_000L))
+            m.onStamp(quote("ORD-$i", at = i * 1_000L + 500, offer = "1.0901$i"))
+        }
+
+        assertEquals("QID-ORD-1", table["quoteId", 1])
+        assertEquals("QID-ORD-3", table["quoteId", 3])
+        assertEquals("1.09013", table["offer", 3])
+        assertNull(table["quoteId", 4], "nothing was issued for 4")
+        assertEquals(mapOf("quoteId" to 3, "offer" to 3), table.counts())
+    }
+
+    @Test
+    fun `a reply without the tag keeps a null, and a duplicate does not overwrite the first`() {
+        val table = StampMatcher.CaptureTable(listOf("quoteId"), size = 4)
+        val m = matcher(captures = listOf("quoteId" to 117), table = table)
+
+        m.issued("ORD-1", 1)
+        m.onStamp(send(laneA, "ORD-1", at = 1_000))
+        m.onStamp(quote("ORD-1", at = 1_500, quoteId = null))
+        m.issued("ORD-2", 2)
+        m.onStamp(send(laneA, "ORD-2", at = 2_000))
+        m.onStamp(quote("ORD-2", at = 2_500, quoteId = "QID-first"))
+        m.onStamp(quote("ORD-2", at = 2_900, quoteId = "QID-second"))
+
+        assertNull(table["quoteId", 1], "the venue answered without the tag")
+        assertEquals("QID-first", table["quoteId", 2], "the match keeps the value, the duplicate does not")
+        assertEquals(1L, m.snapshot().duplicates)
+        assertEquals(mapOf("quoteId" to 1), m.finish().captured)
+    }
+
+    /** The evidence file's shape: one line per index that carries anything, in index order. */
+    @Test
+    fun `the table's rows are the indices that carry a value, in order`() {
+        val table = StampMatcher.CaptureTable(listOf("quoteId", "offer"), size = 6)
+        table.put(0, 3, "QID-3")
+        table.put(1, 3, "1.09010")
+        table.put(0, 1, "QID-1")
+
+        assertEquals(
+            listOf(1 to listOf("quoteId" to "QID-1"), 3 to listOf("quoteId" to "QID-3", "offer" to "1.09010")),
+            table.rows(),
+        )
     }
 }

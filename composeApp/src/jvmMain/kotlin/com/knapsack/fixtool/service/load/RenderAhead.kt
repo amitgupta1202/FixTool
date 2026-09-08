@@ -1,6 +1,5 @@
 package com.knapsack.fixtool.service.load
 
-import quickfix.Message
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -35,13 +34,9 @@ class RenderAhead(
     name: String,
     depth: Int = DEPTH,
 ) : AutoCloseable {
-    /** A message and the index it was rendered for, so the consumer can check it got what it asked for. */
-    private class Rendered(
-        val index: Int,
-        val message: Message,
-    )
-
-    private val queue = ArrayBlockingQueue<Rendered>(depth)
+    // What comes off the queue is CompiledTemplate.Rendered, which already carries the index it was
+    // rendered for, and which says "this message could not be addressed" as a value rather than a throw.
+    private val queue = ArrayBlockingQueue<CompiledTemplate.Rendered>(depth)
 
     @Volatile private var stopped = false
 
@@ -62,7 +57,7 @@ class RenderAhead(
             var index = firstIndex
             var made = 0L
             while (!stopped && made < count) {
-                val rendered = Rendered(index, prototype.render(index))
+                val rendered = prototype.renderOrRefuse(index)
                 while (!stopped && !queue.offer(rendered, POLL_MS, TimeUnit.MILLISECONDS)) Unit
                 index += stride
                 made++
@@ -77,14 +72,14 @@ class RenderAhead(
     }
 
     /**
-     * The message for [messageIndex], or null when this lane has no look-ahead to offer and the caller
+     * The render for [messageIndex], or null when this lane has no look-ahead to offer and the caller
      * should render it inline — the producer failed, the run is stopping, or the stream disagreed.
      */
-    fun next(messageIndex: Int): Message? {
+    fun next(messageIndex: Int): CompiledTemplate.Rendered? {
         if (abandoned) return null
         while (!stopped && !failed) {
             val rendered = queue.poll(POLL_MS, TimeUnit.MILLISECONDS) ?: continue
-            if (rendered.index == messageIndex) return rendered.message
+            if (rendered.index == messageIndex) return rendered
             // Never send the wrong message. One disagreement and this lane renders inline from here on,
             // which is exactly what it did before this class existed.
             abandoned = true

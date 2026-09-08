@@ -54,6 +54,14 @@ class Pacer(
         val requested: Long,
         val handedToEngine: Long,
         val issueFailures: Long,
+        /**
+         * Messages the plan asked for that were never built, because a capture they needed was not there.
+         *
+         * Its own counter and not folded into [issueFailures], because the engine never saw them: counting
+         * them as refusals would put a hole a set's earlier phase left into the tool's own block, and the
+         * tool block is the one number a load report exists to keep honest.
+         */
+        val unaddressable: Long = 0,
         val firstIssueNanos: Long?,
         val lastIssueNanos: Long?,
         /** Messages handed to the engine in each second from the first issue. */
@@ -68,16 +76,28 @@ class Pacer(
     }
 
     /**
+     * **What became of one message the pacer asked for.**
+     *
+     * Three answers and not two, because "the engine refused it" and "it could never be built" are
+     * different facts about different things, and only the first is the tool's own doing.
+     */
+    enum class Issued {
+        HANDED,
+        REFUSED,
+        UNADDRESSABLE,
+    }
+
+    /**
      * Issues the whole plan. [issue] is handed the lane index and the 1-based message index, renders and
      * sends, and answers whether the engine accepted the message.
      */
-    fun run(issue: (laneIndex: Int, messageIndex: Int) -> Boolean, cancelled: () -> Boolean): IssueStats =
+    fun run(issue: (laneIndex: Int, messageIndex: Int) -> Issued, cancelled: () -> Boolean): IssueStats =
         when (shape) {
             is LoadShape.Burst -> burst(shape.count, issue, cancelled)
             is LoadShape.Rate -> rate(shape, issue, cancelled)
         }
 
-    private fun burst(count: Int, issue: (Int, Int) -> Boolean, cancelled: () -> Boolean): IssueStats {
+    private fun burst(count: Int, issue: (Int, Int) -> Issued, cancelled: () -> Boolean): IssueStats {
         val tally = Tally(count.toLong())
         for (i in 1..count) {
             if (cancelled()) return tally.finish(stopped = true, perSecond = 0)
@@ -86,7 +106,7 @@ class Pacer(
         return tally.finish(stopped = false, perSecond = 0)
     }
 
-    private fun rate(shape: LoadShape.Rate, issue: (Int, Int) -> Boolean, cancelled: () -> Boolean): IssueStats {
+    private fun rate(shape: LoadShape.Rate, issue: (Int, Int) -> Issued, cancelled: () -> Boolean): IssueStats {
         val total = shape.requested
         val tally = Tally(total)
         val t0 = clock.nanoTime()
@@ -109,19 +129,26 @@ class Pacer(
     ) {
         private var handed = 0L
         private var failed = 0L
+        private var unaddressable = 0L
         private var first: Long? = null
         private var last: Long? = null
         private var maxLag = 0L
         private var perSecond = IntArray(INITIAL_SECONDS)
 
-        fun record(ok: Boolean, nowNanos: Long, lagNanos: Long) {
-            if (ok) handed++ else failed++
+        fun record(issued: Issued, nowNanos: Long, lagNanos: Long) {
+            when (issued) {
+                Issued.HANDED -> handed++
+                Issued.REFUSED -> failed++
+                Issued.UNADDRESSABLE -> unaddressable++
+            }
             if (first == null) first = nowNanos
             last = nowNanos
             if (lagNanos > maxLag) maxLag = lagNanos
             val second = ((nowNanos - (first ?: nowNanos)) / NANOS_PER_SECOND).toInt()
             if (second >= perSecond.size) perSecond = perSecond.copyOf(maxOf(second + 1, perSecond.size * 2))
-            perSecond[second]++
+            // A slot nothing could be built for is a second the rate genuinely fell short in, so it is
+            // left out of the histogram the shortfalls are read from rather than counted as on schedule.
+            if (issued != Issued.UNADDRESSABLE) perSecond[second]++
         }
 
         fun finish(stopped: Boolean, perSecond: Int): IssueStats {
@@ -131,6 +158,7 @@ class Pacer(
                 requested = requested,
                 handedToEngine = handed,
                 issueFailures = failed,
+                unaddressable = unaddressable,
                 firstIssueNanos = first,
                 lastIssueNanos = last,
                 perSecondIssued = histogram,

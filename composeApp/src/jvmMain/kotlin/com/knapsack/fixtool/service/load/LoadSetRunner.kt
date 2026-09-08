@@ -136,6 +136,13 @@ class LoadSetRunner(
 
         val router = Router()
         val held = HeldLanes(host, byProfile)
+        // One table for the whole set, sized by the highest index any phase will reach, because a phase
+        // that counts from 2,001 reads what phase 1 filled at 2,001. Absent when nothing is captured.
+        val names = planned.phases.flatMap { it.capture.keys }
+        val table =
+            names.takeIf { it.isNotEmpty() }?.let {
+                StampMatcher.CaptureTable(it, (planned.phases.maxOf { p -> p.indexTo } + 1).toInt())
+            }
         val sessions = byProfile.values.flatten().distinct()
         val handles = sessions.map { it.addStampListener(router::onStamp) }
 
@@ -183,14 +190,22 @@ class LoadSetRunner(
                         matchers[index] = matcher
                         router.register(matcher)
                     }
+                // Only what EARLIER phases captured: a phase reading its own capture, or a later one's, has
+                // been refused by LoadSet.problems() before anything dialled.
+                val earlier = planned.phases.take(index).flatMap { it.capture.keys }
+                val captures =
+                    LoadRunner.Captures(
+                        lookups = table?.let { t -> earlier.associateWith { t.lookup(it) } }.orEmpty(),
+                        table = table.takeIf { plan.capture.isNotEmpty() },
+                    )
                 val outcome =
-                    runner.run(plan, phase = n, cancelled = cancelled) { progress ->
+                    runner.run(plan, phase = n, captures = captures, cancelled = cancelled) { progress ->
                         reports[index] = progress
                         publish()
                     }
                 reports[index] = outcome.report
-                outcome.report.evidence?.let { names ->
-                    store?.writeEvidence(planned.id, names, outcome.unmatched, outcome.specimens)
+                outcome.report.evidence?.let { files ->
+                    store?.writeEvidence(planned.id, files, outcome.unmatched, outcome.specimens, outcome.captured)
                 }
                 publish()
                 if (firstFailure == null && outcome.report.verdict.exitCode != LoadReport.EXIT_PASSED) firstFailure = n

@@ -63,6 +63,13 @@ data class LoadReport(
     val unmatched: List<UnmatchedRequest>,
     val unmatchedTotal: Int,
     /**
+     * What this phase kept off each matched reply, and how many replies carried each name. Null when the
+     * phase captures nothing, which is every single run.
+     */
+    val capture: Capture? = null,
+    /** The first [UNMATCHED_IN_JSON] messages that could not be addressed. The whole count is in [Issue]. */
+    val unaddressable: List<Unaddressable> = emptyList(),
+    /**
      * The evidence files this phase wrote, by their names in the record directory. Null for a record
      * written before the names were in the JSON, which is the same thing as "the bare names".
      */
@@ -120,6 +127,14 @@ data class LoadReport(
         val firstSendAt: Long?,
         val lastSendAt: Long?,
         val prepareMs: Long,
+        /**
+         * Messages the plan asked for that were never rendered, because a capture an earlier phase should
+         * have filled was not there.
+         *
+         * Counted, not hidden: the bar is "every requested message answered", so a message that was never
+         * sent is a hole in the proof and not a smaller proof.
+         */
+        val unaddressable: Long = 0,
     ) {
         val spanMs: Long? get() = if (firstSendAt != null && lastSendAt != null) lastSendAt - firstSendAt else null
 
@@ -207,6 +222,44 @@ data class LoadReport(
         val sentAt: Long,
     )
 
+    /**
+     * **What this phase kept, and how much of it there was.**
+     *
+     * [names] is what was asked for, [captured] is how many replies actually carried each one. The two
+     * differ whenever the venue answered without the tag, which is worth seeing before a later phase
+     * cannot address 4 of 2,000.
+     */
+    data class Capture(
+        val names: Map<String, Int>,
+        val captured: Map<String, Int>,
+    ) {
+        /**
+         * "quoteId, offer on 3,996 replies", or "quoteId on 3,995 · offer on 3,996" when they differ.
+         *
+         * The counts differing is the interesting case, because it is the venue answering without a tag,
+         * and one number for both would hide exactly the thing a later phase is about to trip over.
+         */
+        fun describe(): String {
+            val counts = names.keys.map { captured[it] ?: 0 }
+            val same = counts.distinct().size <= 1
+            return if (same) {
+                "${names.keys.joinToString(", ")} on ${"%,d".format(counts.firstOrNull() ?: 0)} replies"
+            } else {
+                names.keys.joinToString(" · ") { "$it on ${"%,d".format(captured[it] ?: 0)}" }
+            }
+        }
+
+        /** The highest count any name reached, for a figure that has to be one number. */
+        fun most(): Int = captured.values.maxOrNull() ?: 0
+    }
+
+    /** One message the plan asked for that was never rendered, and the name that was missing. */
+    data class Unaddressable(
+        /** The 1-based message index, after `indexFrom`. */
+        val index: Int,
+        val missing: String,
+    )
+
     /** Three separate judgements, and the exit code they add up to. */
     data class Verdict(
         val completeness: Completeness,
@@ -220,6 +273,14 @@ data class LoadReport(
         /** Every message that left the socket was answered within the settle window. */
         COMPLETE,
         UNMATCHED,
+
+        /**
+         * A message the plan asked for was never sent, because a capture it needed was not there.
+         *
+         * Its own word rather than UNMATCHED, because "unanswered" says the venue did not reply and this
+         * says the tool never asked. Both fail, and a reader has to be able to tell them apart.
+         */
+        INCOMPLETE,
 
         /** Still running. */
         PENDING,
@@ -297,16 +358,22 @@ data class LoadReport(
          * A shortfall without `strictRate` is reported and exits 0, because the venue answered everything and
          * a build that wants to gate on the tool's own pacing has to say so.
          */
+        @Suppress("LongParameterList")
         fun verdict(
             status: LoadStatus,
             replies: Replies,
             rate: RateReport?,
             tool: Tool,
             strictRate: Boolean,
+            /** What the plan asked for and the tool never sent. Fails the phase, like anything unanswered. */
+            issue: Issue = Issue(0, 0, 0, null, null, 0),
         ): Verdict {
             val completeness =
                 when {
                     status == LoadStatus.RUNNING -> Completeness.PENDING
+                    // Before unanswered: a phase that could not address 4 of its 2,000 has a hole the
+                    // venue is not responsible for, and that is the thing to say first.
+                    issue.unaddressable > 0 -> Completeness.INCOMPLETE
                     replies.unmatched > 0 -> Completeness.UNMATCHED
                     else -> Completeness.COMPLETE
                 }
@@ -321,6 +388,7 @@ data class LoadReport(
                 when {
                     status == LoadStatus.RUNNING -> null
                     status == LoadStatus.STOPPED -> EXIT_FAILED
+                    completeness == Completeness.INCOMPLETE -> EXIT_FAILED
                     completeness == Completeness.UNMATCHED -> EXIT_FAILED
                     toolVerdict == ToolVerdict.LIMITED -> EXIT_FAILED
                     strictRate && rateVerdict == RateVerdict.SHORTFALL -> EXIT_FAILED

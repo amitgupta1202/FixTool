@@ -512,6 +512,18 @@ object HeadlessLoad {
                 "issued".padEnd(COL) + LoadReportCodec.fmt(r.issue.leftSocket).padStart(NUM) +
                     "   requested ${LoadReportCodec.fmt(r.issue.requested)} · handed to engine ${LoadReportCodec.fmt(r.issue.handedToEngine)} · left socket ${LoadReportCodec.fmt(r.issue.leftSocket)}",
             )
+            r.capture?.let { c ->
+                val most = LoadReportCodec.fmt(c.most().toLong())
+                appendLine("captured".padEnd(COL) + most.padStart(NUM) + "   " + c.describe())
+            }
+            if (r.issue.unaddressable > 0) {
+                val holes =
+                    r.unaddressable
+                        .take(UNMATCHED_NAMED)
+                        .joinToString(" · ") { "no ${it.missing} for ${it.index}" }
+                val count = LoadReportCodec.fmt(r.issue.unaddressable)
+                appendLine("not sent".padEnd(COL) + count.padStart(NUM) + "   " + holes)
+            }
             appendLine("matched".padEnd(COL) + LoadReportCodec.fmt(r.replies.matched).padStart(NUM))
             val named = r.unmatched.take(UNMATCHED_NAMED).joinToString(" · ") { "${it.id} (lane ${it.lane})" }
             appendLine("unmatched".padEnd(COL) + LoadReportCodec.fmt(r.replies.unmatched).padStart(NUM) + (if (named.isNotEmpty()) "   $named" else ""))
@@ -542,6 +554,10 @@ object HeadlessLoad {
         val head =
             when {
                 r.status == LoadStatus.STOPPED -> "STOPPED".padEnd(COL) + "after ${LoadReportCodec.fmt(r.issue.leftSocket)} of ${LoadReportCodec.fmt(r.issue.requested)} issued"
+                // Before unanswered, and its own word: "the tool never asked" and "the venue never
+                // replied" are different findings and a reader has to be able to tell them apart.
+                r.verdict.completeness == LoadReport.Completeness.INCOMPLETE ->
+                    "INCOMPLETE".padEnd(COL) + LoadReportCodec.unaddressableSentence(r)
                 r.verdict.completeness == LoadReport.Completeness.UNMATCHED -> "UNMATCHED".padEnd(COL) + LoadReportCodec.unmatchedSentence(r).substringBefore(":")
                 else -> "COMPLETE".padEnd(COL) + "${LoadReportCodec.fmt(r.replies.matched)} of ${LoadReportCodec.fmt(r.issue.leftSocket)} answered"
             }

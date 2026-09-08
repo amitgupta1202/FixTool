@@ -1,7 +1,9 @@
 package com.knapsack.fixtool.model.load
 
 import com.knapsack.fixtool.model.CorrelationIdType
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.Minting
+import com.knapsack.fixtool.service.load.CompiledTemplate
 
 /**
  * **The one message a load run issues**, as tag-value pairs with their `${…}` still in them.
@@ -29,6 +31,17 @@ data class LoadTemplate(
      * names the tags they looked for.
      */
     fun inferMatch(): LoadMatch? = CORRELATION_ORDER.firstOrNull { tag -> fields.any { it.first == tag } }?.let { LoadMatch(it) }
+
+    /**
+     * The names the per-message fields read that [seeded] does not cover, or empty when it cannot compile.
+     *
+     * The same question [CompiledTemplate.missingVariables] answers, asked from the model so a set can sort
+     * the answer into "nothing covers this" and "a later phase captures it", which are different mistakes.
+     */
+    fun readsThatAreNotSeeded(seeded: Set<String>): Set<String> {
+        val compiled = takeIf { it.msgType != null }?.let { runCatching { CompiledTemplate.compile(it) }.getOrNull() }
+        return compiled?.missingVariables(seeded + Lane.SEED_NAMES).orEmpty()
+    }
 
     /** The template as one `|`-delimited line, the form the tool shows and parses everywhere. */
     fun raw(): String = fields.joinToString("|") { "${it.first}=${it.second}" } + "|"

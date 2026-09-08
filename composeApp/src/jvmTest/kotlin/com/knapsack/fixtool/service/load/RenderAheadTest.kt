@@ -1,10 +1,12 @@
 package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.scenario.Lane
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -34,8 +36,8 @@ class RenderAheadTest {
     fun `a producer hands back the messages its lane asked for, in order`() {
         RenderAhead(prototype(1), firstIndex = 1, stride = 3, count = 4, name = "test-lane-0").use { ahead ->
             listOf(1, 4, 7, 10).forEach { index ->
-                val message = assertNotNull(ahead.next(index), "the look-ahead has message $index")
-                assertEquals("ORD-$index", message.getString(11))
+                val rendered = assertNotNull(ahead.next(index), "the look-ahead has message $index")
+                assertEquals("ORD-$index", sent(rendered).getString(11))
             }
         }
     }
@@ -67,13 +69,41 @@ class RenderAheadTest {
         RenderAhead.forLanes(prototypes, requested = 9).let { producers ->
             try {
                 assertEquals(3, producers.size)
-                assertEquals("ORD-1", assertNotNull(producers[0].next(1)).getString(11))
-                assertEquals("ORD-2", assertNotNull(producers[1].next(2)).getString(11))
-                assertEquals("ORD-3", assertNotNull(producers[2].next(3)).getString(11))
-                assertEquals("ORD-4", assertNotNull(producers[0].next(4)).getString(11))
+                assertEquals("ORD-1", sent(assertNotNull(producers[0].next(1))).getString(11))
+                assertEquals("ORD-2", sent(assertNotNull(producers[1].next(2))).getString(11))
+                assertEquals("ORD-3", sent(assertNotNull(producers[2].next(3))).getString(11))
+                assertEquals("ORD-4", sent(assertNotNull(producers[0].next(4))).getString(11))
             } finally {
                 producers.forEach { it.close() }
             }
+        }
+    }
+
+    /** The queue carries a render, so a message that could not be addressed rides it too. */
+    private fun sent(rendered: CompiledTemplate.Rendered): quickfix.Message =
+        assertIs<CompiledTemplate.Rendered.Message>(rendered, "expected a message, got $rendered").message
+
+    /**
+     * A capture the earlier phase never filled comes off the queue as the name that was missing, so the
+     * pacer can count it rather than the lane putting `${'$'}{quoteId}` on the wire.
+     */
+    @Test
+    fun `a missing capture rides the queue as the name that was not there`() {
+        val compiled = CompiledTemplate.compile(LoadTemplate("hit", listOf(35 to "AJ", 117 to "\${quoteId}")))
+        val prototype =
+            compiled.prepare(
+                lane = Lane(1, "LOADGEN [1]", "LG01", ""),
+                seed = emptyMap(),
+                dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4),
+                lookups = mapOf("quoteId" to { index: Int -> if (index == 2) null else "Q-$index" }),
+            ) { it }
+
+        RenderAhead(prototype, firstIndex = 1, stride = 1, count = 3, name = "test-lane-capture").use { ahead ->
+            assertEquals("Q-1", sent(assertNotNull(ahead.next(1))).getString(117))
+            val refused = assertIs<CompiledTemplate.Rendered.Unaddressable>(assertNotNull(ahead.next(2)))
+            assertEquals(2, refused.index)
+            assertEquals("quoteId", refused.missing)
+            assertEquals("Q-3", sent(assertNotNull(ahead.next(3))).getString(117))
         }
     }
 }

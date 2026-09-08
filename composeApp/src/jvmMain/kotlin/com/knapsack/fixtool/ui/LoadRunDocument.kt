@@ -173,6 +173,7 @@ fun LoadReportView(
                     QuietStrip(report, frame?.number)
                     Throughput(report, narrow)
                     RoundTrip(report, narrow)
+                    if (report.unaddressable.isNotEmpty()) UnaddressableTable(report, frame?.number)
                     if (report.unmatched.isNotEmpty()) UnmatchedTable(report, unmatchedWire, narrow, onReveal)
                     Lanes(report, narrow)
                     ToolPart(report)
@@ -426,6 +427,7 @@ private fun QuietStrip(r: LoadReport, phase: Int? = null) {
         StripItem(lateLabel, if (running) "— settle not closed" else LoadReportCodec.fmt(r.replies.late), "load-late")
         StripItem("strays", LoadReportCodec.fmt(r.replies.strays), "load-strays")
         StripItem("peak outstanding", LoadReportCodec.fmt(r.tool.pendingPeak.toLong()), "load-peak")
+        r.capture?.let { StripItem("captured", it.describe(), "load-captured") }
         r.issue.achievedPerSecond?.let { StripItem("achieved", "${LoadReportCodec.fmt(it)}/s", "load-achieved") }
     }
 }
@@ -840,11 +842,9 @@ private fun Judgements(r: LoadReport, records: File) {
             } else if (r.status == LoadStatus.RUNNING) {
                 JudgementPill("running · no verdict yet", AppTheme.Colors.info)
             } else {
-                // The enum stays UNMATCHED, because that is what the codec writes and what a reader of an
-                // older load.json has to keep finding. The screen says "unanswered", like the rest of it.
                 val complete = r.verdict.completeness == LoadReport.Completeness.COMPLETE
                 JudgementPill(
-                    "completeness · " + if (complete) "complete" else "unanswered",
+                    "completeness · " + completenessWord(r.verdict.completeness),
                     if (complete) AppTheme.Colors.success else AppTheme.Colors.error,
                 )
                 JudgementPill(
@@ -891,6 +891,41 @@ internal fun JudgementPill(text: String, tint: Color) {
 }
 
 /**
+ * **The messages this phase never sent**, in the shape of the unanswered table beside it.
+ *
+ * Its own table and not a note, for the same reason the unanswered one is a table: "4 of 2,000" is a
+ * number nobody can act on, and the index and the missing name are what somebody takes to the venue.
+ */
+@Composable
+private fun UnaddressableTable(r: LoadReport, phase: Int?) {
+    val from = if (phase != null && phase > 1) "a phase before $phase" else "an earlier phase"
+    Section(
+        "The ${LoadReportCodec.fmt(r.issue.unaddressable)} that were never sent",
+        "no value for a name an earlier phase should have kept, so these were never asked",
+    ) {
+        Row {
+            Head("message", LANE_COUNT_COL)
+            Head("missing", ID_COL)
+            Head("should have come from", Dp.Unspecified)
+        }
+        r.unaddressable.take(MAX_UNMATCHED_ROWS).forEach { u ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp).testTag("load-unaddressable-${u.index}"),
+            ) {
+                Cell(text = LoadReportCodec.fmt(u.index.toLong()), width = LANE_COUNT_COL, tint = AppTheme.Colors.text)
+                Cell(text = u.missing, width = ID_COL, tint = AppTheme.Colors.error)
+                Cell(text = from, width = Dp.Unspecified, tint = AppTheme.Colors.textSecondary)
+            }
+        }
+        if (r.issue.unaddressable > MAX_UNMATCHED_ROWS) {
+            val more = LoadReportCodec.fmt(r.issue.unaddressable - MAX_UNMATCHED_ROWS)
+            Text("and $more more", color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta)
+        }
+    }
+}
+
+/**
  * **A pruned record is not an error**, and it is not one grey sentence in a corner either.
  *
  * The design note wanted a "Run this plan again" button here on the grounds that the plan outlives the
@@ -929,6 +964,9 @@ private fun verdictHeadline(r: LoadReport): Pair<String, Color> =
         r.status == LoadStatus.STOPPED ->
             "STOPPED  after ${LoadReportCodec.fmt(r.issue.leftSocket)} of ${LoadReportCodec.fmt(r.issue.requested)} issued" to
                 AppTheme.Colors.textSecondary
+        r.verdict.completeness == LoadReport.Completeness.INCOMPLETE ->
+            "NOT SENT  ${LoadReportCodec.fmt(r.issue.unaddressable)} of ${LoadReportCodec.fmt(r.issue.requested)}" to
+                AppTheme.Colors.error
         r.verdict.completeness == LoadReport.Completeness.UNMATCHED ->
             "UNANSWERED  ${LoadReportCodec.fmt(r.replies.unmatched)} of ${LoadReportCodec.fmt(r.issue.leftSocket)}" to AppTheme.Colors.error
         r.verdict.exitCode == LoadReport.EXIT_FAILED -> "FAILED  the tool limited the run" to AppTheme.Colors.error
@@ -937,12 +975,28 @@ private fun verdictHeadline(r: LoadReport): Pair<String, Color> =
                 AppTheme.Colors.success
     }
 
+/**
+ * The word the screen uses for a completeness.
+ *
+ * The enum stays UNMATCHED and INCOMPLETE, because that is what the codec writes and what a reader of an
+ * older `load.json` has to keep finding. The screen says "unanswered" and "not sent", like the rest of it.
+ */
+private fun completenessWord(completeness: LoadReport.Completeness): String =
+    when (completeness) {
+        LoadReport.Completeness.COMPLETE -> "complete"
+        LoadReport.Completeness.INCOMPLETE -> "not sent"
+        LoadReport.Completeness.UNMATCHED -> "unanswered"
+        LoadReport.Completeness.PENDING -> "pending"
+    }
+
 /** The same state in one word, for the header's meta line. */
 private fun stateWord(r: LoadReport): String =
     when {
         r.status == LoadStatus.RUNNING && r.stage == LoadStage.SETTLING -> "settling · ${humanDuration(r.settleLeftMs ?: r.settleMs)} left"
         r.status == LoadStatus.RUNNING -> r.stage.name.lowercase()
         r.status == LoadStatus.STOPPED -> "stopped"
+        r.verdict.completeness == LoadReport.Completeness.INCOMPLETE ->
+            "not sent ${LoadReportCodec.fmt(r.issue.unaddressable)}"
         r.verdict.completeness == LoadReport.Completeness.UNMATCHED -> "unanswered ${LoadReportCodec.fmt(r.replies.unmatched)}"
         r.verdict.tool == LoadReport.ToolVerdict.LIMITED -> "tool limited"
         else -> "complete"

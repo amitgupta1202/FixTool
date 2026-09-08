@@ -157,6 +157,9 @@ fun LoadRunDialogContent(
     var seedRows by remember(saved) { mutableStateOf(saved.seed.map { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }) }
     var phaseLabel by remember { mutableStateOf(phase?.spec?.label ?: "") }
     var indexFrom by remember { mutableStateOf(phase?.spec?.indexFrom?.toString() ?: "1") }
+    val specCapture: Map<String, Int> = phase?.spec?.capture ?: emptyMap()
+    val captureFromSpec = specCapture.map { (name, tag) -> name to tag.toString() }
+    var captureRows by remember { mutableStateOf(captureFromSpec) }
 
     var requestTag by remember(template) { mutableStateOf(phaseTag(phase, template) { it.requestTag }) }
     var replyTag by remember(template) { mutableStateOf(phaseTag(phase, template) { it.replyTag }) }
@@ -269,6 +272,7 @@ fun LoadRunDialogContent(
             shape = sh,
             indexFrom = indexFrom.trim().toIntOrNull()?.coerceAtLeast(1) ?: 1,
             settleMs = HeadlessRun.parseDuration(settle) ?: LoadPlan.DEFAULT_SETTLE_MS,
+            capture = captureMap(captureRows),
         )
     }
 
@@ -365,6 +369,9 @@ fun LoadRunDialogContent(
                         )}· per message ${it.perMessageTags.joinToString(", ").ifEmpty { "none" }} · " +
                             "fixed ${it.fixedTags.joinToString(", ")}",
                     )
+                    // In a set the names a template reads are the interesting half: which of them the seed
+                    // covers, and which an earlier phase has to have kept.
+                    if (phase != null) Sub(readsFrom(it, phase))
                 }
                 Refusals(refusals, Where.TEMPLATE)
             }
@@ -480,6 +487,32 @@ fun LoadRunDialogContent(
                     }
                 }
                 if (phase != null) {
+                    FormRow("Capture") {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            captureRows.forEachIndexed { index, (name, tag) ->
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    SlimField(
+                                        name,
+                                        { captureRows = captureRows.replaceAt(index, it to tag) },
+                                        modifier = Modifier.width(76.dp).testTag("phase-capture-name-$index"),
+                                    )
+                                    Sub("←")
+                                    SlimField(
+                                        tag,
+                                        { captureRows = captureRows.replaceAt(index, name to it) },
+                                        monospace = true,
+                                        modifier = Modifier.width(40.dp).testTag("phase-capture-tag-$index"),
+                                    )
+                                    Sub(tagName(dictionary, tag))
+                                    Chip("−", on = false, tag = "phase-capture-remove-$index") {
+                                        captureRows = captureRows.filterIndexed { i, _ -> i != index }
+                                    }
+                                }
+                            }
+                            Chip("+ capture", on = false, tag = "phase-capture-add") { captureRows = captureRows + ("" to "") }
+                        }
+                        Sub("kept off each matched reply, at this message's own index, for a later phase to read as \${name}")
+                    }
                     FormRow("Seed and store") {
                         Sub("the set's, one level up. This phase reads " + readsList(compiled, phase.seeded))
                     }
@@ -849,6 +882,25 @@ private fun defaultsOf(spec: LoadPhaseSpec): LoadRunDefaults =
 /** The phase's own match tag when it has one, and the template's inference when it does not. */
 private fun phaseTag(phase: PhaseEdit?, template: LoadTemplate?, of: (LoadMatch) -> Int): String =
     (phase?.spec?.match ?: template?.inferMatch())?.let { of(it).toString() } ?: ""
+
+/** The capture rows as the map a phase carries. A name with no tag, or a tag that is not one, keeps nothing. */
+private fun captureMap(rows: List<Pair<String, String>>): Map<String, Int> =
+    rows
+        .mapNotNull { (name, tag) ->
+            val n = name.trim()
+            val t = tag.trim().toIntOrNull()
+            if (n.isEmpty() || t == null) null else n to t
+        }.toMap()
+
+/** "${run} from the seed · ${quoteId} from a phase before this one", per name the template reads. */
+private fun readsFrom(compiled: CompiledTemplate, phase: PhaseEdit): String {
+    val names = compiled.variablesRead().filter { it != CompiledTemplate.MESSAGE_INDEX }
+    if (names.isEmpty()) return "reads no name but \${messageIndex}"
+    return names.joinToString(" · ") { name ->
+        val where = if (name in phase.seeded) "from the seed" else "from a phase before this one"
+        "\${$name} $where"
+    }
+}
 
 /** "${run}, ${desk} and ${messageIndex}", so a phase says which of the set's names it reads. */
 private fun readsList(compiled: CompiledTemplate?, seeded: Set<String>): String {

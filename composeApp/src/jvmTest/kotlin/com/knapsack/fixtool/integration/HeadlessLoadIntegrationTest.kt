@@ -47,6 +47,79 @@ class HeadlessLoadIntegrationTest {
         )
     }
 
+    /** A hit that names the quote by the id the venue minted, which no seed can derive. */
+    private fun writeCaptureTemplate() {
+        File(
+            home,
+            "hits-by-capture.fix",
+        ).writeText(
+            "35=AJ|693=R-\${run}-\${messageIndex}|694=1|117=\${quoteId}|" +
+                "11=H-\${run}-\${messageIndex}|55=EUR/USD|54=1|38=1000000|44=\${offer}|\n",
+        )
+    }
+
+    /** The same two phases, but phase 2 addresses what phase 1 was given rather than what it chose. */
+    private fun writeCapturingSet(name: String = "round-trip", count: Int = 20) {
+        writeCaptureTemplate()
+        File(home, "load-sets").mkdirs()
+        File(home, "load-sets/$name.json").writeText(
+            """
+            {
+              "schema": 1,
+              "name": "$name",
+              "label": "Round trip",
+              "seed": $seedGeneratorJson,
+              "storeAndLog": { "store": "MEMORY", "log": "NONE" },
+              "onFailure": "CONTINUE",
+              "phases": [
+                { "label": "Ask for a quote", "template": "${File(home, "quotes.fix").absolutePath}",
+                  "profile": "LOADGEN",
+                  "match": { "requestTag": 131, "replyTag": 131, "replyType": "S" },
+                  "shape": { "kind": "burst", "count": $count }, "settleMs": 10000,
+                  "capture": { "quoteId": 117, "offer": 133 } },
+                { "label": "Hit them", "template": "${File(home, "hits-by-capture.fix").absolutePath}",
+                  "profile": "LOADGEN",
+                  "match": { "requestTag": 11, "replyTag": 11, "replyType": "8" },
+                  "shape": { "kind": "burst", "count": $count }, "settleMs": 10000 }
+              ]
+            }
+            """.trimIndent(),
+        )
+    }
+
+    /**
+     * A venue that mints an id the client cannot derive, and books a hit at the price it quoted.
+     *
+     * [withoutQuoteIdFor] answers one QuoteRequest without a 117 at all, which is how a capture goes
+     * missing and a later phase finds it has nothing to address.
+     */
+    private fun opaqueVenue(withoutQuoteIdFor: String? = null): (String) -> List<TestFixServer.Reply> =
+        { request ->
+            when (TestFixServer.fieldValue(request, 35)) {
+                "R" -> {
+                    val reqId = TestFixServer.fieldValue(request, 131) ?: "?"
+                    val quoteId = "OPAQUE-" + java.util.UUID.randomUUID().toString().take(8)
+                    listOf(
+                        TestFixServer.Reply(
+                            "S",
+                            listOfNotNull(
+                                if (reqId == withoutQuoteIdFor) null else "117=$quoteId",
+                                "131=$reqId",
+                                "55=EUR/USD",
+                                "132=1.09000",
+                                "133=1.09010",
+                                "134=1000000",
+                                "135=1000000",
+                                "15=EUR",
+                            ),
+                        ),
+                    )
+                }
+                "AJ" -> listOf(TestFixServer.executionReportFor(request, "2"))
+                else -> emptyList()
+            }
+        }
+
     /** A two-phase set on disk, exactly as `load-sets/<name>.json` holds one. */
     private fun writeSet(name: String = "round-trip", onFailure: String = "STOP", seed: String = seedGeneratorJson) {
         File(home, "load-sets").mkdirs()
@@ -371,6 +444,76 @@ class HeadlessLoadIntegrationTest {
         assertEquals(HeadlessRun.EXIT_USAGE, unseeded.first, unseeded.third)
         assertTrue(unseeded.third.contains("Phase 1 · Ask for a quote:"), unseeded.third)
         assertTrue(unseeded.third.contains("Pass --seed run=…"), unseeded.third)
+        assertEquals(0, server.logonCount.get(), "nothing dialled")
+    }
+
+    /**
+     * **Part 2's exit criterion with a socket under it**: phase 2 addresses ids it could not have derived,
+     * because phase 1 kept them at the index phase 2 counts by.
+     */
+    @Test
+    fun `a phase addresses the opaque ids an earlier phase was given`() {
+        server.answer = opaqueVenue()
+        writeCapturingSet()
+        val jsonFile = File(home, "reports/capture.json")
+
+        val (code, out, err) = loadSet("--set", "round-trip", "--seed", "run=cap1", "--json", jsonFile.absolutePath)
+
+        assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
+        assertTrue(out.contains("captured            20   quoteId, offer on 20 replies"), out)
+        assertTrue(out.contains("PASSED       2 passed"), out)
+
+        val hits = server.applicationMessages.filter { TestFixServer.fieldValue(it, 35) == "AJ" }
+        assertEquals(20, hits.size)
+        assertTrue(hits.all { TestFixServer.fieldValue(it, 117)!!.startsWith("OPAQUE-") }, "the id came off the reply")
+        assertEquals(20, hits.mapNotNull { TestFixServer.fieldValue(it, 117) }.toSet().size, "every hit its own quote")
+        assertTrue(hits.all { TestFixServer.fieldValue(it, 44) == "1.09010" }, "and at the price the quote carried")
+
+        val record = Json.parseToJsonElement(jsonFile.readText()).jsonObject
+        val phaseOne = record["phases"]!!.jsonArray.first().jsonObject
+        val capture = phaseOne["capture"]!!.jsonObject
+        assertEquals(117, capture["names"]!!.jsonObject["quoteId"]!!.jsonPrimitive.int)
+        assertEquals(20, capture["captured"]!!.jsonObject["quoteId"]!!.jsonPrimitive.int)
+        val dirs = File(home, "loads").listFiles { f -> f.isDirectory }.orEmpty()
+        val captured = File(dirs.single(), LoadReport.Evidence.forPhase(1, captured = true).captured!!).readLines()
+        assertEquals(20, captured.filter { it.isNotBlank() }.size, "one line per index that carries a value")
+        assertTrue(captured.first().contains("quoteId=OPAQUE-"), captured.first())
+    }
+
+    /**
+     * A requested message that was not sent fails the phase. The bar is "every requested message
+     * answered", so a hole the tool could not fill is not a smaller proof.
+     */
+    @Test
+    fun `a capture the venue never sent is a message never sent, named, and exits one`() {
+        server.answer = opaqueVenue(withoutQuoteIdFor = "Q-cap2-7")
+        writeCapturingSet()
+
+        val (code, out, err) = loadSet("--set", "round-trip", "--seed", "run=cap2")
+
+        assertEquals(1, code, "stdout:\n$out\nstderr:\n$err")
+        assertTrue(out.contains("captured            20   quoteId on 19 · offer on 20"), out)
+        assertTrue(out.contains("not sent             1   no quoteId for 7"), out)
+        assertTrue(out.contains("INCOMPLETE   1 of 20 not sent: no quoteId for index 7"), out)
+        assertTrue(out.contains("FAILED       phase 2"), out)
+        assertEquals(19, server.applicationMessages.count { TestFixServer.fieldValue(it, 35) == "AJ" }, "the other nineteen went")
+    }
+
+    @Test
+    fun `a set whose phase reads a capture no earlier phase keeps is refused before a lane dials`() {
+        writeCapturingSet()
+        File(home, "load-sets/round-trip.json").writeText(
+            File(home, "load-sets/round-trip.json").readText().replace(
+                "\"capture\": { \"quoteId\": 117, \"offer\": 133 } }",
+                "\"capture\": { \"offer\": 133 } }",
+            ),
+        )
+
+        val (code, _, err) = loadSet("--set", "round-trip")
+
+        assertEquals(HeadlessRun.EXIT_USAGE, code, err)
+        assertTrue(err.contains("Phase 2 · Hit them:"), err)
+        assertTrue(err.contains("\${quoteId}"), err)
         assertEquals(0, server.logonCount.get(), "nothing dialled")
     }
 

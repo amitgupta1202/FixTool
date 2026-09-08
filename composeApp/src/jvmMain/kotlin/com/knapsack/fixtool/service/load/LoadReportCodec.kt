@@ -157,6 +157,7 @@ object LoadReportCodec {
                     put("spanMs", r.issue.spanMs?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("achievedPerSecond", r.issue.achievedPerSecond?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("prepareMs", r.issue.prepareMs)
+                    if (r.issue.unaddressable > 0) put("unaddressable", r.issue.unaddressable)
                 },
             )
             put("rate", r.rate?.let(::rateJson) ?: JsonNull)
@@ -227,6 +228,30 @@ object LoadReportCodec {
                 },
             )
             put("unmatchedTotal", r.unmatchedTotal)
+            r.capture?.let { c ->
+                put(
+                    "capture",
+                    buildJsonObject {
+                        put("names", buildJsonObject { c.names.forEach { (name, tag) -> put(name, tag) } })
+                        put("captured", buildJsonObject { c.captured.forEach { (name, count) -> put(name, count) } })
+                    },
+                )
+            }
+            if (r.unaddressable.isNotEmpty()) {
+                put(
+                    "unaddressable",
+                    buildJsonArray {
+                        r.unaddressable.forEach { u ->
+                            add(
+                                buildJsonObject {
+                                    put("index", u.index)
+                                    put("missing", u.missing)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
             put(
                 "evidence",
                 r.evidence?.let { e ->
@@ -346,6 +371,7 @@ object LoadReportCodec {
                     firstSendAt = issue.longOrNull("firstSendAt"),
                     lastSendAt = issue.longOrNull("lastSendAt"),
                     prepareMs = issue.longOrNull("prepareMs") ?: 0,
+                    unaddressable = issue.longOrNull("unaddressable") ?: 0,
                 ),
             rate = (o["rate"] as? JsonObject)?.let(::rateFrom),
             replies =
@@ -399,6 +425,15 @@ object LoadReportCodec {
                     LoadReport.UnmatchedRequest(u.str("id"), u.intOrNull("lane") ?: 0, u.longOrNull("sentAt") ?: 0)
                 },
             unmatchedTotal = o.intOrNull("unmatchedTotal") ?: 0,
+            capture =
+                (o["capture"] as? JsonObject)?.let { c ->
+                    LoadReport.Capture(names = intMap(c["names"]), captured = intMap(c["captured"]))
+                },
+            unaddressable =
+                (o["unaddressable"] as? JsonArray).orEmpty().map { e ->
+                    val u = e.jsonObject
+                    LoadReport.Unaddressable(u.intOrNull("index") ?: 0, u.strOrNull("missing") ?: "")
+                },
             note = o.strOrNull("note"),
             evidence =
                 (o["evidence"] as? JsonObject)?.let { e ->
@@ -442,6 +477,13 @@ object LoadReportCodec {
         name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: default
 
     private fun JsonObject.obj(key: String): JsonObject = this[key] as? JsonObject ?: JsonObject(emptyMap())
+
+    /** `{"quoteId": 117}` as a map, which is the shape both halves of a capture block are written in. */
+    private fun intMap(element: kotlinx.serialization.json.JsonElement?): Map<String, Int> =
+        (element as? JsonObject)
+            .orEmpty()
+            .mapNotNull { (name, value) -> (value as? JsonPrimitive)?.intOrNull?.let { name to it } }
+            .toMap()
 
     private fun JsonObject.str(key: String): String = this[key]?.jsonPrimitive?.contentOrNull ?: ""
 
@@ -544,6 +586,7 @@ object LoadReportCodec {
             Case("completeness", failure = "stopped after ${fmt(r.issue.leftSocket)} of ${fmt(r.issue.requested)} issued: " + unmatchedSentence(r))
         } else when (r.verdict.completeness) {
             LoadReport.Completeness.COMPLETE -> Case("completeness", note = "${fmt(r.replies.matched)} of ${fmt(r.issue.leftSocket)} answered")
+            LoadReport.Completeness.INCOMPLETE -> Case("completeness", failure = unaddressableSentence(r))
             LoadReport.Completeness.UNMATCHED -> Case("completeness", failure = unmatchedSentence(r))
             LoadReport.Completeness.PENDING -> Case("completeness", failure = "the run did not finish")
         }
@@ -563,6 +606,18 @@ object LoadReportCodec {
         val named = r.unmatched.take(UNMATCHED_NAMED).joinToString(", ") { "${it.id} (lane ${it.lane})" }
         val more = r.unmatchedTotal - minOf(r.unmatchedTotal, UNMATCHED_NAMED)
         return "${fmt(r.replies.unmatched)} of ${fmt(r.issue.leftSocket)} unanswered within ${humanDuration(r.settleMs)}" +
+            (if (named.isNotEmpty()) ": $named" else "") +
+            (if (more > 0) " and $more more" else "")
+    }
+
+    /** "4 of 2,000 not sent: no quoteId for index 412, no quoteId for index 931 and 2 more" */
+    fun unaddressableSentence(r: LoadReport): String {
+        val named =
+            r.unaddressable
+                .take(UNMATCHED_NAMED)
+                .joinToString(", ") { "no ${it.missing} for index ${fmt(it.index.toLong())}" }
+        val more = r.issue.unaddressable - minOf(r.issue.unaddressable, UNMATCHED_NAMED.toLong())
+        return "${fmt(r.issue.unaddressable)} of ${fmt(r.issue.requested)} not sent" +
             (if (named.isNotEmpty()) ": $named" else "") +
             (if (more > 0) " and $more more" else "")
     }

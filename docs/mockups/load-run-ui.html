@@ -1,0 +1,3053 @@
+<meta charset="utf-8">
+<title>The Load Run, Redrawn</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    /* The page: an editorial note, the same tokens as load-run.html so the two read as one series. */
+    --ground: #eef0f3;
+    --card: #ffffff;
+    --ink: #191c21;
+    --muted: #5b6570;
+    --faint: #8a939e;
+    --rule: #d7dce3;
+    --accent: #2f6fb0;
+    --accent-soft: #e3ecf6;
+    --good: #3f7d33;
+    --bad: #b8342f;
+    --warn: #9a6a1c;
+    --warn-soft: #f6edd9;
+
+    /* The app's own chrome, fixed in both page themes, because FixTool ships one dark palette
+       (Theme.kt has no light set). These panels are the tool, not the page. */
+    --app-bg: #1e1e1e;
+    --app-surface: #2b2b2b;
+    --app-variant: #252525;
+    --app-header: #202020;
+    --app-text: #e0e0e0;
+    --app-text2: #b0b0b0;
+    --app-dim: #6a6a6a;
+    --app-rule: #3a3a3a;
+    --app-border2: #555555;
+    --app-good: #98c379;
+    --app-warn: #ce9178;
+    --app-bad: #e06c75;
+    --app-info: #61afef;
+    --app-teal: #4ec9b0;
+    --app-field: #9cdcfe;
+    --app-tag: #dcdcaa;
+
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --col: 40rem;
+    --wide: 64rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14171a;
+      --card: #1b1f23;
+      --ink: #e3e7eb;
+      --muted: #98a2ad;
+      --faint: #737d88;
+      --rule: #2a3138;
+      --accent: #61afef;
+      --accent-soft: #1d2a36;
+      --good: #98c379;
+      --bad: #e06c75;
+      --warn: #d9a75a;
+      --warn-soft: #2b2518;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14171a;
+    --card: #1b1f23;
+    --ink: #e3e7eb;
+    --muted: #98a2ad;
+    --faint: #737d88;
+    --rule: #2a3138;
+    --accent: #61afef;
+    --accent-soft: #1d2a36;
+    --good: #98c379;
+    --bad: #e06c75;
+    --warn: #d9a75a;
+    --warn-soft: #2b2518;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+  }
+
+  .col { max-width: var(--col); }
+
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.75rem; margin-bottom: 2.25rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+    font-size: clamp(2rem, 5.5vw, 2.9rem);
+    line-height: 1.05;
+    margin: 0 0 0.9rem;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: 1.14rem;
+    color: var(--muted);
+    margin: 0;
+    max-width: 34rem;
+  }
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    margin: 3.25rem 0 0.9rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.09rem;
+    letter-spacing: -0.012em;
+    margin: 2.25rem 0 0.6rem;
+  }
+
+  p { margin: 0 0 1rem; max-width: var(--col); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  code, .m { font-family: var(--mono); font-size: 0.86em; }
+
+  p code, li code, figcaption code, td code {
+    background: var(--accent-soft);
+    padding: 0.06em 0.32em;
+    border-radius: 2px;
+  }
+
+  ul.prose, ol.prose { max-width: var(--col); padding-left: 1.2rem; margin: 0 0 1.2rem; }
+  ul.prose li, ol.prose li { margin-bottom: 0.45rem; }
+
+  .lede-mark {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+  }
+
+  /* ---------- figures and the app panel ---------- */
+
+  figure { margin: 1.5rem 0 2.25rem; }
+
+  figcaption {
+    font-size: 0.93rem;
+    color: var(--muted);
+    max-width: 46rem;
+    margin-top: 0.7rem;
+    line-height: 1.55;
+  }
+
+  .figtabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .figtabs button {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.26rem 0.7rem;
+    cursor: pointer;
+  }
+
+  .figtabs button:hover { color: var(--ink); border-color: var(--faint); }
+
+  .figtabs button[aria-selected="true"] {
+    color: var(--card);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .figtabs .hint {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--faint);
+    margin-left: 0.35rem;
+  }
+
+  button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* The tool. Dark in both page themes, on purpose. */
+  .screen {
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: var(--sans);
+    color: var(--app-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  }
+
+  .screen-bar {
+    background: var(--app-header);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 5px 9px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .screen-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--app-rule); }
+
+  .screen-bar .ttl { font-weight: 500; color: var(--app-text); }
+
+  .screen.narrow { max-width: 620px; }
+
+  .scrollhint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--app-dim);
+    border-top: 1px dashed var(--app-rule);
+    padding: 3px 9px;
+    text-align: center;
+  }
+
+  /* ---------- today's dialog: everything at one weight ---------- */
+
+  .dlg { padding: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
+
+  .dlg .intro { color: var(--app-text2); font-size: 11px; line-height: 1.45; }
+
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .row > .rl { width: 96px; flex: none; color: var(--app-text2); font-size: 11.5px; }
+
+  .sub { color: var(--app-dim); font-size: 10.5px; }
+
+  .box {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 2px;
+    padding: 2px 5px;
+    min-height: 20px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .box.n44 { width: 44px; }
+  .box.n36 { width: 36px; }
+  .box.n52 { width: 52px; }
+  .box.n64 { width: 64px; }
+  .box.n200 { width: 200px; }
+
+  .glyph { font-size: 11.5px; color: var(--app-text2); cursor: default; }
+  .glyph.on { color: var(--app-text); }
+
+  .refusal { color: var(--app-bad); font-size: 10.5px; line-height: 1.45; }
+  .farend { color: var(--app-warn); font-size: 10.5px; line-height: 1.45; }
+  .quiet { color: var(--app-dim); font-size: 10.5px; line-height: 1.45; }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 2px;
+    padding: 3px 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .btn.go { color: var(--app-good); border-color: #47603a; }
+  .btn.off { color: var(--app-dim); border-color: var(--app-rule); }
+  .btn.stop { color: var(--app-bad); border-color: #6d3a3e; }
+  .btn.primary { background: #2f4a2c; color: #d6ecc6; border-color: #4d7043; font-weight: 500; }
+
+  /* ---------- the proposed dialog ---------- */
+
+  .dlg2 { display: flex; flex-direction: column; font-size: 12px; }
+
+  .dlg2 .body { padding: 11px 12px 14px; display: flex; flex-direction: column; gap: 11px; }
+
+  .dlg2 .intro { color: var(--app-text2); font-size: 11px; line-height: 1.45; max-width: 74ch; }
+
+  .grp { display: flex; flex-direction: column; gap: 7px; }
+
+  .ghead {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ghead::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--app-rule);
+  }
+
+  .r2 { display: flex; align-items: flex-start; gap: 9px; flex-wrap: nowrap; }
+
+  .r2 > .rl2 {
+    width: 84px;
+    flex: none;
+    color: var(--app-text2);
+    font-size: 11px;
+    text-align: right;
+    padding-top: 2px;
+  }
+
+  .r2 .stack { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
+
+  .val { font-size: 12.5px; color: var(--app-text); }
+
+  .pick {
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 6px 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .pick .chev { color: var(--app-dim); font-size: 9px; }
+
+  .fld {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 6px;
+    text-align: right;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fld.w64 { width: 64px; }
+  .fld.w52 { width: 52px; }
+  .fld.w44 { width: 44px; }
+  .fld.w88 { width: 88px; }
+  .fld.left { text-align: left; justify-content: flex-start; }
+  .fld.focus { border-color: var(--app-teal); }
+
+  .seg { display: inline-flex; border: 1px solid var(--app-border2); border-radius: 3px; overflow: hidden; }
+
+  .seg span {
+    font-size: 11.5px;
+    padding: 3px 11px;
+    color: var(--app-text2);
+    background: var(--app-surface);
+    cursor: default;
+  }
+
+  .seg span + span { border-left: 1px solid var(--app-border2); }
+  .seg span.on { background: #35443f; color: var(--app-teal); font-weight: 500; }
+
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--app-text2);
+    background: transparent;
+    border: 1px solid var(--app-rule);
+    border-radius: 999px;
+    padding: 2px 8px;
+    cursor: default;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chip.on { color: var(--app-teal); border-color: #3d6b60; background: #26332f; }
+  .chip.add { color: var(--app-dim); border-style: dashed; }
+
+  .linky { font-size: 11px; color: var(--app-info); border-bottom: 1px solid #35506e; cursor: pointer; }
+
+  .cbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .cbox i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--app-border2);
+    border-radius: 2px;
+    display: inline-block;
+    flex: none;
+    position: relative;
+    background: var(--app-surface);
+  }
+
+  .cbox.on { color: var(--app-text); }
+  .cbox.on i { background: #35443f; border-color: #3d6b60; }
+
+  .cbox.on i::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 5px;
+    width: 6px;
+    height: 3px;
+    border-left: 1.5px solid var(--app-teal);
+    border-bottom: 1.5px solid var(--app-teal);
+    transform: rotate(-45deg);
+  }
+
+  .radio { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--app-text2); }
+
+  .radio i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--app-border2);
+    border-radius: 50%;
+    display: inline-block;
+    flex: none;
+    position: relative;
+    background: var(--app-surface);
+  }
+
+  .radio.on { color: var(--app-text); }
+  .radio.on i { border-color: #3d6b60; }
+
+  .radio.on i::after {
+    content: "";
+    position: absolute;
+    inset: 2.5px;
+    border-radius: 50%;
+    background: var(--app-teal);
+  }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    border-radius: 999px;
+    padding: 1px 7px;
+    border: 1px solid transparent;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .pill.ok { color: var(--app-good); background: #26331f; border-color: #47603a; }
+  .pill.no { color: var(--app-bad); background: #33201f; border-color: #6d3a3e; }
+  .pill.info { color: var(--app-info); background: #1e2a3a; border-color: #35506e; }
+  .pill.dim { color: var(--app-dim); border-color: var(--app-rule); }
+
+  /* A stripe carries the message class. No card, no radius, no shadow: those say "object". */
+  .inset {
+    border-left: 2px solid var(--app-rule);
+    padding: 4px 0 4px 9px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--app-text2);
+    display: flex;
+    gap: 7px;
+    align-items: flex-start;
+  }
+
+  .inset.bad { border-left-color: var(--app-bad); color: #f0b6ba; }
+  .inset.warn { border-left-color: var(--app-warn); color: #e6bfa6; }
+  .inset .fix { flex: none; }
+  .inset b { font-weight: 600; color: inherit; }
+
+  .disclose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--app-text2);
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    padding: 5px 8px;
+    background: var(--app-variant);
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font-family: var(--sans);
+  }
+
+  .disclose:hover { border-color: var(--app-border2); }
+  .disclose .car { color: var(--app-dim); font-size: 9px; width: 8px; flex: none; }
+  .disclose .summ {
+    color: var(--app-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chg { color: var(--app-info); font-size: 10.5px; flex: none; }
+
+  .advbody {
+    border-left: 1px solid var(--app-rule);
+    margin-left: 4px;
+    padding: 8px 0 4px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .foot {
+    border-top: 1px solid var(--app-rule);
+    background: var(--app-header);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .foot .why { font-size: 10.5px; color: var(--app-bad); flex: 1; min-width: 0; line-height: 1.35; }
+  .foot .ready { font-size: 10.5px; color: var(--app-dim); flex: 1; min-width: 0; }
+  .foot .kbd { font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); }
+
+  /* ---------- the document ---------- */
+
+  .tabs { display: flex; background: var(--app-header); border-bottom: 1px solid var(--app-rule); }
+
+  .tabs .tab {
+    font-size: 11px;
+    color: var(--app-dim);
+    padding: 5px 11px;
+    border-right: 1px solid var(--app-rule);
+    white-space: nowrap;
+  }
+
+  .tabs .tab.on { color: var(--app-text); background: var(--app-bg); }
+
+  .dhead {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--app-surface);
+    padding: 5px 9px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+
+  .dhead .label { color: var(--app-text); font-weight: 500; }
+  .dhead .meta { color: var(--app-dim); font-size: 10px; flex: 1; min-width: 120px; }
+  .dhead .state { font-size: 10px; }
+
+  /* Proposed header: the verdict is the headline. */
+  .dhead2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--app-surface);
+    padding: 7px 10px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  .badge {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-radius: 3px;
+    padding: 3px 9px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  .badge.ok { color: #d6ecc6; background: #2f4a2c; border-color: #4d7043; }
+  .badge.no { color: #f6cdd0; background: #47292c; border-color: #7d454a; }
+  .badge.run { color: #cfe6fb; background: #23374b; border-color: #3d5f80; }
+  .badge.stop { color: var(--app-text2); background: #333333; border-color: var(--app-border2); }
+  .badge.dimb { color: var(--app-dim); background: #2a2a2a; border-color: var(--app-rule); }
+
+  .dhead2 .who { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 160px; }
+  .dhead2 .who .t { font-size: 12px; color: var(--app-text); font-weight: 500; }
+  .dhead2 .who .m { font-family: var(--mono); font-size: 10px; color: var(--app-dim); }
+  .dhead2 .acts { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+
+  .bar { display: flex; height: 3px; background: var(--app-variant); }
+  .bar i { display: block; height: 100%; }
+  .bar i.ok { background: var(--app-good); }
+  .bar i.go { background: var(--app-info); }
+  .bar i.no { background: var(--app-bad); }
+
+  .bar2 { display: flex; height: 8px; background: var(--app-variant); }
+  .bar2 i { display: block; height: 100%; }
+  .bar2 i.ok { background: var(--app-good); }
+  .bar2 i.go { background: var(--app-info); }
+  .bar2 i.no { background: var(--app-bad); }
+  .bar2 i.stopmark { background: var(--app-text); }
+
+  .barline {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 10px 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--app-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Today: five tiles at one weight. */
+  .tiles { display: flex; background: var(--app-variant); }
+  .tiles > div { flex: 1; padding: 6px 9px; min-width: 0; }
+  .tiles .k { font-size: 10px; color: var(--app-dim); }
+
+  .tiles .v {
+    font-family: var(--mono);
+    font-size: 17px;
+    color: var(--app-text);
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tiles .v.no { color: var(--app-bad); }
+  .tiles .v.dim { color: var(--app-dim); }
+  .tiles .s { font-size: 10px; color: var(--app-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Proposed: two leads, then a quiet strip. */
+  .lead { display: flex; gap: 1px; background: var(--app-rule); }
+
+  .lead > div {
+    flex: 1;
+    background: var(--app-variant);
+    padding: 9px 12px 10px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .lead .k {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+  }
+
+  .lead .v {
+    font-family: var(--mono);
+    font-size: 26px;
+    line-height: 1.1;
+    color: var(--app-text);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .lead .v.ok { color: var(--app-good); }
+  .lead .v.no { color: var(--app-bad); }
+  .lead .v.go { color: var(--app-info); }
+  .lead .s { font-size: 10.5px; color: var(--app-dim); }
+
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 0;
+    padding: 6px 12px;
+    border-top: 1px solid var(--app-rule);
+    font-size: 10.5px;
+    color: var(--app-dim);
+  }
+
+  .strip span { white-space: nowrap; padding: 0 11px; border-right: 1px solid var(--app-rule); }
+  .strip span:first-child { padding-left: 0; }
+  .strip span:last-child { border-right: none; }
+
+  .strip b {
+    font-family: var(--mono);
+    font-weight: 500;
+    color: var(--app-text2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Today: the key/value sentence dump. */
+  .lines { padding: 6px 9px; display: flex; flex-direction: column; gap: 2px; }
+  .lines .ln { display: flex; gap: 0; font-size: 11px; }
+  .lines .ln .k { width: 72px; flex: none; color: var(--app-dim); }
+  .lines .ln .v { color: var(--app-text2); }
+  .lines .ln .v b { font-weight: 400; color: var(--app-text); font-family: var(--mono); }
+  .lines .ln .v .ok { color: var(--app-good); }
+  .lines .ln .v .no { color: var(--app-bad); }
+  .lines .ln.warn .v { color: var(--app-warn); }
+
+  /* Proposed: sections with a real head. */
+  .sect { padding: 10px 12px; border-top: 1px solid var(--app-rule); }
+
+  .shead {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--app-text);
+    margin-bottom: 7px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .shead .note { font-weight: 400; font-size: 10.5px; color: var(--app-dim); }
+
+  .statcard {
+    border: 1px solid var(--app-rule);
+    border-radius: 4px;
+    background: var(--app-variant);
+    padding: 9px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .statrow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .statrow.narrow3 { grid-template-columns: repeat(3, 1fr); row-gap: 8px; }
+
+  .statrow .sk {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+  }
+
+  .statrow .sv {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--app-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .statrow .sv.warn { color: var(--app-warn); }
+  .statrow .sv.no { color: var(--app-bad); }
+  .statrow .sv.ok { color: var(--app-good); }
+
+  .hist {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 10px;
+    height: 68px;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  .hist .b { flex: 1; max-width: 86px; display: flex; align-items: flex-end; height: 100%; }
+  .hist .b i { display: block; width: 100%; min-height: 2px; background: #4a7ba7; border-radius: 1px 1px 0 0; }
+  .hist .b.hi i { background: var(--app-info); }
+  .hist .b.tail i { background: var(--app-warn); }
+
+  .histx {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 3px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--app-dim);
+  }
+
+  .histx span { flex: 1; max-width: 86px; text-align: center; line-height: 1.3; }
+  .histx b { display: block; color: var(--app-text2); font-weight: 500; }
+
+  .chartwrap { overflow-x: auto; }
+  .chartwrap svg { display: block; width: 100%; min-width: 520px; height: auto; }
+
+  .legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 10.5px;
+    color: var(--app-dim);
+    margin-top: 5px;
+    align-items: center;
+  }
+
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .legend i.bars { background: #4a7ba7; }
+  .legend i.stall { background: var(--app-bad); }
+  .legend i.line { background: transparent; border-top: 2px solid var(--app-text2); height: 0; border-radius: 0; }
+  .legend i.p95 { background: transparent; border-top: 2px solid var(--app-warn); height: 0; border-radius: 0; }
+
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+
+  table.tbl th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+    font-weight: 400;
+    padding: 0 8px 4px 0;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  table.tbl td {
+    padding: 4px 8px 4px 0;
+    color: var(--app-text2);
+    border-bottom: 1px solid rgba(58, 58, 58, 0.5);
+    vertical-align: top;
+  }
+
+  table.tbl td.id { font-family: var(--mono); color: var(--app-text); white-space: nowrap; }
+  table.tbl td.w { font-family: var(--mono); color: var(--app-dim); font-size: 10px; }
+  table.tbl td.go { color: var(--app-info); white-space: nowrap; }
+  table.tbl td.better { color: var(--app-good); white-space: nowrap; font-family: var(--mono); }
+  table.tbl tr:hover td { background: #26303a; }
+
+  .vfoot {
+    background: var(--app-variant);
+    border-top: 1px solid var(--app-rule);
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .vfoot .v { font-size: 12px; font-weight: 600; }
+  .vfoot .v.ok { color: var(--app-good); }
+  .vfoot .v.no { color: var(--app-bad); }
+  .vfoot .l { font-size: 11px; color: var(--app-text2); }
+  .vfoot .l.dim { color: var(--app-dim); font-size: 10px; }
+  .vfoot .l .ok { color: var(--app-good); }
+  .vfoot .l .no { color: var(--app-bad); }
+  .vfoot .l .mu { color: var(--app-dim); }
+
+  .judge { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 2px; }
+
+  .strip.pss { border-top: none; }
+
+  /* today's per-second strip */
+  .pstrip { padding: 0 9px 6px; }
+  .pstrip .bars { display: flex; align-items: flex-end; gap: 2px; height: 36px; }
+  .pstrip .bars i { flex: 1; background: var(--app-info); display: block; }
+  .pstrip .cap { font-size: 10px; color: var(--app-dim); margin-top: 3px; }
+
+
+  /* ---------- set-level band, phase rows, phase rail, phase timeline ---------- */
+
+  /* Set-level, not phase-level: one seed serves every phase, so it cannot live inside one. */
+  .setband {
+    background: var(--app-variant);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .setband .r2 > .rl2 { padding-top: 4px; }
+
+  .phaserow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    background: var(--app-variant);
+    padding: 6px 9px;
+    font-size: 11.5px;
+  }
+
+  .phaserow .n {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--app-dim);
+    width: 14px;
+    flex: none;
+  }
+
+  .phaserow .t { color: var(--app-text); flex: none; }
+  .phaserow .d { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .phaserow .grip { color: var(--app-dim); font-size: 11px; flex: none; cursor: grab; }
+  .phaserow.add { border-style: dashed; color: var(--app-dim); justify-content: center; }
+
+  .split { display: flex; align-items: stretch; }
+  .split .rail { width: 216px; flex: none; border-right: 1px solid var(--app-rule); background: var(--app-variant); }
+  .split .detail { flex: 1; min-width: 0; }
+
+  .railrow {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 6px 9px;
+    border-bottom: 1px solid var(--app-rule);
+    font-size: 11px;
+    cursor: default;
+  }
+
+  .railrow.on { background: var(--app-bg); box-shadow: inset 2px 0 0 var(--app-info); }
+  .railrow .mk { font-size: 11px; flex: none; width: 11px; }
+  .railrow .mk.ok { color: var(--app-good); }
+  .railrow .mk.no { color: var(--app-bad); }
+  .railrow .mk.skip { color: var(--app-dim); }
+  .railrow .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .railrow.dim .nm { color: var(--app-dim); }
+  .railrow .num { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+
+  .gantt { display: flex; flex-direction: column; gap: 4px; }
+  .grow { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+  .grow .gl { width: 116px; flex: none; color: var(--app-text2); }
+  .grow .track { flex: 1; height: 13px; background: var(--app-variant); border-radius: 2px; display: flex; overflow: hidden; }
+  .grow .track i { display: block; height: 100%; }
+  .grow .track i.iss { background: var(--app-info); }
+  .grow .track i.set { background: repeating-linear-gradient(135deg, #3a4a5a 0 3px, #26303a 3px 6px); }
+  .grow .track i.pad { background: transparent; }
+  .grow .gt { width: 82px; flex: none; text-align: right; font-family: var(--mono); color: var(--app-dim); font-variant-numeric: tabular-nums; }
+  .grow.skipped .gl, .grow.skipped .gt { color: var(--app-dim); }
+  .grow.skipped .track { background: repeating-linear-gradient(135deg, #2a2a2a 0 4px, #232323 4px 8px); }
+
+  /* ---------- how-it-works lists ---------- */
+
+  dl.mech { max-width: 46rem; margin: 1rem 0 1.5rem; display: grid; gap: 0.85rem; }
+  dl.mech > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  dl.mech dt { font-family: var(--sans); font-weight: 600; font-size: 0.96rem; margin-bottom: 0.1rem; }
+  dl.mech dd { margin: 0; font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  dl.mech dd code { background: var(--accent-soft); padding: 0.06em 0.32em; border-radius: 2px; }
+
+
+  /* ---------- entry points and edge states ---------- */
+
+  .menu {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 0;
+    width: 268px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+
+  .menu .mi { padding: 4px 10px; font-size: 11.5px; color: var(--app-text); display: flex; gap: 8px; align-items: baseline; }
+  .menu .mi .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); margin-left: auto; }
+  .menu .mi.off { color: var(--app-dim); }
+  .menu .mi.on { background: #2d5a8c; }
+  .menu .sep { height: 1px; background: var(--app-rule); margin: 3px 0; }
+  .menu .grp { padding: 4px 10px 2px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .recent { display: flex; flex-direction: column; }
+  .recent .rr { display: flex; align-items: baseline; gap: 7px; padding: 3px 10px; font-size: 11.5px; }
+  .recent .rr .mk { width: 11px; flex: none; text-align: center; }
+  .recent .rr .mk.ok { color: var(--app-good); }
+  .recent .rr .mk.no { color: var(--app-bad); }
+  .recent .rr .kd { width: 13px; flex: none; text-align: center; color: var(--app-dim); font-size: 10px; }
+  .recent .rr .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent .rr .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+
+  .edge { display: flex; flex-direction: column; gap: 16px; }
+  .edge > .one { display: flex; flex-direction: column; gap: 5px; }
+
+  .edge .cap {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .empty {
+    border: 1px dashed var(--app-rule);
+    border-radius: 3px;
+    padding: 14px 12px;
+    color: var(--app-text2);
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .empty b { color: var(--app-text); font-weight: 500; }
+  .empty .hint { display: block; margin-top: 4px; color: var(--app-dim); font-size: 10.5px; }
+
+  /* ---------- change lists under a figure ---------- */
+
+  ol.changes {
+    counter-reset: ch;
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 0;
+    max-width: 46rem;
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  /* Inline flow, not grid: a grid li would make every text run and every <code> its own cell. */
+  ol.changes li {
+    counter-increment: ch;
+    position: relative;
+    padding-left: 2.2rem;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  ol.changes li::before {
+    content: counter(ch, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 0.24rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  ol.changes b {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  ol.changes .where {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+    margin-top: 0.1rem;
+  }
+
+  table.scale { border-collapse: collapse; font-family: var(--sans); font-size: 0.9rem; margin: 1rem 0 1.5rem; width: 100%; max-width: 46rem; }
+  table.scale th { text-align: left; font-size: 0.72rem; font-family: var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); font-weight: 400; padding: 0 0.8rem 0.35rem 0; border-bottom: 1px solid var(--rule); }
+  table.scale td { padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--rule); color: var(--muted); vertical-align: baseline; }
+  table.scale td.tok { font-family: var(--mono); font-size: 0.8rem; color: var(--ink); white-space: nowrap; }
+  table.scale td.ex { color: var(--ink); }
+
+  .qa { max-width: 46rem; display: grid; gap: 1.1rem; margin: 1rem 0 1.5rem; }
+  .qa > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  .qa .q { font-family: var(--sans); font-weight: 600; font-size: 0.98rem; margin-bottom: 0.15rem; }
+
+  .qa .q .tag {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 0.62rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 1px 6px;
+    border: 1px solid;
+    margin-right: 0.45rem;
+    vertical-align: 1.5px;
+    white-space: nowrap;
+  }
+
+  .qa .q .tag.dec { color: var(--good); border-color: var(--good); }
+  .qa .q .tag.asm { color: var(--faint); border-color: var(--rule); }
+  .qa .q .tag.sup { color: var(--warn); border-color: var(--warn); }
+  .qa .a { font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  .qa .a strong { color: var(--good); font-weight: 600; }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.4rem;
+  }
+
+  [hidden] { display: none !important; }
+
+  @media (max-width: 640px) {
+    .r2 { flex-wrap: wrap; }
+    .r2 > .rl2 { width: auto; text-align: left; }
+    .row > .rl { width: auto; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="mast">
+    <p class="eyebrow">FixTool · design note · 2026-09-07</p>
+    <h1>The Load Run, Redrawn</h1>
+    <p class="standfirst">The load run works. It does not look like it works. This is the second draw of its
+      two screens, the dialog and the document, with every change named and placed.</p>
+  </header>
+
+  <p>Version 1.17.0 shipped the load run: two doors into one dialog, a live document, a record on disk, a CLI
+    and two MCP tools. The engine is sound. The screens are not, and the reason is narrower than "ugly".</p>
+
+  <p><span class="lede-mark">One root cause.</span> There is no type scale and no visual rank. In
+    <code>LoadRunDialog.kt</code> and <code>LoadRunDocument.kt</code> almost every string is drawn at 10sp or
+    11sp in <code>textSecondary</code> or <code>textDisabled</code> grey. The dialog is eight rows of identical
+    weight. The document is five tiles of identical weight followed by four dot-separated sentences. Nothing
+    tells the eye where to land, so both read as a report that happens to be inside a window rather than a
+    screen you operate.</p>
+
+  <p><span class="lede-mark">One aggravating factor.</span> The controls are drawn by hand. <code>Choice()</code>
+    at <code>LoadRunDialog.kt:248</code> is a <code>Text</code> prefixed with <code>"◉ "</code> or
+    <code>"○ "</code> plus a bare <code>selectable</code> modifier. To be precise about what that does and
+    does not cost, because the first draft of this note got it wrong: the app is wrapped in
+    <code>MaterialTheme</code> (<code>WindowChrome.kt:34</code>), so <code>selectable</code> is focusable,
+    toggles on Space and Enter, and draws the ripple's hover, focus and press layers. What is actually
+    missing is <code>Role.RadioButton</code> semantics, so a screen reader is never told it is a radio, any
+    affordance beyond one character, and a hit target larger than the glyph plus its label. The same two glyphs also serve the multi-select "Also match on" row, so
+    radio semantics are used for a checkbox job.</p>
+
+  <p>Worth saying plainly, because it shapes the fix: the shipped screens are a step
+    <em>down</em> from their own mockup. <a href="load-run.html">Mockup C</a> had real radio inputs and chips
+    for the listen set. Mockup D had a bucketed round-trip histogram and a <span class="m">wire ›</span>
+    affordance on every unanswered row. None of that survived the build. So most of what follows is not new
+    design, it is design that was agreed and then lost.</p>
+
+  <h2>The dialog</h2>
+
+  <p>Flip between the two. Same 620dp window, same decisions, same refusal copy, which is good and is kept
+    verbatim.</p>
+
+  <figure>
+    <div class="figtabs" role="tablist" aria-label="dialog versions">
+      <button type="button" role="tab" aria-selected="true" data-panel="dlg-new">Proposed</button>
+      <button type="button" role="tab" aria-selected="false" data-panel="dlg-old">Today, 1.17.0</button>
+      <span class="hint">the refused state, so the error handling is visible in both</span>
+    </div>
+
+    <!-- ============ PROPOSED DIALOG ============ -->
+    <div id="dlg-new">
+      <div class="screen narrow">
+        <div class="screen-bar"><span class="dot"></span><span class="ttl">Load run</span></div>
+        <div class="dlg2">
+          <div class="body">
+            <div class="intro">Issues this message across a profile's sessions without waiting for replies,
+              then accounts for every reply that lands on any session that is logged on.</div>
+
+            <div class="grp">
+              <div class="ghead">What to send</div>
+
+              <div class="r2">
+                <span class="rl2">Template</span>
+                <span class="stack">
+                  <span><span class="pick">RFQ EUR 5Y <span class="chev">▾</span></span>
+                    <span class="linky" style="margin-left:7px">view message</span></span>
+                  <span class="sub"><span class="m">35=R</span> QuoteRequest · per message <span class="m">131, 60</span> · fixed <span class="m">55, 167, 38, 54, 64</span></span>
+                </span>
+              </div>
+
+              <div class="r2">
+                <span class="rl2">Issue on</span>
+                <span class="stack">
+                  <span><span class="pick">RFQ Load Client <span class="chev">▾</span></span>
+                    <span class="pill ok" style="margin-left:6px">5 lanes logged on</span></span>
+                  <span class="sub">RFQ01, RFQ02, RFQ03, RFQ04, RFQ05</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="grp">
+              <div class="ghead">How hard</div>
+
+              <div class="r2">
+                <span class="rl2">Shape</span>
+                <span class="stack">
+                  <span class="chips">
+                    <span class="seg"><span class="on">Burst</span><span>Rate</span></span>
+                    <span class="fld w64">4,000</span>
+                    <span class="sub">messages, as fast as the lanes carry them</span>
+                  </span>
+                  <span class="chips" style="margin-top:2px">
+                    <span class="sub" style="margin-right:2px">presets</span>
+                    <span class="chip">100 smoke</span>
+                    <span class="chip on">4,000 burst</span>
+                    <span class="chip">500/s for 10m</span>
+                    <span class="chip">2,000/s for 1h</span>
+                  </span>
+                </span>
+              </div>
+
+              <div class="r2">
+                <span class="rl2">Settle</span>
+                <span class="stack">
+                  <span class="chips">
+                    <span class="fld w52">60s</span>
+                    <span class="sub">wait for replies after the last send, then judge</span>
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            <div class="grp">
+              <button type="button" class="disclose" data-toggle="adv" aria-expanded="true" aria-controls="adv">
+                <span class="car">▾</span>
+                <span>Advanced</span>
+                <span class="summ" style="visibility:hidden">131 QuoteReqID · reply S · memory store · +1 listening</span>
+                <span class="chg">open, because a refusal names the store</span>
+              </button>
+
+              <div class="advbody" id="adv">
+                <div class="r2">
+                  <span class="rl2">Match</span>
+                  <span class="stack">
+                    <span class="chips">
+                      <span class="fld w44">131</span>
+                      <span class="sub">QuoteReqID  →</span>
+                      <span class="fld w44">131</span>
+                      <span class="sub">QuoteReqID</span>
+                      <span class="sub" style="margin-left:6px">reply type</span>
+                      <span class="pick">S · Quote <span class="chev">▾</span></span>
+                    </span>
+                    <span class="sub">tags inferred from the template. The reply type is <b>new work</b>:
+                      nothing infers it today (<code>inferMatch()</code> returns the tag only,
+                      <code>LoadTemplate.kt:31</code>), so this needs a small request-to-reply table
+                      (R→S, D→8, F→8 or 9, V→W or X) or it stays "any reply carrying the tag".</span>
+                  </span>
+                </div>
+
+                <div class="r2">
+                  <span class="rl2">Also match on</span>
+                  <span class="stack">
+                    <span class="chips">
+                      <span class="cbox on"><i></i>DROPCOPY</span>
+                      <span class="cbox"><i></i>FX Venue Client</span>
+                    </span>
+                    <span class="sub">listen only, never issue</span>
+                  </span>
+                </div>
+
+                <div class="r2">
+                  <span class="rl2">Seed</span>
+                  <span class="stack">
+                    <span class="chips">
+                      <span class="fld w88 left">run</span>
+                      <span class="sub">=</span>
+                      <span class="fld w88 left">b7f2</span>
+                      <span class="chip add">+ add</span>
+                      <span class="chip">mint a new one</span>
+                    </span>
+                    <span class="sub">in scope as <span class="m">${run}</span>. One per run here, and one per
+                      <em>set</em> in the set editor, where a later phase addresses what an earlier one made.</span>
+                  </span>
+                </div>
+
+                <div class="r2">
+                  <span class="rl2">Store and log</span>
+                  <span class="stack">
+                    <span class="radio"><i></i>As the profile: file store, file log</span>
+                    <span class="radio on"><i></i>Memory store, no log <span class="pill dim" style="margin-left:4px">recommended</span></span>
+                    <div class="inset bad" style="margin-top:3px">
+                      <span class="fix"><span class="pill no">fix</span></span>
+                      <span>RFQ Load Client: Memory store, and Reset on Logon is off: the next logon will
+                        start at 1 while the venue expects the number it last saw. Turn Reset on Logon on, or
+                        keep the file store.</span>
+                    </div>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="inset warn">
+              <span class="fix"><span class="pill dim">note</span></span>
+              <span>The far end is 'RFQ Venue' — FixTool's own acceptor. It answers every session on one thread, so the latencies below are the tool's own ceiling, not a venue's. Point the lanes at the server under test to measure one.</span>
+            </div>
+          </div>
+
+          <div class="foot">
+            <span class="why">Run is off until Reset on Logon is on, or the store is the profile's.</span>
+            <span class="btn">Copy as <span class="m">fixtool load</span></span>
+            <span class="btn">Cancel</span>
+            <span class="btn off">Run <span class="kbd">⌘↵</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ TODAY'S DIALOG ============ -->
+    <div id="dlg-old" hidden>
+      <div class="screen narrow">
+        <div class="screen-bar"><span class="dot"></span><span class="ttl">Load run</span></div>
+        <div class="dlg">
+          <div class="intro">Issues this message across a profile's sessions without waiting for replies, then
+            accounts for every reply that lands on any session that is logged on.</div>
+
+          <div class="row"><span class="rl">Template</span><span class="btn">RFQ EUR 5Y</span><span class="sub">35=R · per message: 131, 60 · fixed: 55, 167, 38, 54, 64</span></div>
+          <div class="row"><span class="rl">Issue on</span><span class="btn">RFQ Load Client  (5 lanes)</span><span class="sub">5 lanes logged on · RFQ01, RFQ02, RFQ03, RFQ04, RFQ05</span></div>
+          <div class="row"><span class="rl">Also match on</span><span class="glyph on">◉ DROPCOPY</span><span class="glyph">○ FX Venue Client</span><span class="sub">listen only, never issue</span></div>
+          <div class="row"><span class="rl">Shape</span><span class="glyph on">◉ Burst</span><span class="box n64">4000</span><span class="sub">messages, as fast as the lanes carry them</span><span class="glyph">○ Rate</span></div>
+          <div class="row"><span class="rl">Match</span><span class="sub">request</span><span class="box n44">131</span><span class="sub">→ reply</span><span class="box n44">131</span><span class="sub">reply type</span><span class="box n36">S</span><span class="sub">optional</span></div>
+          <div class="row"><span class="rl">Settle</span><span class="box n52">60s</span><span class="sub">how long to wait for replies after the last send</span></div>
+          <div class="row"><span class="rl">Seed</span><span class="box n200">run=b7f2</span><span class="sub">name=value, in scope as ${name}</span></div>
+          <div class="row" style="align-items:flex-start">
+            <span class="rl">Store and log</span>
+            <span style="display:flex;flex-direction:column;gap:2px">
+              <span class="glyph">○ As the profile: file store, file log</span>
+              <span class="glyph on">◉ Memory store, no log  ·  recommended for a load run</span>
+            </span>
+          </div>
+
+          <div class="refusal">RFQ Load Client: Memory store, and Reset on Logon is off: the next logon will start at 1 while the venue expects the number it last saw. Turn Reset on Logon on, or keep the file store.</div>
+          <div class="farend">The far end is 'RFQ Venue' — FixTool's own acceptor. It answers every session on one thread, so the latencies below are the tool's own ceiling, not a venue's. Point the lanes at the server under test to measure one.</div>
+
+          <div class="row" style="gap:8px"><span class="btn">Cancel</span><span class="btn off">Run</span></div>
+        </div>
+        <div class="scrollhint">↕ this column is one scroll region, so Cancel and Run leave the window when the notes grow</div>
+      </div>
+    </div>
+
+    <figcaption>Eight flat rows become three named groups plus a collapsed Advanced. The refusal moves off the
+      bottom of the stack and onto a stripe with a <span class="m">fix</span> marker, and the footer says why
+      Run is off instead of leaving you to guess.</figcaption>
+
+    <ol class="changes">
+      <li><b>Real controls.</b> Radio, checkbox and a segmented Burst/Rate, each with hover, focus and keyboard.
+        The <code>◉</code>/<code>○</code> glyphs go, and the multi-select row gets checkboxes, because it was
+        never a radio group.
+        <span class="where">replaces Choice() · LoadRunDialog.kt:248 · new slims in SlimComponents.kt</span></li>
+      <li><b>Three groups, not eight rows.</b> What to send, How hard, Advanced. Match, the listen set and the
+        store choice are right by default almost always, so they collapse behind one line that states what
+        they currently are.
+        <span class="where">LoadRunDialog.kt:127 to :188</span></li>
+      <li><b>Tags carry their dictionary name.</b> <span class="m">131 QuoteReqID → 131 QuoteReqID</span>
+        instead of two unlabelled 44dp boxes. You should not need the tag table open to read your own run.
+        <span class="where">LoadRunDialog.kt:169</span></li>
+      <li><b>Presets, and it remembers.</b> Four chips for the shapes people actually run, and the last-used
+        values persist per profile in the view-state store. Today <code>count</code>, <code>rate</code> and
+        <code>settle</code> are <code>remember</code> locals, so every open resets to 4000 / 500 / 60s.
+        <span class="where">LoadRunDialog.kt:80 · view-state JSON, not AppSettings</span></li>
+      <li><b>Refusals move next to their cause</b> and carry a <span class="m">fix</span> marker, which means
+        a group cannot stay collapsed while hiding the control a refusal names. Advanced therefore opens
+        itself, and says why, whenever a refusal points at anything inside it: the store choice, the match
+        tags, the listen set, or a failed inference. The panel above is in exactly that state. The sentences
+        themselves are quoted from <code>storeProblem()</code> and unchanged.
+        <span class="where">LoadRunDialog.kt:193 · the refusal list at :107</span></li>
+      <li><b>The footer is pinned</b> and answers the one question a disabled button provokes. Today Cancel and
+        Run sit inside the <code>verticalScroll</code> of a 560dp-tall window, so a run whose template is
+        missing variables and whose lanes are short (three refusals, plus the far-end notice) pushes the
+        primary action below the fold.
+        <span class="where">LoadRunDialog.kt:121, :201</span></li>
+      <li><b>Seed moves into Advanced for a single run.</b> An earlier draft of this note put it in a band at
+        the top, which promoted a field most single runs never touch for the sake of a feature that is out of
+        scope here. Set-level is right in the set editor, which is the only place a shared seed means
+        anything, and Advanced is right in the dialog.</li>
+      <li><b>Seed is two fields, not a parser.</b> <code>parseSeed</code> drops a key whose value is empty,
+        which is correct, and it is <em>not</em> silent: if the template reads <span class="m">${run}</span>
+        and nothing seeds it, <code>missingVariables</code> refuses with "The template reads ${run} and
+        nothing seeds it." So this is a UX change, not a bug fix: two labelled fields and a
+        <span class="m">+ add</span> beat a comma-separated string whose grammar you have to know.
+        <span class="where">LoadRunDialog.kt:284, refusal at :107</span></li>
+      <li><b>Pickers look openable.</b> A chevron, and the border that the rest of the app's fields wear.
+        <span class="where">LoadRunDialog.kt:258</span></li>
+      <li><b>New: Copy as <span class="m">fixtool load</span>.</b> The CLI already takes this exact plan. One
+        button turns a dialog you tuned by hand into the line that gates a build.
+        <span class="where">headless/HeadlessLoad.kt already parses it</span></li>
+    </ol>
+  </figure>
+
+  <h2>The document</h2>
+
+  <p>The example is one run against the RFQ venue: <span class="m">500/s for 10m</span> on five lanes,
+    300,000 QuoteRequests, every one answered. It passes. It also has two four-second stalls in it, at
+    <span class="m">t+42s</span> and <span class="m">t+318s</span>, where replies fell to about 320 a second
+    and p95 round trip went from 4ms to 210ms.</p>
+
+  <p><b>Which chart you get follows the issue span, not the shape.</b> A 4,000 burst leaves in 813ms, so
+    <code>perSecond</code> holds three buckets and the strip draws three bars that say nothing. It is not
+    hidden: the gate is <code>if (report.perSecond.size &gt; 1)</code> at
+    <code>LoadRunDocument.kt:90</code>, and three is more than one. But shape is the wrong discriminator
+    anyway, because a <span class="m">×300,000</span> burst on five lanes issues for about a minute and has a
+    real per-second story, while a 500/s rate run has a distribution worth a curve. So: the per-second panel
+    appears when <code>issue.spanMs</code> is more than a few seconds, and the round-trip curve appears
+    always, in the stat card's slot.</p>
+
+  <div class="inset bad" style="max-width:46rem;margin:0 0 1.2rem;font-size:0.95rem;color:var(--bad);border-left-color:var(--bad)">
+    <span class="fix"><span class="pill no" style="font-size:0.62rem">correction</span></span>
+    <span>An earlier draft of this note said both the curve and the bucket histogram "need no new
+      collection" because <code>roundTripsSorted</code> is sorted in <code>finish()</code>. That is true of
+      the matcher and false of the report. <code>LoadRunner.kt:256</code> reduces the samples to
+      <code>roundTrip = sorted?.let { RunSetStats.of(it) }</code>, and
+      <code>RunSetStats.Distribution</code> is seven numbers (<code>RunSetStats.kt:35</code>). No sample
+      reaches <code>LoadReport</code> or <code>load.json</code>, so neither picture can be drawn from what is
+      recorded. The line below it is worse for the live view: <code>perSecond</code> is
+      <code>emptyList()</code> for the whole run, because <code>result</code> is only non-null in the final
+      report, and <code>pendingPeak</code> is 0 until then. The "Proposed · running" panel has no data source
+      at all today. Both are engine work, and both are now in the order of work.</span>
+  </div>
+
+  <p><b>What the engine work is, and why it is small.</b> Not persisting 300,000 samples. A fixed
+    log-spaced round-trip histogram of about 30 buckets from 0.1ms to 100s, held in
+    <code>StampMatcher</code> and incremented once per matched reply inside the critical section that already
+    exists at <code>:167</code>, then carried on <code>LoadReport</code> and written by the codec. Thirty
+    integers bound the memory whatever the run's size, they give the curve its 30 points and the stat card
+    its buckets, and because they are incremental they are correct <em>during</em> the run as well as after
+    it. The exact percentiles keep coming from the sorted array at <code>finish()</code>, so nothing about
+    the numbers already reported changes. The same move fixes the live chart: maintain the per-second
+    counters and each second's p95 as stamps arrive rather than rebuilding them in <code>buckets()</code>,
+    and expose a <code>bucketsSoFar()</code> beside the existing <code>roundTripsSoFar()</code>.</p>
+
+  <p>That is the whole argument for the redraw. <b>Today's document shows one stall badly and the other not
+    at all.</b> The first is four bars of <code>weight(1f)</code> dipping to about 46% of a 36dp strip, with
+    no reference line, no axis and no latency beside them, so you can see that something moved but not what
+    moved or by how much. The second is past <code>MAX_STRIP_SECONDS = 120</code> and is never drawn.
+    Meanwhile <code>LoadReport.Second.p95Us</code> is measured every second and written into
+    <code>load.json</code>, and nothing in the app has ever drawn it.</p>
+
+  <figure>
+    <div class="figtabs" role="tablist" aria-label="document versions">
+      <button type="button" role="tab" aria-selected="true" data-panel="doc-new">Proposed · verdict</button>
+      <button type="button" role="tab" aria-selected="false" data-panel="doc-run">Proposed · running</button>
+      <button type="button" role="tab" aria-selected="false" data-panel="doc-unm">Proposed · unanswered</button>
+      <button type="button" role="tab" aria-selected="false" data-panel="doc-old">Today, 1.17.0</button>
+    </div>
+
+    <!-- ============ PROPOSED DOC: VERDICT ============ -->
+    <div id="doc-new">
+      <div class="screen">
+        <div class="tabs"><span class="tab">book-a-trade</span><span class="tab">nightly (12) · 2026-09-06</span><span class="tab on">⚡ RFQ EUR 5Y · 500/s · RFQ Load Client</span></div>
+
+        <div class="dhead2">
+          <span class="badge ok">COMPLETE</span>
+          <span class="who">
+            <span class="t">RFQ EUR 5Y · 500/s for 10m · RFQ Load Client</span>
+            <span class="m">5 lanes · settle 60s · run=b7f2 · memory store, no log · exit 0</span>
+          </span>
+          <span class="acts">
+            <span class="btn">Compare…</span>
+            <span class="btn">Copy JSON</span>
+            <span class="btn">Reveal records</span>
+          </span>
+        </div>
+
+        <div class="bar2"><i class="ok" style="width:100%"></i></div>
+        <div class="barline">
+          <span>300,000 of 300,000 answered</span>
+          <span>10m 00s issuing · 1.4s drain</span>
+        </div>
+
+        <div class="lead" style="margin-top:6px">
+          <div>
+            <span class="k">answered</span>
+            <span class="v ok">300,000</span>
+            <span class="s">first reply, on any listening session</span>
+          </div>
+          <div>
+            <span class="k">unanswered</span>
+            <span class="v">0</span>
+            <span class="s">none outstanding when settle closed</span>
+          </div>
+        </div>
+
+        <div class="strip">
+          <span><b>issued</b> 300,000 requested, engine 300,000, socket 300,000</span>
+          <span><b>duplicates</b> 0</span>
+          <span><b>late</b> 3</span>
+          <span><b>strays</b> 0</span>
+          <span><b>peak outstanding</b> 742</span>
+          <span><b>prepared in</b> 96ms</span>
+        </div>
+
+        <div class="sect">
+          <div class="shead">Throughput and latency, second by second
+            <span class="note">whole run · one column per second, 600 of them · red is any second under the
+              pacer's own floor, 500/s less <span class="m">Pacer.TOLERANCE</span> of 2%</span>
+          </div>
+          <div class="chartwrap" id="chart"></div>
+          <div class="legend">
+            <span><i class="bars"></i>answered per second</span>
+            <span><i class="stall"></i>a second under 490/s, the pacer's floor</span>
+            <span><i class="line"></i>issued per second, the schedule</span>
+            <span><i class="p95"></i>p95 round trip</span>
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="shead">Round trip <span class="note">300,000 samples · socket send stamp to socket receive stamp</span></div>
+          <div class="statcard">
+            <div class="statrow">
+              <div><div class="sk">min</div><div class="sv">0.7ms</div></div>
+              <div><div class="sk">p50</div><div class="sv">3.1ms</div></div>
+              <div><div class="sk">p95</div><div class="sv">7.9ms</div></div>
+              <div><div class="sk">p99</div><div class="sv warn">96ms</div></div>
+              <div><div class="sk">max</div><div class="sv no">412ms</div></div>
+              <div><div class="sk">mean</div><div class="sv">5.4ms</div></div>
+            </div>
+            <div>
+              <div class="hist" aria-label="round trips by bucket">
+                <div class="b" title="under 1ms: 2,140"><i style="height:4%"></i></div>
+                <div class="b hi" title="1 to 5ms: 214,900, holds the median"><i style="height:100%"></i></div>
+                <div class="b" title="5 to 10ms: 68,410"><i style="height:32%"></i></div>
+                <div class="b" title="10 to 50ms: 11,180"><i style="height:9%"></i></div>
+                <div class="b tail" title="50 to 200ms: 2,980, almost all inside the two stalls"><i style="height:6%"></i></div>
+                <div class="b tail" title="200 to 500ms: 390, almost all inside the two stalls"><i style="height:3%"></i></div>
+              </div>
+              <div class="histx">
+                <span><b>2,140</b>&lt;1ms</span><span><b>214,900</b>1–5</span><span><b>68,410</b>5–10</span><span><b>11,180</b>10–50</span><span><b>2,980</b>50–200</span><span><b>390</b>0.2–0.5s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="shead">The tool's own part <span class="note">shown, never hidden</span></div>
+          <div class="strip pss" style="padding-left:0">
+            <span><span class="pill ok">clean</span></span>
+            <span><b>0</b> discarded by the panes</span>
+            <span><b>0</b> accepted by the engine that never left the socket</span>
+            <span><b>0</b> refused</span>
+            <span><b>held 500/s</b> for 10m, max lag 12ms</span>
+          </div>
+        </div>
+
+        <div class="vfoot">
+          <div class="judge">
+            <span class="pill ok">completeness · complete</span>
+            <span class="pill ok">rate · held</span>
+            <span class="pill ok">tool · clean</span>
+          </div>
+          <div class="l dim"><span class="m">~/.fixtool/loads/20260907-101204-rfq-eur-5y/</span> · load.json · unmatched.fix · specimens.fix</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ PROPOSED DOC: RUNNING ============ -->
+    <div id="doc-run" hidden>
+      <div class="screen">
+        <div class="tabs"><span class="tab">book-a-trade</span><span class="tab on">⚡ RFQ EUR 5Y · 500/s · RFQ Load Client</span></div>
+
+        <div class="dhead2">
+          <span class="badge run">ISSUING</span>
+          <span class="who">
+            <span class="t">RFQ EUR 5Y · 500/s for 10m · RFQ Load Client</span>
+            <span class="m">5 lanes · settle 60s · run=b7f2 · memory store, no log</span>
+          </span>
+          <span class="acts">
+            <span class="btn stop">■ Stop</span>
+          </span>
+        </div>
+
+        <div class="bar2"><i class="ok" style="width:39.4%"></i><i class="go" style="width:0.25%;min-width:5px"></i></div>
+        <div class="barline">
+          <span>118,200 answered · 742 outstanding · 181,058 to go</span>
+          <span>t+3m 56s · about 6m 04s left</span>
+        </div>
+
+        <div class="lead" style="margin-top:6px">
+          <div>
+            <span class="k">answered</span>
+            <span class="v ok">118,200</span>
+            <span class="s">of 118,942 issued so far</span>
+          </div>
+          <div>
+            <span class="k">outstanding</span>
+            <span class="v go">742</span>
+            <span class="s">awaiting a reply now · peak 742</span>
+          </div>
+        </div>
+
+        <div class="strip">
+          <span><b>issued</b> 118,942 left the socket, engine 118,942</span>
+          <span><b>duplicates</b> 0</span>
+          <span><b>late</b> <span class="m">—</span> settle not closed</span>
+          <span><b>now</b> 498/s answered, 500/s issued</span>
+          <span><b>p95 now</b> 8ms</span>
+        </div>
+
+        <div class="sect">
+          <div class="shead">Throughput and latency, second by second
+            <span class="note">the whole run so far, one column per second · needs incremental buckets in the
+              matcher: <span class="m">perSecond</span> is empty until the run ends</span>
+          </div>
+          <div class="chartwrap" id="chart-live"></div>
+          <div class="legend">
+            <span><i class="bars"></i>answered per second</span>
+            <span><i class="stall"></i>a second under 490/s, the pacer's floor</span>
+            <span><i class="line"></i>issued per second, the schedule</span>
+            <span><i class="p95"></i>p95 round trip</span>
+          </div>
+        </div>
+
+        <div class="vfoot">
+          <div class="l dim">Stop ends issuing now and settles what is outstanding. The window closes early
+            the moment nothing is outstanding.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ PROPOSED DOC: UNANSWERED ============ -->
+    <div id="doc-unm" hidden>
+      <div class="screen">
+        <div class="tabs"><span class="tab">book-a-trade</span><span class="tab on">⚡ RFQ EUR 5Y ×4,000 · RFQ Load Client</span></div>
+
+        <div class="dhead2">
+          <span class="badge no">UNANSWERED · 4</span>
+          <span class="who">
+            <span class="t">RFQ EUR 5Y ×4,000 · RFQ Load Client</span>
+            <span class="m">5 lanes · burst · settle 60s · run=b7f2 · memory store, no log · exit 1</span>
+          </span>
+          <span class="acts">
+            <span class="btn">Compare…</span>
+            <span class="btn">Copy JSON</span>
+            <span class="btn">Reveal records</span>
+          </span>
+        </div>
+
+        <div class="bar2"><i class="ok" style="width:99.9%"></i><i class="no" style="width:0.1%;min-width:12px"></i></div>
+        <div class="barline">
+          <span>3,996 of 4,000 answered · <span style="color:var(--app-bad)">4 never came back</span></span>
+          <span>2.7s elapsed · 1.9s drain</span>
+        </div>
+
+        <div class="lead" style="margin-top:6px">
+          <div>
+            <span class="k">answered</span>
+            <span class="v">3,996</span>
+            <span class="s">first reply, on any listening session</span>
+          </div>
+          <div>
+            <span class="k">unanswered</span>
+            <span class="v no">4</span>
+            <span class="s">no reply within 60s of the send</span>
+          </div>
+        </div>
+
+        <div class="strip">
+          <span><b>issued</b> 4,000 requested, engine 4,000, socket 4,000</span>
+          <span><b>duplicates</b> 12</span>
+          <span><b>late</b> 0</span>
+          <span><b>strays</b> 0</span>
+          <span><b>peak outstanding</b> 1,204</span>
+          <span><b>4,920/s</b> over 813ms</span>
+        </div>
+
+        <div class="sect">
+          <div class="shead">What is still outstanding
+            <span class="note">4,000 issued in 813ms, so there is no per-second story · log-log, from the
+              30-bucket histogram</span>
+          </div>
+          <div class="chartwrap" id="chart-drain"></div>
+          <div class="legend">
+            <span><i class="bars"></i>share still outstanding</span>
+            <span><i class="stall"></i>the floor it never gets under</span>
+            <span><i class="p95"></i>p50, p95, p99, each crossing at its own decade</span>
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="shead">The 4 that never came back
+            <span class="note">click a row to open it in its session · <span class="m">⌘C</span> copies the wire</span>
+          </div>
+          <table class="tbl">
+            <thead>
+              <tr><th>QuoteReqID (131)</th><th>lane</th><th>sent</th><th>wire</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="id">RFQ-b7f2-1187</td><td>3 · RFQ03</td><td class="id">10:12:04.443</td><td class="w">8=FIX.4.4|35=R|131=RFQ-b7f2-1187|55=EUR|167=…</td><td class="go">open ›</td></tr>
+              <tr><td class="id">RFQ-b7f2-2410</td><td>1 · RFQ01</td><td class="id">10:12:04.694</td><td class="w">8=FIX.4.4|35=R|131=RFQ-b7f2-2410|55=EUR|167=…</td><td class="go">open ›</td></tr>
+              <tr><td class="id">RFQ-b7f2-2411</td><td>2 · RFQ02</td><td class="id">10:12:04.694</td><td class="w">8=FIX.4.4|35=R|131=RFQ-b7f2-2411|55=EUR|167=…</td><td class="go">open ›</td></tr>
+              <tr><td class="id">RFQ-b7f2-3902</td><td>5 · RFQ05</td><td class="id">10:12:04.998</td><td class="w">8=FIX.4.4|35=R|131=RFQ-b7f2-3902|55=EUR|167=…</td><td class="go">open ›</td></tr>
+            </tbody>
+          </table>
+          <div class="legend"><span>all 4 shown</span><span class="m" style="color:var(--app-info)">copy all as FIX</span></div>
+        </div>
+
+        <div class="sect">
+          <div class="shead">The tool's own part <span class="note">shown, never hidden</span></div>
+          <div class="strip pss" style="padding-left:0">
+            <span><span class="pill ok">clean</span></span>
+            <span><b>0</b> discarded by the panes</span>
+            <span><b>0</b> accepted by the engine that never left the socket</span>
+            <span><b>burst</b>, so no schedule to lag</span>
+          </div>
+        </div>
+
+        <div class="vfoot">
+          <div class="judge">
+            <span class="pill no">completeness · unanswered</span>
+            <span class="pill dim">rate · n/a, burst</span>
+            <span class="pill ok">tool · clean</span>
+          </div>
+          <div class="l dim"><span class="m">~/.fixtool/loads/20260907-101204-rfq-eur-5y-4000/</span> · load.json · unmatched.fix · specimens.fix</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ TODAY'S DOC ============ -->
+    <div id="doc-old" hidden>
+      <div class="screen">
+        <div class="tabs"><span class="tab">book-a-trade</span><span class="tab">nightly (12) · 2026-09-06</span><span class="tab on">⚡ RFQ EUR 5Y · 500/s · RFQ Load Client</span></div>
+
+        <div class="dhead">
+          <span class="label">⚡ RFQ EUR 5Y · 500/s for 10m · RFQ Load Client</span>
+          <span class="meta">5 lanes · settle 60s · run=b7f2 · memory store, no log</span>
+          <span class="state" style="color:var(--app-good)">complete</span>
+        </div>
+
+        <div class="bar"><i class="ok" style="width:100%"></i></div>
+
+        <div class="tiles">
+          <div><div class="k">issued</div><div class="v">300,000</div><div class="s">engine 300,000 · socket 300,000</div></div>
+          <div><div class="k">matched</div><div class="v">300,000</div><div class="s">first reply, any session</div></div>
+          <div><div class="k">unmatched</div><div class="v">0</div><div class="s">no reply within 60s</div></div>
+          <div><div class="k">duplicates</div><div class="v">0</div><div class="s">reported, not judged</div></div>
+          <div><div class="k">late</div><div class="v">3</div><div class="s">after settle closed</div></div>
+        </div>
+
+        <div class="lines">
+          <div class="ln"><span class="k">issue</span><span class="v">first send <b>10:12:04.204</b> · 300,000 left the socket in <b>10m 0s</b> · <b>500</b>/s · prepared in <b>96</b>ms · per message: 131, 60 · once per lane: 55, 167</span></div>
+          <div class="ln"><span class="k">rate</span><span class="v">500/s requested · held 10m · max lag 12ms</span></div>
+          <div class="ln"><span class="k">timing</span><span class="v">elapsed <b>10m 1.4s</b> (first send → last matched) · drain <b>1.4s</b> (last send → last matched)</span></div>
+          <div class="ln"><span class="k">round trip</span><span class="v">min <b>0.7ms</b> · p50 <b>3.1ms</b> · p95 <b>7.9ms</b> · p99 <b>96ms</b> · max <b>412ms</b> · mean <b>5.4ms</b> · 300,000 round trips</span></div>
+          <div class="ln"><span class="k">tool</span><span class="v"><span class="ok">clean</span> · 0 discarded · 0 never left the socket · peak 742 outstanding</span></div>
+        </div>
+
+        <div class="pstrip">
+          <div class="bars" id="oldstrip"></div>
+          <div class="cap">matched per second, 120 seconds of 600</div>
+        </div>
+
+        <div class="vfoot">
+          <div class="v ok">COMPLETE  300,000 of 300,000 answered</div>
+          <div class="l">exit 0 · completeness <span class="ok">complete</span> · rate <span class="ok">held</span> · tool <span class="ok">clean</span></div>
+          <div class="l dim">records: ~/.fixtool/loads/20260907-101204-rfq-eur-5y/</div>
+        </div>
+      </div>
+    </div>
+
+    <figcaption>Same run, same numbers, same three judgements. What changes is that the verdict is the first
+      thing you read instead of the last, the two counts that decide it are large and the three that do not
+      are a quiet strip, and the stalls are drawn. Note the strip at the bottom of the "Today" panel: the
+      t+42s stall is in there, four bars wide, with no reference line and no latency beside it.</figcaption>
+
+    <ol class="changes">
+      <li><b>The verdict is the headline.</b> A badge in the header, with the three judgements as pills in the
+        footer. Today it is 12sp at the bottom of a scroll region, which is the last place you look for the
+        answer to "did it pass".
+        <span class="where">LoadRunDocument.kt:259, moved into LoadHeader at :102</span></li>
+      <li><b>Two leads, then a strip.</b> <span class="m">answered</span> and
+        <span class="m">unanswered</span> decide the verdict and get 26sp. Issued, duplicates, late, strays and
+        peak outstanding are one quiet line. Today all five tiles are <code>weight(1f)</code> at 17sp, so
+        "duplicates 0" is as loud as the number that failed the build.
+        <span class="where">LoadRunDocument.kt:145</span></li>
+      <li><b>Draw the run.</b> Answered per second as one column per second, the issued schedule as a line
+        over them, p95 round trip underneath on its own scale, one shared x axis, and a guide joining a
+        throughput dip to its latency spike. 600 seconds fit the plot at about a pixel each, so nothing is
+        averaged away and no downsampling rule is needed below ten minutes. A second is drawn red when it
+        falls under <span class="m">Pacer.TOLERANCE</span>, so the picture cannot disagree with the rate
+        verdict.
+        <span class="where">replaces PerSecondStrip · LoadRunDocument.kt:216 · uses Second.p95Us, today unread</span></li>
+      <li><b>A short run gets a different chart.</b> The round trips as a complementary "still outstanding"
+        curve on log-log axes, so four stragglers out of 4,000 are a visible plateau at 0.1% rather than
+        0.1 of a pixel. Requires the histogram above: this is new collection, not a new view of old data.
+        <span class="where">new: LoadReport histogram + StampMatcher increment · gate on issue.spanMs</span></li>
+      <li><b>Progress you can read.</b> 8dp, with the counts and a remaining estimate beside it. Today's bar is
+        <code>height(3.dp)</code> with no numbers.
+        <span class="where">LoadRunDocument.kt:136</span></li>
+      <li><b>Latency as a stat card,</b> in the idiom <code>LatencyPanel.StatisticsCard</code> established,
+        plus the bucket histogram Mockup D promised. Today it is one 11sp dot-separated sentence, which is a
+        table pretending to be prose. Note this is a <em>new</em> card in that idiom, not a reuse:
+        <code>StatisticsCard</code> is private, takes <code>LatencyStatistics</code>, and shows p90 and
+        stddev that <code>Distribution</code> does not carry.
+        <span class="where">LoadRunDocument.kt:195 · idiom from LatencyPanel.kt:258</span></li>
+      <li><b>Unanswered rows do something.</b> Click opens the request in its session, <span class="m">⌘C</span>
+        copies the wire, and "copy all as FIX" hands the set to a colleague. Today the rows are inert text and
+        the wire is clipped to one line.
+        <span class="where">LoadRunDocument.kt:236</span></li>
+      <li><b>Records are actions, not a printed path.</b> Copy JSON and Reveal records in the header.
+        <span class="where">LoadRunDocument.kt:278</span></li>
+      <li><b>New: Compare…</b> Two runs, one delta line. Load work is comparative by nature, and Recent
+        already lists every run.
+        <span class="where">see below</span></li>
+    </ol>
+  </figure>
+
+
+  <h2>The doors, and the states nobody drew</h2>
+
+  <p>Everything above is the dialog and the document. A run also has to be started and found again, and it
+    has four states the happy path does not cover. Leaving those to whoever builds it is how a redraw ends up
+    looking unfinished in exactly the places that matter, so they are drawn here.</p>
+
+  <h3>Where a run starts and where you find it again</h3>
+
+  <figure>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+      <div>
+        <div class="edge"><span class="cap">the rail's Run menu, today</span></div>
+        <div class="menu" style="margin-top:5px">
+          <div class="grp">scenarios</div>
+          <div class="mi off">… the four scenario items, unchanged</div>
+          <div class="sep"></div>
+          <div class="mi">Load run…<span class="ct">(2)</span></div>
+          <div class="sep"></div>
+          <div class="mi">Recent ▸</div>
+        </div>
+      </div>
+      <div>
+        <div class="edge"><span class="cap">proposed</span></div>
+        <div class="menu" style="margin-top:5px">
+          <div class="grp">scenarios</div>
+          <div class="mi off">… the four scenario items, unchanged</div>
+          <div class="sep"></div>
+          <div class="grp">load</div>
+          <div class="mi on">Load run…<span class="ct">5 lanes on 2 profiles</span></div>
+          <div class="mi">Load set…<span class="ct">3 saved</span></div>
+          <div class="sep"></div>
+          <div class="mi">Recent ▸</div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:280px">
+        <div class="edge"><span class="cap">Recent, merged, today</span></div>
+        <div class="screen" style="margin-top:5px">
+          <div class="recent" style="padding:4px 0">
+            <div class="rr"><span class="mk ok">✓</span><span class="nm">nightly (12)</span><span class="ct">12/12</span></div>
+            <div class="rr"><span class="mk">⚡</span><span class="nm">RFQ EUR 5Y ×4,000 · RFQ Load Client</span><span class="ct">3,996/4,000 ✗</span></div>
+            <div class="rr"><span class="mk">⚡</span><span class="nm">RFQ EUR 5Y · 500/s · RFQ Load Client</span><span class="ct">300,000/300,000</span></div>
+            <div class="rr"><span class="mk no">✗</span><span class="nm">book-a-trade</span><span class="ct">0/1</span></div>
+          </div>
+        </div>
+        <div class="edge" style="margin-top:12px"><span class="cap">proposed</span></div>
+        <div class="screen" style="margin-top:5px">
+          <div class="recent" style="padding:4px 0">
+            <div class="rr"><span class="mk ok">✓</span><span class="kd">▦</span><span class="nm">nightly (12)</span><span class="ct">12/12</span></div>
+            <div class="rr"><span class="mk no">✗</span><span class="kd">⚡</span><span class="nm">RFQ EUR 5Y ×4,000 · RFQ Load Client</span><span class="ct">3,996/4,000</span></div>
+            <div class="rr"><span class="mk ok">✓</span><span class="kd">⚡</span><span class="nm">RFQ EUR 5Y · 500/s · RFQ Load Client</span><span class="ct">300,000/300,000</span></div>
+            <div class="rr"><span class="mk no">✗</span><span class="kd">▦</span><span class="nm">book-a-trade</span><span class="ct">0/1</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>Two real problems in one merged list. A load row's first glyph is <span class="m">⚡</span>,
+      which says <em>kind</em>, while a scenario row's is <span class="m">✓</span> or
+      <span class="m">✗</span>, which says <em>verdict</em>, so the column you scan means two different
+      things. And a passing load run carries no mark at all, because the <span class="m">✗</span> is appended
+      only when the exit code is non-zero (<code>ScenariosRail.kt:1067</code>), while a passing set gets its
+      <span class="m">✓</span>. Verdict first for both, kind second, and every row marked.</figcaption>
+
+    <ol class="changes">
+      <li><b>Verdict in column one, kind in column two,</b> for both row types. One scan answers "did
+        anything fail", the next answers "what was it".
+        <span class="where">ScenariosRail.kt:1057 for sets, :1067 for loads</span></li>
+      <li><b>A passing load run gets a mark.</b> Today it gets whitespace, which reads as "no result" rather
+        than "passed".
+        <span class="where">ScenariosRail.kt:1067</span></li>
+      <li><b>The menu's count says what it counts.</b> "Load run…  (2)" is a count of <em>profiles</em> that
+        can supply lanes (<code>menu.laneProfiles</code>, <code>ScenariosRail.kt:1131</code>), which reads
+        as two lanes. Say "5 lanes on 2 profiles".
+        <span class="where">ScenariosRail.kt:1131</span></li>
+      <li><b>A load group in the menu,</b> because "Load set…" has to go somewhere and a flat list of six
+        items with one separator does not say which three belong together.</li>
+    </ol>
+  </figure>
+
+  <h3>The four states the happy path skips</h3>
+
+  <figure>
+    <div class="edge">
+
+      <div class="one">
+        <span class="cap">stopped · the run was ended by hand, so it is reported and not judged</span>
+        <div class="screen">
+          <div class="dhead2">
+            <span class="badge stop">STOPPED</span>
+            <span class="who">
+              <span class="t">RFQ EUR 5Y · 500/s for 10m · RFQ Load Client</span>
+              <span class="m">stopped at t+3m 56s · 118,942 of 300,000 issued · run=b7f2</span>
+            </span>
+            <span class="acts"><span class="btn">Run this plan again</span><span class="btn">Copy JSON</span></span>
+          </div>
+          <div class="bar2"><i class="ok" style="width:39.4%"></i><i class="stopmark" style="width:2px"></i></div>
+          <div class="barline"><span>118,200 of 118,942 issued were answered</span><span>settled for 4.1s after the stop</span></div>
+          <div class="lead" style="margin-top:6px">
+            <div><span class="k">answered</span><span class="v">118,200</span><span class="s">of what was issued before the stop</span></div>
+            <div><span class="k">unanswered</span><span class="v">742</span><span class="s">outstanding when the stop settled</span></div>
+          </div>
+          <div class="vfoot">
+            <div class="judge"><span class="pill dim">not judged · the run did not finish</span></div>
+            <div class="l dim">A stopped run keeps its records and its numbers and gets no verdict and no exit
+              code. Judging a fraction of a plan against a plan's thresholds would be the one number this
+              report exists to keep honest, made up.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="one">
+        <span class="cap">nothing matched · every chart and the stat card have no data, and the tool can say why</span>
+        <div class="screen">
+          <div class="dhead2">
+            <span class="badge no">UNANSWERED · 4,000</span>
+            <span class="who">
+              <span class="t">RFQ EUR 5Y ×4,000 · RFQ Load Client</span>
+              <span class="m">5 lanes · burst · settle 60s · run=b7f2 · exit 1</span>
+            </span>
+            <span class="acts"><span class="btn">Copy JSON</span><span class="btn">Reveal records</span></span>
+          </div>
+          <div class="bar2"><i class="no" style="width:100%"></i></div>
+          <div class="barline"><span>0 of 4,000 answered</span><span>0.8s issuing · 60.0s settle</span></div>
+          <div class="lead" style="margin-top:6px">
+            <div><span class="k">answered</span><span class="v no">0</span><span class="s">nothing came back</span></div>
+            <div><span class="k">unanswered</span><span class="v no">4,000</span><span class="s">every request</span></div>
+          </div>
+          <div class="strip">
+            <span><b>issued</b> 4,000 requested, engine 4,000, socket 4,000</span>
+            <span><b>strays</b> 4,000</span>
+            <span><b>duplicates</b> 0</span>
+            <span><b>peak outstanding</b> 4,000</span>
+          </div>
+          <div class="sect">
+            <div class="inset bad">
+              <span class="fix"><span class="pill no">likely cause</span></span>
+              <span>4,000 replies arrived and none carried tag <b>131</b>. A reply on a listening session
+                that matches nothing issued is counted as a stray, and there are exactly as many strays as
+                requests. Check the reply tag: FIX 4.4's ExecutionReport carries neither 117 nor 131.</span>
+            </div>
+          </div>
+          <div class="sect">
+            <div class="shead">Round trip <span class="note">no samples</span></div>
+            <div class="empty"><b>Nothing was answered, so there is no distribution.</b>
+              <span class="hint">The percentiles, the histogram and the outstanding curve all need at least
+                one matched reply. The 4,000 unanswered requests are listed below.</span></div>
+          </div>
+          <div class="vfoot">
+            <div class="judge">
+              <span class="pill no">completeness · unanswered</span>
+              <span class="pill dim">rate · n/a, burst</span>
+              <span class="pill ok">tool · clean</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="one">
+        <span class="cap">pruned · the record is gone, which is not an error</span>
+        <div class="screen">
+          <div class="dhead2">
+            <span class="badge dimb">NO RECORD</span>
+            <span class="who">
+              <span class="t">RFQ EUR 5Y ×4,000 · RFQ Load Client</span>
+              <span class="m">started 2026-08-14 09:02 · pruned</span>
+            </span>
+          </div>
+          <div class="sect" style="border-top:none">
+            <div class="empty">
+              <b>This load run is no longer on disk.</b>
+              <span class="hint">The loads directory keeps the most recent runs and this one has been pruned.
+                Its plan is still here, so it can be run again.</span>
+              <span class="hint"><span class="btn" style="margin-top:6px">Run this plan again</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="edge"><span class="cap" style="text-transform:none;letter-spacing:0;font-family:var(--serif);font-size:0.93rem;color:var(--muted)">
+          Today this is one sentence in <code>textSecondary</code> at the top left of an otherwise empty pane
+          (<code>LoadRunDocument.kt:55</code>). The sentence is good. What is missing is that the plan
+          survives the record, so the one thing you want from this screen is a button.</span></div>
+      </div>
+
+      <div class="one">
+        <span class="cap">narrow · the document shares a split with the rail, so it can be 460px</span>
+        <div class="screen" style="max-width:460px">
+          <div class="dhead2">
+            <span class="badge ok">COMPLETE</span>
+            <span class="who">
+              <span class="t">RFQ EUR 5Y · 500/s</span>
+              <span class="m">5 lanes · exit 0</span>
+            </span>
+            <span class="acts"><span class="btn">⋯</span></span>
+          </div>
+          <div class="bar2"><i class="ok" style="width:100%"></i></div>
+          <div class="barline"><span>300,000 answered</span><span>10m 00s</span></div>
+          <div class="lead" style="margin-top:6px">
+            <div><span class="k">answered</span><span class="v" style="font-size:20px">300,000</span><span class="s">any session</span></div>
+            <div><span class="k">unanswered</span><span class="v" style="font-size:20px">0</span><span class="s">none left</span></div>
+          </div>
+          <div class="strip">
+            <span><b>issued</b> 300,000</span>
+            <span><b>duplicates</b> 0</span>
+            <span><b>late</b> 3</span>
+            <span><b>strays</b> 0</span>
+            <span><b>peak</b> 742</span>
+          </div>
+          <div class="sect">
+            <div class="shead">Round trip <span class="note">300,000 samples</span></div>
+            <div class="statcard">
+              <div class="statrow narrow3">
+                <div><div class="sk">min</div><div class="sv">0.7ms</div></div>
+                <div><div class="sk">p50</div><div class="sv">3.1ms</div></div>
+                <div><div class="sk">p95</div><div class="sv">7.9ms</div></div>
+                <div><div class="sk">p99</div><div class="sv warn">96ms</div></div>
+                <div><div class="sk">max</div><div class="sv no">412ms</div></div>
+                <div><div class="sk">mean</div><div class="sv">5.4ms</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="sect">
+            <div class="shead">Throughput <span class="note">scrolls sideways, never the page</span></div>
+            <div class="empty" style="padding:8px;text-align:left">
+              <span class="hint" style="margin:0">the chart keeps its own horizontal scroll at this width, so
+                the 600 columns stay one pixel each instead of being resampled to fit</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <figcaption>Four states, four rules. A stopped run is reported and not judged. A run with nothing matched
+      spends its empty chart slot on the reason instead of an axis. A pruned record offers the one action its
+      surviving plan allows. And at 460px the leads drop to 20sp, the stat row goes to three columns, the
+      header actions collapse to an overflow, and the chart scrolls inside itself rather than pushing the
+      pane sideways.</figcaption>
+
+    <ol class="changes">
+      <li><b>Stopped gets no verdict and no exit code.</b> Judging a fraction of a plan against that plan's
+        thresholds invents the one number this report exists to keep honest. Today the verdict block prints
+        "STOPPED  after N of M issued" in <code>textSecondary</code>, which is right, and the three
+        judgement names below it are not.
+        <span class="where">LoadRunDocument.kt:265</span></li>
+      <li><b>An empty chart slot carries the diagnosis.</b> When <code>matched == 0</code> and
+        <code>strays</code> is about equal to <code>leftSocket</code>, replies <em>are</em> arriving and none
+        carry the reply tag, which is a match misconfiguration and the tool already has every number needed
+        to say so. This is the single most useful sentence the load run could add, and it costs a comparison.
+        <span class="where">Replies.strays, already counted, never surfaced</span></li>
+      <li><b>The pruned pane gets a button,</b> because the plan outlives the record.
+        <span class="where">LoadRunDocument.kt:55</span></li>
+      <li><b>Narrow is specified, not hoped for.</b> Leads 26sp to 20sp, stat row six columns to three, header
+        actions to an overflow, chart in its own horizontal scroll.</li>
+    </ol>
+  </figure>
+
+  <h3>Keyboard, and what the focus ring lands on</h3>
+
+  <p>The redraw's case rests partly on real controls, so it owes an account of what "real" buys. Tab order
+    follows the reading order: template picker, view message, profile picker, shape segment, count, the four
+    preset chips, settle, the Advanced disclosure, then the footer. Inside Advanced, the two tag fields, the
+    reply-type picker, the listen checkboxes, the store radios. Space toggles a segment, a chip, a checkbox
+    and a radio. Arrow keys move within the shape segment and within the radio group, which is what makes a
+    radio group a group rather than two independent buttons, and is precisely what
+    <code>Modifier.selectable</code> does not give today.</p>
+
+  <p><b>Esc cancels and Ctrl+Enter (⌘Enter on macOS) runs.</b> The footer hint has to read
+    <span class="m">⌘↵</span> or <span class="m">Ctrl+↵</span> per platform: this app ships on Mac and
+    Windows, and the mockups above show only the Mac form. The focus ring is the app's existing
+    <code>AppTheme.Colors.primary</code> at 1dp, the same one <code>SlimField</code> already draws on focus,
+    so focus looks like one thing across the dialog rather than a Material ripple on some rows and a border
+    on others.</p>
+
+  <h2>How Compare works</h2>
+
+  <p>Everything above is a redraw of what exists. Compare is the only addition, and it is small, because both
+    runs are already on disk: it reads two <code>load.json</code> records and subtracts them. Nothing is
+    rerun, so a run the CLI made overnight compares against one you fired in the app an hour ago.</p>
+
+  <figure>
+    <div class="screen" style="max-width:660px">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Compare</span><span class="sub" style="margin-left:auto">two runs from Recent</span></div>
+      <div class="sect" style="border-top:none">
+        <div class="shead">RFQ EUR 5Y · 500/s for 10m
+          <span class="note">before the acceptor fix (2026-09-06 17:41) → after (2026-09-07 10:12)</span>
+        </div>
+        <table class="tbl">
+          <thead><tr><th></th><th>before</th><th>after</th><th>delta</th></tr></thead>
+          <tbody>
+            <tr><td>answered</td><td class="id">299,923</td><td class="id">300,000</td><td class="better">+77</td></tr>
+            <tr><td>unanswered</td><td class="id" style="color:var(--app-bad)">77</td><td class="id">0</td><td class="better">cleared</td></tr>
+            <tr><td>p50 round trip</td><td class="id">61ms</td><td class="id">3.1ms</td><td class="better">−95%</td></tr>
+            <tr><td>p95 round trip</td><td class="id">212ms</td><td class="id">7.9ms</td><td class="better">−96%</td></tr>
+            <tr><td>p99 round trip</td><td class="id">1.4s</td><td class="id">96ms</td><td class="better">−93%</td></tr>
+            <tr><td>stalls over 100ms p95</td><td class="id">41 seconds</td><td class="id">8 seconds</td><td class="better">−33s</td></tr>
+            <tr><td>tool</td><td class="id" style="color:var(--app-good)">clean</td><td class="id" style="color:var(--app-good)">clean</td><td style="color:var(--app-dim)">same</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <figcaption>The real numbers this would have shown on 2026-09-06, when a shorthand timestamp in an
+      acceptor reply was costing a Kotlin compile per message. That finding took a hand-read of two JSON
+      files. It should be a button.</figcaption>
+
+    <div class="edge" style="margin-top:18px">
+      <div class="one">
+        <span class="cap">and the state that makes the feature trustworthy</span>
+        <div class="screen" style="max-width:660px">
+          <div class="screen-bar"><span class="dot"></span><span class="ttl">Compare</span></div>
+          <div class="dhead2">
+            <span class="badge dimb">NOT COMPARABLE</span>
+            <span class="who">
+              <span class="t">RFQ EUR 5Y ×4,000 vs Hit EUR 5Y ×4,000</span>
+              <span class="m">both on RFQ Load Client · both 5 lanes · both burst</span>
+            </span>
+            <span class="acts"><span class="btn">Pick another run</span></span>
+          </div>
+          <div class="sect" style="border-top:none">
+            <div class="inset bad">
+              <span class="fix"><span class="pill no">why</span></span>
+              <span>These two runs measured different exchanges. The first matched
+                <b>131 QuoteReqID</b> on a reply of type <b>S</b>, the second matched <b>11 ClOrdID</b> on a
+                reply of type <b>8</b>. A round trip means a different thing in each, so subtracting their
+                percentiles would produce a number that looks like an answer and is not one.</span>
+            </div>
+            <table class="tbl" style="margin-top:10px">
+              <thead><tr><th></th><th>this run</th><th>the other</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>request type</td><td class="id">35=R</td><td class="id">35=D</td><td style="color:var(--app-bad)">differs</td></tr>
+                <tr><td>match tags</td><td class="id">131 → 131</td><td class="id">11 → 11</td><td style="color:var(--app-bad)">differs</td></tr>
+                <tr><td>reply type</td><td class="id">S</td><td class="id">8</td><td style="color:var(--app-bad)">differs</td></tr>
+                <tr><td>lanes</td><td class="id">5</td><td class="id">5</td><td style="color:var(--app-dim)">same</td></tr>
+                <tr><td>shape</td><td class="id">×4,000 burst</td><td class="id">×4,000 burst</td><td style="color:var(--app-dim)">same</td></tr>
+              </tbody>
+            </table>
+            <div class="legend"><span>the three rows that decide are named first, so it is obvious which one
+              to change if you meant to compare something else</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </figure>
+
+  <dl class="mech">
+    <div>
+      <dt>Where it opens from</dt>
+      <dd>"Compare…" in the document header, which lists the runs comparable with this one, or two runs
+        selected in Recent. Both read from <code>~/.fixtool/loads/&lt;id&gt;/load.json</code>.</dd>
+    </div>
+    <div>
+      <dt>What makes two runs comparable</dt>
+      <dd>The two plans must agree on the exchange being measured: same request MsgType, same match tags,
+        same reply type. Those three decide what a round trip <em>is</em>. Everything else may differ and is
+        shown as context rather than as a delta: lane count, shape, rate, settle window, store choice.</dd>
+    </div>
+    <div>
+      <dt>What it refuses, and why that is the point</dt>
+      <dd>If the match differs, Compare names the difference instead of showing a delta. A run matching on
+        <span class="m">131 QuoteReqID</span> and one matching on <span class="m">11 ClOrdID</span> measured
+        two different things, and a tool that will cheerfully subtract them is a tool that produces confident
+        wrong numbers.</dd>
+    </div>
+    <div>
+      <dt>What is compared</dt>
+      <dd>The counts (answered, unanswered, duplicates, late, strays), the six round-trip percentiles, the
+        rate verdict and max lag, the whole tool block, and two derived measures the single-run document does
+        not show: peak outstanding, and the number of seconds whose p95 crossed a threshold.</dd>
+    </div>
+    <div>
+      <dt>Which direction counts as better</dt>
+      <dd>Completeness up, latency down, tool counts down. Anything the tool cannot rank shows the pair and
+        "same" or "changed", never an arrow. A percentage appears only where the earlier value is non-zero,
+        so <span class="m">77 → 0</span> reads "cleared" rather than "−100%".</dd>
+    </div>
+    <div>
+      <dt>The threshold row</dt>
+      <dd>"stalls over 100ms p95" counts seconds in <code>perSecond</code> whose <code>p95Us</code> exceeded
+        the threshold. This one genuinely is free: the final report does carry <code>perSecond</code> with
+        its per-second <code>p95Us</code>, unlike the round-trip samples. The
+        threshold is editable and defaults to a fixed 100ms, applied identically to both runs. Deriving it
+        per run (say 10× that run's own p50) would ask each run a different question and make the row
+        meaningless.</dd>
+    </div>
+    <div>
+      <dt>Sets compare phase by phase</dt>
+      <dd>Aligned by position and name, one row per phase plus a set roll-up. A phase present in one set and
+        not the other reads as added or removed, not as a delta from zero.</dd>
+    </div>
+  </dl>
+
+
+  <h2>Load sets, and whether this design survives them</h2>
+
+  <p><a href="https://github.com/amitgupta1202/FixTool/issues/45">#45</a> asks for ordered phases under one
+    seed with one report: burst QuoteRequests, then hit the quotes, then cancel what is left. The question is
+    whether the redraw above survives that, or has to be undone for it. <b>Nothing in this section is
+    proposed as part of the redraw.</b> #45 is its own issue and its own build. What the two figures below
+    buy is the knowledge that the redraw is not a dead end, plus the four things #45 will need that are
+    cheaper to know now than to discover later, one of which (<code>LoadPlan.problems()</code>) is worth
+    doing while the dialog is already open.</p>
+
+  <p class="kicker">Not in this work · drawn to prove the redraw does not have to be undone for it</p>
+
+  <p>It survives, and the reason is that the pieces were already cut that way. A phase in #45 carries its own
+    template, issuing profile, listen profiles, match tags, reply type, shape and settle window, which is
+    exactly the dialog's body. So the three groups are already a phase editor, and a set is the seed band, an
+    ordered list of phases, and a policy. On the reporting side <code>LoadReportView(report, unmatchedWire,
+    recordsPath, onStop)</code> takes nothing of the view model
+    (<code>LoadRunDocument.kt:79</code>), so it drops into the shape <code>RunSetDocument</code> already
+    uses for twelve scenarios: the entry list at <code>weight(0.28f)</code>, the focused entry's detail at
+    <code>0.72f</code> (<code>RunSetDocument.kt:70</code>).</p>
+
+  <p>The example below is the three-phase RFQ proof with phase two failing, because the interesting thing
+    about a set is what it does when a phase does not pass.</p>
+
+  <h3>The set editor</h3>
+
+  <figure>
+    <div class="screen narrow">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Load set · RFQ round trip</span></div>
+      <div class="dlg2">
+        <div class="setband">
+          <div class="r2">
+            <span class="rl2">Seed</span>
+            <span class="stack">
+              <span class="chips">
+                <span class="fld w88 left">run</span>
+                <span class="sub">=</span>
+                <span class="fld w88 left focus">b7f2</span>
+                <span class="chip">mint a new one per run</span>
+              </span>
+              <span class="sub">minted once and shared by all three phases, so phase 2 addresses
+                <span class="m">${run}</span> ids that phase 1 minted without anything being passed between them</span>
+            </span>
+          </div>
+          <div class="r2">
+            <span class="rl2">Store and log</span>
+            <span class="stack">
+              <span class="chips">
+                <span class="pick">Memory store, no log <span class="chev">▾</span></span>
+                <span class="pill dim">applied once, for the whole set</span>
+              </span>
+              <span class="sub">per phase it would reconnect the lanes between phases, costing a logon and
+                resetting sequence numbers mid-set</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="body">
+          <div class="ghead">Phases, in order</div>
+
+          <div class="phaserow">
+            <span class="grip">⠿</span><span class="n">1</span>
+            <span class="t">Ask for a quote</span>
+            <span class="d">RFQ EUR 5Y · 35=R → S · 131 QuoteReqID · ×4,000 burst · settle 60s</span>
+            <span class="chg">edit</span>
+          </div>
+          <div class="phaserow" style="border-left:2px solid var(--app-bad)">
+            <span class="grip">⠿</span><span class="n">2</span>
+            <span class="t">Hit the quote</span>
+            <span class="d">Hit EUR 5Y · 35=D → 8 · 11 ClOrdID · ×4,000 burst · settle 60s</span>
+            <span class="pill no">1 fix</span>
+            <span class="chg">edit</span>
+          </div>
+          <div class="inset bad" style="margin:-2px 0 0 26px">
+            <span class="fix"><span class="pill no">fix</span></span>
+            <span>The template reads <span class="m">${desk}</span> and nothing seeds it. Add
+              <span class="m">desk=…</span> to the set's seed.</span>
+          </div>
+          <div class="phaserow">
+            <span class="grip">⠿</span><span class="n">3</span>
+            <span class="t">Cancel the rest</span>
+            <span class="d">Cancel EUR 5Y · 35=F → 8 · 11 ClOrdID · ×4,000 burst · settle 30s</span>
+            <span class="chg">edit</span>
+          </div>
+          <div class="phaserow add">+ add a phase</div>
+
+          <div class="ghead">Between phases</div>
+          <div class="r2">
+            <span class="rl2">If a phase fails</span>
+            <span class="stack">
+              <span class="radio on"><i></i>Stop, and skip what is left</span>
+              <span class="radio"><i></i>Carry on, and report every phase</span>
+              <span class="sub">a phase passes when it is COMPLETE and the tool block is clean</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="foot">
+          <span class="ready">3 phases · one seed · 12,000 messages if every phase runs</span>
+          <span class="btn">Copy as <span class="m">fixtool load-set</span></span>
+          <span class="btn">Cancel</span>
+          <span class="btn primary">Run set <span class="kbd">⌘↵</span></span>
+        </div>
+      </div>
+    </div>
+    <figcaption>The seed and the store choice are set-level. The phases are the dialog's own body, collapsed
+      to one line each and reorderable, so the thing you already know how to fill in is the thing a phase is.
+      A phase that would be refused says so on its own row and shows the sentence under it: a set of six
+      phases must never make you open all six to find out why Run set is off, and a count in the footer is no
+      substitute for the sentence.</figcaption>
+  </figure>
+
+  <h3>The set document</h3>
+
+  <figure>
+    <div class="screen">
+      <div class="tabs"><span class="tab">book-a-trade</span><span class="tab on">⚡ RFQ round trip (3) · RFQ Load Client</span></div>
+
+      <div class="dhead2">
+        <span class="badge no">FAILED · PHASE 2</span>
+        <span class="who">
+          <span class="t">RFQ round trip · 3 phases · RFQ Load Client</span>
+          <span class="m">run=b7f2 · 5 lanes · memory store, no log · 1 passed, 1 failed, 1 skipped · exit 1</span>
+        </span>
+        <span class="acts">
+          <span class="btn">Compare…</span>
+          <span class="btn">Copy JSON</span>
+          <span class="btn">Reveal records</span>
+        </span>
+      </div>
+
+      <div class="sect" style="border-top:none">
+        <div class="shead">Where the set's time went
+          <span class="note">issue span solid, settle window hatched · 63.5s wall clock</span>
+        </div>
+        <div class="gantt">
+          <div class="grow">
+            <span class="gl">1 · Ask for a quote</span>
+            <span class="track"><i class="iss" style="width:1.3%"></i><i class="set" style="width:3%"></i></span>
+            <span class="gt">2.7s</span>
+          </div>
+          <div class="grow">
+            <span class="gl">2 · Hit the quote</span>
+            <span class="track"><i class="pad" style="width:4.3%"></i><i class="iss" style="width:1.3%"></i><i class="set" style="width:94.4%"></i></span>
+            <span class="gt">60.8s</span>
+          </div>
+          <div class="grow skipped">
+            <span class="gl">3 · Cancel the rest</span>
+            <span class="track"></span>
+            <span class="gt">skipped</span>
+          </div>
+        </div>
+        <div class="legend">
+          <span style="color:var(--app-warn)">60.0s of the set's 63.5s was phase 2's settle window, waiting
+            for four replies that never came</span>
+        </div>
+      </div>
+
+      <div class="split">
+        <div class="rail">
+          <div class="railrow"><span class="mk ok">✓</span><span class="nm">Ask for a quote</span><span class="num">4,000</span></div>
+          <div class="railrow on"><span class="mk no">✗</span><span class="nm">Hit the quote</span><span class="num">3,996</span></div>
+          <div class="railrow dim"><span class="mk skip">⏭</span><span class="nm">Cancel the rest</span><span class="num">—</span></div>
+        </div>
+        <div class="detail">
+          <div class="dhead2" style="background:var(--app-variant)">
+            <span class="badge no">UNANSWERED · 4</span>
+            <span class="who">
+              <span class="t">2 · Hit the quote</span>
+              <span class="m">Hit EUR 5Y ×4,000 · 11 ClOrdID → 11 · reply 35=8 · settle 60s</span>
+            </span>
+          </div>
+          <div class="bar2"><i class="ok" style="width:99.9%"></i><i class="no" style="width:0.1%;min-width:12px"></i></div>
+          <div class="barline">
+            <span>3,996 of 4,000 answered · <span style="color:var(--app-bad)">4 never came back</span></span>
+            <span>0.8s issuing · 60.0s settle</span>
+          </div>
+          <div class="lead" style="margin-top:6px">
+            <div><span class="k">answered</span><span class="v">3,996</span><span class="s">first reply, on any listening session</span></div>
+            <div><span class="k">unanswered</span><span class="v no">4</span><span class="s">no reply within 60s of the send</span></div>
+          </div>
+          <div class="strip">
+            <span><b>issued</b> 4,000 requested, engine 4,000, socket 4,000</span>
+            <span><b>p50</b> 3.4ms</span>
+            <span><b>p99</b> 104ms</span>
+            <span><b>peak outstanding</b> 1,204</span>
+          </div>
+          <div class="sect">
+            <div class="shead">The 4 that never came back
+              <span class="note">every one of them a quote phase 1 answered · click a row to open it in its session</span>
+            </div>
+            <table class="tbl">
+              <thead><tr><th>ClOrdID (11)</th><th>lane</th><th>sent</th><th></th></tr></thead>
+              <tbody>
+                <tr><td class="id">ORD-b7f2-1187</td><td>3 · RFQ03</td><td class="id">10:12:07.443</td><td class="go">open ›</td></tr>
+                <tr><td class="id">ORD-b7f2-2410</td><td>1 · RFQ01</td><td class="id">10:12:07.694</td><td class="go">open ›</td></tr>
+                <tr><td class="id">ORD-b7f2-2411</td><td>2 · RFQ02</td><td class="id">10:12:07.694</td><td class="go">open ›</td></tr>
+                <tr><td class="id">ORD-b7f2-3902</td><td>5 · RFQ05</td><td class="id">10:12:07.998</td><td class="go">open ›</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="vfoot">
+            <div class="judge">
+              <span class="pill no">completeness · unanswered</span>
+              <span class="pill dim">rate · n/a, burst</span>
+              <span class="pill ok">tool · clean</span>
+            </div>
+            <div class="l dim">the phase's own chart, round trip card and tool block are the single-run
+              document above, unchanged</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>The rail carries the phase list and its three marks. The pane to its right is the single-run
+      document, which is why nothing new had to be designed for it. Above both, the two things a set has and
+      a run does not: a set verdict that names the phase that failed, and a timeline that says where the
+      wall clock went.</figcaption>
+
+    <ol class="changes">
+      <li><b>A phase is the dialog's body.</b> Nothing about the three groups changes, which is the test the
+        grouping had to pass.</li>
+      <li><b>The seed is set-level,</b> and so is the store choice. That second one is not cosmetic:
+        <code>StoreAndLogOverride</code> reconnects the lanes to apply, so applying it per phase would cost a
+        logon between phases and reset sequence numbers mid-set.
+        <span class="where">ViewModelLoadHost.kt:72 applies the override today</span></li>
+      <li><b><code>LoadReportView</code> is reusable, with its two ends replaced.</b> It already takes a
+        report and no view model, which is the hard part. Its <code>LoadHeader</code> and
+        <code>Verdict</code> both assume one run, and the set swaps them for a phase badge and a footer with
+        no records path, so the body is extracted and the ends become parameters.
+        <span class="where">LoadRunDocument.kt:79, header :102, verdict :259 · RunSetDocument.kt:70</span></li>
+      <li><b>A phase needs a SKIPPED state,</b> which a single run has no concept of. <code>LoadStatus</code>
+        gains it, and the JUnit writer maps it to <code>&lt;skipped/&gt;</code>, which is what a build server
+        already knows how to read.
+        <span class="where">LoadStatus · LoadReportCodec junit writer</span></li>
+      <li><b>The set needs a timeline.</b> "Where did 63 seconds go" is a set-level question that no
+        per-phase chart answers, and the answer here (95% of the set was one settle window) is the sort of
+        thing you want to see before you tune anything.</li>
+      <li><b>The refusals must leave the composable.</b> A phase has to validate identically in the app, in
+        <code>fixtool load --set</code> and over <code>POST /load</code>, so the inline
+        <code>listOfNotNull(...)</code> becomes <code>LoadPlan.problems()</code>. This is a prerequisite for
+        #45, not a cleanup after it.
+        <span class="where">LoadRunDialog.kt:104 to :116</span></li>
+    </ol>
+  </figure>
+
+  <h2>Per-session numbers</h2>
+
+  <p>The report is aggregate today. Per-lane numbers are cheaper to collect than they look, because the lane
+    is already in hand: <code>StampMatcher.Pending</code> carries <code>laneSlot</code>
+    (<code>StampMatcher.kt:42</code>), <code>record()</code> already receives that <code>Pending</code>
+    (<code>:165</code>), and every match already serialises on <code>synchronized(samples)</code>
+    (<code>:167</code>). So a per-lane write is one <code>int</code> into a parallel list inside a critical
+    section that already exists. At 300,000 samples that is 1.2MB beside the 2.4MB of round trips already
+    kept, partitioned and sorted in <code>finish()</code> rather than during the run.</p>
+
+  <p>The cost is not performance, it is the screen, and the two halves of "per-session" are not equally
+    worth showing.</p>
+
+  <ul class="prose">
+    <li><b>Per-lane completeness is sound and useful.</b> Unanswered, duplicates and matched per lane are
+      unaffected by how the run was driven. Four unanswered requests all on one lane is a finding, and the
+      data is already there: <code>UnmatchedRequest.lane</code> exists and the table above already prints the
+      column.</li>
+    <li><b>Per-lane latency would partly measure FixTool.</b> <code>LoadRunner.kt:97</code> drives every lane
+      from one pacer loop, rendering and sending on that thread, round-robin. With 50 lanes the last lane in
+      a cycle is issued systematically later than the first by roughly 49 × the per-message cost. That is
+      small against a 3ms p50 and it is <em>systematic per lane</em>, which is the exact shape of a false
+      finding: lane 50 looks slightly worse forever, and somebody goes looking for it in the venue.</li>
+    <li><b>A 50 × 6 matrix answers no question anyone asks.</b> The real question is "is any lane much worse
+      than the rest", which is one sentence.</li>
+  </ul>
+
+  <h2>The type scale, which is the actual fix</h2>
+
+  <p>The app has no named type scale. Sizes are literals at every call site, and the load screens use two of
+    them for everything. Four roles cover both screens, and would give the rest of the app somewhere to
+    converge.</p>
+
+  <table class="scale">
+    <thead>
+      <tr><th>token</th><th>size</th><th>weight</th><th>carries</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="tok">Type.figure</td><td>26sp mono</td><td>400</td><td class="ex">the two counts that decide the verdict</td></tr>
+      <tr><td class="tok">Type.head</td><td>13sp sans</td><td>600</td><td class="ex">the verdict badge, a section head</td></tr>
+      <tr><td class="tok">Type.body</td><td>11.5sp sans</td><td>400</td><td class="ex">a row's value, a table cell, a refusal</td></tr>
+      <tr><td class="tok">Type.meta</td><td>10sp mono</td><td>400</td><td class="ex">a group head, an axis label, a records path</td></tr>
+      <tr><td class="tok" colspan="4" style="color:var(--bad);font-family:var(--sans);font-size:0.86rem;white-space:normal">
+        <b>And one colour change with it.</b> <span class="m">Type.meta</span> is drawn today in
+        <span class="m">textDisabled</span> <span class="m">#6A6A6A</span>, which on
+        <span class="m">#1E1E1E</span> is about 3.1:1 and fails AA for 10sp text. Lighten
+        <span class="m">textDisabled</span> to about <span class="m">#8A8A8A</span> (4.6:1) before a token
+        makes that pairing the house rule. It affects the whole app, which is the point of doing it with the
+        scale rather than after it.</td></tr>
+    </tbody>
+  </table>
+
+  <p>Today's screens use <span class="m">Type.body</span> and <span class="m">Type.meta</span> only, with one
+    17sp exception inside <code>Tile</code>. That single missing rank is most of what reads as ugly.</p>
+
+  <h2>What is not changing</h2>
+
+  <ul class="prose">
+    <li>Every refusal sentence, verbatim, including the em-dash in the far-end notice. They name the cause
+      and the fix, they are the best copy in the app, and <code>storeProblem()</code> is deliberately owned in
+      one place and shared by eight callers so surfaces cannot drift
+      (<code>FixConnectionConfig.kt:92</code>). Both panels above now quote what ships. An earlier draft of
+      this note paraphrased them, which is exactly the drift that KDoc exists to prevent.</li>
+    <li>The three separate judgements, completeness, rate and tool. That model is right and only its
+      presentation moves.</li>
+    <li>"Issued is three numbers" (requested, handed to the engine, left the socket). It moves to the quiet
+      strip, and stays.</li>
+    <li>The far-end notice, which warns and does not refuse.</li>
+    <li>Every <code>testTag</code>, so the tests keep pointing at the same things. Their
+      <em>assertions</em> do change, and pretending otherwise was wrong: <code>LoadRunDocumentTest</code>
+      asserts <code>load-state</code> contains "unmatched 4", <code>load-verdict</code> contains
+      "UNMATCHED  4 of 4,000" and "RUNNING", and <code>load-unmatched-label</code> contains "pending", all of
+      which this note renames to "unanswered", "ISSUING" and "outstanding".
+      <code>LoadRunDialogTest</code> clicks <code>load-store-profile</code>, which now lives inside a
+      collapsed Advanced. Updating them is part of the work, and the store test is the reason Advanced has to
+      open itself when something inside it is addressed.</li>
+  </ul>
+
+  <h2>Order of work</h2>
+
+  <ol class="prose">
+    <li><b>Controls and scale.</b> The slim radio, checkbox and segmented control in
+      <code>SlimComponents.kt</code>, the four <code>Type</code> tokens in <code>Theme.kt</code>, and
+      <code>textDisabled</code> lightened to clear AA. Nothing load-specific, and the other dialogs that use
+      the glyph trick can follow later.</li>
+    <li><b>The dialog, and <code>LoadPlan.problems()</code> with it.</b> Groups, Advanced that opens itself,
+      pinned footer, inline refusals, presets, persistence. The refusals move out of the composable in the
+      same pass, because they are what Advanced keys off and because #45 needs them headless.</li>
+    <li><b>The document.</b> Verdict header, leads and strip, 8dp progress, the stat card, actionable
+      unanswered rows, and the four edge states.</li>
+    <li><b>The measurements the charts need.</b> A 30-bucket log histogram on <code>LoadReport</code> and in
+      the codec, incremented in <code>StampMatcher</code>; per-second counters and per-second p95 maintained
+      incrementally with a <code>bucketsSoFar()</code>; per-lane completeness counts. Engine work, no UI, and
+      the reason the charts moved from step 4 to step 5.</li>
+    <li><b>The charts.</b> Compose <code>Canvas</code>: the per-second panel with its p95 panel and stall
+      guides, and the outstanding curve on log-log, gated on <code>issue.spanMs</code>.</li>
+    <li><b>One record shape.</b> A run becomes a one-phase set on disk, with a reader for the records already
+      in <code>~/.fixtool/loads</code>. Before Compare, because Compare reads that schema.</li>
+    <li><b>Compare,</b> its own tab, with the not-comparable state built first.</li>
+    <li><b>The render-ahead producer, then per-lane latency.</b> Each lane renders ahead of its own sends, so
+      the per-lane numbers stop being a picture of the pacer's round-robin. Only then is per-lane latency
+      collected and shown.</li>
+  </ol>
+
+  <p>Steps 1 to 3 answer "it is ugly" and depend on nothing else. Steps 4 to 7 answer "it is not intuitive",
+    and step 4 is the one an earlier draft of this note wrongly called free. Step 8 is there because a number
+    worth showing has to be made honest first, which is a step and not a caveat.</p>
+
+  <h2>Decisions</h2>
+
+  <p>Every question below was put with options and a recommendation on 2026-09-07. The nine marked
+    <span class="m">decided</span> were answered, and each took the recommendation. The four marked
+    <span class="m">assumed</span> were not put, because the recommendation carries little risk and is
+    reversible: they stand unless overruled. The one marked <span class="m">superseded</span> was decided and
+    then withdrawn, because its answer was a deferral: it put a number on screen that this note itself calls
+    a false finding, and hid it well enough that the cause would never get fixed.</p>
+
+  <p class="kicker">The redraw</p>
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Bespoke slim controls, or Material3 scaled down?</div>
+      <div class="a"><strong>Bespoke, in SlimComponents.kt.</strong> Material3's <code>RadioButton</code> is
+        20dp with a 48dp minimum interactive size and will not sit in a 24dp row. The app already made this call for text
+        fields and buttons.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>Should Advanced be collapsed by default?</div>
+      <div class="a"><strong>Collapsed when everything inside it is fine, open whenever a refusal names
+        anything inside it.</strong> Match is inferred whenever the template carries a correlation tag and
+        the memory store is the recommendation, so the common case is a one-line summary. The rule is not
+        limited to a failed inference: the store problem, the reply type and the listen set all live in there
+        too, and a collapsed group hiding the control a refusal points at would break the claim that refusals
+        sit next to their cause. It also has to yield to a test, since
+        <code>LoadRunDialogTest</code> clicks <code>load-store-profile</code>.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>The chart: Compose Canvas, or a charting dependency?</div>
+      <div class="a"><strong>Canvas.</strong> Two stacked panels, bars, a step line and a polyline. It is
+        under 200 lines and adds no dependency to a tool that ships as a desktop bundle.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Compare in the same document, or its own tab?</div>
+      <div class="a"><strong>Its own tab,</strong> opened from the header. A document that sometimes has two
+        columns is two layouts pretending to be one.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>Is "Copy as fixtool load" worth the button?</div>
+      <div class="a"><strong>Yes.</strong> The gap between a run someone tuned by hand in the app and the line
+        that gates their build is exactly this button, and the CLI already accepts every field the dialog
+        collects.</div>
+    </div>
+  </div>
+
+  <p class="kicker">Load sets (#45)</p>
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Is a single run a set of one?</div>
+      <div class="a"><strong>One shape on disk, two doors in the UI.</strong> Make the record a set with one
+        phase so there is one reader, one JSON schema and one Compare. Do not make anyone build a set to fire
+        one burst: "Load run…" stays exactly as it is, and saves as a one-phase set behind the scenes.
+        <b>Sequencing consequence:</b> this changes the <span class="m">load.json</span> schema that both the
+        document and Compare read, so it has to land <em>before</em> Compare rather than with #45, and it
+        needs a reader for the records already in <span class="m">~/.fixtool/loads</span>. It is therefore
+        in the order of work below, not in #45's.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Should the seed be the run id only, or can a phase read values an earlier phase received?
+        (#45 raises this itself)</div>
+      <div class="a"><strong>Run id only, and make the other one its own issue.</strong> Reading a
+        venue-minted OrderID out of phase one needs a capture rule per phase, somewhere to put the captured
+        values, and a policy for what happens when a capture is missing. That is a scenario feature wearing a
+        load feature's clothes, and the three flows in #45 do not need it: derivable ids
+        (<span class="m">${run}</span> plus <span class="m">${messageIndex}</span>) cover all of them.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Should phase 2 address only the ids phase 1 actually matched?</div>
+      <div class="a"><strong>No by default, and offer it later as an opt-in.</strong> Addressing all 4,000
+        keeps the ids derivable, which is the whole reason no state has to pass between phases. It is also
+        often the better test: a cancel for an order the venue never acknowledged is a case worth firing on
+        purpose. When somebody wants the other behaviour, "only ids the previous phase matched" is a checkbox
+        on the phase, not a redesign.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>What is the default when a phase fails?</div>
+      <div class="a"><strong>Stop and skip the rest,</strong> as #45 proposes, and report the skipped phases
+        rather than dropping them. A set that quietly reports two phases when three were asked for is worse
+        than one that says "skipped".</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>One continuous throughput chart across the phases, or one per phase?</div>
+      <div class="a"><strong>Per phase, plus a set-level timeline.</strong> I argued for the continuous chart
+        first and it is wrong: phases are mostly settle, so a shared time axis spends 95% of its width on
+        empty seconds and squeezes the interesting 0.8s into eight pixels. The timeline says where the clock
+        went in three rows, and each phase keeps its own chart on its own axis.</div>
+    </div>
+  </div>
+
+  <p class="kicker">Compare</p>
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>More than two runs at once?</div>
+      <div class="a"><strong>Two.</strong> Two runs is a question ("did the fix work"). Three is a table, and
+        at that point the answer is <span class="m">Copy JSON</span> and a spreadsheet.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>Should Compare offer to rerun the older plan?</div>
+      <div class="a"><strong>Yes, as one button, and only when the plan is still valid.</strong> "Run this
+        plan again" is the natural next click after seeing a regression, and the plan is in the record. It
+        should refuse when the template or profile the plan names no longer exists, rather than silently
+        substituting.</div>
+    </div>
+  </div>
+
+  <p class="kicker">Per-session numbers</p>
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Collect per-lane, and show how much?</div>
+      <div class="a"><strong>Collect all of it, put all of it in <span class="m">load.json</span>, show
+        it.</strong> Collection is one int per matched reply inside a critical section that already exists,
+        so there is no reason to decide against it. On screen: per-lane completeness beside the unanswered
+        table, where it is already half present, and per-lane latency in a sortable lane table.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag sup">superseded</span>Fix the pacer first, or ship the lane latency with a caveat?</div>
+      <div class="a"><strong>Fix the pacer.</strong> The earlier answer was to ship it behind a drill-down and
+        not headline it until the render-ahead producer existed. That is a deferral: it puts a number on
+        screen that this very note calls a false finding, and hides it well enough that nobody fixes the
+        cause. <code>LoadRunner.kt:97</code> renders and sends every lane from one pacer loop, so lane N is
+        issued systematically later than lane 1 by roughly (N−1) × the per-message cost. Give each lane a
+        render-ahead producer so its sends are not queued behind every other lane's rendering, and the
+        per-lane numbers become worth showing plainly. Until that exists, per-lane <em>latency</em> is not
+        collected and not shown. Per-lane <em>completeness</em> is unaffected by the ordering and ships
+        either way.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Figure tabs. Each button names the panel it shows, and its siblings hide.
+  document.querySelectorAll(".figtabs").forEach(function (bar) {
+    var buttons = Array.prototype.slice.call(bar.querySelectorAll("button[data-panel]"));
+
+    function select(btn) {
+      buttons.forEach(function (other) {
+        var on = other === btn;
+        other.setAttribute("aria-selected", String(on));
+        other.tabIndex = on ? 0 : -1;
+        var panel = document.getElementById(other.dataset.panel);
+        if (panel) panel.hidden = !on;
+      });
+    }
+
+    buttons.forEach(function (btn, i) {
+      // A tab owns its panel, and the panel says so back.
+      btn.setAttribute("aria-controls", btn.dataset.panel);
+      btn.tabIndex = btn.getAttribute("aria-selected") === "true" ? 0 : -1;
+      var panel = document.getElementById(btn.dataset.panel);
+      if (panel) {
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-label", btn.textContent.trim());
+      }
+      btn.addEventListener("click", function () { select(btn); });
+      btn.addEventListener("keydown", function (e) {
+        // Left and right move between tabs, which is what a tablist owes a keyboard.
+        var step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        var next = buttons[(i + step + buttons.length) % buttons.length];
+        select(next);
+        next.focus();
+      });
+    });
+  });
+
+  // The Advanced disclosure in the proposed dialog.
+  document.querySelectorAll("[data-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var body = document.getElementById(btn.dataset.toggle);
+      var open = body.hidden;
+      body.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+      btn.querySelector(".car").textContent = open ? "▾" : "▸";
+      var summ = btn.querySelector(".summ");
+      if (summ) summ.style.visibility = open ? "hidden" : "visible";
+    });
+  });
+
+  /* ---------------------------------------------------------------
+     The run: 600 seconds at 500/s, with two stalls where the venue's
+     replies fell behind while the pacer held its schedule.
+     Columns of 5 seconds. A column keeps the WORST answered second
+     and the HIGHEST p95 inside it, so a stall cannot average away.
+  --------------------------------------------------------------- */
+  /* ---------------------------------------------------------------
+     The run: 600 seconds at 500/s, with two four-second stalls where
+     the venue's replies fell behind while the pacer held its schedule.
+
+     One column per second, not per five. An earlier draft downsampled
+     to five-second columns keeping the "worst second", which is both
+     impossible to reconcile with the mock (a column holding a 688/s
+     catch-up second cannot have a worst second above 500) and wrong on
+     real data: min-of-five on a run with ordinary jitter parks every
+     column under the schedule line, so a healthy run reads as a
+     sustained shortfall. 600 seconds fit the 628px plot at about 1px
+     each. Downsample only past ten minutes, and then as a min-to-max
+     range rather than a single value.
+
+     A second counts as behind when it falls under the pacer's own
+     floor, 500/s less Pacer.TOLERANCE of 2%, so the picture and the
+     rate verdict cannot disagree.
+  --------------------------------------------------------------- */
+  var TOLERANCE = 0.02;
+
+  function runColumns(count) {
+    var stalls = {
+      42: [318, 120], 43: [330, 150], 44: [342, 180], 45: [354, 210],
+      46: [688, 58], 47: [640, 24], 48: [560, 12],
+      318: [354, 176], 319: [340, 150], 320: [336, 168], 321: [348, 140],
+      322: [641, 62], 323: [600, 26], 324: [540, 11]
+    };
+    var names = { 42: "t+42s", 318: "t+318s" };
+    var cols = [];
+    for (var i = 0; i < count; i++) {
+      var hit = stalls[i];
+      cols.push({
+        i: i,
+        answered: hit ? hit[0] : 496 + (i % 6) * 2,
+        p95: hit ? hit[1] : 3.6 + (i % 7) * 0.7,
+        stall: names[i] || null
+      });
+    }
+    return cols;
+  }
+
+  function drawChart(host, cols, xTicks) {
+    if (!host) return;
+    var W = 720, L = 46, R = 46, TOP = 10, TH = 96, GAP = 26, BH = 46;
+    var H = TOP + TH + GAP + BH + 34;
+    var plotW = W - L - R;
+    var step = plotW / cols.length;
+    var barW = Math.max(1, Math.min(7, step * 0.86));
+    var behind = 500 * (1 - TOLERANCE);
+    var yMax = 750;          // messages per second
+    var pMax = 240;          // milliseconds
+    var baseY = TOP + TH;
+
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label",
+      "Answered per second against the issued schedule, with p95 round trip below. Two stalls.");
+
+    function el(name, attrs, text) {
+      var n = document.createElementNS(ns, name);
+      for (var k in attrs) n.setAttribute(k, attrs[k]);
+      if (text != null) n.textContent = text;
+      svg.appendChild(n);
+      return n;
+    }
+
+    // One fill for answered, one for a stalled second. The legend swatches use these same two values.
+    var RULE = "#3a3a3a", DIM = "#6a6a6a", TEXT2 = "#b0b0b0";
+    var BAR = "#4a7ba7", WARN = "#ce9178", BAD = "#e06c75";
+
+    // messages-per-second grid and labels, every label naming a value the scale reaches
+    [0, 250, 500, 750].forEach(function (v) {
+      var y = baseY - (v / yMax) * TH;
+      el("line", { x1: L, y1: y, x2: L + plotW, y2: y, stroke: RULE, "stroke-width": v === 0 ? 1 : 0.5 });
+      el("text", {
+        x: L - 6, y: y + 3.4, fill: DIM, "font-size": 9.5, "font-family": "IBM Plex Mono, monospace",
+        "text-anchor": "end"
+      }, v === 750 ? "750/s" : String(v));
+    });
+
+    // a stall guide, drawn under the bars so it shows in the gap and across the p95 panel:
+    // the eye should connect the throughput dip to the latency spike without being told to.
+    var pBaseGuide = TOP + TH + GAP + BH;
+    cols.forEach(function (c) {
+      if (!c.stall) return;
+      var x = L + c.i * step + step / 2;
+      el("line", { x1: x, y1: TOP, x2: x, y2: pBaseGuide, stroke: BAD, "stroke-width": 1, opacity: 0.4 });
+    });
+
+    // bars: answered per second, worst second in the column
+    cols.forEach(function (c) {
+      var x = L + c.i * step + (step - barW) / 2;
+      var h = (Math.min(c.answered, yMax) / yMax) * TH;
+      el("rect", {
+        x: x, y: baseY - h, width: barW, height: h, fill: c.answered < behind ? BAD : BAR
+      });
+    });
+
+    // The schedule lands exactly on the bar tops for almost every second, which is the point,
+    // so it carries a dark halo to stay readable over them.
+    var schedY = baseY - (500 / yMax) * TH;
+    el("line", { x1: L, y1: schedY, x2: L + plotW, y2: schedY, stroke: "#141414", "stroke-width": 4 });
+    el("line", {
+      x1: L, y1: schedY, x2: L + plotW, y2: schedY, stroke: "#e8e8e8",
+      "stroke-width": 1.4, "stroke-dasharray": "5 3"
+    });
+    el("text", {
+      x: L + plotW + 5, y: schedY + 3.4, fill: TEXT2, "font-size": 9.5,
+      "font-family": "IBM Plex Mono, monospace"
+    }, "500/s");
+
+    // p95 panel
+    var pTop = baseY + GAP, pBase = pTop + BH;
+    [0, 100, 200].forEach(function (v) {
+      var y = pBase - (v / pMax) * BH;
+      el("line", { x1: L, y1: y, x2: L + plotW, y2: y, stroke: RULE, "stroke-width": v === 0 ? 1 : 0.5 });
+      el("text", {
+        x: L - 6, y: y + 3.4, fill: DIM, "font-size": 9.5, "font-family": "IBM Plex Mono, monospace",
+        "text-anchor": "end"
+      }, v === 200 ? "200ms" : String(v));
+    });
+    el("text", {
+      x: L + plotW + 5, y: pTop + 4, fill: DIM, "font-size": 9,
+      "font-family": "IBM Plex Mono, monospace"
+    }, "p95");
+
+    var pts = cols.map(function (c) {
+      var x = L + c.i * step + step / 2;
+      var y = pBase - (Math.min(c.p95, pMax) / pMax) * BH;
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    el("polyline", { points: pts.join(" "), fill: "none", stroke: WARN, "stroke-width": 1.4 });
+
+    // peak p95 labelled, since it is the point of the panel
+    var peak = cols.reduce(function (a, b) { return b.p95 > a.p95 ? b : a; });
+    var px = L + peak.i * step + step / 2;
+    var py = pBase - (Math.min(peak.p95, pMax) / pMax) * BH;
+    el("circle", { cx: px, cy: py, r: 2.6, fill: WARN });
+    el("text", {
+      x: px + 6, y: py + 3.4, fill: WARN, "font-size": 9.5,
+      "font-family": "IBM Plex Mono, monospace"
+    }, Math.round(peak.p95) + "ms");
+
+    // shared x axis
+    xTicks.forEach(function (t) {
+      var x = L + (t.col / cols.length) * plotW;
+      el("line", { x1: x, y1: pBase, x2: x, y2: pBase + 3, stroke: RULE, "stroke-width": 1 });
+      el("text", {
+        x: x, y: pBase + 14, fill: DIM, "font-size": 9.5, "font-family": "IBM Plex Mono, monospace",
+        "text-anchor": t.anchor || "middle"
+      }, t.label);
+    });
+
+    // the stalls get their own annotation row, clear of the bars and of the tick labels
+    cols.forEach(function (c) {
+      if (!c.stall) return;
+      var x = L + c.i * step + step / 2;
+      el("text", {
+        x: x, y: pBase + 27, fill: BAD, "font-size": 9.5,
+        "font-family": "IBM Plex Mono, monospace", "text-anchor": "middle"
+      }, c.stall + " · " + c.answered + "/s");
+    });
+
+    host.appendChild(svg);
+  }
+
+  drawChart(document.getElementById("chart"), runColumns(600), [
+    { col: 0, label: "t+0", anchor: "start" },
+    { col: 120, label: "2m" },
+    { col: 240, label: "4m" },
+    { col: 360, label: "6m" },
+    { col: 480, label: "8m" },
+    { col: 600, label: "10m", anchor: "end" }
+  ]);
+
+  drawChart(document.getElementById("chart-live"), runColumns(236), [
+    { col: 0, label: "t+0", anchor: "start" },
+    { col: 60, label: "1m" },
+    { col: 120, label: "2m" },
+    { col: 180, label: "3m" },
+    { col: 236, label: "3m 56s", anchor: "end" }
+  ]);
+
+
+  /* ---------------------------------------------------------------
+     The short-run chart: what is STILL OUTSTANDING, on log-log axes.
+
+     Drawn the other way up on purpose. A plain cumulative curve puts
+     4 unanswered out of 4,000 at 0.1% of the plot height, which is a
+     tenth of a pixel, and an earlier draft of this note conceded that
+     in a legend instead of fixing it. Complementary and logarithmic,
+     the same four become a plateau at 0.1% that the curve never falls
+     off, which is the fact the verdict states.
+
+     It also self-checks: p95 crosses the curve at the 5% gridline and
+     p99 at the 1% gridline, because that is what those words mean.
+
+     Source is the 30-bucket log histogram, so it draws live too.
+  --------------------------------------------------------------- */
+  function drawOutstanding(host, opts) {
+    if (!host) return;
+    var W = 720, L = 52, R = 46, TOP = 16, CH = 132, XAX = 32;
+    var H = TOP + CH + XAX;
+    var plotW = W - L - R;
+    var loMs = 0.5, hiMs = 4000;
+    var loF = 0.0001, hiF = 1;
+
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label",
+      "Share of the burst still outstanding against round trip, on log-log axes. It flattens at 0.1%, the four that never came back.");
+
+    function el(name, attrs, text) {
+      var n = document.createElementNS(ns, name);
+      for (var k in attrs) n.setAttribute(k, attrs[k]);
+      if (text != null) n.textContent = text;
+      svg.appendChild(n);
+      return n;
+    }
+
+    var RULE = "#3a3a3a", DIM = "#6a6a6a", BAR = "#4a7ba7", WARN = "#ce9178", BAD = "#e06c75";
+    var L10 = Math.LN10;
+
+    function x(ms) {
+      var t = (Math.log(Math.max(ms, loMs)) / L10 - Math.log(loMs) / L10) /
+              (Math.log(hiMs) / L10 - Math.log(loMs) / L10);
+      return L + t * plotW;
+    }
+    function y(f) {
+      var t = (Math.log(Math.max(f, loF)) / L10 - Math.log(loF) / L10) /
+              (Math.log(hiF) / L10 - Math.log(loF) / L10);
+      return TOP + CH - t * CH;
+    }
+
+    // y decades, labelled as the percentages they are
+    [[1, "100%"], [0.1, "10%"], [0.01, "1%"], [0.001, "0.1%"], [0.0001, "0.01%"]].forEach(function (d) {
+      el("line", { x1: L, y1: y(d[0]), x2: L + plotW, y2: y(d[0]), stroke: RULE, "stroke-width": 0.5 });
+      el("text", {
+        x: L - 6, y: y(d[0]) + 3.4, fill: DIM, "font-size": 9.5,
+        "font-family": "IBM Plex Mono, monospace", "text-anchor": "end"
+      }, d[1]);
+    });
+
+    // x decades
+    [1, 10, 100, 1000].forEach(function (ms) {
+      el("line", { x1: x(ms), y1: TOP + CH, x2: x(ms), y2: TOP + CH + 3, stroke: RULE, "stroke-width": 1 });
+      el("text", {
+        x: x(ms), y: TOP + CH + 14, fill: DIM, "font-size": 9.5,
+        "font-family": "IBM Plex Mono, monospace", "text-anchor": "middle"
+      }, ms >= 1000 ? (ms / 1000) + "s" : ms + "ms");
+    });
+
+    // percentile guides, each landing on its complementary decade
+    opts.marks.forEach(function (m) {
+      el("line", { x1: x(m.ms), y1: TOP, x2: x(m.ms), y2: TOP + CH, stroke: WARN, "stroke-width": 1, opacity: 0.55 });
+      var anchor = m.anchor || "start";
+      el("text", {
+        x: x(m.ms) + (anchor === "start" ? 4 : -4), y: TOP + 9, fill: WARN, "font-size": 9.5,
+        "font-family": "IBM Plex Mono, monospace", "text-anchor": anchor
+      }, m.label);
+    });
+
+    // the curve, then the plateau it never leaves
+    var pts = opts.curve.map(function (d) { return x(d[0]).toFixed(1) + "," + y(d[1]).toFixed(1); });
+    var floorF = opts.curve[opts.curve.length - 1][1];
+    var floorAt = opts.curve[opts.curve.length - 1][0];
+    pts.push((L + plotW).toFixed(1) + "," + y(floorF).toFixed(1));
+    el("polyline", { points: pts.join(" "), fill: "none", stroke: BAR, "stroke-width": 1.8 });
+
+    // the plateau drawn as what it is: a floor nothing gets under
+    el("line", {
+      x1: x(floorAt), y1: y(floorF), x2: L + plotW, y2: y(floorF),
+      stroke: BAD, "stroke-width": 1.8
+    });
+    el("text", {
+      x: L + plotW - 2, y: y(floorF) - 6, fill: BAD, "font-size": 9.5,
+      "font-family": "IBM Plex Mono, monospace", "text-anchor": "end"
+    }, "0.1% · 4 never came back");
+
+    el("text", {
+      x: L, y: TOP + CH + 27, fill: DIM, "font-size": 9,
+      "font-family": "IBM Plex Mono, monospace"
+    }, "still outstanding by round trip · log-log · settle closed at 60s, off the right of this axis");
+
+    host.appendChild(svg);
+  }
+
+  drawOutstanding(document.getElementById("chart-drain"), {
+    curve: [
+      [0.9, 0.9998], [2, 0.965], [5, 0.845], [10, 0.625], [14, 0.5005], [30, 0.275],
+      [60, 0.175], [120, 0.10], [212, 0.051], [400, 0.025], [640, 0.011], [1000, 0.005], [1880, 0.001]
+    ],
+    marks: [
+      { ms: 14, label: "p50 14ms", anchor: "start" },
+      { ms: 212, label: "p95 212ms", anchor: "end" },
+      { ms: 640, label: "p99 640ms", anchor: "start" }
+    ]
+  });
+
+  // Today's strip: matched only, 120 of 600 seconds, no reference and no scale.
+  var strip = document.getElementById("oldstrip");
+  if (strip) {
+    for (var s = 0; s < 120; s++) {
+      var v = 496 + (s % 5) * 2;
+      if (s >= 42 && s <= 45) v = 318 + (s - 42) * 12;
+      if (s === 46) v = 688;
+      var bar = document.createElement("i");
+      bar.style.height = Math.max(3, (v / 700) * 100) + "%";
+      strip.appendChild(bar);
+    }
+  }
+</script>

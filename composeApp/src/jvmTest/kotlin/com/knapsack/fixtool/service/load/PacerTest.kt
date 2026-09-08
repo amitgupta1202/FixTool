@@ -26,7 +26,14 @@ class PacerTest {
         val clock = FakeClock()
         val seen = mutableListOf<Pair<Int, Int>>()
 
-        val stats = Pacer(LoadShape.Burst(100), lanes = 4, clock = clock).run({ lane, index -> seen += lane to index; true }, { false })
+        val stats =
+            Pacer(LoadShape.Burst(100), lanes = 4, clock = clock).run(
+                { lane, index ->
+                    seen += lane to index
+                    Pacer.Issued.HANDED
+                },
+                { false },
+            )
 
         assertEquals(100, seen.size)
         assertEquals(listOf(0 to 1, 1 to 2, 2 to 3, 3 to 4, 0 to 5), seen.take(5))
@@ -42,7 +49,14 @@ class PacerTest {
         val clock = FakeClock(now = 7_000_000_000L)
         val issuedAt = mutableListOf<Long>()
 
-        val stats = Pacer(LoadShape.Rate(perSecond = 1_000, forMs = 3_000), lanes = 2, clock = clock).run({ _, _ -> issuedAt += clock.now; true }, { false })
+        val stats =
+            Pacer(LoadShape.Rate(perSecond = 1_000, forMs = 3_000), lanes = 2, clock = clock).run(
+                { _, _ ->
+                    issuedAt += clock.now
+                    Pacer.Issued.HANDED
+                },
+                { false },
+            )
 
         assertEquals(3_000, issuedAt.size)
         assertEquals(7_000_000_000L, issuedAt.first())
@@ -63,7 +77,7 @@ class PacerTest {
                 { _, index ->
                     indexes += index
                     if (index == stalledOn) clock.now += 1_500_000_000L
-                    true
+                    Pacer.Issued.HANDED
                 },
                 { false },
             )
@@ -72,7 +86,10 @@ class PacerTest {
         // The stalled message is counted when its send returned, in second 2, which is where it actually went.
         assertEquals(listOf(100, 49, 151, 100, 100), stats.perSecondIssued.toList())
         assertEquals(listOf(Pacer.Shortfall(fromSecond = 1, toSecond = 1, minPerSecond = 49, behind = 51)), stats.shortfalls)
-        assertTrue(stats.maxLagNanos in 1_400_000_000L..1_500_000_000L, "the message after the stall went about a second and a half late: ${stats.maxLagNanos}")
+        assertTrue(
+            stats.maxLagNanos in 1_400_000_000L..1_500_000_000L,
+            "the message after the stall went about a second and a half late: ${stats.maxLagNanos}",
+        )
     }
 
     @Test
@@ -80,7 +97,14 @@ class PacerTest {
         val clock = FakeClock()
         var count = 0
 
-        val stats = Pacer(LoadShape.Burst(1_000), lanes = 3, clock = clock).run({ _, _ -> count++; true }, { count >= 10 })
+        val stats =
+            Pacer(LoadShape.Burst(1_000), lanes = 3, clock = clock).run(
+                { _, _ ->
+                    count++
+                    Pacer.Issued.HANDED
+                },
+                { count >= 10 },
+            )
 
         assertEquals(10, count)
         assertEquals(10L, stats.handedToEngine)
@@ -89,11 +113,36 @@ class PacerTest {
 
     @Test
     fun `a refused send is an issue failure, counted and not retried`() {
-        val stats = Pacer(LoadShape.Burst(10), lanes = 1, clock = FakeClock()).run({ _, index -> index % 2 == 0 }, { false })
+        val stats =
+            Pacer(LoadShape.Burst(10), lanes = 1, clock = FakeClock()).run(
+                { _, index -> if (index % 2 == 0) Pacer.Issued.HANDED else Pacer.Issued.REFUSED },
+                { false },
+            )
 
         assertEquals(5L, stats.handedToEngine)
         assertEquals(5L, stats.issueFailures)
         assertEquals(10L, stats.issued)
+    }
+
+    /**
+     * A slot nothing could be built for keeps the pacer's schedule and is its own counter: the engine never
+     * saw it, so it is neither handed over nor refused, and the second it fell in genuinely fell short.
+     */
+    @Test
+    fun `a message that could not be addressed is counted apart, and its second falls short`() {
+        val clock = FakeClock(now = 7_000_000_000L)
+
+        val stats =
+            Pacer(LoadShape.Rate(perSecond = 100, forMs = 2_000), lanes = 1, clock = clock).run(
+                { _, index -> if (index <= 50) Pacer.Issued.UNADDRESSABLE else Pacer.Issued.HANDED },
+                { false },
+            )
+
+        assertEquals(50L, stats.unaddressable)
+        assertEquals(150L, stats.handedToEngine)
+        assertEquals(0L, stats.issueFailures)
+        assertEquals(listOf(50, 100), stats.perSecondIssued.toList(), "the first second issued fifty, not a hundred")
+        assertEquals(1, stats.shortfalls.size, "and it is reported as a shortfall")
     }
 
     @Test

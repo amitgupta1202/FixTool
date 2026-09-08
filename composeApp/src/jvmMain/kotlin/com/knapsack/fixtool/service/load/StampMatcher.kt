@@ -31,18 +31,69 @@ import java.util.concurrent.atomic.AtomicLong
  * (D10). The working set is therefore bounded by the number outstanding at once, which the settle window
  * bounds. The set of matched ids, kept for duplicate detection, grows with the run.
  */
+@Suppress("TooManyFunctions", "LongParameterList")
 class StampMatcher(
     private val match: LoadMatch,
     private val requestType: String,
     private val issuing: Set<SessionID>,
     private val laneOf: (SessionID) -> Int = { 0 },
     private val specimenLimit: Int = DEFAULT_SPECIMENS,
+    /** Names to tags, read off each matched reply and kept at that request's own message index. */
+    private val captures: List<Pair<String, Int>> = emptyList(),
+    /** Where they are kept. The set owns it, because a later phase reads what an earlier one filled. */
+    private val table: CaptureTable? = null,
 ) {
     private class Pending(
         val sentMicros: Long,
         val laneSlot: Int,
         val wire: String,
+        /** Which message this was, so a captured value lands where a later phase will look for it. */
+        val messageIndex: Int,
     )
+
+    /**
+     * **Named values kept per message index, for the whole set.**
+     *
+     * `Array<Array<String?>>` and not a map of maps: 4,000 messages × 2 names is 8,000 slots either way,
+     * and an array indexed by the thing a later phase already has — its own `${'$'}{messageIndex}` — needs no
+     * boxing and no lookup. Written on the I/O threads under the matcher's own lock, read on the render-ahead
+     * threads of a later phase, by which time the phase that filled it has finished.
+     */
+    class CaptureTable(
+        val names: List<String>,
+        /** One more than the highest index any phase of the set will use. */
+        size: Int,
+    ) {
+        private val values: Array<Array<String?>> = Array(names.size) { arrayOfNulls<String?>(size.coerceAtLeast(1)) }
+
+        val size: Int get() = if (values.isEmpty()) 0 else values[0].size
+
+        fun put(nameIndex: Int, messageIndex: Int, value: String?) {
+            if (nameIndex !in values.indices || messageIndex !in values[nameIndex].indices) return
+            values[nameIndex][messageIndex] = value
+        }
+
+        /** The value kept for [name] at [messageIndex], or null when nothing was. */
+        operator fun get(name: String, messageIndex: Int): String? {
+            val i = names.indexOf(name)
+            if (i < 0 || messageIndex !in values[i].indices) return null
+            return values[i][messageIndex]
+        }
+
+        /** How many indices carry a value for each name. What the report's `captured` block says. */
+        fun counts(): Map<String, Int> =
+            names.withIndex().associate { (i, name) -> name to values[i].count { v -> v != null } }
+
+        /** Every index that carries at least one value, with its values, for the evidence file. */
+        fun rows(): List<Pair<Int, List<Pair<String, String>>>> =
+            (0 until size).mapNotNull { index ->
+                val row = names.withIndex().mapNotNull { (i, name) -> values[i][index]?.let { name to it } }
+                if (row.isEmpty()) null else index to row
+            }
+
+        /** A per-message lookup for one name, which is what a later phase's renderer is handed. */
+        fun lookup(name: String): (Int) -> String? = { index -> get(name, index) }
+    }
 
     /** A request that went unanswered within the settle window. */
     data class Unmatched(
@@ -113,6 +164,8 @@ class StampMatcher(
         val unmatched: List<Unmatched>,
         val specimens: List<Specimen>,
         val pendingPeak: Int,
+        /** How many indices carry a value for each captured name. Empty when the phase captures nothing. */
+        val captured: Map<String, Int> = emptyMap(),
     )
 
     /**
@@ -143,6 +196,14 @@ class StampMatcher(
     }
 
     private val pending = ConcurrentHashMap<String, Pending>()
+
+    /**
+     * Id to the message index it was issued for, filled by [issued] and taken out by the SEND stamp.
+     *
+     * The stamp carries the wire and nothing else, so the index has to be handed over on the way past. The
+     * SEND stamp always follows the `send` call, so the map is filled before it is read.
+     */
+    private val issuedIndex = ConcurrentHashMap<String, Int>()
 
     /**
      * Id to the lane that issued it, kept for the run.
@@ -227,10 +288,21 @@ class StampMatcher(
         strays.incrementAndGet()
     }
 
+    /**
+     * **This id is about to be sent, as message [messageIndex].** Called on the pacer thread before `send`.
+     *
+     * Without it the matcher would know a request's id and its lane and not which message it was, and a
+     * captured value would have nowhere to land: a later phase looks its captures up by the index its own
+     * ids are built from.
+     */
+    fun issued(id: String, messageIndex: Int) {
+        if (captures.isNotEmpty()) issuedIndex[id] = messageIndex
+    }
+
     private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp): Claim {
         if (sessionId !in issuing || type != requestType) return Claim.NOT_A_REPLY
         val id = WireTags.tagValue(stamp.wire, match.requestTag) ?: return Claim.NOT_A_REPLY
-        pending[id] = Pending(stamp.micros, laneOf(sessionId), stamp.wire)
+        pending[id] = Pending(stamp.micros, laneOf(sessionId), stamp.wire, issuedIndex.remove(id) ?: 0)
         leftSocket.incrementAndGet()
         val now = outstanding.incrementAndGet()
         if (now > pendingPeak) pendingPeak = now
@@ -284,6 +356,11 @@ class StampMatcher(
             }
             if (reply.micros > lastMatchedMicros) lastMatchedMicros = reply.micros
             if (specimens.size < specimenLimit) specimens += Specimen(request.wire, reply.wire, rtt)
+            // The first reply only: a duplicate must not overwrite the value the match already kept, or a
+            // later phase would address whichever ExecutionReport happened to arrive last.
+            captures.forEachIndexed { i, (_, tag) ->
+                table?.put(i, request.messageIndex, WireTags.tagValue(reply.wire, tag))
+            }
         }
     }
 
@@ -359,6 +436,7 @@ class StampMatcher(
                 unmatched = unmatched,
                 specimens = specimens.toList(),
                 pendingPeak = pendingPeak,
+                captured = table?.counts().orEmpty(),
             )
         }
     }

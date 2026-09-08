@@ -92,7 +92,10 @@ fun LoadSetsDialogContent(
 
     val resolve = remember(draft) { viewModel.loadSetResolver() }
     val problems = remember(draft) { draft.problems(resolve, LoadPlan.Surface.DIALOG) }
-    val seeded = remember(draft) { draft.seed.keys }
+
+    // What a phase can read: the set's seed, plus whatever the phases before it keep. Per phase, because
+    // a capture is readable only from an earlier one.
+    fun seededFor(index: Int): Set<String> = draft.seed.keys + draft.phases.take(index).flatMap { it.capture.keys }
 
     fun select(set: LoadSet) {
         draft = set
@@ -128,7 +131,7 @@ fun LoadSetsDialogContent(
                         n = index + 1,
                         setLabel = draft.label.ifBlank { draft.name },
                         spec = spec,
-                        seeded = seeded,
+                        seeded = seededFor(index),
                         onBack = { editing = null },
                         onDone = { updated ->
                             draft = draft.copy(phases = draft.phases.toMutableList().also { it[index] = updated })

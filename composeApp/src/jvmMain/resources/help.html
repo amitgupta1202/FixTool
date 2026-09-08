@@ -736,6 +736,15 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
         <li><strong>Where a phase starts counting.</strong> <code>${messageIndex}</code> restarts at 1 in every
             phase, so a phase that should address the second half says <em>from 2,001</em>. That is what makes a
             three-phase RFQ set possible: ask for 4,000 quotes, hit the first 2,000, pass the other 2,000.</li>
+        <li><strong>What a phase keeps for the next one.</strong> A shared seed only works against a venue built
+            to be addressable from it. A real counterparty answers a QuoteRequest with a QuoteID you could not
+            have guessed, and prices the quote itself. So a phase can <strong>capture</strong> named tag values
+            off each reply it matches &mdash; <code>quoteId ← 117</code>, <code>offer ← 133</code> &mdash; kept at
+            that request's own message index, and a later phase reads them as <code>117=${quoteId}</code> and
+            <code>44=${offer}</code>. Only an earlier phase's captures are readable, and the refusal says which
+            phase should have kept it. If the venue answers without the tag, the later phase cannot address that
+            message: it is <strong>not sent</strong>, counted by index and name, and the phase fails, because the
+            bar is every requested message answered and a message nobody asked is a hole in the proof.</li>
         <li><strong>If a phase fails.</strong> By default the set stops and reports the rest as skipped, each
             carrying its plan and a note saying why. Carry on runs every phase and the set verdict names the
             first that did not pass. Either way the set exits 1.</li>

@@ -70,8 +70,8 @@ class CompiledTemplateTest {
         var onceCalls = 0
         val resolveOnce: (String) -> String = { onceCalls++; "frozen-$onceCalls" }
 
-        val lane3 = compiled.prepare(lane(3), emptyMap(), dictionary, resolveOnce)
-        val lane12 = compiled.prepare(lane(12), emptyMap(), dictionary, resolveOnce)
+        val lane3 = compiled.prepare(lane(3), emptyMap(), dictionary, resolveOnce = resolveOnce)
+        val lane12 = compiled.prepare(lane(12), emptyMap(), dictionary, resolveOnce = resolveOnce)
         repeat(50) { lane3.render(it + 1) }
 
         assertEquals(2, onceCalls, "one evaluation per lane, none per message")
@@ -136,4 +136,47 @@ class CompiledTemplateTest {
 
     private fun generatorOf(expression: String) =
         requireNotNull(ShorthandTemplateExpander.generatorOf(expression)) { "'$expression' should be a generator" }
+
+    /**
+     * **A captured name renders per message, and a missing one refuses the whole message.**
+     *
+     * Refuses rather than rendering `${'$'}{quoteId}`: a hit that names no quote is not a smaller test, it is a
+     * different one, and the venue would answer it with a refusal that looked like the venue's fault.
+     */
+    @Test
+    fun `a captured part renders per message, and a null lookup refuses the message`() {
+        val compiled =
+            CompiledTemplate.compile(
+                template(11 to "H-\${messageIndex}", 117 to "\${quoteId}", 44 to "\${offer}"),
+            )
+        val prototype =
+            compiled.prepare(
+                lane = lane(1),
+                seed = emptyMap(),
+                dictionary = dictionary,
+                lookups =
+                    mapOf(
+                        "quoteId" to { i: Int -> if (i == 2) null else "QID-$i" },
+                        "offer" to { _: Int -> "1.09010" },
+                    ),
+            ) { it }
+
+        val first = assertIs<CompiledTemplate.Rendered.Message>(prototype.renderOrRefuse(1))
+        assertEquals("QID-1", first.message.getString(117))
+        assertEquals("1.09010", first.message.getString(44))
+        assertEquals("H-1", first.message.getString(11))
+
+        val refused = assertIs<CompiledTemplate.Rendered.Unaddressable>(prototype.renderOrRefuse(2))
+        assertEquals(2, refused.index)
+        assertEquals("quoteId", refused.missing)
+    }
+
+    /** A captured name is not "unseeded": the set refused it if no earlier phase filled it. */
+    @Test
+    fun `a template reading a capture asks nothing of the seed, and says it reads the name`() {
+        val compiled = CompiledTemplate.compile(template(117 to "\${quoteId}"))
+
+        assertEquals(setOf("quoteId"), compiled.missingVariables(emptySet()), "with nothing to fill it, it is missing")
+        assertEquals(setOf("quoteId"), compiled.variablesRead())
+    }
 }

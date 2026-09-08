@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.model.load
 
 import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.load.CompiledTemplate
 
 /**
@@ -106,6 +107,8 @@ data class LoadSet(
             }
         // Once per profile, not once per phase: the override is the set's, so the sentence is the set's.
         val judgedProfiles = mutableSetOf<String>()
+        // Capture name to the phase that claimed it, so the second claim can name the first.
+        val claimed = linkedMapOf<String, Int>()
         phases.forEachIndexed { index, spec ->
             val n = index + 1
             val profile = resolve.profile(spec.profile)
@@ -122,7 +125,22 @@ data class LoadSet(
                     Problem(n, "no template '${spec.template}' — not a file, and no saved message of that id or name.")
                 return@forEachIndexed
             }
-            LoadPlan.templateProblems(template, seed.keys, surface).forEach { found += Problem(n, it) }
+            captureProblems(spec, index, claimed).forEach { found += Problem(n, it) }
+            // A name is readable in this phase when the set seeds it, a lane hands it over, or an EARLIER
+            // phase captured it. A capture in this phase or a later one is a different mistake, and the
+            // sentence below says which rather than sending the author to the Seed band for it.
+            val earlier = phases.take(index).flatMap { it.capture.keys }.toSet()
+            LoadPlan.templateProblems(template, seed.keys + earlier, surface).forEach { found += Problem(n, it) }
+            val tooLate = phases.drop(index).flatMap { it.capture.keys }.toSet()
+            template.readsThatAreNotSeeded(seed.keys + earlier).filter { it in tooLate }.forEach { name ->
+                found +=
+                    Problem(
+                        n,
+                        "the template reads \${$name} and no earlier phase captures it. " +
+                            "Add a capture to a phase before it, or seed it.",
+                    )
+            }
+            spec.capture.keys.forEach { claimed[it] = n }
             if (spec.match == null && template.inferMatch() == null) {
                 found +=
                     Problem(
@@ -134,6 +152,29 @@ data class LoadSet(
         }
         return found
     }
+
+    /**
+     * **What is wrong with one phase's captures**, in the phase's voice.
+     *
+     * A capture becomes a name in a later phase's scope, so it has to be a name a template can read, and
+     * it has to be the only thing answering to it: a capture that shadows a seed, a lane name or the
+     * message index would make the later phase's message depend on which of the two the renderer reached
+     * first.
+     */
+    private fun captureProblems(spec: LoadPhaseSpec, index: Int, claimed: Map<String, Int>): List<String> =
+        spec.capture.keys.mapNotNull { name ->
+            when {
+                !CompiledTemplate.isVariableName(name) ->
+                    "the capture name '$name' is not a name a template can read. " +
+                        "Use letters, digits and underscore, starting with a letter or an underscore."
+                name in seed -> "the capture $name is also a seed. Rename one of them."
+                name in Lane.SEED_NAMES -> "the capture $name is also a lane's own name. Rename it."
+                name == CompiledTemplate.MESSAGE_INDEX -> "the capture $name is the message index. Rename it."
+                claimed.containsKey(name) ->
+                    "the capture $name is also captured by phase ${claimed[name]}. Rename one of them."
+                else -> null
+            }
+        }
 
     /**
      * **One [LoadPlan] per phase, the seed rendered once and shared, every phase under one record id.**
@@ -173,6 +214,7 @@ data class LoadSet(
                     storeAndLog = storeAndLog,
                     strictRate = spec.strictRate,
                     indexFrom = spec.indexFrom,
+                    capture = spec.capture,
                 )
             }
         return Planned(id, label.ifBlank { name }, name, onFailure, rendered, storeAndLog, plans)
@@ -221,6 +263,17 @@ data class LoadPhaseSpec(
      * one says so.
      */
     val indexFrom: Int = 1,
+    /**
+     * **Named tag values kept off each matched reply, for a later phase to address.**
+     *
+     * `{"quoteId": 117, "offer": 133}` keeps QuoteID and OfferPx from every Quote this phase's requests
+     * draw, at that request's own message index. A later phase reads them as per-message names,
+     * `117=${quoteId}`, resolved by the same `${messageIndex}` its ids are built from.
+     *
+     * This is what makes a load set work against a venue that mints its own ids. The derivable seed covers
+     * the RFQ round trip against a venue built to be addressable from it, and nothing else.
+     */
+    val capture: Map<String, Int> = emptyMap(),
     val settleMs: Long = LoadPlan.DEFAULT_SETTLE_MS,
     val strictRate: Boolean = false,
 ) {
@@ -231,6 +284,7 @@ data class LoadPhaseSpec(
             match?.let { "$it" },
             shape.describe() + (if (indexFrom > 1) " from ${"%,d".format(indexFrom)}" else ""),
             "settle ${humanDuration(settleMs)}",
+            capture.keys.takeIf { it.isNotEmpty() }?.let { "keeps ${it.joinToString(", ")}" },
         ).joinToString(" · ")
 }
 

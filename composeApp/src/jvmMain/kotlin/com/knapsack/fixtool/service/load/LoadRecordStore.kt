@@ -76,12 +76,14 @@ class LoadRecordStore(
      * [evidence] names them, because a set writes several phases into one directory and nothing downstream
      * should have to reconstruct `02-unmatched.fix` from a phase number.
      */
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "LongParameterList")
     fun writeEvidence(
         id: String,
         evidence: LoadReport.Evidence,
         unmatched: List<StampMatcher.Unmatched>,
         specimens: List<StampMatcher.Specimen>,
+        /** One entry per index that carries a captured value. Empty when the phase captured nothing. */
+        captured: List<Pair<Int, List<Pair<String, String>>>> = emptyList(),
     ): Boolean =
         try {
             val d = directoryFor(id).also { it.mkdirs() }
@@ -89,6 +91,15 @@ class LoadRecordStore(
             File(d, evidence.specimens).writeText(
                 specimens.joinToString("") { it.request.toRawFixMessage() + "\n" + it.reply.toRawFixMessage() + "\n" },
             )
+            // Tab-separated, one line per index, because the question anybody opens this to answer is
+            // "what did the venue say for 412", and grep answers it without a parser.
+            evidence.captured?.let { name ->
+                File(d, name).writeText(
+                    captured.joinToString("") { (index, row) ->
+                        index.toString() + row.joinToString("") { (n, v) -> "\t$n=$v" } + "\n"
+                    },
+                )
+            }
             true
         } catch (e: Exception) {
             logger.error("Could not write load evidence for '$id': ${e.message}", e)

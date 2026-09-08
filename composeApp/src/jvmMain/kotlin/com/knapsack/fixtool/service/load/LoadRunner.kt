@@ -47,29 +47,49 @@ class LoadRunner(
         val report: LoadReport,
         val unmatched: List<StampMatcher.Unmatched>,
         val specimens: List<StampMatcher.Specimen>,
+        /** One line per index that carries a captured value: `index name=value …`. */
+        val captured: List<Pair<Int, List<Pair<String, String>>>> = emptyList(),
+    )
+
+    /**
+     * **What a phase of a set reads and what it writes**, in one argument rather than two.
+     *
+     * [lookups] are the names earlier phases captured, resolved per message index. [table] is where this
+     * phase puts its own. A single run passes neither, because it has no later phase to read them.
+     */
+    data class Captures(
+        val lookups: Map<String, (Int) -> String?> = emptyMap(),
+        val table: StampMatcher.CaptureTable? = null,
     )
 
     /**
      * Runs [plan] to its verdict. Throws [LoadRefused] when it cannot start: a template without a message
      * type, a variable nothing seeds, no lane logged on.
      */
-    @Suppress("LongMethod", "CyclomaticComplexMethod")
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "LongParameterList")
     fun run(
         plan: LoadPlan,
         /** Which phase of its set this is, 1-based. It names the evidence files, and nothing else. */
         phase: Int = 1,
+        /**
+         * Names an earlier phase captured, each a per-message lookup by index, and the table this phase
+         * writes its own captures into. Both are the set's: a single run has neither.
+         */
+        captures: Captures = Captures(),
         cancelled: () -> Boolean = { false },
         onProgress: (LoadReport) -> Unit = {},
     ): Outcome {
         val startedAt = host.now()
-        val evidence = LoadReport.Evidence.forPhase(phase)
+        val evidence = LoadReport.Evidence.forPhase(phase, captured = plan.capture.isNotEmpty())
         val compiled =
             try {
                 CompiledTemplate.compile(plan.template)
             } catch (e: IllegalArgumentException) {
                 throw LoadRefused(e.message ?: "the template cannot be compiled")
             }
-        val missing = compiled.missingVariables(plan.seed.keys + Lane.SEED_NAMES)
+        // A name an earlier phase captured is covered, which is what makes a set work against a venue that
+        // mints its own ids. A single run has no lookups, so its refusal is exactly what it was.
+        val missing = compiled.missingVariables(plan.seed.keys + Lane.SEED_NAMES + captures.lookups.keys)
         if (missing.isNotEmpty()) {
             throw LoadRefused(
                 "the template reads ${missing.joinToString(", ") { "\${$it}" }} and nothing seeds " +
@@ -77,7 +97,7 @@ class LoadRunner(
             )
         }
 
-        val progress = Progress(plan, compiled, startedAt, evidence, onProgress)
+        val progress = Progress(plan, compiled, startedAt, evidence, captures, onProgress)
         progress.emit(LoadStage.PREPARING)
 
         val lanes = host.openLanes(plan.profileId, plan.storeAndLog)
@@ -90,7 +110,7 @@ class LoadRunner(
         val prepareStart = clock.nanoTime()
         val prototypes =
             lanes.map { lane ->
-                compiled.prepare(lane.lane, plan.seed, host.dictionary()) { template ->
+                compiled.prepare(lane.lane, plan.seed, host.dictionary(), captures.lookups) { template ->
                     host.resolveOnce(template, plan.seed + lane.lane.seed(), lane)
                 }
             }
@@ -103,6 +123,8 @@ class LoadRunner(
                 requestType = compiled.msgType,
                 issuing = bySession.keys,
                 laneOf = { id: SessionID -> bySession[id] ?: 0 },
+                captures = plan.capture.entries.map { it.key to it.value },
+                table = captures.table,
             )
         progress.matcher = matcher
         val listening = listen(matcher, all)
@@ -122,16 +144,30 @@ class LoadRunner(
                         // The pacer counts 1..requested. `indexFrom` shifts that once, here, so a phase of a
                         // set can address the half another phase left: "pass the other 2,000" is index 2,001.
                         val index = plan.indexFrom - 1 + messageIndex
-                        val message = producers[laneIndex].next(index) ?: prototypes[laneIndex].render(index)
-                        val ok = lanes[laneIndex].send(message)
-                        if (ok) handed.incrementAndGet()
+                        val rendered = producers[laneIndex].next(index) ?: prototypes[laneIndex].renderOrRefuse(index)
+                        val issued =
+                            when (rendered) {
+                                is CompiledTemplate.Rendered.Unaddressable -> {
+                                    progress.refuse(rendered)
+                                    Pacer.Issued.UNADDRESSABLE
+                                }
+                                is CompiledTemplate.Rendered.Message -> {
+                                    // The index goes to the matcher before the send, because the SEND stamp
+                                    // carries the wire and nothing else and a capture has to land somewhere.
+                                    val id = requestId(rendered.message, plan.match.requestTag)
+                                    if (id != null) matcher.issued(id, index)
+                                    val ok = lanes[laneIndex].send(rendered.message)
+                                    if (ok) handed.incrementAndGet()
+                                    if (ok) Pacer.Issued.HANDED else Pacer.Issued.REFUSED
+                                }
+                            }
                         progress.handed = handed.get()
                         val now = clock.nanoTime()
                         if (now - lastEmit > PROGRESS_EVERY_NANOS) {
                             lastEmit = now
                             progress.emit(LoadStage.ISSUING)
                         }
-                        ok
+                        issued
                     },
                     cancelled = cancelled,
                 )
@@ -181,10 +217,11 @@ class LoadRunner(
                     discarded = (discardedAfter - discardedBefore).coerceAtLeast(0),
                     finishedAt = host.now(),
                 )
+            val capturedRows = captures.table?.rows().orEmpty()
             store?.write(report)
-            store?.writeEvidence(plan.id, evidence, result.unmatched, result.specimens)
+            store?.writeEvidence(plan.id, evidence, result.unmatched, result.specimens, capturedRows)
             onProgress(report)
-            return Outcome(report, result.unmatched, result.specimens)
+            return Outcome(report, result.unmatched, result.specimens, capturedRows)
         } finally {
             producers.forEach { it.close() }
             listening.close()
@@ -197,6 +234,7 @@ class LoadRunner(
         private val compiled: CompiledTemplate,
         private val startedAt: Long,
         private val evidence: LoadReport.Evidence,
+        private val captures: Captures,
         private val onProgress: (LoadReport) -> Unit,
     ) {
         var lanes = 0
@@ -205,6 +243,18 @@ class LoadRunner(
         var settleLeftMs: Long? = null
         var matcher: StampMatcher? = null
         var stats: Pacer.IssueStats? = null
+
+        /** Every index that could not be built, capped as `unmatched` is, with the count kept whole. */
+        private val refused = java.util.concurrent.CopyOnWriteArrayList<LoadReport.Unaddressable>()
+
+        @Volatile private var refusedCount = 0L
+
+        fun refuse(rendered: CompiledTemplate.Rendered.Unaddressable) {
+            refusedCount++
+            if (refused.size < LoadReport.UNMATCHED_IN_JSON) {
+                refused += LoadReport.Unaddressable(rendered.index, rendered.missing)
+            }
+        }
 
         fun emit(stage: LoadStage) {
             val report = build(stage, LoadStatus.RUNNING, finishedAt = null, result = null, late = null, discarded = 0)
@@ -234,6 +284,7 @@ class LoadRunner(
                     firstSendAt = counts?.firstSendMicros?.let { it / MICROS_PER_MILLI },
                     lastSendAt = counts?.lastSendMicros?.let { it / MICROS_PER_MILLI },
                     prepareMs = prepareMs,
+                    unaddressable = issued?.unaddressable ?: refusedCount,
                 )
             val replies =
                 LoadReport.Replies(
@@ -306,8 +357,14 @@ class LoadRunner(
                         LoadReport.UnmatchedRequest(it.id, it.laneSlot, it.sentMicros / MICROS_PER_MILLI)
                     },
                 unmatchedTotal = result?.unmatched?.size ?: (counts?.pendingNow ?: 0),
+                capture =
+                    plan.capture.takeIf { it.isNotEmpty() }?.let { names ->
+                        val kept = result?.captured ?: captures.table?.counts().orEmpty()
+                        LoadReport.Capture(names = names, captured = kept)
+                    },
+                unaddressable = refused.toList(),
                 evidence = evidence,
-                verdict = LoadReport.verdict(status, replies, rate, tool, plan.strictRate),
+                verdict = LoadReport.verdict(status, replies, rate, tool, plan.strictRate, issue),
             )
         }
 
@@ -323,6 +380,22 @@ class LoadRunner(
             )
         }
     }
+
+    /**
+     * The request id off a rendered message: header first, then body, which is the order
+     * `AcceptorResponder.valueOf` reads a tag in and therefore the order the venue will.
+     */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    private fun requestId(message: quickfix.Message, tag: Int): String? =
+        try {
+            when {
+                message.header.isSetField(tag) -> message.header.getString(tag)
+                message.isSetField(tag) -> message.getString(tag)
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
 
     companion object {
         /** One listener per participating session, closed together. What a single run has always done. */

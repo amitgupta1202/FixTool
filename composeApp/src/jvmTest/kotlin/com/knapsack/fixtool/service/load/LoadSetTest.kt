@@ -180,7 +180,8 @@ class LoadSetTest {
         assertEquals(2, problems.size, problems.toString())
         assertEquals(listOf(1, 2), problems.map { it.phase })
         assertEquals(
-            "Phase 1 · Ask for a quote: The template reads \${run} and nothing seeds it. Pass --seed run=… on the command line.",
+            "Phase 1 · Ask for a quote: The template reads \${run} and nothing seeds it. " +
+                "Pass --seed run=… on the command line, or capture it in an earlier phase of a set.",
             problems.first().describe("Ask for a quote"),
         )
     }
@@ -230,5 +231,89 @@ class LoadSetTest {
 
         assertEquals(listOf(1), problems.map { it.phase })
         assertTrue(problems.single().sentence.contains("carries none of the tags a reply is matched on"), problems.toString())
+    }
+
+    // -------------------------------------------------------------------------------------------------
+    // Captured values
+    // -------------------------------------------------------------------------------------------------
+
+    private val hitByCapture =
+        LoadTemplate("RFQ Load QuoteResponse", listOf(35 to "AJ", 11 to "H-\${run}-\${messageIndex}", 117 to "\${quoteId}"))
+
+    private fun capturing(capture: Map<String, Int>, second: LoadTemplate = hitByCapture) =
+        listOf(
+            twoPhases[0].copy(capture = capture),
+            twoPhases[1].copy(template = "hit"),
+        ).let { phases -> phases to Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "hit" to second)) }
+
+    @Test
+    fun `a phase captures, and a later phase reads it with nothing else asked of the seed`() {
+        val (phases, resolve) = capturing(mapOf("quoteId" to 117, "offer" to 133))
+
+        assertEquals(emptyList(), set(phases).problems(resolve, LoadPlan.Surface.CLI))
+
+        val planned = set(phases).plan(resolve, seedOverride = mapOf("run" to "b7f2"), id = "id")
+        assertEquals(mapOf("quoteId" to 117, "offer" to 133), planned.phases[0].capture)
+        assertEquals(emptyMap(), planned.phases[1].capture, "a phase that reads a capture need not keep one")
+    }
+
+    @Test
+    fun `a capture that shadows a seed, a lane name or the message index is refused`() {
+        val seed = mapOf("run" to "b7f2", "desk" to "LDN")
+
+        fun refusalFor(name: String): String {
+            val (phases, resolve) = capturing(mapOf(name to 117))
+            val problems = set(phases, seed = seed).problems(resolve, LoadPlan.Surface.CLI)
+            return problems.first { it.phase == 1 }.sentence
+        }
+
+        assertEquals("the capture desk is also a seed. Rename one of them.", refusalFor("desk"))
+        assertEquals("the capture sessionIndex is also a lane's own name. Rename it.", refusalFor("sessionIndex"))
+        assertEquals("the capture messageIndex is the message index. Rename it.", refusalFor("messageIndex"))
+        assertTrue(
+            refusalFor("2quotes").startsWith("the capture name '2quotes' is not a name a template can read"),
+            refusalFor("2quotes"),
+        )
+    }
+
+    @Test
+    fun `two phases capturing one name is refused, naming the phase that claimed it first`() {
+        val phases =
+            listOf(
+                twoPhases[0].copy(capture = mapOf("quoteId" to 117)),
+                twoPhases[1].copy(template = "hit", capture = mapOf("quoteId" to 117)),
+            )
+        val resolve = Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "hit" to hitByCapture))
+
+        val problems = set(phases).problems(resolve, LoadPlan.Surface.CLI)
+
+        assertEquals(listOf(2), problems.map { it.phase }, problems.toString())
+        assertEquals("the capture quoteId is also captured by phase 1. Rename one of them.", problems.single().sentence)
+    }
+
+    /** A capture is readable only from an EARLIER phase, and the sentence says so rather than "seed it". */
+    @Test
+    fun `a template reading a capture from its own phase, or a later one, is refused in its own voice`() {
+        val sameePhase =
+            listOf(
+                twoPhases[0].copy(template = "hit", capture = mapOf("quoteId" to 117)),
+                twoPhases[1],
+            )
+        val resolve = Fake(mapOf("hit" to hitByCapture, "RFQ Load QuoteResponse" to quoteResponse))
+
+        val problems = set(sameePhase).problems(resolve, LoadPlan.Surface.CLI)
+
+        assertEquals(
+            "Phase 1 · Ask for a quote: the template reads \${quoteId} and no earlier phase captures it. " +
+                "Add a capture to a phase before it, or seed it.",
+            problems.first { it.sentence.startsWith("the template reads") }.describe("Ask for a quote"),
+        )
+    }
+
+    @Test
+    fun `the phase row says what it keeps`() {
+        val spec = twoPhases[0].copy(capture = mapOf("quoteId" to 117, "offer" to 133))
+
+        assertTrue(spec.describe().endsWith("keeps quoteId, offer"), spec.describe())
     }
 }

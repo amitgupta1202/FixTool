@@ -304,6 +304,12 @@ class FixMessageViewModel(
     fun rememberLoadRunDefaults(profileId: String, defaults: LoadRunDefaults) =
         mutateViewState { it.copy(loadRuns = it.loadRuns + (profileId to defaults)) }
 
+    /** The load set the editor was last on, when it is still saved. */
+    fun lastLoadSet(): LoadSet? = _scenarioViewState.value.lastLoadSet?.let { loadSet(it) }
+
+    /** Remembers which set the editor was on, for the next time it opens. */
+    fun rememberLastLoadSet(name: String) = mutateViewState { it.copy(lastLoadSet = name) }
+
     /** Rail: star or un-star a scenario. Weightless — it writes only scenario_view.json, never the scenario. */
     fun toggleScenarioFavourite(id: String) =
         mutateViewState {
@@ -3749,6 +3755,56 @@ class FixMessageViewModel(
     fun loadSets(): List<LoadSet> = loadSetStore.list()
 
     fun loadSet(name: String): LoadSet? = loadSetStore.load(name)
+
+    fun saveLoadSet(set: LoadSet): Boolean = loadSetStore.save(set)
+
+    fun deleteLoadSet(name: String): Boolean = loadSetStore.delete(name)
+
+    /** The workspace as a set's resolver: profiles by id or name, templates by saved name or by path. */
+    fun loadSetResolver(): LoadSet.Resolver {
+        return object : LoadSet.Resolver {
+            override fun profile(key: String): LoadSet.Profile? {
+                val named = _connectionProfiles.filter { it.id == key || it.name == key }.distinctBy { it.id }
+                val one = named.singleOrNull() ?: return null
+                return LoadSet.Profile(one.id, one.name, one.config)
+            }
+
+            override fun template(key: String, profileId: String?): LoadTemplate? {
+                val saved = loadTemplates(profileId).firstOrNull { it.name.equals(key, ignoreCase = true) }
+                if (saved != null) return saved
+                val file = java.io.File(key)
+                return if (file.isFile) LoadTemplates.fromFile(file) else null
+            }
+        }
+    }
+
+    /** A free record directory for a set about to run, so its phases all write into one. */
+    fun reserveLoadId(name: String): String = RunSets.id(System.currentTimeMillis(), name)
+
+    /**
+     * Runs a saved set by name, or opens the editor on its refusals instead.
+     *
+     * A set that would be refused must not half-run: the Run menu's own item routes through this, which is
+     * why a refused set is an editor and not a notification.
+     */
+    fun startSavedLoadSet(name: String): LoadSet.Planned? {
+        val set = loadSet(name)
+        if (set == null) {
+            showNotification("No load set '$name' is saved", NotificationType.ERROR)
+            return null
+        }
+        val resolve = loadSetResolver()
+        val problems = set.problems(resolve, LoadPlan.Surface.DIALOG)
+        if (problems.isNotEmpty()) {
+            val first = problems.first()
+            showNotification(
+                first.describe(first.phase?.let { set.phases.getOrNull(it - 1)?.label }),
+                NotificationType.ERROR,
+            )
+            return null
+        }
+        return startLoadSet(set.plan(resolve, seedOverride = emptyMap(), id = reserveLoadId(set.name)))
+    }
 
     /**
      * **Starts a load set over this window's live sessions.** Null when it cannot, with the reason shown.

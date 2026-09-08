@@ -78,6 +78,7 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
@@ -142,6 +143,8 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var outlining by remember { mutableStateOf(false) }
     var fanningOut by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
+    var editingLoadSets by remember { mutableStateOf(false) }
+    var pendingLoadSet by remember { mutableStateOf<LoadSet?>(null) }
     // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
     var remapFor by remember { mutableStateOf<Scenario?>(null) }
     remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
@@ -207,6 +210,27 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 loading = false
                 viewModel.startLoadRun(plan)
             },
+            // The path from one burst to a set: tune the burst here, then want the cancel storm after it.
+            onMakeSet = { set ->
+                loading = false
+                pendingLoadSet = set
+                editingLoadSets = true
+            },
+        )
+    }
+    if (editingLoadSets) {
+        LoadSetsDialog(
+            viewModel = viewModel,
+            onDismiss = {
+                editingLoadSets = false
+                pendingLoadSet = null
+            },
+            onRun = { planned ->
+                editingLoadSets = false
+                pendingLoadSet = null
+                viewModel.startLoadSet(planned)
+            },
+            initial = pendingLoadSet,
         )
     }
     if (savingSet) {
@@ -350,6 +374,11 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         onRunExamples = { outlining = true },
                         onFanOut = { fanningOut = true },
                         onLoadRun = { loading = true },
+                        loadSets = remember(activeLoad, editingLoadSets) { viewModel.loadSets() },
+                        // A set that would be refused opens the editor on its refusals rather than
+                        // half-running: the view model says which, and this opens the door.
+                        onRunLoadSet = { name -> if (viewModel.startSavedLoadSet(name) == null) editingLoadSets = true },
+                        onLoadSets = { editingLoadSets = true },
                         onOpenRecent = { run ->
                             when (run) {
                                 is RecentRun.Set -> viewModel.focusRunSet(run.id)
@@ -1035,6 +1064,8 @@ private data class RunMenu(
     val laneProfiles: Int,
     /** How many lanes those profiles add up to, which is the number the count reads as. */
     val lanes: Int,
+    /** The saved load sets, one runnable item each, the way `Run set ▸ nightly (12)` is. */
+    val loadSets: List<LoadSet>,
     val onRunSaved: (String) -> Unit,
     val onRunFavourites: () -> Unit,
     val onRunFiltered: () -> Unit,
@@ -1044,6 +1075,8 @@ private data class RunMenu(
     val onRunExamples: () -> Unit,
     val onFanOut: () -> Unit,
     val onLoadRun: () -> Unit,
+    val onRunLoadSet: (String) -> Unit,
+    val onLoadSets: () -> Unit,
     val onOpenRecent: (RecentRun) -> Unit,
 ) {
     /**
@@ -1176,6 +1209,22 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     ) {
         onChose()
         menu.onLoadRun()
+    }
+    // One item per saved set, because that is what `Run set ▸ nightly (12)` does and a menu that behaves
+    // two ways for two kinds of set is worse than either. A set that would be refused opens the editor.
+    menu.loadSets.forEach { set ->
+        RailMenuItem(
+            "Load set ▸  ${set.label.ifBlank { set.name }}  (${set.phases.size} phase${if (set.phases.size == 1) "" else "s"})",
+            enabled = !running && menu.laneProfiles > 0,
+            tag = "rail-run-load-set-${set.name}",
+        ) {
+            onChose()
+            menu.onRunLoadSet(set.name)
+        }
+    }
+    RailMenuItem("Load sets…  (${menu.loadSets.size} saved)", enabled = !running, tag = "rail-load-sets") {
+        onChose()
+        menu.onLoadSets()
     }
     RailMenuItem(
         "Run examples table…  (${menu.outlines})",

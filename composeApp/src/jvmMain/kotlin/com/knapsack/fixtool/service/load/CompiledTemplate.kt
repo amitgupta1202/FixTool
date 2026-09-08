@@ -112,6 +112,25 @@ class CompiledTemplate private constructor(
     }
 
     /**
+     * Every variable name the per-message fields read, whether or not anything seeds them.
+     *
+     * [missingVariables] answers "what is not covered"; this answers "what does this message read", which
+     * is what a phase editor prints so an author can see which of the set's names it depends on.
+     */
+    fun variablesRead(): Set<String> {
+        val read = linkedSetOf<String>()
+        val parts = slots.filterIsInstance<Slot.PerMessage>().flatMap { it.parts }
+        for (part in parts) {
+            when (part) {
+                is Part.Variable -> read += part.name
+                is Part.Assign -> (part.value as? Part.Variable)?.let { read += it.name }
+                else -> Unit
+            }
+        }
+        return read
+    }
+
+    /**
      * **One lane's prototype**: the `Once` slots evaluated through [resolveOnce], the literals in place, and
      * the per-message slots left to [LanePrototype.render].
      *

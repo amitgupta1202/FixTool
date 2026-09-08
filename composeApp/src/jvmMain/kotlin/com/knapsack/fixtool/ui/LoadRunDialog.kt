@@ -46,7 +46,9 @@ import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.LoadRunDefaults
 import com.knapsack.fixtool.model.load.LoadMatch
+import com.knapsack.fixtool.model.load.LoadPhaseSpec
 import com.knapsack.fixtool.model.load.LoadPlan
+import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
@@ -77,47 +79,90 @@ fun LoadRunDialog(
     fixedTemplate: LoadTemplate?,
     onDismiss: () -> Unit,
     onRun: (LoadPlan) -> Unit,
+    /**
+     * "Make this a set…": the path from one burst to a set, which is the one somebody actually walks.
+     * Null leaves the button out.
+     */
+    onMakeSet: ((LoadSet) -> Unit)? = null,
 ) {
     Dialog(onCloseRequest = onDismiss, title = "Load run", state = rememberDialogState(width = 640.dp, height = 580.dp)) {
-        LoadRunDialogContent(viewModel, fixedTemplate, onDismiss, onRun)
+        LoadRunDialogContent(viewModel, fixedTemplate, onDismiss, onRun, onMakeSet = onMakeSet)
     }
 }
+
+/**
+ * **One phase of a set, edited in the run dialog's own body.**
+ *
+ * A phase is a load plan minus the two things the set owns, so the phase editor is this dialog in a mode
+ * rather than a second form: the same three groups, minus Seed and Store, plus a label and the index this
+ * phase counts from. A refusal about the seed or the store belongs to the set's own band, so in this mode
+ * it is not shown here at all: a phase can never show a fix it has no field for.
+ */
+data class PhaseEdit(
+    /** 1-based, for the breadcrumb. */
+    val n: Int,
+    val setLabel: String,
+    val spec: LoadPhaseSpec,
+    /** What the set seeds, so a `${'$'}{name}` the set covers is not refused on this screen. */
+    val seeded: Set<String>,
+    val onBack: () -> Unit,
+    val onDone: (LoadPhaseSpec) -> Unit,
+    val onRemove: () -> Unit,
+)
 
 /** The dialog's body without its window, so a test can drive it in a plain composition. */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-@Suppress("LongMethod", "CyclomaticComplexMethod")
+@Suppress("LongMethod", "CyclomaticComplexMethod", "LongParameterList")
 fun LoadRunDialogContent(
     viewModel: FixMessageViewModel,
     fixedTemplate: LoadTemplate?,
     onDismiss: () -> Unit,
     onRun: (LoadPlan) -> Unit,
+    /** Null for a single run, which owns its seed and its store. */
+    phase: PhaseEdit? = null,
+    /** "Make this a set…", when the surface that opened this has somewhere to put one. */
+    onMakeSet: ((LoadSet) -> Unit)? = null,
 ) {
     val profiles = viewModel.connectionProfiles
     var profileId by remember {
         mutableStateOf(
-            profiles.firstOrNull { viewModel.loadLanes(it.id) is FixMessageViewModel.FanOutLanes.Available }?.id ?: profiles.firstOrNull()?.id,
+            phase?.spec?.profile?.let { name -> profiles.firstOrNull { it.name == name || it.id == name }?.id }
+                ?: profiles.firstOrNull { viewModel.loadLanes(it.id) is FixMessageViewModel.FanOutLanes.Available }?.id
+                ?: profiles.firstOrNull()?.id,
         )
     }
     val templates = remember(profileId) { if (fixedTemplate != null) listOf(fixedTemplate) else viewModel.loadTemplates(profileId) }
-    var template by remember { mutableStateOf(fixedTemplate ?: templates.firstOrNull()) }
-    var listen by remember { mutableStateOf(setOf<String>()) }
+    var template by
+        remember {
+            mutableStateOf(
+                fixedTemplate
+                    ?: phase?.spec?.template?.let { name ->
+                        templates.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                    }
+                    ?: templates.firstOrNull(),
+            )
+        }
+    var listen by remember { mutableStateOf(phase?.spec?.listen?.toSet() ?: setOf()) }
 
     // The shape, the settle window and the seed come back from the view-state store, per profile. They were
     // `remember` locals, so every open reset to 4000 / 500 / 60s however often a run had been tuned by hand.
-    val saved = remember(profileId) { viewModel.loadRunDefaults(profileId) }
+    // A phase's own spec wins over both: it is the thing being edited.
+    val saved = remember(profileId) { phase?.spec?.let(::defaultsOf) ?: viewModel.loadRunDefaults(profileId) }
     var burst by remember(saved) { mutableStateOf(saved.burst) }
     var count by remember(saved) { mutableStateOf(saved.count) }
     var rate by remember(saved) { mutableStateOf(saved.rate) }
     var forText by remember(saved) { mutableStateOf(saved.forText) }
     var settle by remember(saved) { mutableStateOf(saved.settle) }
     var seedRows by remember(saved) { mutableStateOf(saved.seed.map { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }) }
+    var phaseLabel by remember { mutableStateOf(phase?.spec?.label ?: "") }
+    var indexFrom by remember { mutableStateOf(phase?.spec?.indexFrom?.toString() ?: "1") }
 
-    var requestTag by remember(template) { mutableStateOf(template?.inferMatch()?.requestTag?.toString() ?: "") }
-    var replyTag by remember(template) { mutableStateOf(template?.inferMatch()?.replyTag?.toString() ?: "") }
-    var replyType by remember { mutableStateOf("") }
+    var requestTag by remember(template) { mutableStateOf(phaseTag(phase, template) { it.requestTag }) }
+    var replyTag by remember(template) { mutableStateOf(phaseTag(phase, template) { it.replyTag }) }
+    var replyType by remember { mutableStateOf(phase?.spec?.match?.replyType ?: "") }
     var forLoad by remember { mutableStateOf(true) }
-    var advancedOpen by remember { mutableStateOf(false) }
+    var advancedOpen by remember { mutableStateOf(phase != null) }
 
     val dictionary = viewModel.dictionary
     val profile = profiles.firstOrNull { it.id == profileId }
@@ -152,10 +197,12 @@ fun LoadRunDialogContent(
     // does not exist to be asked — and each surface phrases those for itself.
     val chosen = template
     val planProblems =
-        if (chosen != null && profile != null) {
-            LoadPlan.problems(chosen, seed, profile.name, profile.config, override, LoadPlan.Surface.DIALOG)
-        } else {
-            emptyList()
+        when {
+            chosen == null || profile == null -> emptyList()
+            // In a phase the seed and the store are the set's, and so are their refusals: this screen has
+            // no field to fix either on, and the set's own band shows both.
+            phase != null -> LoadPlan.templateProblems(chosen, phase.seeded, LoadPlan.Surface.DIALOG)
+            else -> LoadPlan.problems(chosen, seed, profile.name, profile.config, override, LoadPlan.Surface.DIALOG)
         }
     val refusals =
         buildList {
@@ -172,7 +219,11 @@ fun LoadRunDialogContent(
                     ),
                 )
             }
-            (lanes as? FixMessageViewModel.FanOutLanes.Unavailable)?.let { add(Refusal(Where.PROFILE, it.why)) }
+            // A phase is authored as often with the lanes down as up: a set is written before it is run,
+            // and the set runner refuses a phase with no lane before phase 1 dials, with this same sentence.
+            if (phase == null) {
+                (lanes as? FixMessageViewModel.FanOutLanes.Unavailable)?.let { add(Refusal(Where.PROFILE, it.why)) }
+            }
         }
     val hidden = refusals.firstOrNull { it.where in ADVANCED }
 
@@ -181,7 +232,7 @@ fun LoadRunDialogContent(
     // instant its refusal cleared would take the control away in the middle of correcting it.
     LaunchedEffect(hidden != null) { if (hidden != null) advancedOpen = true }
 
-    val runnable = refusals.isEmpty() && lanes is FixMessageViewModel.FanOutLanes.Available
+    val runnable = refusals.isEmpty() && (phase != null || lanes is FixMessageViewModel.FanOutLanes.Available)
 
     fun plan(): LoadPlan? {
         val t = template ?: return null
@@ -204,8 +255,29 @@ fun LoadRunDialogContent(
         )
     }
 
+    @Suppress("ReturnCount")
+    fun spec(): LoadPhaseSpec? {
+        val t = template ?: return null
+        val p = profile ?: return null
+        val sh = shape ?: return null
+        return LoadPhaseSpec(
+            label = phaseLabel.trim().ifBlank { t.name },
+            template = t.name,
+            profile = p.name,
+            listen = listen.mapNotNull { id -> profiles.firstOrNull { it.id == id }?.name },
+            match = match,
+            shape = sh,
+            indexFrom = indexFrom.trim().toIntOrNull()?.coerceAtLeast(1) ?: 1,
+            settleMs = HeadlessRun.parseDuration(settle) ?: LoadPlan.DEFAULT_SETTLE_MS,
+        )
+    }
+
     fun start() {
         if (!runnable) return
+        if (phase != null) {
+            spec()?.let(phase.onDone)
+            return
+        }
         val ready = plan() ?: return
         profileId?.let {
             viewModel.rememberLoadRunDefaults(it, LoadRunDefaults(burst, count, rate, forText, settle, seedRows.map { (k, v) -> listOf(k, v) }))
@@ -225,7 +297,12 @@ fun LoadRunDialogContent(
                     when {
                         event.type != KeyEventType.KeyDown -> false
                         event.key == Key.Escape -> {
-                            onDismiss()
+                            // In a phase, Esc is the way back to the set rather than out of the dialog.
+                            if (phase != null) {
+                                phase.onBack()
+                            } else {
+                                onDismiss()
+                            }
                             true
                         }
                         (event.key == Key.Enter || event.key == Key.NumPadEnter) && (event.isMetaPressed || event.isCtrlPressed) -> {
@@ -240,14 +317,28 @@ fun LoadRunDialogContent(
             verticalArrangement = Arrangement.spacedBy(3.dp),
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Text(
-                "Issues this message across a profile's sessions without waiting for replies, then accounts for every " +
-                    "reply that lands on any session that is logged on.",
-                color = AppTheme.Colors.textSecondary,
-                style = AppTheme.Type.body,
-            )
+            if (phase == null) {
+                Text(
+                    "Issues this message across a profile's sessions without waiting for replies, then accounts " +
+                        "for every reply that lands on any session that is logged on.",
+                    color = AppTheme.Colors.textSecondary,
+                    style = AppTheme.Type.body,
+                )
+            } else {
+                Breadcrumb(phase)
+            }
 
             GroupHead("What to send")
+            if (phase != null) {
+                FormRow("Label") {
+                    SlimField(
+                        phaseLabel,
+                        { phaseLabel = it },
+                        modifier = Modifier.fillMaxWidth().testTag("phase-label"),
+                    )
+                    Sub("what the report calls this phase")
+                }
+            }
             FormRow("Template") {
                 if (fixedTemplate != null) {
                     // Opened from the editor, whose fields *are* the template: there is nothing to go and view.
@@ -286,6 +377,10 @@ fun LoadRunDialogContent(
                     )
                     a.shortfall?.let { Sub(it, AppTheme.Colors.warning) }
                 }
+                if (phase != null) {
+                    val down = lanes as? FixMessageViewModel.FanOutLanes.Unavailable
+                    down?.let { Sub(it.why, AppTheme.Colors.warning) }
+                }
                 Refusals(refusals, Where.PROFILE)
             }
 
@@ -301,7 +396,16 @@ fun LoadRunDialogContent(
                     )
                     if (burst) {
                         SlimField(count, { count = it }, modifier = Modifier.width(64.dp).testTag("load-count"))
-                        Sub("messages, as fast as the lanes carry them")
+                        if (phase != null) {
+                            Sub("from")
+                            SlimField(
+                                indexFrom,
+                                { indexFrom = it },
+                                modifier = Modifier.width(56.dp).testTag("phase-index-from"),
+                            )
+                        } else {
+                            Sub("messages, as fast as the lanes carry them")
+                        }
                     } else {
                         SlimField(rate, { rate = it }, modifier = Modifier.width(56.dp).testTag("load-rate"))
                         Sub("/s for")
@@ -375,65 +479,82 @@ fun LoadRunDialogContent(
                         Sub("listen only, never issue")
                     }
                 }
-                FormRow("Seed") {
-                    seedRows.forEachIndexed { index, (name, value) ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            SlimField(
-                                name,
-                                { seedRows = seedRows.replaceAt(index, it to value) },
-                                modifier = Modifier.width(88.dp).testTag("load-seed-name-$index"),
-                            )
-                            Sub("=")
-                            SlimField(
-                                value,
-                                { seedRows = seedRows.replaceAt(index, name to it) },
-                                modifier = Modifier.width(88.dp).testTag("load-seed-value-$index"),
-                            )
-                            if (index == seedRows.lastIndex) {
-                                Chip("+ add", on = false, tag = "load-seed-add") { seedRows = seedRows + ("" to "") }
-                                Chip("mint a new one", on = false, tag = "load-seed-mint") {
-                                    seedRows = seedRows.replaceAt(index, name.ifBlank { "run" } to mintSeed())
+                if (phase != null) {
+                    FormRow("Seed and store") {
+                        Sub("the set's, one level up. This phase reads " + readsList(compiled, phase.seeded))
+                    }
+                }
+                if (phase == null) {
+                    FormRow("Seed") {
+                        seedRows.forEachIndexed { index, (name, value) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                SlimField(
+                                    name,
+                                    { seedRows = seedRows.replaceAt(index, it to value) },
+                                    modifier = Modifier.width(88.dp).testTag("load-seed-name-$index"),
+                                )
+                                Sub("=")
+                                SlimField(
+                                    value,
+                                    { seedRows = seedRows.replaceAt(index, name to it) },
+                                    modifier = Modifier.width(88.dp).testTag("load-seed-value-$index"),
+                                )
+                                if (index == seedRows.lastIndex) {
+                                    Chip("+ add", on = false, tag = "load-seed-add") {
+                                        seedRows = seedRows + ("" to "")
+                                    }
+                                    Chip("mint a new one", on = false, tag = "load-seed-mint") {
+                                        seedRows = seedRows.replaceAt(index, name.ifBlank { "run" } to mintSeed())
+                                    }
                                 }
                             }
                         }
+                        Sub("in scope as \${name}, on every message this run issues")
+                        Refusals(refusals, Where.SEED)
                     }
-                    Sub("in scope as \${name}, on every message this run issues")
-                    Refusals(refusals, Where.SEED)
                 }
-                FormRow("Store and log") {
-                    SlimRadioGroup(
-                        options = listOf(false, true),
-                        selected = forLoad,
-                        onSelect = { forLoad = it },
-                        optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
-                    ) { memory ->
-                        if (memory) {
-                            Text("Memory store, no log", color = AppTheme.Colors.text, style = AppTheme.Type.body)
-                            Sub("recommended")
-                        } else {
-                            Text(
-                                "As the profile" +
-                                    (
-                                        profile?.let {
-                                            ": ${it.config.messageStore.name.lowercase()} store, " +
-                                                (if (it.config.messageLog.name == "NONE") "no log" else "file log")
-                                        } ?: ""
-                                    ),
-                                color = AppTheme.Colors.text,
-                                style = AppTheme.Type.body,
+                if (phase == null) {
+                    FormRow("Store and log") {
+                        SlimRadioGroup(
+                            options = listOf(false, true),
+                            selected = forLoad,
+                            onSelect = { forLoad = it },
+                            optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
+                        ) { memory ->
+                            if (memory) {
+                                Text("Memory store, no log", color = AppTheme.Colors.text, style = AppTheme.Type.body)
+                                Sub("recommended")
+                            } else {
+                                Text(
+                                    "As the profile" +
+                                        (
+                                            profile?.let {
+                                                ": ${it.config.messageStore.name.lowercase()} store, " +
+                                                    (if (it.config.messageLog.name == "NONE") "no log" else "file log")
+                                            } ?: ""
+                                        ),
+                                    color = AppTheme.Colors.text,
+                                    style = AppTheme.Type.body,
+                                )
+                            }
+                        }
+                        Refusals(refusals, Where.STORE)
+                        if (forLoad &&
+                            profile != null &&
+                            refusals.none { it.where == Where.STORE } &&
+                            (
+                                profile.config.messageStore != StoreAndLogOverride.FOR_LOAD.store ||
+                                    profile.config.messageLog != StoreAndLogOverride.FOR_LOAD.log
+                            )
+                        ) {
+                            Sub(
+                                "The lanes reconnect with a memory store and no log for this run, and " +
+                                    "reconnect back when it ends.",
                             )
                         }
-                    }
-                    Refusals(refusals, Where.STORE)
-                    if (forLoad &&
-                        profile != null &&
-                        refusals.none { it.where == Where.STORE } &&
-                        (
-                            profile.config.messageStore != StoreAndLogOverride.FOR_LOAD.store ||
-                                profile.config.messageLog != StoreAndLogOverride.FOR_LOAD.log
-                        )
-                    ) {
-                        Sub("The lanes reconnect with a memory store and no log for this run, and reconnect back when it ends.")
                     }
                 }
             }
@@ -441,18 +562,33 @@ fun LoadRunDialogContent(
             profileId?.let { id -> viewModel.fanOutFarEndNotice(id)?.let { Notice(it, AppTheme.Colors.warning, "note", "load-far-end") } }
         }
 
-        Footer(
-            why =
-                when {
-                    refusals.isNotEmpty() -> refusals.first().text
-                    lanes !is FixMessageViewModel.FanOutLanes.Available -> "No lane is logged on, so there is nothing to issue on."
-                    else -> null
-                },
-            runnable = runnable,
-            onCopy = { plan()?.let { copyToClipboard(cliLine(it)) } },
-            onDismiss = onDismiss,
-            onRun = ::start,
-        )
+        val why =
+            when {
+                refusals.isNotEmpty() -> refusals.first().text
+                // A phase is edited with the lanes down as often as up: a set is authored before it is run,
+                // and the set's own footer is what refuses to run it.
+                phase == null && lanes !is FixMessageViewModel.FanOutLanes.Available ->
+                    "No lane is logged on, so there is nothing to issue on."
+                else -> null
+            }
+        if (phase != null) {
+            PhaseFooter(
+                why = why,
+                summary = phaseSummary(shape, indexFrom, settle, lanes),
+                done = refusals.isEmpty(),
+                onRemove = phase.onRemove,
+                onDone = ::start,
+            )
+        } else {
+            Footer(
+                why = why,
+                runnable = runnable,
+                onCopy = { plan()?.let { copyToClipboard(cliLine(it)) } },
+                onMakeSet = if (onMakeSet == null) null else ({ asSet(spec(), seed, override)?.let(onMakeSet) }),
+                onDismiss = onDismiss,
+                onRun = ::start,
+            )
+        }
     }
 }
 
@@ -561,7 +697,15 @@ private fun Disclosure(open: Boolean, summary: String, changed: String?, onToggl
 
 /** The pinned footer: why Run is off, then the actions. Never inside the scroll region, which is the fix. */
 @Composable
-private fun Footer(why: String?, runnable: Boolean, onCopy: () -> Unit, onDismiss: () -> Unit, onRun: () -> Unit) {
+@Suppress("LongParameterList")
+private fun Footer(
+    why: String?,
+    runnable: Boolean,
+    onCopy: () -> Unit,
+    onMakeSet: (() -> Unit)?,
+    onDismiss: () -> Unit,
+    onRun: () -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface)) {
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
         Row(
@@ -576,6 +720,14 @@ private fun Footer(why: String?, runnable: Boolean, onCopy: () -> Unit, onDismis
                 maxLines = 2,
                 modifier = Modifier.weight(1f).testTag("load-why"),
             )
+            onMakeSet?.let {
+                SlimButton(
+                    "Make this a set…",
+                    onClick = it,
+                    enabled = runnable,
+                    modifier = Modifier.testTag("load-make-set"),
+                )
+            }
             SlimButton("Copy as fixtool load", onClick = onCopy, enabled = runnable, modifier = Modifier.testTag("load-copy-cli"))
             SlimButton("Cancel", onClick = onDismiss)
             SlimButton(
@@ -587,6 +739,122 @@ private fun Footer(why: String?, runnable: Boolean, onCopy: () -> Unit, onDismis
             )
         }
     }
+}
+
+/**
+ * **This run as a set of one**, with the seed and the store lifted to the set band.
+ *
+ * The path from one burst to a set is the one somebody actually walks: tune the burst in Load run…, then
+ * want the cancel storm after it. Nothing in Load run… itself changes.
+ */
+private fun asSet(spec: LoadPhaseSpec?, seed: Map<String, String>, storeAndLog: StoreAndLogOverride?): LoadSet? {
+    val phase = spec ?: return null
+    val label = phase.label
+    return LoadSet(
+        name = LoadSet.slug(label),
+        label = label,
+        seed = seed,
+        storeAndLog = storeAndLog,
+        phases = listOf(phase),
+    )
+}
+
+/** The way back to the set, and where in it this phase sits. Esc does the same thing. */
+@Composable
+private fun Breadcrumb(phase: PhaseEdit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+    ) {
+        Text(
+            "‹ ${phase.setLabel}",
+            color = AppTheme.Colors.info,
+            style = AppTheme.Type.body,
+            modifier = Modifier.clickable(onClick = phase.onBack).testTag("phase-back"),
+        )
+        Text("›", color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta)
+        Text("${phase.n} · ${phase.spec.label}", color = AppTheme.Colors.text, style = AppTheme.Type.body)
+        Text("Esc  back to the set", color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta)
+    }
+}
+
+/** The phase editor's footer: what it will do, and the two things a phase can be. */
+@Composable
+private fun PhaseFooter(why: String?, summary: String, done: Boolean, onRemove: () -> Unit, onDone: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface)) {
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Text(
+                why ?: summary,
+                color = if (why != null) AppTheme.Colors.error else AppTheme.Colors.textDisabled,
+                style = AppTheme.Type.meta,
+                maxLines = 2,
+                modifier = Modifier.weight(1f).testTag("phase-why"),
+            )
+            SlimButton(
+                "Remove phase",
+                onClick = onRemove,
+                color = AppTheme.Colors.error,
+                modifier = Modifier.testTag("phase-remove"),
+            )
+            SlimButton(
+                "Done  $RUN_KEYS",
+                color = AppTheme.Colors.success,
+                enabled = done,
+                onClick = onDone,
+                modifier = Modifier.testTag("phase-done"),
+            )
+        }
+    }
+}
+
+/** "×2,000 from 2,001 on 5 lanes · settle 60s", the sentence the footer carries when nothing is wrong. */
+private fun phaseSummary(
+    shape: LoadShape?,
+    indexFrom: String,
+    settle: String,
+    lanes: FixMessageViewModel.FanOutLanes?,
+): String {
+    val n = indexFrom.trim().toIntOrNull()
+    val from = if (n != null && n > 1) " from " + "%,d".format(n) else ""
+    val on = (lanes as? FixMessageViewModel.FanOutLanes.Available)?.let { " on ${it.lanes.size} lanes" } ?: ""
+    return (shape?.describe() ?: "no shape") + from + on + " · settle " + settle
+}
+
+/** A phase's shape, settle and index, as the fields the dialog's body already binds to. */
+private fun defaultsOf(spec: LoadPhaseSpec): LoadRunDefaults =
+    when (val shape = spec.shape) {
+        is LoadShape.Burst ->
+            LoadRunDefaults(
+                burst = true,
+                count = shape.count.toString(),
+                settle = compact(spec.settleMs),
+                seed = emptyList(),
+            )
+        is LoadShape.Rate ->
+            LoadRunDefaults(
+                burst = false,
+                rate = shape.perSecond.toString(),
+                forText = compact(shape.forMs),
+                settle = compact(spec.settleMs),
+                seed = emptyList(),
+            )
+    }
+
+/** The phase's own match tag when it has one, and the template's inference when it does not. */
+private fun phaseTag(phase: PhaseEdit?, template: LoadTemplate?, of: (LoadMatch) -> Int): String =
+    (phase?.spec?.match ?: template?.inferMatch())?.let { of(it).toString() } ?: ""
+
+/** "${run}, ${desk} and ${messageIndex}", so a phase says which of the set's names it reads. */
+private fun readsList(compiled: CompiledTemplate?, seeded: Set<String>): String {
+    val names = compiled?.variablesRead().orEmpty().filter { it in seeded || it == CompiledTemplate.MESSAGE_INDEX }
+    if (names.isEmpty()) return "no seeded name"
+    return names.joinToString(", ") { "\${$it}" }
 }
 
 /** A preset or a seed action: a word, a border, and an on state. */
@@ -718,7 +986,7 @@ private fun compact(ms: Long): String = humanDuration(ms).replace(" ", "")
 
 private fun quoted(text: String): String = if (text.any { it.isWhitespace() }) "\"$text\"" else text
 
-private fun copyToClipboard(text: String) {
+internal fun copyToClipboard(text: String) {
     Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
 }
 

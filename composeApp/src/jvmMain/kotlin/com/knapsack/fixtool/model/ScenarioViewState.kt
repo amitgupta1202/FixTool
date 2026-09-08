@@ -42,6 +42,14 @@ data class ScenarioViewState(
      * control for each of these five fields. Losing it costs one retyped count.
      */
     val loadRuns: Map<String, LoadRunDefaults> = emptyMap(),
+    /**
+     * The load set the editor was last on, by name, so opening Load sets… comes back to what was being
+     * worked on rather than to whatever sorts first.
+     *
+     * Here for the same reason as the rest of this file: it is not a setting anybody edits on a settings
+     * page, and losing it costs one click. A name that no longer answers to a file is simply inert.
+     */
+    val lastLoadSet: String? = null,
 )
 
 /**

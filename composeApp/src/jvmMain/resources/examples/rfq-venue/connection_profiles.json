@@ -306,11 +306,54 @@
                                     "type": "exact",
                                     "value": "1"
                                 }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "quoteField",
+                                    "name": "symbol"
+                                }
                             }
                         ],
                         "steps": [
                             {
                                 "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=Price is not the quoted price|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=Instrument is not the quoted one|60=${utcnow}"
                             }
                         ],
                         "whenQuote": "open"

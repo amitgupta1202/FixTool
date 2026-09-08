@@ -123,6 +123,7 @@ class RfqVenuePresetTest {
                 "AJ 117 quote:done",
                 "AJ 117 11 38 694=1 55=quote.symbol 54=1 44=quote.offer quote:open",
                 "AJ 117 11 38 694=1 55=quote.symbol 54=2 44=quote.bid quote:open",
+                "AJ 117 11 38 694=1 55=quote.symbol quote:open",
                 "AJ 117 11 38 694=1 quote:open",
                 "AJ 117 694=1 quote:open",
                 "AJ 117 694=2 quote:open",
@@ -132,7 +133,7 @@ class RfqVenuePresetTest {
             ),
             read,
         )
-        assertEquals(16, bundle.size, "the summary counts the rules, so the count is the summary")
+        assertEquals(17, bundle.size, "the summary counts the rules, so the count is the summary")
         assertTrue(bundle.none { it.whenOrder != null }, "this venue reads the quote book, not the order book")
     }
 
@@ -415,13 +416,29 @@ class RfqVenuePresetTest {
         assertEquals("5", field(answer(hit("EUR/USD", side = "1", price = "1.08990"), quoted()), 297))
     }
 
-    /** The instrument the client named has to be the instrument the venue quoted. */
+    /**
+     * The instrument the client named has to be the instrument the venue quoted, **and the refusal has to
+     * say that is what was wrong**.
+     *
+     * A hit at the quoted price on another pair used to fall to the wrong-price rule and come back "Price
+     * is not the quoted price", which is the one thing that was right about it. A client reading that
+     * checks its pricing and finds nothing.
+     */
     @Test
     fun `a hit naming a different instrument than the quote is not booked`() {
         val status = answer(hit("GBP/USD", side = "1", price = "1.09010"), quoted(symbol = "EUR/USD"))
 
         assertTrue(status.startsWith("35=AI"), "got: $status")
         assertEquals("5", field(status, 297))
+        assertEquals("Instrument is not the quoted one", field(status, 58), status)
+    }
+
+    /** And the price refusal is now only ever about the price, because the instrument had to match first. */
+    @Test
+    fun `the wrong-price refusal is only reached on the quoted instrument`() {
+        val status = answer(hit("EUR/USD", side = "1", price = "1.09000"), quoted(symbol = "EUR/USD"))
+
+        assertEquals("Price is not the quoted price", field(status, 58), status)
     }
 
     @Test

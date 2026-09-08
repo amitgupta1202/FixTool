@@ -271,14 +271,39 @@ object RfqVenuePreset {
     private val buyHit = bookingRule(side = "1", field = "offer")
     private val sellHit = bookingRule(side = "2", field = "bid")
 
+    /**
+     * A hit on the quoted instrument at some other price. **[quotedSymbol] is the load-bearing condition**,
+     * not decoration: without it this rule also caught a hit at the right price on the wrong pair, and
+     * answered it "Price is not the quoted price", which is the one thing that was right about it. A client
+     * reading that goes and checks its pricing, and finds nothing.
+     */
     private val wrongPrice =
+        AcceptorResponseRule(
+            whenMsgType = "AJ",
+            conditions = listOf(quoteIdPresent, clOrdIdPresent, quantityPresent, respType("1"), quotedSymbol),
+            whenQuote = QuoteConstraint.OPEN,
+            steps =
+                listOf(
+                    ResponseStep(quoteStatus(REJECTED, QUOTE_SYMBOL, "Price is not the quoted price")),
+                ),
+        )
+
+    /**
+     * A bookable hit that got past the two bookings and the price refusal, which leaves one thing it can
+     * be: `55` is not the instrument the quote named, or is not there to be read.
+     *
+     * Said by *position* rather than by a condition, because the matcher has no "not the quote's field"
+     * shape and inventing one to express a refusal would be the tail wagging the venue. The three rules
+     * above it all carry [quotedSymbol], so anything arriving here failed it.
+     */
+    private val wrongInstrument =
         AcceptorResponseRule(
             whenMsgType = "AJ",
             conditions = listOf(quoteIdPresent, clOrdIdPresent, quantityPresent, respType("1")),
             whenQuote = QuoteConstraint.OPEN,
             steps =
                 listOf(
-                    ResponseStep(quoteStatus(REJECTED, QUOTE_SYMBOL, "Price is not the quoted price")),
+                    ResponseStep(quoteStatus(REJECTED, QUOTE_SYMBOL, "Instrument is not the quoted one")),
                 ),
         )
 
@@ -342,9 +367,10 @@ object RfqVenuePreset {
      * Declared backwards to read forwards, as the FX venue is: [AcceptorPresets.insert] places each
      * conditioned rule above the first rule for its MsgType and appends an unconditioned one, so each
      * block below lists its conditioned rules last-first and its catch-all last. What the cards read is
-     * asserted by `RfqVenuePresetTest`. Two things depend on it: the three quote-state refusals must
-     * outrank everything, because every rule below them is written for a live quote, and the bookings
-     * must outrank the wrong-price refusal or every hit is refused.
+     * asserted by `RfqVenuePresetTest`. Three things depend on it: the three quote-state refusals must
+     * outrank everything, because every rule below them is written for a live quote, the bookings must
+     * outrank the wrong-price refusal or every hit is refused, and [wrongInstrument] must sit directly
+     * under [wrongPrice], because position is the whole of what tells it the instrument was the fault.
      *
      * [validitySeconds] is a parameter for one reason: a test has to be able to watch a quote expire
      * without waiting thirty seconds for it.
@@ -355,7 +381,7 @@ object RfqVenuePreset {
             QUOTED.reversed().map { quoteRule(it, validitySeconds) } +
             FxVenuePreset.quoteUnknownSymbol +
             // 35=AJ: what the book says first, then the bookings, then every other response answered.
-            listOf(otherResponse, pass, counter, cannotBook, wrongPrice, sellHit, buyHit) +
+            listOf(otherResponse, pass, counter, cannotBook, wrongInstrument, wrongPrice, sellHit, buyHit) +
             listOf(doneQuote, expiredQuote, unknownQuote) +
             cannotAnswer
 

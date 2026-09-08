@@ -33,6 +33,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -46,6 +47,12 @@ class ControlServerLoadIntegrationTest {
     private var port = 0
     private val client: HttpClient = HttpClient.newHttpClient()
 
+    /** The loopback venue, started only by the tests that actually run a set. */
+    private var venue: TestFixServer? = null
+
+    /** QuickFIX/J keeps a static session registry per JVM, so every CompID here is this run's own. */
+    private val runId = System.nanoTime().toString().takeLast(6)
+
     @Before
     fun setup() {
         testDir = File.createTempFile("fixtool-control-load", "").apply { delete(); mkdirs() }
@@ -58,6 +65,8 @@ class ControlServerLoadIntegrationTest {
     @After
     fun cleanup() {
         server.stop()
+        viewModel.disconnectAllSessions()
+        venue?.stop()
         testDir.deleteRecursively()
     }
 
@@ -259,6 +268,186 @@ class ControlServerLoadIntegrationTest {
 
         val text = mcpCall("fixtool_load_status", "{}")
         assertEquals(1, Json.parseToJsonElement(text).jsonObject["count"]!!.jsonPrimitive.int, text)
+    }
+
+    /**
+     * **An inline set with a generator seed runs, and the ids on the wire carry what it rendered.**
+     *
+     * `seed` on an inline body **is** the set's seed, read by the codec like every other set-level field.
+     * It was also passed as the override that wins over the file, so `${uuid:4}` was written back over the
+     * four hex characters the set start had just rendered: the record kept the generator's own text, every
+     * ClOrdID read `ORD-${uuid:4}-1` literally, and nothing matched.
+     */
+    @Test
+    fun `an inline set with a generator seed runs, and its ids carry the rendered value`() {
+        val venue = TestFixServer().also { it.start() }
+        this.venue = venue
+        venue.answer = { request -> listOf(TestFixServer.executionReportFor(request)) }
+        val template =
+            File(testDir, "nos.fix").apply {
+                writeText("8=FIX.4.4|35=D|11=ORD-\${run}-\${messageIndex}|55=EUR/USD|54=1|38=1000000|40=1|")
+            }
+        connectLanes(venue)
+
+        val body =
+            """
+            {"phases":[
+              {"label":"Send some orders","template":"${template.absolutePath}","profile":"LOADGEN",
+               "match":{"requestTag":11,"replyTag":11,"replyType":"8"},
+               "shape":{"kind":"burst","count":6},"settleMs":3000}],
+             "seed":{"run":"${'$'}{uuid:4}"},
+             "storeAndLog":{"store":"MEMORY","log":"NONE"}}
+            """.trimIndent()
+        val accepted = obj(post("/load", body))
+        val id = assertNotNull(accepted["load"]?.jsonPrimitive?.contentOrNull, "the set was refused: $accepted")
+        assertEquals(1, accepted["phases"]!!.jsonPrimitive.int)
+
+        val record = awaitFinished(id)
+        val run = record["seed"]!!.jsonObject["run"]!!.jsonPrimitive.content
+        assertTrue(Regex("^[0-9a-f]{4}$").matches(run), "the rendered seed, not the generator: '$run'")
+        val ids = venue.applicationMessages.mapNotNull { TestFixServer.fieldValue(it, 11) }
+        assertEquals(6, ids.size, "six orders on the wire, and they were: $ids")
+        assertTrue(ids.all { it.startsWith("ORD-$run-") }, "every id carries the seed the record kept: $ids")
+        assertEquals(6, ids.toSet().size, "each its own ClOrdID")
+        assertEquals(0, record["exitCode"]!!.jsonPrimitive.int, "and every one of them was answered")
+        val phase = record["phases"]!!.jsonArray.single().jsonObject
+        assertEquals(6, phase["replies"]!!.jsonObject["matched"]!!.jsonPrimitive.int)
+    }
+
+    /**
+     * **A set names its template the way the command line reads one**: a path, then a saved message by id
+     * or by name.
+     *
+     * The API resolved by name only, so a set file that named a template by its id — which is what a saved
+     * set holds after the editor picked one — ran under `fixtool load` and was refused over HTTP.
+     */
+    @Test
+    fun `an inline set names its template by saved id, as the command line does`() {
+        viewModel.saveConnectionProfile(profile())
+        val saved =
+            assertNotNull(
+                viewModel.saveTemplateDirect(
+                    profileId = "lg",
+                    name = "NOS EUR/USD",
+                    fields = listOf(SavedFixField("35", "D"), SavedFixField("11", "ORD-\${messageIndex}"), SavedFixField("55", "EUR/USD")),
+                ),
+            ).message
+
+        // Nothing is logged on, so a set whose template resolved gets as far as the lanes and no further.
+        val byId = post("/load", setBody(saved.id))
+        assertEquals(409, byId.statusCode(), byId.body())
+        assertTrue(byId.body().contains("logged on"), byId.body())
+
+        val byName = post("/load", setBody(saved.name))
+        assertEquals(409, byName.statusCode(), "the name still works, as it always did: ${byName.body()}")
+
+        val byNothing = obj(post("/load", setBody("no-such-template")))
+        assertTrue(byNothing["error"]!!.jsonPrimitive.content.contains("no template 'no-such-template'"), byNothing.toString())
+    }
+
+    private fun setBody(template: String) =
+        """
+        {"phases":[
+          {"label":"Send some orders","template":"$template","profile":"LOADGEN",
+           "match":{"requestTag":11,"replyTag":11,"replyType":"8"},
+           "shape":{"kind":"burst","count":4}}]}
+        """.trimIndent()
+
+    /**
+     * **Every refusal, not only the first**, and a body that could not be read at all says why.
+     *
+     * A set of six phases refused on four of them cost six round trips to fix one at a time, and the whole
+     * reason the set is validated before anything dials is that the caller can be told everything at once.
+     * A body whose `store` read "memory" rather than "MEMORY" got the one fixed sentence about labels and
+     * shapes, which named nothing that was wrong with it.
+     */
+    @Test
+    fun `a refused set lists every problem, and an unreadable body says what could not be read`() {
+        viewModel.saveConnectionProfile(profile())
+
+        val body =
+            """
+            {"phases":[
+              {"label":"One","template":"nowhere","profile":"LOADGEN",
+               "match":{"requestTag":131,"replyTag":131,"replyType":"S"},
+               "shape":{"kind":"burst","count":10}},
+              {"label":"Two","template":"nowhere either","profile":"NOBODY",
+               "match":{"requestTag":11,"replyTag":11,"replyType":"8"},
+               "shape":{"kind":"burst","count":10}}]}
+            """.trimIndent()
+        val refused = obj(post("/load", body))
+        val problems = refused["problems"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(refused["error"]!!.jsonPrimitive.content, problems.first(), "the sentence is the first of the list")
+        assertTrue(problems.size >= 2, "both phases are named at once: $problems")
+        assertTrue(problems.any { it.startsWith("Phase 1 · One:") }, problems.toString())
+        assertTrue(problems.any { it.startsWith("Phase 2 · Two:") }, problems.toString())
+
+        // A body the codec cannot read at all: the store kind is an enum, and "memory" is not one of its names.
+        val unreadable =
+            obj(
+                post(
+                    "/load",
+                    """{"phases":[{"label":"One","template":"x","profile":"LOADGEN","shape":{"kind":"burst","count":1}}],"storeAndLog":{"store":"memory","log":"none"}}""",
+                ),
+            )
+        val sentence = unreadable["error"]!!.jsonPrimitive.content
+        assertTrue(sentence.startsWith("could not read the set: "), sentence)
+        assertTrue(sentence.contains("memory"), "and it names what it choked on: $sentence")
+        assertEquals(listOf(sentence), unreadable["problems"]!!.jsonArray.map { it.jsonPrimitive.content })
+    }
+
+    /** Two lanes of LOADGEN, dialling [venue] and logged on, which is what a load set needs to start. */
+    private fun connectLanes(venue: TestFixServer) {
+        val live =
+            FixConnectionProfile(
+                id = "lg",
+                name = "LOADGEN",
+                config =
+                    FixConnectionConfig(
+                        senderCompID = "LG{nn}$runId",
+                        targetCompID = "VENUE$runId",
+                        host = "localhost",
+                        socketConnectHost = "localhost",
+                        port = venue.port.toString(),
+                        beginString = "FIX.4.4",
+                        sessionCount = 2,
+                        heartBtInt = "30",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "store").absolutePath,
+                        fileLogPath = File(testDir, "log").absolutePath,
+                    ),
+            )
+        viewModel.saveConnectionProfile(live)
+        viewModel.connectProfile(live.id, live)
+        val start = System.currentTimeMillis()
+
+        fun loggedOn() = viewModel.getProfileSessions(live.id).count { it.connectionState.value == FixConnectionState.LOGGED_ON }
+
+        while (loggedOn() < 2 && System.currentTimeMillis() - start < 25_000) Thread.sleep(100)
+        val states = viewModel.sessions.joinToString { "${it.title}=${it.connectionState.value}" }
+        assertEquals(2, loggedOn(), "two lanes should log on: $states")
+    }
+
+    /**
+     * The record once the set is over, polled the way an agent polls it.
+     *
+     * A record the runner has not written its first tick for yet answers 404, so "not there" is "not yet"
+     * and only a status ends the wait.
+     */
+    private fun awaitFinished(id: String): JsonObject {
+        val start = System.currentTimeMillis()
+        var last = "never answered"
+        while (System.currentTimeMillis() - start < 40_000) {
+            val record = obj(get("/loads/$id"))
+            // The record says DONE; only the one-line row on `GET /loads` lowercases its status.
+            when (record["status"]?.jsonPrimitive?.contentOrNull?.lowercase()) {
+                "done", "stopped" -> return record
+                else -> last = record.toString()
+            }
+            Thread.sleep(200)
+        }
+        throw AssertionError("the set did not finish within 40s, last answer: $last")
     }
 
     private fun request(method: String, path: String, body: String?): HttpResponse<String> {

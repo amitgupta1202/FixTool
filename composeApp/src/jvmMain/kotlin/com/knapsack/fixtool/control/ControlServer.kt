@@ -1867,17 +1867,28 @@ class ControlServer(
                 named != null ->
                     viewModel.loadSet(named)
                         ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved load set '$named'"))
-                else ->
-                    runCatching { LoadSetCodec.fromJson(body) }.getOrNull()
-                        ?: return Coded(HTTP_OK, errorObject(INLINE_SET_REFUSAL))
+                else -> {
+                    val read = runCatching { LoadSetCodec.fromJson(body) }
+                    read.getOrNull() ?: return setRefusal(listOf(inlineRefusal(read.exceptionOrNull())))
+                }
             }
         val resolve = ControlSetResolver()
         val problems = set.problems(resolve, LoadPlan.Surface.API)
         if (problems.isNotEmpty()) {
-            val first = problems.first()
-            return Coded(HTTP_OK, errorObject(first.describe(first.phase?.let { set.phases.getOrNull(it - 1)?.label })))
+            return setRefusal(
+                problems.map { p -> p.describe(p.phase?.let { set.phases.getOrNull(it - 1)?.label }) },
+            )
         }
-        val seed = (body["seed"] as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content }
+        // `seed` overrides a *saved* set's seed, which is how a build passes its own number in. For an
+        // inline set the body's seed **is** the set's seed, already read by the codec, so there is nothing
+        // to override: passing it here would put `${uuid:4}` back over the four hex characters the set
+        // start rendered, and every id would carry the generator's own text.
+        val seed =
+            if (named == null) {
+                emptyMap()
+            } else {
+                (body["seed"] as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content }
+            }
         val onFailure =
             body["onFailure"]?.jsonPrimitive?.contentOrNull?.let { k ->
                 OnFailure.entries.firstOrNull { it.name.equals(k, ignoreCase = true) }
@@ -1915,6 +1926,31 @@ class ControlServer(
             put("profiles", buildJsonArray { profiles.forEach { add(it) } })
         }
 
+    /**
+     * **Every reason a set cannot run**, the first as `error` and all of them as `problems`.
+     *
+     * The list and not only the first, because a set of six phases refused on four of them costs six
+     * round trips to fix one at a time, and the whole point of validating before anything dials is that
+     * the caller can be told everything at once.
+     */
+    private fun setRefusal(sentences: List<String>): Coded =
+        Coded(
+            HTTP_OK,
+            buildJsonObject {
+                put("error", sentences.first())
+                put("problems", buildJsonArray { sentences.forEach { add(it) } })
+            },
+        )
+
+    /**
+     * Why an inline set could not be read at all, in the codec's own words when it has any.
+     *
+     * A body whose `storeAndLog.store` reads "memory" rather than "MEMORY" fails here, and the fixed
+     * sentence about labels and shapes named none of that.
+     */
+    private fun inlineRefusal(cause: Throwable?): String =
+        "could not read the set: " + (cause?.message?.takeIf { it.isNotBlank() } ?: INLINE_SET_REFUSAL)
+
     /** Why a profile cannot supply lanes, in the fan-out's own words. */
     private fun laneRefusal(profileId: String): String? =
         (onEdt { viewModel.loadLanes(profileId) } as? FixMessageViewModel.FanOutLanes.Unavailable)?.why
@@ -1926,10 +1962,19 @@ class ControlServer(
                 ?.singleOrNull()
                 ?.let { LoadSet.Profile(it.id, it.name, it.config) }
 
-        override fun template(key: String, profileId: String?): LoadTemplate? =
-            onEdt { viewModel.loadTemplates(profileId) }?.firstOrNull { it.name.equals(key, ignoreCase = true) }
-                // A path too, the way the CLI reads one, so a set checked in beside the code works here.
-                ?: java.io.File(key).takeIf { it.isFile }?.let { LoadTemplates.fromFile(it) }
+        /**
+         * A path, then a saved message by id or by name — the order `LoadTemplates.resolve` reads on the
+         * command line, so a set file naming a template by its id runs at both doors rather than only at
+         * the one it was written against.
+         */
+        override fun template(key: String, profileId: String?): LoadTemplate? {
+            val file = java.io.File(key).takeIf { it.isFile }
+            if (file != null) return LoadTemplates.fromFile(file)
+            val byId = onEdt { viewModel.savedMessages.firstOrNull { it.id == key } }
+            if (byId != null) return LoadTemplates.of(byId)
+            val byName = onEdt { viewModel.loadTemplates(profileId) }
+            return byName?.firstOrNull { it.name.equals(key, ignoreCase = true) }
+        }
     }
 
     /** `/load-sets` — the saved sets, and one whole. Read-only: a set is authored in the app or in a checkout. */
@@ -4421,9 +4466,9 @@ class ControlServer(
          */
         private const val MAX_SET_WAIT_MS = 10_000L
 
-        /** What an inline set on `POST /load` needs, said once so the line fits. */
+        /** What an inline set on `POST /load` needs, for the case where the failure names nothing itself. */
         private const val INLINE_SET_REFUSAL =
-            "could not read the set: a phase needs a label, a template, a profile and a shape"
+            "a phase needs a label, a template, a profile and a shape"
         private const val MCP_PROTOCOL_VERSION = "2025-06-18"
         private const val MCP_METHOD_NOT_FOUND = -32601
         private const val MCP_INTERNAL_ERROR = -32603

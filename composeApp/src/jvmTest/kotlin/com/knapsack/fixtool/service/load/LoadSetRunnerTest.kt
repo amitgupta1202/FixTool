@@ -34,6 +34,58 @@ class LoadSetRunnerTest {
             listOf(35 to "AJ", 11 to "H-\${run}-\${messageIndex}", 117 to "Q-\${run}-\${messageIndex}", 694 to "1"),
         )
 
+    /**
+     * Two phases that a *single* matcher could not tell apart: both wait for a `35=8` on tag 11.
+     *
+     * The quote-then-hit pair above is answered by the type check alone, so a reply landing in the wrong
+     * phase never reaches the router's "an id nothing here issued" branch. Orders and cancels do reach it,
+     * and that is the shape the router was built for.
+     */
+    private val order = LoadTemplate("Orders", listOf(35 to "D", 11 to "ORD-\${run}-\${messageIndex}", 55 to "EUR/USD"))
+    private val cancel =
+        LoadTemplate(
+            "Cancels",
+            listOf(35 to "F", 11 to "CXL-\${run}-\${messageIndex}", 41 to "ORD-\${run}-\${messageIndex}", 55 to "EUR/USD"),
+        )
+
+    private fun orderPhases() =
+        listOf(
+            spec("Send the orders", "Orders", LoadMatch(11, 11, "8")),
+            spec("Cancel them", "Cancels", LoadMatch(11, 11, "8")),
+        )
+
+    private fun fill(id: String) = "8=FIX.4.4\u000135=8\u000149=VENUE\u000111=$id\u000139=2\u0001"
+
+    /**
+     * A venue that answers every order and every cancel with a `35=8`.
+     *
+     * [swallow] is the ClOrdID whose fill is kept back and handed over beside the first cancel, so it
+     * lands on the socket while phase 2 is the live phase. [ghost] is a fill for an id nobody ever sent,
+     * released the same way, which is a real stray and belongs to whichever phase was running.
+     */
+    private fun ordersThenCancels(
+        lane: FakeLane? = null,
+        swallow: String? = null,
+        ghost: String? = null,
+    ): (String) -> List<String> =
+        { wire ->
+            val id = WireTags.tagValue(wire, 11) ?: "?"
+            when (WireTags.msgType(wire)) {
+                "D" ->
+                    if (id == swallow) {
+                        lane?.withhold(fill(id))
+                        emptyList()
+                    } else {
+                        listOf(fill(id))
+                    }
+                "F" ->
+                    listOf(fill(id)) +
+                        lane?.takeWithheld().orEmpty() +
+                        (ghost?.takeIf { id.endsWith("-1") }?.let { listOf(fill(it)) } ?: emptyList())
+                else -> emptyList()
+            }
+        }
+
     private fun spec(label: String, template: String, match: LoadMatch, count: Int = 8, indexFrom: Int = 1) =
         LoadPhaseSpec(
             label = label,
@@ -67,6 +119,8 @@ class LoadSetRunnerTest {
             when (key) {
                 "Quotes" -> quoteRequest
                 "Hits" -> hit
+                "Orders" -> order
+                "Cancels" -> cancel
                 else -> null
             }
     }
@@ -203,6 +257,56 @@ class LoadSetRunnerTest {
         assertEquals(0L, record.phases[1].replies.strays, "and not a phase 2 stray")
         assertEquals(0L, record.phases[0].replies.strays)
         assertEquals(8L, record.phases[1].replies.matched, "phase 2 is unaffected by a reply that was not its own")
+    }
+
+    /**
+     * **The router's motivating case**: two phases waiting for the same reply type on the same tag.
+     *
+     * Phase 2's matcher answers UNKNOWN here rather than "not a reply", because the fill *is* the shape it
+     * waits for and carries an id it never issued. Only after phase 1 has claimed it may anything be
+     * counted as a stray, and phase 1 claims it however long after phase 1 ended it arrives.
+     */
+    @Test
+    fun `with both phases matched on the same tag and type, a late fill is still the first phase's`() {
+        val clock = FakeClock()
+        val lanes =
+            (1..2).map { slot ->
+                val lane = FakeLane(slot, clock, { emptyList() })
+                lane.answer = ordersThenCancels(lane, swallow = "ORD-t1-3")
+                lane
+            }
+        val host = FakeHost(clock, lanes)
+
+        val record = LoadSetRunner(host, clock = clock).run(planned(OnFailure.CONTINUE, orderPhases()))
+
+        assertEquals(1L, record.phases[0].replies.late, "the fill phase 1 asked for, whenever it turned up")
+        assertEquals(0L, record.phases[1].replies.strays, "and not a phase 2 stray, which is the number a diagnosis reads")
+        assertEquals(0L, record.phases[0].replies.strays)
+        assertEquals(8L, record.phases[1].replies.matched, "every cancel answered")
+        assertEquals(7L, record.phases[0].replies.matched, "the withheld one was not matched inside phase 1's window")
+    }
+
+    /**
+     * And a fill for an id nobody ever sent **is** a stray, counted against the phase that was running
+     * when it came, because that is the number the "nothing matched" diagnosis reads.
+     */
+    @Test
+    fun `a fill for an id nobody issued is a stray of the phase that was running`() {
+        val clock = FakeClock()
+        val lanes =
+            (1..2).map { slot ->
+                val lane = FakeLane(slot, clock, { emptyList() })
+                lane.answer = ordersThenCancels(lane, ghost = "GHOST-1")
+                lane
+            }
+        val host = FakeHost(clock, lanes)
+
+        val record = LoadSetRunner(host, clock = clock).run(planned(OnFailure.CONTINUE, orderPhases()))
+
+        assertEquals(1L, record.phases[1].replies.strays, "the ghost fill, released while phase 2 was live")
+        assertEquals(0L, record.phases[0].replies.strays, "a phase that had ended is charged nothing")
+        assertEquals(8L, record.phases[0].replies.matched)
+        assertEquals(8L, record.phases[1].replies.matched, "a stray leaves the phase's own matches alone")
     }
 
     /** Two lanes that swallow one quote request and answer it beside the first hit of the next phase. */

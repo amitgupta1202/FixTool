@@ -214,6 +214,37 @@ class StampMatcherTest {
         assertEquals(listOf("ORD-1"), result.unmatched.map { it.id }, "late does not rewrite the verdict taken at close")
     }
 
+    /**
+     * **The three answers the set's reply router asks for**, and the fact that `offer` counts no stray of
+     * its own.
+     *
+     * A reply of the shape this phase waits for carrying an id it never issued is UNKNOWN, not nothing:
+     * that is the difference between "try the phase before this one" and "this is somebody's stray", and
+     * the router cannot route without it.
+     */
+    @Test
+    fun `offer separates a reply this phase never issued from one that is nothing at all`() {
+        val m = matcher(replyType = "8")
+
+        m.onStamp(send(laneA, "ORD-1", at = 1_000))
+
+        assertEquals(StampMatcher.Claim.MINE, m.offer(receive(laneA, "ORD-1", at = 2_000)), "the answer to its own send")
+        assertEquals(StampMatcher.Claim.MINE, m.offer(receive(laneA, "ORD-1", at = 3_000)), "and a second copy of it")
+        val unknown = m.offer(receive(laneA, "ORD-9", at = 4_000))
+        assertEquals(StampMatcher.Claim.UNKNOWN, unknown, "the shape it waits for, an id it never issued")
+        val wrongType = m.offer(receive(laneA, "ORD-9", at = 5_000, type = "S"))
+        assertEquals(StampMatcher.Claim.NOT_A_REPLY, wrongType, "the wrong type is evidence of nothing")
+        val heartbeat = SocketStamp(laneA, WireDirection.RECEIVE, "8=FIX.4.4|35=0|49=VENUE|", 5_100)
+        assertEquals(StampMatcher.Claim.NOT_A_REPLY, m.offer(heartbeat))
+        val noId = SocketStamp(laneA, WireDirection.RECEIVE, "8=FIX.4.4|35=8|49=VENUE|39=0|", 5_200)
+        assertEquals(StampMatcher.Claim.NOT_A_REPLY, m.offer(noId), "no id to match on")
+
+        assertEquals(0, m.snapshot().strays, "offer counts nothing: whose stray it is, is the router's to decide")
+        m.countStray()
+        assertEquals(1, m.snapshot().strays)
+        assertEquals(1, m.snapshot().duplicates, "the duplicate was still this phase's own")
+    }
+
     @Test
     fun `a send from a listen-only session is not issued, and a reply to nothing we sent is a stray`() {
         val m = matcher()

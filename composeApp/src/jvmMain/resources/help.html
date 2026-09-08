@@ -513,6 +513,17 @@
 
     <div class="example"><code>fixtool load --set rfq-round-trip --workspace "RFQ Venue"</code></div>
 
+    <div class="warning">
+        <strong>Not there? Your copy is older than the set.</strong> Opening an example
+        <a href="#workspaces">happens once</a>, so a folder you opened before this release is the venue as it
+        was: the QuoteID derived as <code>Q-</code> plus the QuoteReqID, prices that never moved, eighteen
+        rules, and no <code>load-sets/</code> directory at all, which is why <strong>RFQ round trip</strong> is
+        missing from Run &rarr; Load sets and nothing in the app mentions it. <strong>Settings &rarr; Storage
+        &rarr; Reset</strong> lays the shipped example down again and brings the set with it. It
+        <em>renames</em> your current copy to <code>rfq-venue-before-reset-&lt;date&gt;</code> rather than
+        deleting it, so an edited rule or a captured scenario is still there to copy across.
+    </div>
+
     <table>
         <tr><th>Phase</th><th>Sends</th><th>Matched on</th><th>Keeps</th></tr>
         <tr><td>1. Quote</td><td>4,000 QuoteRequests, <code>131=RFQ-&lt;run&gt;-&lt;n&gt;</code></td>
@@ -795,8 +806,8 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             first that did not pass. Either way the set exits 1.</li>
         <li><strong>One record.</strong> <code>loads/&lt;id&gt;/load.json</code> holds every phase, and the JUnit
             file is one <code>&lt;testsuites&gt;</code> with a <code>&lt;testsuite&gt;</code> per phase. A single
-            run is the same record with one phase, which is why the document, Compare and Recent needed nothing
-            new to read a set.</li>
+            run is the same record with one phase, so the document, Compare and Recent read a run and a set out
+            of the same file rather than out of two shapes.</li>
     </ul>
     <p>Sets live in <code>&lt;workspace&gt;/load-sets/&lt;name&gt;.json</code>, beside the records they produce,
         so a set checked in next to the code survives a fresh <code>--home</code>. From a build:</p>

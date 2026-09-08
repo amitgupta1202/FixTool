@@ -211,6 +211,9 @@ after a pass is refused as spent, which is the venue being right and the scenari
 the quote book the way the order book panel shows orders. The first is by design. The second is the next
 thing worth building if anyone asks for it.
 
+The numbers this slice was measured at are under **Verified live, 2026-09-08** at the end, because a
+design departure is only worth reading beside what it did on a socket.
+
 ## Verification plan
 
 Against a build of this branch on `FIXTOOL_CONTROL_PORT=8799`, the RFQ example opened through
@@ -414,3 +417,54 @@ Two things the clicking found that the control surface had not:
 The editor's ⚡ Load button (Compose tests only; the rail door was clicked), the venue's behaviour after ValidUntilTime passes (not enforced in
 this slice by design), and the FX venue's throughput (implied by the same mechanism at 59 ms a compile,
 not measured).
+
+### Verified live, 2026-09-08
+
+The second slice, measured rather than reasoned about. A third pass, on a **fresh copy** of the example
+(the point of a fresh copy being that the shipped set and the sixteen rules are only in one), the app on
+`FIXTOOL_CONTROL_PORT=8799`, the venue and five lanes of **RFQ Load Client** logged on, memory store and
+no message log.
+
+**The shipped set, end to end.** `POST /load {"set": "rfq-round-trip"}` answered 202 with three phases.
+The record: schema 3, status DONE, exit 0, verdict PASSED, wall clock 1,594 ms, and the seed's
+`run` rendered to the four hex characters it asks for, `f42b`, so the file still says `${uuid:4}` and the
+record says what the venue saw.
+
+| Phase | Sends | Matched | Unmatched | p50 | p99 |
+|---|---|---|---|---|---|
+| 1. Quote | 4,000 | 4,000 | 0 | 455 ms | 683 ms |
+| 2. Hit | 2,000 | 2,000 | 0 | 183 ms | 295 ms |
+| 3. Pass, from 2,001 | 2,000 | 2,000 | 0 | 133 ms | 210 ms |
+
+Phase 1's issued figure is 4,000 on all three numbers, requested, handed to the engine and left the socket,
+with duplicates 0, late 0 and strays 0. It captured `quoteId` 4,000 and `offer` 4,000, the two counts equal,
+which is the number that says the venue answered with both tags on every quote. Its evidence files are named
+in the phase rather than guessed at: `01-unmatched.fix`, `01-specimens.fix` and `01-captured.tsv`, the last
+of them 4,000 lines.
+
+**The captures were read back, not merely kept.** Every one of phase 2's fifty specimen pairs is a booking,
+`35=8` with `150=F`, whose `31` equals the `offer` captured for that index in `01-captured.tsv`, and whose
+request carried the `117` captured for the same index. That is the whole mechanism in one check: a price
+nobody could predict and an id nobody could derive, both addressed by `${messageIndex}`. Every phase 3
+specimen reply carried `297=11`, over indices 2,001 to 2,052, so the pass phase answered the half the hit
+phase left alone.
+
+**A deliberate wrong price.** An inline set whose phase 2 sent `44=1.00000` against 200 quotes: phase 2
+UNMATCHED, 200 of 200, the set FAILED at phase 2, phase 3 SKIPPED carrying the note *phase 2 did not pass
+and the set stops on failure*, exit 1. The venue refused every hit, which is the rule that could not be
+written before the price moved, and the set said which phase and why rather than reporting an empty phase 3.
+
+**A deliberate double hit.** An inline three-phase set that hit the same 200 quotes twice: phase 3
+UNMATCHED, 200 of 200, the set FAILED at phase 3, exit 1. The second hit met *quote already answered*, which
+is the book's `done` state doing the only job it has.
+
+**Not done live: the command-line run.** A Gradle invocation beside the running app would have ended the
+run, so `fixtool load --set` was not driven here. `HeadlessLoadIntegrationTest` covers that path.
+
+**Two things the live run found, both fixed separately.**
+
+- An inline set carrying a generator in its seed recorded the literal `${uuid:4}` rather than a rendered
+  value, and failed with strays. A saved set freezes its seed, so the fault was reachable only through a
+  set composed in the request body.
+- `GET /loads` rows for a set that stopped at phase 2 led on the *skipped* phase, reporting issued 0 and
+  stage preparing, so a poller watching a failed set read it as one that had not started.

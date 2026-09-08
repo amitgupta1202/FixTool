@@ -366,6 +366,15 @@ private fun SetEditor(
                         { seedRows = written(seedRows, index, name to it, draft, onChange) },
                         modifier = Modifier.width(120.dp).testTag("load-set-seed-value-$index"),
                     )
+                    // Every named row can be taken away again, the same way a phase's captures can. A row
+                    // could be added and never removed, so a seed typed by mistake stayed in the set.
+                    if (name.isNotBlank()) {
+                        SetChip("−", "load-set-seed-remove-$index") {
+                            val left = seedRowsWithout(seedRows, index)
+                            onChange(draft.copy(seed = seedMap(left)))
+                            seedRows = left
+                        }
+                    }
                     if (index == seedRows.lastIndex) {
                         SetChip("+ add", "load-set-seed-add") { seedRows = seedRows + ("" to "") }
                         SetChip("mint a new one", "load-set-seed-mint") {

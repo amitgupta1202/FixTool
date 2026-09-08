@@ -195,6 +195,33 @@ class LoadSetsDialogTest {
         )
     }
 
+    /**
+     * **A seed row that can be added can be taken away.** The band had "+ add" and no way back, so a name
+     * typed by mistake stayed in the set and in every phase's scope.
+     */
+    @Test
+    fun `a set's seed row can be taken away again`() {
+        viewModel.saveLoadSet(roundTrip)
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-seed-add").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-set-seed-name-1").performTextInput("desk")
+        composeTestRule.onNodeWithTag("load-set-seed-value-1").performTextInput("fx")
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(setOf("run", "desk"), assertNotNull(viewModel.loadSet("round-trip")).seed.keys)
+
+        composeTestRule.onNodeWithTag("load-set-seed-remove-1").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-set-seed-name-1").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("load-set-seed-name-0").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(setOf("run"), assertNotNull(viewModel.loadSet("round-trip")).seed.keys)
+    }
+
     @Test
     fun `delete takes the set off disk and selects whatever is left`() {
         viewModel.saveLoadSet(roundTrip)

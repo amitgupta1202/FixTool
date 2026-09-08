@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -70,13 +71,17 @@ import java.awt.datatransfer.StringSelection
 import kotlin.random.Random
 
 /**
- * **The load run dialog**: three named groups, and a footer that says why Run is off.
+ * **The load run dialog**: four sections with a rank, and a footer that says why Run is off.
  *
  * Two doors open it, the editor's Load button with the editor's fields as the template and the rail's
- * Run menu with a template picker, and both end in the same [LoadPlan]. Every refusal is a sentence on
- * screen and Run is what refuses, but a refusal now sits under the row that caused it rather than in a
- * heap above the buttons — which is why Advanced opens itself whenever one names something inside it. A
- * group that stayed shut while hiding the control a refusal points at would make the placement a lie.
+ * Run menu with a template picker, and both end in the same [LoadPlan]. What to send and How much are
+ * open, because a first run needs them. How replies are counted and Identity and store are folds with
+ * their state written on the fold, so nothing is hidden by folding them.
+ *
+ * Every refusal is a sentence on screen and Run is what refuses, but a refusal sits under the row that
+ * caused it rather than in a heap above the buttons — which is why a fold opens itself whenever one names
+ * something inside it. A fold that stayed shut while hiding the control a refusal points at would make
+ * the placement a lie.
  *
  * The sentences themselves are [LoadPlan.problems], shared with `fixtool load` and `POST /load` so the
  * three cannot drift, and printed whole: `storeProblem()` and `fanOutFarEndNotice()` each end with their
@@ -111,7 +116,7 @@ fun LoadRunDialog(
  * **One phase of a set, edited in the run dialog's own body.**
  *
  * A phase is a load plan minus the two things the set owns, so the phase editor is this dialog in a mode
- * rather than a second form: the same three groups, minus Seed and Store, plus a label and the index this
+ * rather than a second form: the same sections, minus the Identity fold, plus a label and the index this
  * phase counts from. A refusal about the seed or the store belongs to the set's own band, so in this mode
  * it is not shown here at all: a phase can never show a fix it has no field for.
  */
@@ -205,7 +210,10 @@ fun LoadRunDialogContent(
     var replyTag by remember(template) { mutableStateOf(phaseTag(phase, template) { it.replyTag }) }
     var replyType by remember { mutableStateOf(phase?.spec?.match?.replyType ?: "") }
     var forLoad by remember { mutableStateOf(true) }
-    var advancedOpen by remember { mutableStateOf(phase != null) }
+    // The two folds a first run does not need. Replies opens with the phase editor, where the match is
+    // the thing being authored, and Identity never opens by itself: its refusal opens it.
+    var repliesOpen by remember { mutableStateOf(phase != null) }
+    var identityOpen by remember { mutableStateOf(false) }
 
     val dictionary = viewModel.dictionary
     val profile = profiles.firstOrNull { it.id == profileId }
@@ -243,6 +251,7 @@ fun LoadRunDialogContent(
             LoadMatch(req, replyTag.trim().toIntOrNull() ?: req, replyType.trim().ifBlank { null })
         }
     val override = if (forLoad) StoreAndLogOverride.FOR_LOAD else null
+    val listenNames = listen.mapNotNull { id -> profiles.firstOrNull { it.id == id }?.name }
 
     // Two kinds of refusal, both placed under the row that caused them. The plan's own are LoadPlan.problems,
     // shared with the CLI and the API. The rest are about the *form* — a plan with no template and no shape
@@ -282,12 +291,14 @@ fun LoadRunDialogContent(
     // Esc, which discards the edit. Those two route to the set band instead, where the phase row carries
     // the sentence and the Seed field is one click away.
     val blocking = if (phase == null) refusals else refusals.filterNot { it.where in SET_OWNED }
-    val hidden = blocking.firstOrNull { it.where in ADVANCED }
+    val hiddenInReplies = blocking.firstOrNull { it.where in REPLIES }
+    val hiddenInIdentity = blocking.firstOrNull { it.where in IDENTITY }
 
     // The rule, and the reason LoadRunDialogTest can still reach the store radios: a refusal that names
-    // something inside Advanced opens Advanced. It stays open afterwards — a group that shut itself the
-    // instant its refusal cleared would take the control away in the middle of correcting it.
-    LaunchedEffect(hidden != null) { if (hidden != null) advancedOpen = true }
+    // something inside a fold opens that fold, and only that one. It stays open afterwards — a fold that
+    // shut itself the instant its refusal cleared would take the control away mid-correction.
+    LaunchedEffect(hiddenInReplies != null) { if (hiddenInReplies != null) repliesOpen = true }
+    LaunchedEffect(hiddenInIdentity != null) { if (hiddenInIdentity != null) identityOpen = true }
 
     val runnable = blocking.isEmpty() && (phase != null || lanes is FixMessageViewModel.FanOutLanes.Available)
 
@@ -385,7 +396,7 @@ fun LoadRunDialogContent(
                 Breadcrumb(phase)
             }
 
-            GroupHead("What to send")
+            SectionHead("What to send", "the message, and the lanes that carry it")
             if (phase != null) {
                 FormRow("Label") {
                     SlimField(
@@ -442,7 +453,7 @@ fun LoadRunDialogContent(
                 Refusals(blocking, Where.PROFILE)
             }
 
-            GroupHead("How hard")
+            SectionHead("How much", "how many, how fast, and how long to wait")
             FormRow("Shape") {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     SlimSegmented(
@@ -495,19 +506,16 @@ fun LoadRunDialogContent(
                 }
             }
 
-            Disclosure(
-                open = advancedOpen,
-                summary =
-                    listOfNotNull(
-                        match?.let { "${it.requestTag} ${dictionary.getFieldName(it.requestTag) ?: "?"}" },
-                        replyType.trim().takeIf { it.isNotEmpty() }?.let { "reply $it" },
-                        if (forLoad) "memory store" else "the profile's store",
-                        listen.size.takeIf { it > 0 }?.let { "+$it listening" },
-                    ).joinToString(" · "),
-                changed = hidden?.let { "open, because a refusal names ${it.where.noun}" },
-                onToggle = { advancedOpen = !advancedOpen },
+            Fold(
+                open = repliesOpen,
+                title = "How replies are counted",
+                summary = repliesSummary(match, replyType, dictionary, profile?.name, listenNames),
+                changed = hiddenInReplies?.let { "open, because a refusal names ${it.where.noun}" },
+                fixes = blocking.count { it.where in REPLIES },
+                tag = "load-replies",
+                onToggle = { repliesOpen = !repliesOpen },
             )
-            if (advancedOpen) {
+            if (repliesOpen) {
                 FormRow("Match") {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         SlimField(requestTag, { requestTag = it }, monospace = true, modifier = Modifier.width(44.dp).testTag("load-request-tag"))
@@ -572,73 +580,86 @@ fun LoadRunDialogContent(
                                 "read as **\${name}**.",
                         )
                     }
-                    FormRow("Seed and store") {
-                        Hint("The set's, one level up. This phase reads **" + readsList(compiled, phase.readable) + "**.")
-                    }
                 }
-                if (phase == null) {
-                    FormRow("Seed") {
-                        seedRows.forEachIndexed { index, (name, value) ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                SlimField(
-                                    name,
-                                    { seedRows = seedRows.replaceAt(index, it to value) },
-                                    modifier = Modifier.width(88.dp).testTag("load-seed-name-$index"),
-                                )
-                                Sub("=")
-                                SlimField(
-                                    value,
-                                    { seedRows = seedRows.replaceAt(index, name to it) },
-                                    modifier = Modifier.width(88.dp).testTag("load-seed-value-$index"),
-                                )
-                                if (index == seedRows.lastIndex) {
-                                    Chip("+ add", on = false, tag = "load-seed-add") {
-                                        seedRows = seedRows + ("" to "")
-                                    }
-                                    Chip("mint a new one", on = false, tag = "load-seed-mint") {
-                                        seedRows = seedRows.replaceAt(index, name.ifBlank { "run" } to mintSeed())
-                                    }
+            }
+            // The set owns the seed and the store, so a phase gets no Identity fold: what it gets is one
+            // line saying where they live and which of the set's names this phase actually reads.
+            if (phase != null) {
+                FormRow("Seed and store") {
+                    Hint("The set's, one level up. This phase reads **" + readsList(compiled, phase.readable) + "**.")
+                }
+            }
+            if (phase == null) {
+                Fold(
+                    open = identityOpen,
+                    title = "Identity and store",
+                    summary = identitySummary(seed, override, profile?.config),
+                    changed = hiddenInIdentity?.let { "open, because a refusal names ${it.where.noun}" },
+                    fixes = blocking.count { it.where in IDENTITY },
+                    tag = "load-advanced",
+                    onToggle = { identityOpen = !identityOpen },
+                )
+            }
+            if (phase == null && identityOpen) {
+                FormRow("Seed") {
+                    seedRows.forEachIndexed { index, (name, value) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            SlimField(
+                                name,
+                                { seedRows = seedRows.replaceAt(index, it to value) },
+                                modifier = Modifier.width(88.dp).testTag("load-seed-name-$index"),
+                            )
+                            Sub("=")
+                            SlimField(
+                                value,
+                                { seedRows = seedRows.replaceAt(index, name to it) },
+                                modifier = Modifier.width(88.dp).testTag("load-seed-value-$index"),
+                            )
+                            if (index == seedRows.lastIndex) {
+                                Chip("+ add", on = false, tag = "load-seed-add") {
+                                    seedRows = seedRows + ("" to "")
+                                }
+                                Chip("mint a new one", on = false, tag = "load-seed-mint") {
+                                    seedRows = seedRows.replaceAt(index, name.ifBlank { "run" } to mintSeed())
                                 }
                             }
                         }
-                        Hint(seedHint(seedRows))
-                        Refusals(blocking, Where.SEED)
                     }
+                    Hint(seedHint(seedRows))
+                    Refusals(blocking, Where.SEED)
                 }
-                if (phase == null) {
-                    FormRow("Store and log") {
-                        SlimRadioGroup(
-                            options = listOf(false, true),
-                            selected = forLoad,
-                            onSelect = { forLoad = it },
-                            optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
-                        ) { memory ->
-                            if (memory) {
-                                Text(
-                                    "Memory store, no log for this run",
-                                    color = AppTheme.Colors.text,
-                                    style = AppTheme.Type.body,
-                                )
-                            } else {
-                                Text(
-                                    "As the profile" + (profile?.let { ": " + storeOf(it.config).describe() } ?: ""),
-                                    color = AppTheme.Colors.text,
-                                    style = AppTheme.Type.body,
-                                )
-                            }
+                FormRow("Store and log") {
+                    SlimRadioGroup(
+                        options = listOf(false, true),
+                        selected = forLoad,
+                        onSelect = { forLoad = it },
+                        optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
+                    ) { memory ->
+                        if (memory) {
+                            Text(
+                                "Memory store, no log for this run",
+                                color = AppTheme.Colors.text,
+                                style = AppTheme.Type.body,
+                            )
+                        } else {
+                            Text(
+                                "As the profile" + (profile?.let { ": " + storeOf(it.config).describe() } ?: ""),
+                                color = AppTheme.Colors.text,
+                                style = AppTheme.Type.body,
+                            )
                         }
-                        Hint(memoryStoreHint(profile))
-                        Refusals(blocking, Where.STORE)
-                        if (forLoad &&
-                            profile != null &&
-                            refusals.none { it.where == Where.STORE } &&
-                            storeOf(profile.config) != StoreAndLogOverride.FOR_LOAD
-                        ) {
-                            Hint("The lanes reconnect with it for this run, and reconnect back when the run ends.")
-                        }
+                    }
+                    Hint(memoryStoreHint(profile))
+                    Refusals(blocking, Where.STORE)
+                    if (forLoad &&
+                        profile != null &&
+                        refusals.none { it.where == Where.STORE } &&
+                        storeOf(profile.config) != StoreAndLogOverride.FOR_LOAD
+                    ) {
+                        Hint("The lanes reconnect with it for this run, and reconnect back when the run ends.")
                     }
                 }
             }
@@ -683,7 +704,7 @@ fun LoadRunDialogContent(
 // The pieces
 // ------------------------------------------------------------------------------------------------
 
-/** Which row a refusal belongs under. [ADVANCED] is the set that makes the Advanced group open itself. */
+/** Which row a refusal belongs under, and through the row, which fold has to open to show it. */
 private enum class Where(
     val noun: String,
 ) {
@@ -695,7 +716,16 @@ private enum class Where(
     STORE("the store"),
 }
 
-private val ADVANCED = setOf(Where.MATCH, Where.SEED, Where.STORE)
+/**
+ * What lives inside "How replies are counted". A refusal here opens that fold and leaves the other shut.
+ *
+ * Only [Where.MATCH] produces one today: nothing about the listen row can be refused, because a profile
+ * that cannot receive these replies is not offered in the first place. It is the seam for one if it is.
+ */
+private val REPLIES = setOf(Where.MATCH)
+
+/** What lives inside "Identity and store": the seed's own refusals, and the store's. */
+private val IDENTITY = setOf(Where.SEED, Where.STORE)
 
 /** The two the *set* owns. In a phase their refusals belong to the set band, which has the fields. */
 private val SET_OWNED = setOf(Where.SEED, Where.STORE)
@@ -798,10 +828,25 @@ private fun NoteLine(text: String, tag: String) {
     }
 }
 
+/**
+ * **A section, with a rank the three grey nine-point labels never had.**
+ *
+ * The name at body size in weight, and beside it what the section is for in the dim colour. Ten rows at
+ * one weight under three labels that read as more grey is what made the dialog feel like thirty rows.
+ */
 @Composable
-private fun GroupHead(title: String) {
-    Text(title, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta, modifier = Modifier.padding(top = 8.dp, bottom = 1.dp))
+private fun SectionHead(title: String, purpose: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 2.dp),
+    ) {
+        Text(title, color = AppTheme.Colors.text, style = SECTION_TITLE)
+        Text(purpose, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.body)
+    }
 }
+
+private val SECTION_TITLE = AppTheme.Type.body.copy(fontWeight = FontWeight.SemiBold)
 
 /** A label at a fixed width and everything the row says, stacked, so a refusal lands under its own cause. */
 @Composable
@@ -848,27 +893,50 @@ internal fun hintText(raw: String, dim: Color, strong: Color): AnnotatedString =
 
 private const val EMPHASIS = "**"
 
-/** The Advanced disclosure: a caret, the name, and either what is inside it or why it opened itself. */
+/**
+ * **A folded section that says what it holds.**
+ *
+ * A caret, the section's name in weight, the state of everything inside it as one line, and "change" to
+ * open it. Nothing is hidden by folding: the reader who never opens this one still knows the run matches
+ * on 131 and seeds `run`. [changed] replaces the summary when a refusal inside forced the fold open,
+ * because "why am I looking at this" is then the more useful line.
+ */
 @Composable
-private fun Disclosure(open: Boolean, summary: String, changed: String?, onToggle: () -> Unit) {
+@Suppress("LongParameterList")
+private fun Fold(open: Boolean, title: String, summary: String, changed: String?, fixes: Int, tag: String, onToggle: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp)
                 .clickable(onClick = onToggle)
-                .testTag("load-advanced")
+                .testTag(tag)
                 .padding(vertical = 2.dp),
     ) {
         Text(if (open) "▾" else "▸", color = AppTheme.Colors.textSecondary, style = AppTheme.Type.meta)
-        Text("Advanced", color = AppTheme.Colors.textSecondary, style = AppTheme.Type.body)
+        Text(title, color = AppTheme.Colors.text, style = SECTION_TITLE)
+        if (fixes > 0) {
+            Text(
+                "· ${fixes.let { if (it == 1) "1 fix" else "$it fixes" }}",
+                color = AppTheme.Colors.error,
+                style = AppTheme.Type.meta,
+                modifier = Modifier.testTag("$tag-fixes"),
+            )
+        }
         Text(
-            changed ?: if (open) "" else summary,
+            changed ?: summary,
             color = if (changed != null) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
-            style = AppTheme.Type.meta,
-            modifier = Modifier.testTag("load-advanced-summary"),
+            style = AppTheme.Type.body,
+            maxLines = 1,
+            modifier = Modifier.weight(1f).testTag("$tag-summary"),
+        )
+        Text(
+            if (open) "close" else "change",
+            color = AppTheme.Colors.info,
+            style = AppTheme.Type.body,
+            modifier = Modifier.clickable(onClick = onToggle).testTag("$tag-change"),
         )
     }
 }
@@ -1062,6 +1130,39 @@ private fun readsList(compiled: CompiledTemplate?, seeded: Set<String>): String 
     val names = compiled?.variablesRead().orEmpty().filter { it in seeded || it == CompiledTemplate.MESSAGE_INDEX }
     if (names.isEmpty()) return "no seeded name"
     return names.joinToString(", ") { "\${$it}" }
+}
+
+/**
+ * "matching 131 QuoteReqID to 131 · any reply type counts · listening on RFQ Load Client only".
+ *
+ * Every clause of the folded section, in the order the rows inside it are in, so opening the fold is
+ * never a surprise.
+ */
+internal fun repliesSummary(
+    match: LoadMatch?,
+    replyType: String,
+    dictionary: FixDictionary?,
+    issuing: String?,
+    listening: List<String>,
+): String {
+    val tags =
+        match?.let { "matching ${it.requestTag} ${dictionary?.getFieldName(it.requestTag).orEmpty()}".trim() + " to ${it.replyTag}" }
+            ?: "no tag to match on yet"
+    val type = replyType.trim().ifBlank { null }?.let { "only 35=$it counts" } ?: "any reply type counts"
+    val where =
+        if (listening.isEmpty()) {
+            "listening on ${issuing ?: "the issuing profile"} only"
+        } else {
+            "listening on ${listening.joinToString(", ")} too"
+        }
+    return listOf(tags, type, where).joinToString(" · ")
+}
+
+/** "run = b7f2 · memory store, no log": what this run will be called on the wire, and where it writes. */
+internal fun identitySummary(seed: Map<String, String>, override: StoreAndLogOverride?, config: FixConnectionConfig?): String {
+    val seeded = seed.entries.joinToString(", ") { (name, value) -> "$name = $value" }.ifEmpty { "nothing seeded" }
+    val store = (override ?: config?.let(::storeOf))?.describe() ?: "the profile's store"
+    return "$seeded · $store"
 }
 
 /** A preset or a seed action: a word, a border, and an on state. */

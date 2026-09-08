@@ -69,9 +69,9 @@ class LoadRunDialogTest {
     /** The refusal sentences on screen, as text. */
     private fun refusals(): List<String> = texts("load-refusal")
 
-    private fun texts(tag: String): List<String> =
+    private fun texts(tag: String, unmerged: Boolean = false): List<String> =
         composeTestRule
-            .onAllNodesWithTag(tag)
+            .onAllNodesWithTag(tag, useUnmergedTree = unmerged)
             .fetchSemanticsNodes()
             .map { node -> node.config.getOrNull(SemanticsProperties.Text)?.joinToString { it.text } ?: "" }
 
@@ -119,6 +119,12 @@ class LoadRunDialogTest {
 
         composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
 
+        // The match tags live in the Replies fold now. Its summary is what says so without opening it.
+        composeTestRule
+            .onNodeWithTag("load-replies-summary", useUnmergedTree = true)
+            .assertTextContains("matching 11", substring = true)
+        composeTestRule.onNodeWithTag("load-replies").performClick()
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("load-request-tag").assertTextContains("11")
         composeTestRule.onNodeWithTag("load-reply-tag").assertTextContains("11")
         composeTestRule.onNodeWithTag("load-run").assertHasNoClickAction()
@@ -165,9 +171,9 @@ class LoadRunDialogTest {
     }
 
     /**
-     * The store radios live inside Advanced, which is collapsed when everything in it is fine. A refusal
-     * that names one of them opens the group and says so — otherwise "the refusal sits next to its cause"
-     * would be a claim the dialog breaks the moment the cause is hidden.
+     * The store radios live inside the Identity fold, which is shut when everything in it is fine. A
+     * refusal that names one of them opens that fold and says why — otherwise "the refusal sits next to
+     * its cause" would be a claim the dialog breaks the moment the cause is hidden.
      */
     @Test
     fun `Advanced opens itself when a refusal names something inside it, and says why`() {
@@ -361,6 +367,72 @@ class LoadRunDialogTest {
         assertEquals(1, facts.size, "one fact, and the markers themselves are gone")
         assertEquals(0, facts.single().start, "the fact is the front of the sentence")
         assertTrue(hint.spanStyles.any { it.item.color == Color.Gray }, "the sentence around the fact stays dim")
+    }
+
+    /**
+     * **A fold says what it holds, in the order the rows inside it come in.**
+     *
+     * Folding is only acceptable if nothing is hidden by it: the reader who never opens the fold still
+     * has to know what the run matches on, which reply types count, and who is listening.
+     */
+    @Test
+    fun `each fold carries the state of what it holds`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.rememberLoadRunDefaults("lg", LoadRunDefaults(seed = listOf(listOf("run", "b7f2"))))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        assertEquals(
+            "matching 11 ClOrdID to 11 · any reply type counts · listening on LOADGEN only",
+            texts("load-replies-summary", unmerged = true).single(),
+        )
+        assertEquals("run = b7f2 · memory store, no log", texts("load-advanced-summary", unmerged = true).single())
+    }
+
+    /**
+     * **A refusal opens its own fold, and only its own.** Both folds opening on any refusal would be the
+     * ten-rows-at-one-weight dialog again with two extra clicks in it.
+     */
+    @Test
+    fun `a store refusal opens the Identity fold and leaves the Replies fold shut`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = false))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        // Open, because the store cannot work and the radios that fix it are in here.
+        composeTestRule.onNodeWithTag("load-store-profile").assertExists()
+        composeTestRule.onNodeWithTag("load-advanced-fixes", useUnmergedTree = true).assertTextContains("fix", substring = true)
+        // Shut, because nothing in it is refused. Its controls are not on screen at all.
+        composeTestRule.onNodeWithTag("load-request-tag").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("load-replies-fixes").assertDoesNotExist()
+    }
+
+    /** "change" is the way in for a reader who is not being refused anything. */
+    @Test
+    fun `the change link on a fold opens it`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-request-tag").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("load-replies-change", useUnmergedTree = true).performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-request-tag").assertExists()
+    }
+
+    /** Four sections, each with what it is for beside its name. */
+    @Test
+    fun `the sections say what they are for`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithText("What to send").assertExists()
+        composeTestRule.onNodeWithText("the message, and the lanes that carry it").assertExists()
+        composeTestRule.onNodeWithText("How much").assertExists()
+        composeTestRule.onNodeWithText("how many, how fast, and how long to wait").assertExists()
+        composeTestRule.onNodeWithText("How replies are counted").assertExists()
+        composeTestRule.onNodeWithText("Identity and store").assertExists()
     }
 
     /**

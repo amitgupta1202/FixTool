@@ -277,6 +277,9 @@ class ControlServerLoadIntegrationTest {
      * It was also passed as the override that wins over the file, so `${uuid:4}` was written back over the
      * four hex characters the set start had just rendered: the record kept the generator's own text, every
      * ClOrdID read `ORD-${uuid:4}-1` literally, and nothing matched.
+     *
+     * The body carries no `storeAndLog`: an override reconnects every lane to apply it, and a lane that
+     * does not come back inside ten seconds is left out of the run, which has nothing to do with the seed.
      */
     @Test
     fun `an inline set with a generator seed runs, and its ids carry the rendered value`() {
@@ -295,8 +298,7 @@ class ControlServerLoadIntegrationTest {
               {"label":"Send some orders","template":"${template.absolutePath}","profile":"LOADGEN",
                "match":{"requestTag":11,"replyTag":11,"replyType":"8"},
                "shape":{"kind":"burst","count":6},"settleMs":3000}],
-             "seed":{"run":"${'$'}{uuid:4}"},
-             "storeAndLog":{"store":"MEMORY","log":"NONE"}}
+             "seed":{"run":"${'$'}{uuid:4}"}}
             """.trimIndent()
         val accepted = obj(post("/load", body))
         val id = assertNotNull(accepted["load"]?.jsonPrimitive?.contentOrNull, "the set was refused: $accepted")
@@ -318,8 +320,8 @@ class ControlServerLoadIntegrationTest {
      * **A set names its template the way the command line reads one**: a path, then a saved message by id
      * or by name.
      *
-     * The API resolved by name only, so a set file that named a template by its id — which is what a saved
-     * set holds after the editor picked one — ran under `fixtool load` and was refused over HTTP.
+     * The API resolved by name only, so a set file that named a template by its id (which is what a saved
+     * set holds after the editor picked one) ran under `fixtool load` and was refused over HTTP.
      */
     @Test
     fun `an inline set names its template by saved id, as the command line does`() {

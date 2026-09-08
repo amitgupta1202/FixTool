@@ -62,7 +62,7 @@ data class LoadRecord(
      * report 0 and be read as finished and green.
      *
      * A finished set where nothing was judged at all, every phase skipped, exits 1. It proved nothing, and
-     * a build cannot pass on it — see [verdict], which says the same in words.
+     * a build cannot pass on it. See [verdict], which says the same in words.
      */
     val exitCode: Int?
         get() {

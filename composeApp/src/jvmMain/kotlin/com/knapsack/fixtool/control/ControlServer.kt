@@ -1963,7 +1963,7 @@ class ControlServer(
                 ?.let { LoadSet.Profile(it.id, it.name, it.config) }
 
         /**
-         * A path, then a saved message by id or by name — the order `LoadTemplates.resolve` reads on the
+         * A path, then a saved message by id or by name, the order `LoadTemplates.resolve` reads on the
          * command line, so a set file naming a template by its id runs at both doors rather than only at
          * the one it was written against.
          */
@@ -2056,8 +2056,8 @@ class ControlServer(
                 "loads",
                 buildJsonArray {
                     records.forEach { record ->
-                        // The live phase, else the one the verdict names, else the last that was judged —
-                        // never a skipped stub, whose counts are zeroes and whose stage is "preparing".
+                        // The live phase, else the one the verdict names, else the last that was judged.
+                        // Never a skipped stub, whose counts are zeroes and whose stage is "preparing".
                         val r = record.lead
                         add(
                             buildJsonObject {

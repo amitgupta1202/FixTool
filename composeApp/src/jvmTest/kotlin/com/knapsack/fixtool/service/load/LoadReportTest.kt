@@ -2,14 +2,25 @@ package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.RoundTripHistogram
+import com.knapsack.fixtool.model.load.SetOutcome
 import com.knapsack.fixtool.service.load.LoadFixtures.burstReport
 import com.knapsack.fixtool.service.load.LoadFixtures.shortfall
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -93,6 +104,146 @@ class LoadReportTest {
         assertEquals(LoadStatus.STOPPED, LoadRecord(done.id, done.label, 0, null, listOf(done, stopped)).status)
         assertEquals(LoadStatus.DONE, LoadRecord(done.id, done.label, 0, null, listOf(done, done)).status)
         assertNull(LoadRecord(done.id, done.label, 0, null, listOf(done, running)).exitCode, "no verdict while one is going")
+    }
+
+    /**
+     * **A phase that has not started keeps the set's exit code null**, the same as a phase that is going.
+     *
+     * `GET /loads` puts `exitCode` on a row only when the record has one, so a poller reads a number
+     * there as "the set is over". A set whose phase 1 passed and whose phase 2 has not dialled reported 0
+     * and was read as finished and green.
+     */
+    @Test
+    fun `a phase still to come leaves the set with no exit code, whatever the phases that landed said`() {
+        val passed = burstReport(unmatched = 0)
+        // As the runner writes one: a stub with its plan, no measurements and no verdict of its own.
+        val stub = passed.copy(status = LoadStatus.PENDING, verdict = passed.verdict.copy(exitCode = null))
+        val record = LoadRecord(passed.id, passed.label, 0, null, listOf(passed, stub))
+
+        assertEquals(LoadStatus.RUNNING, record.status)
+        assertNull(record.exitCode, "phase 1 passing is not the set passing while phase 2 is still to come")
+        assertEquals(SetOutcome.RUNNING, record.verdict.outcome)
+
+        // And not even when the stub carries a code of its own: still to come is still to come.
+        val carrying = LoadRecord(passed.id, passed.label, 0, null, listOf(passed, passed.copy(status = LoadStatus.PENDING)))
+        assertEquals(0, passed.verdict.exitCode, "the fixture passes, or this half proves nothing")
+        assertNull(carrying.exitCode)
+
+        // The row leads on the phase that has run, not on the stub with its zeroes.
+        assertEquals(passed.replies.matched, record.lead.replies.matched)
+    }
+
+    /**
+     * **A set skipped whole did not pass.** Stop it the moment after the 202 and every phase is skipped
+     * before it dials: nothing stopped, nothing failed, and on the count of failures alone that read as
+     * PASSED with nothing passed.
+     */
+    @Test
+    fun `a set whose every phase was skipped is stopped or failed, never passed`() {
+        val plan = burstReport(unmatched = 0)
+
+        fun skipped(note: String) = plan.copy(status = LoadStatus.SKIPPED, note = note, verdict = plan.verdict.copy(exitCode = null))
+
+        val byHand = LoadRecord(plan.id, plan.label, 0, 1, List(3) { skipped(LoadRecord.STOPPED_NOTE) })
+        assertEquals(SetOutcome.STOPPED, byHand.verdict.outcome)
+        assertEquals(1, byHand.verdict.phase, "the phase the stop landed on")
+        assertEquals("3 skipped", byHand.verdict.counts())
+        assertEquals(1, byHand.exitCode, "a build cannot pass on a set that never sent a message")
+
+        val other = LoadRecord(plan.id, plan.label, 0, 1, List(2) { skipped("the set's process ended before this phase") })
+        assertEquals(SetOutcome.FAILED, other.verdict.outcome)
+        assertEquals(1, other.exitCode)
+
+        // The one thing that must still pass: every phase judged and clean.
+        val whole = LoadRecord(plan.id, plan.label, 0, 1, listOf(plan, plan))
+        assertEquals(SetOutcome.PASSED, whole.verdict.outcome)
+        assertEquals(0, whole.exitCode)
+    }
+
+    /**
+     * **A three-phase set on disk, and back**: the phase that failed, the stub that carries its plan and no
+     * verdict, the set block and the seed as rendered once.
+     */
+    @Test
+    fun `a set with a skipped phase round-trips, its note and its absent verdict included`() {
+        val one = burstReport(unmatched = 0).copy(label = "Ask for a quote", evidence = LoadReport.Evidence.forPhase(1))
+        val two = burstReport(unmatched = 4).copy(label = "Hit the first 2,000", evidence = LoadReport.Evidence.forPhase(2))
+        val three =
+            one.copy(
+                label = "Pass the other 2,000",
+                status = LoadStatus.SKIPPED,
+                note = "phase 2 did not pass and the set stops on failure",
+                evidence = null,
+                finishedAt = null,
+                verdict = one.verdict.copy(completeness = LoadReport.Completeness.PENDING, exitCode = null),
+            )
+        val record =
+            LoadRecord(
+                id = "2026-09-08T10-12-04-rfq-round-trip",
+                label = "RFQ round trip",
+                startedAt = 1_788_616_324_000,
+                finishedAt = 1_788_616_387_100,
+                phases = listOf(one, two, three),
+                set = LoadRecord.SetInfo("rfq-round-trip", OnFailure.STOP),
+                seed = mapOf("run" to "b7f2", "desk" to "LDN"),
+            )
+
+        val json = LoadReportCodec.recordToJson(record)
+        val back = LoadReportCodec.recordFromJson(json)
+
+        assertEquals(record, back)
+        val stub = json["phases"]!!.jsonArray[2].jsonObject
+        assertEquals(JsonNull, stub["verdict"], "a phase that never ran is not judged, and says so")
+        assertEquals("phase 2 did not pass and the set stops on failure", stub["note"]!!.jsonPrimitive.content)
+        assertEquals(JsonNull, stub["evidence"], "and it left no files behind to name")
+        assertEquals("rfq-round-trip", json["set"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertEquals("STOP", json["set"]!!.jsonObject["onFailure"]!!.jsonPrimitive.content)
+        assertEquals("b7f2", json["seed"]!!.jsonObject["run"]!!.jsonPrimitive.content)
+        assertEquals(1, json["exitCode"]!!.jsonPrimitive.int, "the phase that failed decides the set's code")
+        assertEquals(2, json["verdict"]!!.jsonObject["phase"]!!.jsonPrimitive.int)
+        assertEquals(1, json["verdict"]!!.jsonObject["skipped"]!!.jsonPrimitive.int)
+        assertEquals("Hit the first 2,000", back.lead.label, "the row leads on the phase the verdict names")
+    }
+
+    /**
+     * **The keys schema 2 wrote**, on the one machine that wrote them: the lifecycle under `phase` rather
+     * than `stage`, and evidence files named without a phase prefix.
+     *
+     * The reader accepts both because a record on disk is never rewritten to stay readable.
+     */
+    @Test
+    fun `a schema 2 record reads back, its lifecycle key and its bare evidence names and all`() {
+        val phase =
+            JsonObject(
+                LoadReportCodec.toJson(burstReport(unmatched = 4)).filterKeys { it != "stage" } +
+                    ("phase" to JsonPrimitive("SETTLING")) +
+                    (
+                        "evidence" to
+                            buildJsonObject {
+                                put("unmatched", "unmatched.fix")
+                                put("specimens", "specimens.fix")
+                            }
+                    ),
+            )
+        val record =
+            buildJsonObject {
+                put("schema", 2)
+                put("id", "20260905-140211-nos-eur-usd-1m")
+                put("label", "NOS EUR/USD 1M")
+                put("startedAt", LoadFixtures.T0 - 1_000)
+                put("phases", buildJsonArray { add(phase) })
+            }
+
+        val back = LoadReportCodec.recordFromJson(record)
+
+        assertEquals(LoadStage.SETTLING, back.only.stage, "`phase` is what schema 2 called the lifecycle")
+        assertEquals("unmatched.fix", back.only.evidence?.unmatched, "the bare names it has, not guessed per-phase ones")
+        assertEquals("specimens.fix", back.only.evidence?.specimens)
+        assertNull(back.only.evidence?.captured)
+        assertEquals("20260905-140211-nos-eur-usd-1m", back.id)
+        assertEquals(1, back.exitCode)
+        assertNull(back.set, "a schema 2 record has no set block, and reads as the run it was")
+        assertEquals(mapOf("run" to "b7f2"), back.seed, "the set's seed reads phase 1's when the record carries none")
     }
 
     @Test

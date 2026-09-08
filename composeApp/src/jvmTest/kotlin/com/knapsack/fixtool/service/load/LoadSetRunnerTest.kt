@@ -344,6 +344,31 @@ class LoadSetRunnerTest {
         assertEquals("the set was stopped", record.phases[1].note)
     }
 
+    /**
+     * **Stopped in the moment between the 202 and phase 1's first send**: every phase is skipped, nothing
+     * is stopped and nothing failed, and the verdict must still not read PASSED.
+     *
+     * This is the reachable one: `POST /load` answers 202 and `POST /loads/<id>/stop` arrives before the
+     * runner has looked at phase 1. On the count of failures alone a set that never sent a message came
+     * back "PASSED, 0 passed, 3 skipped".
+     */
+    @Test
+    fun `a set stopped before phase one dialled is stopped, and never passed`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, venue()) }
+        val host = FakeHost(clock, lanes)
+
+        val record = LoadSetRunner(host, clock = clock).run(planned(), cancelled = { true })
+
+        assertEquals(listOf(LoadStatus.SKIPPED, LoadStatus.SKIPPED), record.phases.map { it.status })
+        assertEquals(LoadRecord.STOPPED_NOTE, record.phases[0].note)
+        assertEquals(SetOutcome.STOPPED, record.verdict.outcome)
+        assertEquals(1, record.verdict.phase, "the phase the stop landed on")
+        assertEquals("2 skipped", record.verdict.counts())
+        assertEquals(1, record.exitCode, "a build cannot pass on a set that never sent a message")
+        assertEquals(0, lanes.sumOf { it.sent.size }, "and nothing dialled")
+    }
+
     @Test
     fun `the record is published as each phase lands, so a killed set leaves the phases that finished`() {
         val clock = FakeClock()

@@ -3,16 +3,21 @@ package com.knapsack.fixtool.integration
 import com.knapsack.fixtool.control.ControlServer
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPhaseSpec
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -118,18 +123,34 @@ class ControlServerLoadIntegrationTest {
         assertEquals(404, get("/loads/nothing-here").statusCode())
     }
 
-    /** A row leads on the live phase and says how many phases there are, which a poller reads. */
+    /**
+     * A row says how many phases there are and leads on the one worth reading, which a poller acts on.
+     *
+     * **Not on the last phase.** A set that failed at phase 2 under STOP ends on a skipped stub that
+     * carries its plan and no measurements, and a row that led on it reported "issued 0, matched 0, stage
+     * preparing" for a set that had issued four thousand messages and failed.
+     */
     @Test
     fun `a set's record lists with its phase counts, and reads back whole`() {
         val one = LoadFixtures.burstReport(unmatched = 0).copy(label = "Ask for a quote")
         val two = LoadFixtures.burstReport(unmatched = 4).copy(label = "Hit them")
+        val three =
+            one.copy(
+                label = "Pass the rest",
+                status = LoadStatus.SKIPPED,
+                note = "phase 2 did not pass and the set stops on failure",
+                stage = com.knapsack.fixtool.model.load.LoadStage.PREPARING,
+                issue = one.issue.copy(handedToEngine = 0, leftSocket = 0),
+                replies = one.replies.copy(matched = 0, unmatched = 0),
+                verdict = one.verdict.copy(exitCode = null),
+            )
         viewModel.loadRecordStore.write(
             LoadRecord(
                 id = "set-1",
                 label = "Round trip",
                 startedAt = 1_000,
                 finishedAt = 2_000,
-                phases = listOf(one, two),
+                phases = listOf(one, two, three),
                 set = LoadRecord.SetInfo("round-trip", OnFailure.STOP),
                 seed = mapOf("run" to "b7f2"),
             ),
@@ -137,15 +158,47 @@ class ControlServerLoadIntegrationTest {
 
         val row = obj(get("/loads"))["loads"]!!.jsonArray.single().jsonObject
         assertEquals("set-1", row["id"]!!.jsonPrimitive.content)
-        assertEquals(2, row["phases"]!!.jsonObject["total"]!!.jsonPrimitive.int)
+        assertEquals(3, row["phases"]!!.jsonObject["total"]!!.jsonPrimitive.int)
         assertEquals(2, row["phases"]!!.jsonObject["done"]!!.jsonPrimitive.int)
         assertEquals(1, row["exitCode"]!!.jsonPrimitive.int)
+        assertEquals("done", row["stage"]!!.jsonPrimitive.content, "the stage of the phase that failed, not the stub's")
+        assertEquals(two.issue.leftSocket, row["issued"]!!.jsonPrimitive.content.toLong())
+        assertEquals(two.replies.matched, row["matched"]!!.jsonPrimitive.content.toLong())
+        assertEquals(two.replies.unmatched, row["unmatched"]!!.jsonPrimitive.content.toLong())
 
         val whole = obj(get("/loads/set-1"))
-        assertEquals(2, whole["phases"]!!.jsonArray.size)
+        assertEquals(3, whole["phases"]!!.jsonArray.size)
         assertEquals("round-trip", whole["set"]!!.jsonObject["name"]!!.jsonPrimitive.content)
         assertEquals("FAILED", whole["verdict"]!!.jsonObject["outcome"]!!.jsonPrimitive.content)
         assertEquals(2, whole["verdict"]!!.jsonObject["phase"]!!.jsonPrimitive.int)
+    }
+
+    /**
+     * **A row never says running for a set nothing is running**, and it leads on the phase that was going
+     * rather than on the stub after it.
+     *
+     * The store heals a record left behind by a process that died: the live phase to stopped, the phases
+     * still to come to skipped. A poller that saw "running" for ever would wait for ever.
+     */
+    @Test
+    fun `a row for a set whose process died is stopped, and leads on the phase that was going`() {
+        val done = LoadFixtures.burstReport(unmatched = 0).copy(label = "Ask for a quote")
+        val going =
+            LoadFixtures
+                .burstReport(unmatched = 0, status = LoadStatus.RUNNING)
+                .copy(label = "Hit them", finishedAt = null, verdict = done.verdict.copy(exitCode = null))
+        val pending =
+            done.copy(label = "Pass the rest", status = LoadStatus.PENDING, finishedAt = null, verdict = done.verdict.copy(exitCode = null))
+        viewModel.loadRecordStore.write(
+            LoadRecord("set-live", "Round trip", 1_000, null, listOf(done, going, pending), LoadRecord.SetInfo("round-trip", OnFailure.STOP)),
+        )
+
+        val row = obj(get("/loads"))["loads"]!!.jsonArray.single().jsonObject
+
+        assertEquals("stopped", row["status"]!!.jsonPrimitive.content)
+        assertEquals(1, row["exitCode"]!!.jsonPrimitive.int, "the set is over, and a stop proves nothing whole")
+        assertEquals(going.issue.leftSocket, row["issued"]!!.jsonPrimitive.content.toLong(), "the counts of the phase that was going")
+        assertEquals("done", row["stage"]!!.jsonPrimitive.content, "healed, so not the skipped stub's 'preparing'")
     }
 
     @Test

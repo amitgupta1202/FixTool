@@ -262,7 +262,7 @@ class LoadSetRunner(
     /** Why this phase will not run, or null when it will. */
     private fun skipNote(firstFailure: Int?, onFailure: OnFailure, stopped: Boolean): String? =
         when {
-            stopped -> "the set was stopped"
+            stopped -> LoadRecord.STOPPED_NOTE
             firstFailure != null && onFailure == OnFailure.STOP ->
                 "phase $firstFailure did not pass and the set stops on failure"
             else -> null

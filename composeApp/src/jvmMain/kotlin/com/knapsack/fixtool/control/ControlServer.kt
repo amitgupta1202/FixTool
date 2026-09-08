@@ -2011,8 +2011,9 @@ class ControlServer(
                 "loads",
                 buildJsonArray {
                     records.forEach { record ->
-                        // The phase a row leads on: the live one, or the last, which for a run is the run.
-                        val r = record.phases.firstOrNull { it.status == LoadStatus.RUNNING } ?: record.only
+                        // The live phase, else the one the verdict names, else the last that was judged —
+                        // never a skipped stub, whose counts are zeroes and whose stage is "preparing".
+                        val r = record.lead
                         add(
                             buildJsonObject {
                                 put("id", record.id)

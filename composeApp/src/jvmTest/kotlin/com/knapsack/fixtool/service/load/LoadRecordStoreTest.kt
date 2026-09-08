@@ -1,8 +1,11 @@
 package com.knapsack.fixtool.service.load
 
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.OnFailure
+import com.knapsack.fixtool.model.load.SetOutcome
 import com.knapsack.fixtool.service.load.LoadFixtures.burstReport
 import org.junit.After
 import org.junit.Before
@@ -88,5 +91,49 @@ class LoadRecordStoreTest {
         assertNotNull(healed.finishedAt)
         assertEquals(1, healed.verdict.exitCode)
         assertEquals(healed, LoadRecordStore(dir.absolutePath, isLive = { true }).read(running.id), "healed on disk, not only in the answer")
+    }
+
+    /**
+     * **A set whose process died leaves three different pictures**, and the store heals each on the way out.
+     *
+     * The phase that was going is STOPPED, and the phases still to come are SKIPPED rather than left
+     * PENDING for ever: a live status on a record nobody is running is what the app draws as a spinner that
+     * never stops, and `exitCode` would stay absent, which a poller reads as "still going".
+     */
+    @Test
+    fun `a set whose process ended stops the phase that was going and skips the phases still to come`() {
+        val store = LoadRecordStore(dir.absolutePath, isLive = { false })
+        val done = burstReport(unmatched = 0)
+        val running =
+            burstReport(unmatched = 0, status = LoadStatus.RUNNING)
+                .copy(label = "Hit them", stage = LoadStage.ISSUING, finishedAt = null, settleLeftMs = 8_000)
+        val pending =
+            done.copy(label = "Pass the rest", status = LoadStatus.PENDING, finishedAt = null, verdict = done.verdict.copy(exitCode = null))
+        store.write(
+            LoadRecord(
+                id = "set-interrupted",
+                label = "Round trip",
+                startedAt = 1_000,
+                finishedAt = null,
+                phases = listOf(done, running, pending),
+                set = LoadRecord.SetInfo("round-trip", OnFailure.STOP),
+                seed = mapOf("run" to "b7f2"),
+            ),
+        )
+
+        val healed = assertNotNull(store.readRecord("set-interrupted"))
+
+        assertEquals(listOf(LoadStatus.DONE, LoadStatus.STOPPED, LoadStatus.SKIPPED), healed.phases.map { it.status })
+        assertEquals("the set's process ended before this phase", healed.phases[2].note)
+        assertEquals(LoadStage.DONE, healed.phases[1].stage)
+        assertNull(healed.phases[1].settleLeftMs)
+        assertEquals(LoadStatus.STOPPED, healed.status)
+        assertEquals(SetOutcome.STOPPED, healed.verdict.outcome)
+        assertEquals(1, healed.exitCode, "the set is over, and it did not pass")
+        assertEquals(
+            healed,
+            LoadRecordStore(dir.absolutePath, isLive = { true }).readRecord("set-interrupted"),
+            "healed on disk, not only in the answer",
+        )
     }
 }

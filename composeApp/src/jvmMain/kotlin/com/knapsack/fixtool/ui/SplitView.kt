@@ -26,7 +26,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -680,16 +679,11 @@ internal fun SessionPanelHeader(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 AppTooltip(text = session.title, modifier = Modifier.weight(1f, fill = false)) {
-                    Text(
-                        text = session.title,
-                        color = titleTextColor,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        // Middle, not end: the tail of "RFQ Demo Venue ← RFQLG3" is the half that says
-                        // which client this is, so an end ellipsis would leave ten tiles reading alike.
-                        overflow = TextOverflow.MiddleEllipsis,
-                        modifier = Modifier.testTag("pane-title"),
-                    )
+                    // Middle, not end: the tail of "RFQ Demo Venue ← RFQLG3" is the half that says which
+                    // client this is, so an end ellipsis would leave ten tiles reading alike. The platform
+                    // cannot do it, `TextOverflow.MiddleEllipsis` draws an end ellipsis on Compose Desktop,
+                    // so [MiddleEllipsisText] measures and cuts the string itself. See MiddleEllipsisText.kt.
+                    MiddleEllipsisText(session.title, titleTextColor, 12.sp, Modifier.testTag("pane-title"))
                 }
 
                 // **Messages this session threw away.** Shown in the header, next to the name, because it is a

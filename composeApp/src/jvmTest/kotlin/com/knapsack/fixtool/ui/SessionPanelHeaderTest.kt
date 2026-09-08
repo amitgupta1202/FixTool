@@ -3,6 +3,7 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsAtLeast
@@ -58,11 +59,20 @@ class SessionPanelHeaderTest {
 
     @Test
     fun `a 190dp header keeps one title line, its count and its close button, and folds the rest into a menu`() {
-        renderHeader(width = 190.dp, title = "RFQ Demo Venue ← RFQLG3", messageCount = 140)
+        val title = "RFQ Demo Venue ← RFQLG3"
+        renderHeader(width = 190.dp, title = title, messageCount = 140)
 
         // Two lines of 12sp would clear 30dp, so anything under 22dp is the single line asked for.
         val titleHeight = rule.onNodeWithTag("pane-title").getUnclippedBoundsInRoot().height
         assertTrue(titleHeight < 22.dp, "the title measured $titleHeight, which is more than one line")
+
+        // The tail is the half that says which client this is, so it has to survive the cut. The desktop
+        // engine only ellipsizes the end, which is why the header measures and cuts the string itself.
+        val titleNode = rule.onNodeWithTag("pane-title").fetchSemanticsNode()
+        val shown = titleNode.config[SemanticsProperties.Text].joinToString("") { it.text }
+        assertTrue(shown.contains("…"), "the title read \"$shown\", which was never shortened")
+        assertTrue(shown.endsWith("3"), "the title read \"$shown\", so the tail of \"$title\" was cut off")
+        assertTrue(shown.length < title.length, "the title read \"$shown\", which is not shorter than \"$title\"")
         rule.onNodeWithTag("pane-message-count").assertIsDisplayed().assertTextEquals("140").assertWidthIsAtLeast(8.dp)
         rule.onNodeWithContentDescription("Close Session").assertIsDisplayed()
         rule.onNodeWithContentDescription("Minimize Pane").assertIsDisplayed()

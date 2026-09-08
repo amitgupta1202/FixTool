@@ -115,8 +115,38 @@ class StampMatcherTest {
         m.onStamp(send(laneB, "ORD-3", at = 1_000))
 
         val lanes = m.finish().perLane.associateBy { it.slot }
-        assertEquals(StampMatcher.LaneCounts(1, matched = 1, unanswered = 0, duplicates = 1), lanes.getValue(1))
-        assertEquals(StampMatcher.LaneCounts(2, matched = 1, unanswered = 1, duplicates = 0), lanes.getValue(2))
+        assertEquals(1, lanes.getValue(1).matched)
+        assertEquals(1, lanes.getValue(1).duplicates)
+        assertEquals(0, lanes.getValue(1).unanswered)
+        assertEquals(1, lanes.getValue(2).matched)
+        assertEquals(1, lanes.getValue(2).unanswered)
+        assertEquals(0, lanes.getValue(2).duplicates)
+    }
+
+    /**
+     * **Per-lane latency, which is only worth collecting now each lane renders ahead of its own sends.**
+     *
+     * From the lane's own log histogram, reported as the bucket's lower edge: an interpolated per-lane
+     * percentile is a number nothing measured, and the question a lane table answers is which lane is out
+     * of line. The aggregate percentiles stay exact, off the sorted samples.
+     */
+    @Test
+    fun `each lane carries its own round-trip percentiles, from its own buckets`() {
+        val m = matcher()
+
+        // Lane A answers in about 1ms every time; lane B in about 100ms.
+        repeat(20) { i ->
+            m.onStamp(send(laneA, "A-$i", at = 1_000_000L + i))
+            m.onStamp(receive(laneA, "A-$i", at = 1_000_000L + i + 1_000))
+            m.onStamp(send(laneB, "B-$i", at = 1_000_000L + i))
+            m.onStamp(receive(laneB, "B-$i", at = 1_000_000L + i + 100_000))
+        }
+
+        val lanes = m.finish().perLane.associateBy { it.slot }
+        assertEquals(RoundTripHistogram.lowerMicros(RoundTripHistogram.indexOf(1_000)), lanes.getValue(1).p95Micros)
+        assertEquals(RoundTripHistogram.lowerMicros(RoundTripHistogram.indexOf(100_000)), lanes.getValue(2).p95Micros)
+        assertEquals(lanes.getValue(1).p50Micros, lanes.getValue(1).p95Micros, "one bucket, so both percentiles land in it")
+        assertTrue(lanes.getValue(2).p95Micros!! > lanes.getValue(1).p95Micros!!, "the slow lane reads as the slow lane")
     }
 
     @Test

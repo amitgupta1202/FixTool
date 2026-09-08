@@ -80,12 +80,25 @@ class StampMatcher(
         val lastMatchedMicros: Long?,
     )
 
-    /** Matched, unanswered and duplicate replies for one lane. Completeness only — see [LoadRunner]. */
+    /**
+     * What one lane matched, missed and repeated, and how long its round trips took.
+     *
+     * The latency half is only honest because each lane renders ahead of its own sends ([RenderAhead]).
+     * While one pacer loop rendered and sent every lane round-robin, lane N left systematically later than
+     * lane 1 and would have looked worse forever — a false finding with a lane number on it.
+     *
+     * The percentiles come from the lane's own [RoundTripHistogram], not from kept samples: a per-lane
+     * sample array is the run's whole round-trip set a second time, and the question a lane table answers
+     * is "is any lane much worse than the rest", which a log bucket answers exactly well enough.
+     */
     data class LaneCounts(
         val slot: Int,
         val matched: Long,
         val unanswered: Long,
         val duplicates: Long,
+        /** Nearest-rank over the lane's histogram, as the lower edge of the bucket it lands in. Null with no samples. */
+        val p50Micros: Long? = null,
+        val p95Micros: Long? = null,
     )
 
     /** Everything the matcher has to say once the run is over. */
@@ -164,6 +177,7 @@ class StampMatcher(
     private val histogram = IntArray(RoundTripHistogram.BUCKETS)
     private val laneMatched = HashMap<Int, Long>()
     private val laneDuplicates = HashMap<Int, Long>()
+    private val laneHistograms = HashMap<Int, IntArray>()
     private val specimens = ArrayList<Specimen>()
 
     /** Any thread, any session, every stamp. Does nothing with a message that is not the run's business. */
@@ -219,8 +233,10 @@ class StampMatcher(
         val rtt = (reply.micros - request.sentMicros).coerceAtLeast(0)
         synchronized(samples) {
             samples.add(rtt)
-            histogram[RoundTripHistogram.indexOf(rtt)]++
+            val bucket = RoundTripHistogram.indexOf(rtt)
+            histogram[bucket]++
             laneMatched.merge(request.laneSlot, 1L, Long::plus)
+            laneHistograms.getOrPut(request.laneSlot) { IntArray(RoundTripHistogram.BUCKETS) }[bucket]++
             secondAt(secondOf(reply.micros)).let {
                 it.matched++
                 it.add(rtt)
@@ -321,8 +337,35 @@ class StampMatcher(
         val unansweredPer = unmatched.groupingBy { it.laneSlot }.eachCount()
         val slots = (laneMatched.keys + laneDuplicates.keys + unansweredPer.keys).sorted()
         return slots.map { slot ->
-            LaneCounts(slot, laneMatched[slot] ?: 0, (unansweredPer[slot] ?: 0).toLong(), laneDuplicates[slot] ?: 0)
+            val lane = laneHistograms[slot]
+            LaneCounts(
+                slot = slot,
+                matched = laneMatched[slot] ?: 0,
+                unanswered = (unansweredPer[slot] ?: 0).toLong(),
+                duplicates = laneDuplicates[slot] ?: 0,
+                p50Micros = lane?.let { percentileOf(it, P50) },
+                p95Micros = lane?.let { percentileOf(it, P95) },
+            )
         }
+    }
+
+    /**
+     * The percentile of a log histogram, as the lower edge of the bucket the rank falls in.
+     *
+     * A bucket edge and not an interpolated value on purpose: an interpolation is a number nothing
+     * measured, and the point of a lane table is which lane is out of line, not what its p95 was to
+     * three figures. The aggregate percentiles are still exact, off the sorted samples.
+     */
+    private fun percentileOf(histogram: IntArray, percentile: Double): Long? {
+        val total = histogram.sumOf { it.toLong() }
+        if (total == 0L) return null
+        val rank = Math.ceil(percentile * total).toLong().coerceIn(1, total)
+        var seen = 0L
+        histogram.forEachIndexed { index, count ->
+            seen += count
+            if (seen >= rank) return RoundTripHistogram.lowerMicros(index)
+        }
+        return RoundTripHistogram.lowerMicros(histogram.size - 1)
     }
 
     /** A growable primitive long array, so three hundred thousand round trips are not three hundred thousand boxes. */
@@ -344,6 +387,7 @@ class StampMatcher(
         private const val NONE = Long.MIN_VALUE
         private const val MICROS_PER_SECOND = 1_000_000L
         private const val INITIAL = 1_024
+        private const val P50 = 0.50
         private const val P95 = 0.95
 
         /** The sample at position ⌈p·n⌉ of a sorted array, a measurement that actually happened. */

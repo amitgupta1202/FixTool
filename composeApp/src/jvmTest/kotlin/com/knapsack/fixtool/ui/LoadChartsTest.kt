@@ -86,3 +86,39 @@ class LoadChartsTest {
         assertEquals(listOf(SecondColumn(0, 0, 0, null)), columnsOf(emptyList(), 600))
     }
 }
+
+/**
+ * **The one sentence a lane table exists to produce.** A 50 × 6 matrix answers no question anyone asks;
+ * "is any lane much worse than the rest" is the question, and it has a one-line answer.
+ */
+class LaneSentenceTest {
+    private fun lane(slot: Int, p95: Long?, unanswered: Long = 0) =
+        LoadReport.LaneCounts(slot, matched = 100, unanswered = unanswered, duplicates = 0, p50Us = p95, p95Us = p95)
+
+    @Test
+    fun `a lane well outside the rest is named`() {
+        val lanes = listOf(lane(7, 40_000), lane(1, 4_000), lane(2, 4_200), lane(3, 3_900))
+
+        assertTrue(laneSentence(lanes).startsWith("lane 7's p95 is"), laneSentence(lanes))
+    }
+
+    @Test
+    fun `lanes that agree get the fact that they agree, and no lane number`() {
+        val lanes = listOf(lane(1, 4_200), lane(2, 4_000), lane(3, 3_900))
+
+        assertTrue(laneSentence(lanes).startsWith("sorted by p95"), laneSentence(lanes))
+    }
+
+    /** The most useful lane finding there is, and it needs no latency at all. */
+    @Test
+    fun `every unanswered request landing on one lane is the sentence, whatever the latencies say`() {
+        val lanes = listOf(lane(1, 4_000), lane(2, 4_000, unanswered = 4))
+
+        assertEquals("every unanswered request was issued on lane 2", laneSentence(lanes))
+    }
+
+    @Test
+    fun `a run with no round trips says so rather than dividing by nothing`() {
+        assertEquals("completeness per lane · no round trips to compare", laneSentence(listOf(lane(1, null), lane(2, null))))
+    }
+}

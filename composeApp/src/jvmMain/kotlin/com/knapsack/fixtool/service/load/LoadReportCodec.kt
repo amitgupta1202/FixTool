@@ -154,6 +154,8 @@ object LoadReportCodec {
                                 put("matched", l.matched)
                                 put("unanswered", l.unanswered)
                                 put("duplicates", l.duplicates)
+                                put("p50Us", l.p50Us?.let { JsonPrimitive(it) } ?: JsonNull)
+                                put("p95Us", l.p95Us?.let { JsonPrimitive(it) } ?: JsonNull)
                             },
                         )
                     }
@@ -321,6 +323,8 @@ object LoadReportCodec {
                         matched = l.longOrNull("matched") ?: 0,
                         unanswered = l.longOrNull("unanswered") ?: 0,
                         duplicates = l.longOrNull("duplicates") ?: 0,
+                        p50Us = l.longOrNull("p50Us"),
+                        p95Us = l.longOrNull("p95Us"),
                     )
                 },
             perSecond =

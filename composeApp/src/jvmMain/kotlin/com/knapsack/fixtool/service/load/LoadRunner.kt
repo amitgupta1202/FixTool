@@ -91,6 +91,11 @@ class LoadRunner(
         progress.matcher = matcher
         val handles = all.map { it.addStampListener(matcher::onStamp) }
 
+        // Each lane renders ahead of its own sends, so a lane's message is not queued behind every other
+        // lane's rendering on the pacer thread. See RenderAhead: this is what makes a per-lane number
+        // worth showing rather than a picture of the round-robin.
+        val producers = RenderAhead.forLanes(prototypes, plan.requested)
+
         try {
             progress.emit(LoadPhase.ISSUING)
             val handed = AtomicLong()
@@ -98,7 +103,8 @@ class LoadRunner(
             val stats =
                 Pacer(plan.shape, lanes.size, clock).run(
                     issue = { laneIndex, messageIndex ->
-                        val ok = lanes[laneIndex].send(prototypes[laneIndex].render(messageIndex))
+                        val message = producers[laneIndex].next(messageIndex) ?: prototypes[laneIndex].render(messageIndex)
+                        val ok = lanes[laneIndex].send(message)
                         if (ok) handed.incrementAndGet()
                         progress.handed = handed.get()
                         val now = clock.nanoTime()
@@ -112,6 +118,9 @@ class LoadRunner(
                 )
             progress.handed = stats.handedToEngine
             progress.stats = stats
+            // Nothing more will be sent, so nothing more needs rendering. Before the settle window rather
+            // than after it, so the producers are not sitting on a queue for the length of it.
+            producers.forEach { it.close() }
 
             // Settle: the window closes early the moment nothing is outstanding, and it never ages a send out.
             // Outstanding is two things, not one. A request stamped out of the socket and unanswered is
@@ -158,6 +167,7 @@ class LoadRunner(
             onProgress(report)
             return Outcome(report, result.unmatched, result.specimens)
         } finally {
+            producers.forEach { it.close() }
             handles.forEach { it.close() }
         }
     }
@@ -263,7 +273,7 @@ class LoadRunner(
                 roundTripHistogram = result?.histogram ?: matcher?.histogramSoFar() ?: RoundTripHistogram.empty(),
                 perLane =
                     (result?.perLane ?: matcher?.perLaneSoFar()).orEmpty().map {
-                        LoadReport.LaneCounts(it.slot, it.matched, it.unanswered, it.duplicates)
+                        LoadReport.LaneCounts(it.slot, it.matched, it.unanswered, it.duplicates, it.p50Micros, it.p95Micros)
                     },
                 perSecond =
                     (result?.perSecond ?: matcher?.bucketsSoFar())

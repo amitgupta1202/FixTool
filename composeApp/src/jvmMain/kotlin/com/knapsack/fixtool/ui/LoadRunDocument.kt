@@ -128,6 +128,7 @@ fun LoadReportView(
                 Throughput(report, narrow)
                 RoundTrip(report, narrow)
                 if (report.unmatched.isNotEmpty()) UnmatchedTable(report, unmatchedWire, narrow, onReveal)
+                Lanes(report, narrow)
                 ToolPart(report)
                 Judgements(report, records)
             }
@@ -635,6 +636,65 @@ private fun Cell(text: String, width: Dp, tint: Color) {
     )
 }
 
+/**
+ * **The lanes, and the one sentence a lane table exists to produce.**
+ *
+ * The real question is never "what were lane 37's six numbers" — a 50 × 6 matrix answers nothing anyone
+ * asks — it is "is any lane much worse than the rest". So the table is sorted by p95, worst first, and
+ * the note above it says whether the spread is worth looking at.
+ *
+ * The latency columns are only here because each lane renders ahead of its own sends. While one pacer
+ * loop rendered and sent every lane round-robin, lane N left later than lane 1 by construction, and this
+ * table would have reported that ordering as the venue's behaviour.
+ */
+@Composable
+private fun Lanes(r: LoadReport, narrow: Boolean) {
+    if (r.perLane.size < 2) return
+    val sorted = r.perLane.sortedByDescending { it.p95Us ?: -1 }
+    Section("Per lane", laneSentence(sorted)) {
+        Column(modifier = Modifier.fillMaxWidth().let { if (narrow) it.horizontalScroll(rememberScrollState()) else it }) {
+            Row {
+                Head("lane", LANE_NAME_COL)
+                Head("answered", LANE_COUNT_COL)
+                Head("unanswered", LANE_COUNT_COL)
+                Head("duplicates", LANE_COUNT_COL)
+                Head("p50", LANE_COUNT_COL)
+                Head("p95", LANE_COUNT_COL)
+            }
+            sorted.forEach { l ->
+                Row(modifier = Modifier.testTag("load-lane-${l.slot}")) {
+                    Cell(l.slot.toString(), LANE_NAME_COL, AppTheme.Colors.textSecondary)
+                    Cell(LoadReportCodec.fmt(l.matched), LANE_COUNT_COL, AppTheme.Colors.text)
+                    Cell(
+                        LoadReportCodec.fmt(l.unanswered),
+                        LANE_COUNT_COL,
+                        if (l.unanswered > 0) AppTheme.Colors.error else AppTheme.Colors.textSecondary,
+                    )
+                    Cell(LoadReportCodec.fmt(l.duplicates), LANE_COUNT_COL, AppTheme.Colors.textSecondary)
+                    Cell(l.p50Us?.let { LoadReportCodec.humanMicros(it) } ?: "—", LANE_COUNT_COL, AppTheme.Colors.textSecondary)
+                    Cell(l.p95Us?.let { LoadReportCodec.humanMicros(it) } ?: "—", LANE_COUNT_COL, AppTheme.Colors.text)
+                }
+            }
+        }
+    }
+}
+
+/** "no lane is out of line", or the lane that is — which is the whole answer a lane table owes. */
+internal fun laneSentence(sorted: List<LoadReport.LaneCounts>): String {
+    val missing = sorted.filter { it.unanswered > 0 }
+    if (missing.size == 1) return "every unanswered request was issued on lane ${missing.single().slot}"
+    val p95s = sorted.mapNotNull { it.p95Us }
+    if (p95s.size < 2) return "completeness per lane · no round trips to compare"
+    val median = p95s.sorted()[p95s.size / 2].coerceAtLeast(1)
+    val worst = sorted.first()
+    val ratio = (worst.p95Us ?: 0).toDouble() / median
+    return if (ratio >= LANE_OUTLIER) {
+        "lane ${worst.slot}'s p95 is ${"%.1f".format(ratio)}× the median lane's — worth a look"
+    } else {
+        "sorted by p95, worst first · no lane is more than ${LANE_OUTLIER.toInt()}× the median lane's p95"
+    }
+}
+
 /** FixTool's own contribution, shown and never hidden. */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
@@ -834,6 +894,8 @@ private val NARROW = 460.dp
 private val NARROW_FIGURE = 20.sp
 private val MIN_SEGMENT = 4.dp
 private val WIDE_CHART = 720.dp
+private val LANE_NAME_COL = 52.dp
+private val LANE_COUNT_COL = 92.dp
 private val ID_COL = 168.dp
 private val LANE_COL = 44.dp
 private val SENT_COL = 100.dp
@@ -843,3 +905,6 @@ private const val MILLIS_PER_SECOND = 1_000L
 
 /** How far the stray count may fall short of the issued count and still read as "every reply was a stray". */
 private const val STRAY_SLACK = 20
+
+/** How many times the median lane's p95 a lane has to reach before the sentence names it. */
+private const val LANE_OUTLIER = 2.0

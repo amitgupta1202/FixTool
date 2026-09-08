@@ -126,12 +126,20 @@ data class LoadReport(
         val drainMs: Long,
     )
 
-    /** What one lane matched, what it never got an answer to, and what came back twice. */
+    /**
+     * What one lane matched, what it never got an answer to, what came back twice, and how long it took.
+     *
+     * The percentiles are the lane's own log-histogram buckets, and they are only worth showing because
+     * each lane renders ahead of its own sends. Before that, one pacer loop rendered and sent every lane
+     * round-robin and lane N was issued systematically later than lane 1.
+     */
     data class LaneCounts(
         val slot: Int,
         val matched: Long,
         val unanswered: Long,
         val duplicates: Long,
+        val p50Us: Long? = null,
+        val p95Us: Long? = null,
     )
 
     /** One second of the run, counted from the first send. */

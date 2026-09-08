@@ -53,8 +53,8 @@ object LoadFixtures {
                 },
             perLane =
                 listOf(
-                    LoadReport.LaneCounts(1, matched = 2_000, unanswered = 1, duplicates = 6),
-                    LoadReport.LaneCounts(2, matched = 1_996, unanswered = 3, duplicates = 6),
+                    LoadReport.LaneCounts(1, matched = 2_000, unanswered = 1, duplicates = 6, p50Us = 12_589, p95Us = 199_526),
+                    LoadReport.LaneCounts(2, matched = 1_996, unanswered = 3, duplicates = 6, p50Us = 12_589, p95Us = 1_584_893),
                 ),
             perSecond = listOf(LoadReport.Second(0, 4_000, 2_210, 188_000), LoadReport.Second(1, 0, 1_740, 402_000), LoadReport.Second(2, 0, 46, null)),
             tool = tool,

@@ -79,9 +79,9 @@ import kotlin.random.Random
  * their state written on the fold, so nothing is hidden by folding them.
  *
  * Every refusal is a sentence on screen and Run is what refuses, but a refusal sits under the row that
- * caused it rather than in a heap above the buttons — which is why a fold opens itself whenever one names
- * something inside it. A fold that stayed shut while hiding the control a refusal points at would make
- * the placement a lie.
+ * caused it rather than in a heap above the buttons, which is why a fold opens itself whenever one
+ * names something inside it. A fold that stayed shut while hiding the control a refusal points at would
+ * make the placement a lie.
  *
  * The sentences themselves are [LoadPlan.problems], shared with `fixtool load` and `POST /load` so the
  * three cannot drift, and printed whole: `storeProblem()` and `fanOutFarEndNotice()` each end with their
@@ -101,7 +101,7 @@ fun LoadRunDialog(
 ) {
     // Resizable and remembered: ten rows and two folds do not fit in 640 by 580, and the reader who drags
     // it wider to read a refusal had to drag it again on the next run. The size lives in the view-state
-    // store, never in AppSettings — a window size is not a setting anybody edits on a settings page.
+    // store, never in AppSettings: a window size is not a setting anybody edits on a settings page.
     val (width, height) = remember { viewModel.loadDialogSize() }
     val state = rememberDialogState(width = width.dp, height = height.dp)
     DisposableEffect(Unit) {
@@ -228,7 +228,13 @@ fun LoadRunDialogContent(
         } else {
             savedMessage?.userTags?.firstNotNullOfOrNull { tag -> profiles.firstOrNull { it.id == tag }?.name }
         }
-    val seed = remember(seedRows) { seedMap(seedRows) }
+    // Two readings of the same rows. `literalSeed` is what a *set* would save, generators and all, so a
+    // set that runs every night mints a fresh id each time. `seed` is this run's, rendered once per edit
+    // rather than once per recomposition, so `${'$'}{uuid:4}` is the same value in the fold's summary, in the
+    // copied command line and on the wire.
+    val literalSeed = remember(seedRows) { seedMap(seedRows) }
+    val seed = remember(literalSeed) { renderedSeed(literalSeed) }
+    val seedProblems = remember(seedRows) { seedRefusals(seedRows) }
     val shape: LoadShape? =
         if (burst) {
             count
@@ -269,6 +275,8 @@ fun LoadRunDialogContent(
         buildList {
             if (template == null) add(Refusal(Where.TEMPLATE, "Pick a template, or save a message under this profile first."))
             planProblems.forEach { add(Refusal(placeOf(it), it)) }
+            // A phase has no seed field, so a seed value it cannot see is not its refusal to carry.
+            if (phase == null) seedProblems.forEach { add(Refusal(Where.SEED, it)) }
             if (template != null && match == null) {
                 add(Refusal(Where.MATCH, "The template carries no tag a reply can be matched on. Name the request and reply tags."))
             }
@@ -295,8 +303,8 @@ fun LoadRunDialogContent(
     val hiddenInIdentity = blocking.firstOrNull { it.where in IDENTITY }
 
     // The rule, and the reason LoadRunDialogTest can still reach the store radios: a refusal that names
-    // something inside a fold opens that fold, and only that one. It stays open afterwards — a fold that
-    // shut itself the instant its refusal cleared would take the control away mid-correction.
+    // something inside a fold opens that fold, and only that one. It stays open afterwards, because a
+    // fold that shut itself the instant its refusal cleared would take the control away mid-correction.
     LaunchedEffect(hiddenInReplies != null) { if (hiddenInReplies != null) repliesOpen = true }
     LaunchedEffect(hiddenInIdentity != null) { if (hiddenInIdentity != null) identityOpen = true }
 
@@ -423,11 +431,19 @@ fun LoadRunDialogContent(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Picker(template?.name ?: "pick a template", templates.map { it.name to it }, "load-template") { template = it }
                         if (savedMessage != null) {
+                            // Labelled by what it does, and it now does it: the message went into an editor
+                            // that could be shut, behind a dialog, which reads as a dead link. The panel
+                            // toggle is the one `POST /panel {"panel":"editor"}` drives.
                             Text(
-                                "view message",
+                                "view in editor",
                                 color = AppTheme.Colors.info,
-                                style = AppTheme.Type.meta,
-                                modifier = Modifier.clickable { viewModel.loadEditorMessage(savedMessage) }.testTag("load-view-template"),
+                                style = AppTheme.Type.body,
+                                modifier =
+                                    Modifier
+                                        .clickable {
+                                            viewModel.loadEditorMessage(savedMessage)
+                                            viewModel.bringEditorForward()
+                                        }.testTag("load-view-template"),
                             )
                         }
                     }
@@ -532,8 +548,8 @@ fun LoadRunDialogContent(
                 }
                 FormRow("Also listen on") {
                     val others =
-                        profiles.filter { p ->
-                            p.id != profileId && viewModel.getProfileSessions(p.id).any { it.connectionState.value == FixConnectionState.LOGGED_ON }
+                        listenCandidates(profiles, profileId, viewModel.farEndProfile(profileId.orEmpty())?.id) { id ->
+                            viewModel.getProfileSessions(id).any { it.connectionState.value == FixConnectionState.LOGGED_ON }
                         }
                     if (others.isEmpty()) {
                         Hint("No other profile is logged on that could receive these replies.")
@@ -632,33 +648,41 @@ fun LoadRunDialogContent(
                     Refusals(blocking, Where.SEED)
                 }
                 FormRow("Store and log") {
-                    SlimRadioGroup(
-                        options = listOf(false, true),
-                        selected = forLoad,
-                        onSelect = { forLoad = it },
-                        optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
-                    ) { memory ->
-                        if (memory) {
-                            Text(
-                                "Memory store, no log for this run",
-                                color = AppTheme.Colors.text,
-                                style = AppTheme.Type.body,
-                            )
-                        } else {
-                            Text(
-                                "As the profile" + (profile?.let { ": " + storeOf(it.config).describe() } ?: ""),
-                                color = AppTheme.Colors.text,
-                                style = AppTheme.Type.body,
-                            )
-                        }
+                    // Two radios that mean the same thing are a decision nobody has to make. When the
+                    // profile already runs a memory store with no log, the row says what will happen and
+                    // stops there.
+                    val sameAsProfile = profile != null && storeOf(profile.config) == StoreAndLogOverride.FOR_LOAD
+                    if (sameAsProfile) {
+                        Hint(
+                            "Lanes run on a **memory store with no message log**, as the profile already does.",
+                            tag = "load-store-same",
+                        )
                     }
-                    Hint(memoryStoreHint(profile))
+                    if (!sameAsProfile) {
+                        SlimRadioGroup(
+                            options = listOf(false, true),
+                            selected = forLoad,
+                            onSelect = { forLoad = it },
+                            optionTestTag = { if (it) "load-store-memory" else "load-store-profile" },
+                        ) { memory ->
+                            if (memory) {
+                                Text(
+                                    "Memory store, no log for this run",
+                                    color = AppTheme.Colors.text,
+                                    style = AppTheme.Type.body,
+                                )
+                            } else {
+                                Text(
+                                    "As the profile" + (profile?.let { ": " + storeOf(it.config).describe() } ?: ""),
+                                    color = AppTheme.Colors.text,
+                                    style = AppTheme.Type.body,
+                                )
+                            }
+                        }
+                        Hint(memoryStoreHint(profile))
+                    }
                     Refusals(blocking, Where.STORE)
-                    if (forLoad &&
-                        profile != null &&
-                        refusals.none { it.where == Where.STORE } &&
-                        storeOf(profile.config) != StoreAndLogOverride.FOR_LOAD
-                    ) {
+                    if (forLoad && !sameAsProfile && profile != null && refusals.none { it.where == Where.STORE }) {
                         Hint("The lanes reconnect with it for this run, and reconnect back when the run ends.")
                     }
                 }
@@ -692,7 +716,7 @@ fun LoadRunDialogContent(
                 why = why,
                 runnable = runnable,
                 onCopy = { plan()?.let { copyToClipboard(cliLine(it)) } },
-                onMakeSet = if (onMakeSet == null) null else ({ asSet(spec(), seed, override)?.let(onMakeSet) }),
+                onMakeSet = if (onMakeSet == null) null else ({ asSet(spec(), literalSeed, override)?.let(onMakeSet) }),
                 onDismiss = onDismiss,
                 onRun = ::start,
             )
@@ -877,9 +901,13 @@ private fun Sub(text: String, color: Color = AppTheme.Colors.textDisabled) {
  * stronger, as the mockup's `.hint b` does.
  */
 @Composable
-private fun Hint(text: String, color: Color = AppTheme.Colors.textDisabled) {
+private fun Hint(text: String, color: Color = AppTheme.Colors.textDisabled, tag: String? = null) {
     if (text.isEmpty()) return
-    Text(hintText(text, color, AppTheme.Colors.textSecondary), style = AppTheme.Type.body)
+    Text(
+        hintText(text, color, AppTheme.Colors.textSecondary),
+        style = AppTheme.Type.body,
+        modifier = if (tag == null) Modifier else Modifier.testTag(tag),
+    )
 }
 
 /** The `**fact**` markers resolved to [strong], everything else to [dim]. Split out so a test can read it. */
@@ -1165,6 +1193,30 @@ internal fun identitySummary(seed: Map<String, String>, override: StoreAndLogOve
     return "$seeded · $store"
 }
 
+/**
+ * **The profiles that could receive a reply meant for these lanes.**
+ *
+ * Not "every other profile that is logged on", which is what the row offered. An acceptor profile is
+ * FixTool *answering*, so it never receives somebody else's reply, and the [farEnd] these lanes dial is
+ * the thing sending the replies rather than a second place they arrive. Ticking either produced a run
+ * that listened on sessions no reply could ever land on, and then reported the misses as strays.
+ *
+ * [loggedOn] is passed in rather than read here so this is a plain function a test can put a profile
+ * list through without a live session.
+ */
+internal fun listenCandidates(
+    profiles: List<FixConnectionProfile>,
+    issuing: String?,
+    farEnd: String?,
+    loggedOn: (String) -> Boolean,
+): List<FixConnectionProfile> =
+    profiles.filter { p ->
+        p.id != issuing &&
+            p.id != farEnd &&
+            p.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR &&
+            loggedOn(p.id)
+    }
+
 /** A preset or a seed action: a word, a border, and an on state. */
 @Composable
 private fun Chip(label: String, on: Boolean, tag: String, onClick: () -> Unit) {
@@ -1328,11 +1380,48 @@ internal const val FAR_END_NOTE =
         "profile to it."
 
 /**
- * The seed rows as the map a plan carries. A name with no value seeds nothing, which is what a bare
- * `run=` always did and is what leaves the "nothing seeds it" refusal standing over an empty field.
+ * The seed rows as typed, generators and all.
+ *
+ * A name with no value seeds nothing, which is what a bare `run=` always did and is what leaves the
+ * "nothing seeds it" refusal standing over an empty field.
+ *
+ * Literal on purpose: a *set* saves this, and a set whose seed is `${'$'}{uuid:4}` has to mint a fresh id on
+ * every run rather than the one four hex characters it was saved with. A single run renders it instead,
+ * once, through [renderedSeed].
  */
 internal fun seedMap(rows: List<Pair<String, String>>): Map<String, String> =
     rows.mapNotNull { (k, v) -> if (k.isBlank() || v.isBlank()) null else k.trim() to v.trim() }.toMap()
+
+/**
+ * **This run's seed, with the generators rendered once.**
+ *
+ * `${'$'}{uuid:4}` as a value is rendered here rather than sent as text, exactly as [LoadSet.plan] renders a
+ * set's seed once and shares it across every phase. Anything still holding a `${'$'}{…}` afterwards names
+ * something no seed can resolve, and [seedRefusals] is what says so.
+ */
+internal fun renderedSeed(seed: Map<String, String>): Map<String, String> =
+    seed.mapValues { (_, value) -> CompiledTemplate.renderGenerators(value) }
+
+/**
+ * **A seed value that is still an expression is not a value.**
+ *
+ * `run=${'$'}{run}` reads as "make run whatever run is", which is nothing: the seed is what the scope is
+ * built *from*, so there is no earlier scope for it to read. The same goes for a name no generator
+ * answers to. Sent as text it would put the literal `${'$'}{run}` on the wire on all four thousand
+ * messages, which is the failure this refuses instead.
+ */
+internal fun seedRefusals(rows: List<Pair<String, String>>): List<String> =
+    rows.mapNotNull { (name, value) ->
+        val n = name.trim()
+        val v = value.trim()
+        if (n.isEmpty() || v.isEmpty() || !CompiledTemplate.renderGenerators(v).contains(EXPRESSION_OPENER)) {
+            null
+        } else {
+            "$n's value $v is not a value. Type one, or mint one."
+        }
+    }
+
+private const val EXPRESSION_OPENER = "\${"
 
 private fun <T> List<T>.replaceAt(index: Int, value: T): List<T> = toMutableList().also { it[index] = value }
 

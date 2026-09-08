@@ -23,11 +23,14 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
 import com.knapsack.fixtool.model.LOAD_DIALOG_WIDTH
 import com.knapsack.fixtool.model.LoadRunDefaults
+import com.knapsack.fixtool.model.SavedFixField
+import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
+import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
 import org.junit.Before
@@ -172,7 +175,7 @@ class LoadRunDialogTest {
 
     /**
      * The store radios live inside the Identity fold, which is shut when everything in it is fine. A
-     * refusal that names one of them opens that fold and says why — otherwise "the refusal sits next to
+     * refusal that names one of them opens that fold and says why. Otherwise "the refusal sits next to
      * its cause" would be a claim the dialog breaks the moment the cause is hidden.
      */
     @Test
@@ -433,6 +436,127 @@ class LoadRunDialogTest {
         composeTestRule.onNodeWithText("how many, how fast, and how long to wait").assertExists()
         composeTestRule.onNodeWithText("How replies are counted").assertExists()
         composeTestRule.onNodeWithText("Identity and store").assertExists()
+    }
+
+    /**
+     * **A generator as a seed value is rendered once, exactly as a set renders its own seed.**
+     *
+     * `${'$'}{uuid:4}` typed into the value field used to go on the wire as those nine characters on every
+     * one of four thousand messages.
+     */
+    @Test
+    fun `a generator seed value is rendered once, and a name is refused`() {
+        assertEquals(mapOf("run" to "b7f2"), renderedSeed(seedMap(listOf("run" to "b7f2"))))
+        // A set saves what was typed, so the rows themselves keep the generator.
+        assertEquals(mapOf("run" to "\${uuid:4}"), seedMap(listOf("run" to "\${uuid:4}")))
+
+        val rendered = renderedSeed(seedMap(listOf("run" to "\${uuid:4}"))).getValue("run")
+
+        assertEquals(4, rendered.length, "four hex characters, not the expression: $rendered")
+        assertTrue(!rendered.contains("\$"), rendered)
+        assertEquals(emptyList(), seedRefusals(listOf("run" to "\${uuid:4}")), "a generator is a value")
+        assertEquals(
+            listOf("run's value \${run} is not a value. Type one, or mint one."),
+            seedRefusals(listOf("run" to "\${run}")),
+        )
+        assertEquals(1, seedRefusals(listOf("run" to "\${desk}")).size, "a name no generator answers to")
+        assertEquals(emptyList(), seedRefusals(listOf("run" to "")), "an empty value is the empty-field refusal")
+    }
+
+    /** The refusal sits under Seed, opens the fold that holds Seed, and holds Run. */
+    @Test
+    fun `a self-referencing seed value is refused under its own row and Run refuses`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.rememberLoadRunDefaults("lg", LoadRunDefaults(seed = listOf(listOf("run", "\${run}"))))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        assertTrue(refusals().any { it.contains("is not a value") }, refusals().toString())
+        // The Seed field is on screen, because the fold that holds it opened itself.
+        composeTestRule.onNodeWithTag("load-seed-value-0").assertExists()
+        composeTestRule.onNodeWithTag("load-run").assertHasNoClickAction()
+    }
+
+    /**
+     * **Also listen on offers only profiles a reply could land on.**
+     *
+     * Never an acceptor, which is FixTool answering rather than receiving, and never the far end these
+     * lanes dial, which is the thing sending the replies. Ticking either listened on sessions no reply
+     * could arrive on and then counted the misses as strays.
+     */
+    @Test
+    fun `Also listen on excludes the issuing profile, the acceptor and the far end`() {
+        val dropCopy = FixConnectionProfile(id = "dc", name = "DROPCOPY", config = FixConnectionConfig(senderCompID = "DC", targetCompID = "V"))
+        val profiles = listOf(profile(resetOnLogon = true), venue(), dropCopy)
+
+        val offered = listenCandidates(profiles, issuing = "lg", farEnd = "venue") { true }
+
+        assertEquals(listOf("DROPCOPY"), offered.map { it.name })
+        // With no far end named, the acceptor is still not offered: it answers, it does not receive.
+        assertEquals(listOf("DROPCOPY"), listenCandidates(profiles, issuing = "lg", farEnd = null) { true }.map { it.name })
+        // And a profile with nothing logged on cannot receive anything either.
+        assertEquals(emptyList(), listenCandidates(profiles, issuing = "lg", farEnd = "venue") { false })
+    }
+
+    /**
+     * **Two radios that mean the same thing are a decision nobody has to make.** When the profile already
+     * runs a memory store with no log, the row says what will happen and stops.
+     */
+    @Test
+    fun `the Store row is one sentence when the profile already runs a memory store with no log`() {
+        val memoryProfile =
+            profile(resetOnLogon = true).let {
+                it.copy(
+                    config =
+                        it.config.copy(
+                            messageStore = FixConnectionConfig.MessageStoreKind.MEMORY,
+                            messageLog = FixConnectionConfig.MessageLogKind.NONE,
+                        ),
+                )
+            }
+        viewModel.saveConnectionProfile(memoryProfile)
+        viewModel.rememberLoadRunDefaults("lg", LoadRunDefaults(seed = listOf(listOf("run", "b7f2"))))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-advanced").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(
+            listOf("Lanes run on a memory store with no message log, as the profile already does."),
+            texts("load-store-same"),
+        )
+        composeTestRule.onNodeWithTag("load-store-memory").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("load-store-profile").assertDoesNotExist()
+    }
+
+    /**
+     * **"view in editor" opens the editor.** It loaded the message into a panel that could be shut, behind
+     * this dialog, which reads as a dead link. The window is raised too, which a test cannot see.
+     */
+    @Test
+    fun `view in editor loads the message and opens the editor panel`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        SavedMessagesService(customPath = File(testDir, "saved_messages.json").absolutePath).saveMessage(
+            "lg",
+            SavedFixMessage(
+                id = "nos",
+                name = "NOS",
+                userTags = setOf("lg"),
+                fields = listOf(SavedFixField("35", "D"), SavedFixField("11", "ORD-\${messageIndex}")),
+            ),
+        )
+        viewModel.loadSavedMessagesForActiveSession()
+        assertTrue(!viewModel.showMessageEditor.value, "the editor starts shut")
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = null, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-view-template").assertTextContains("view in editor")
+        composeTestRule.onNodeWithTag("load-view-template").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue(viewModel.showMessageEditor.value, "the editor panel is open")
+        assertEquals("D", viewModel.editorFields.first { it.tag == "35" }.value, "and the editor holds the message")
     }
 
     /**

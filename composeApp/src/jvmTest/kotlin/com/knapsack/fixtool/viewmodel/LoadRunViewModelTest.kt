@@ -82,6 +82,59 @@ class LoadRunViewModelTest {
         assertNull(viewModel.loadDialogTemplate.value)
     }
 
+    /**
+     * **The far end is one of ours only when it is one of ours**: a loopback connect host, and a FixTool
+     * acceptor listening on the port the lanes dial. The dialog's note and the profiles "Also listen on"
+     * refuses to offer both hang off this, so it is worth pinning both answers.
+     */
+    @Test
+    fun `the far end is the acceptor on the port the lanes dial, and nothing when the venue is elsewhere`() {
+        val client =
+            FixConnectionProfile(
+                id = "lg",
+                name = "LOADGEN",
+                config = FixConnectionConfig(senderCompID = "LG{n}", targetCompID = "V", host = "localhost", port = "9", sessionCount = 3),
+            )
+        val venue =
+            FixConnectionProfile(
+                id = "venue",
+                name = "VENUE",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "V",
+                        targetCompID = "LG{n}",
+                        socketAcceptPort = "9",
+                    ),
+            )
+        viewModel.saveConnectionProfile(client)
+        viewModel.saveConnectionProfile(venue)
+
+        assertEquals("venue", viewModel.farEndProfile("lg")?.id)
+        assertNotNull(viewModel.fanOutFarEndNotice("lg"))
+
+        // The same acceptor, on a port nobody dials: not this run's far end.
+        viewModel.saveConnectionProfile(venue.copy(config = venue.config.copy(socketAcceptPort = "10")))
+
+        assertNull(viewModel.farEndProfile("lg"))
+        assertNull(viewModel.fanOutFarEndNotice("lg"))
+    }
+
+    /** The editor's own panel toggle, so the dialog's "view in editor" is not a dead link. */
+    @Test
+    fun `bringing the editor forward opens the panel it may be hiding in`() {
+        assertTrue(!viewModel.showMessageEditor.value)
+
+        viewModel.bringEditorForward()
+
+        assertTrue(viewModel.showMessageEditor.value)
+
+        // Already open stays open: the raise is the point, not the toggle.
+        viewModel.bringEditorForward()
+
+        assertTrue(viewModel.showMessageEditor.value)
+    }
+
     @Test
     fun `a stop aimed at a run that is not running is harmless`() {
         viewModel.stopLoadRun("nothing")

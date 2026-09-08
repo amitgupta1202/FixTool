@@ -61,15 +61,16 @@ fun LoadCompareDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadCom
             Empty("The run this comparison was opened from is no longer on disk.", "The loads directory keeps the most recent runs.")
             return@Column
         }
-        CompareHeader(viewModel, after, before, records) { beforeId = it }
+        // Phases pair by position, and one phase each is today's Compare exactly. Comparing a set against a
+        // single run pairs the run with phase 1, which is what somebody who tuned one burst and then built
+        // the set around it wants to see. Hoisted above the header because the header's badge judges the
+        // pairs, not the last phase.
+        val pairs = remember(before?.id, after.id) { before?.let { pairsOf(it, after) }.orEmpty() }
+        CompareHeader(viewModel, after, before, pairs, records) { beforeId = it }
         if (before == null) {
             Empty("Pick the run to compare this one against.", "Any run in the loads directory, whichever fired it.")
             return@Column
         }
-        // Phases pair by position, and one phase each is today's Compare exactly. Comparing a set against a
-        // single run pairs the run with phase 1, which is what somebody who tuned one burst and then built
-        // the set around it wants to see.
-        val pairs = remember(before.id, after.id) { pairsOf(before, after) }
         if (pairs.size > 1) PairRail(pairs, pair) { pair = it }
         val chosen = pairs.getOrElse(pair) { pairs.first() }
         val b = chosen.before
@@ -171,26 +172,32 @@ private fun chipOf(p: Pair): kotlin.Pair<String, Color> {
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun CompareHeader(
     viewModel: FixMessageViewModel,
     after: LoadRecord,
     before: LoadRecord?,
+    pairs: List<Pair>,
     records: List<LoadRecord>,
     onPick: (String) -> Unit,
 ) {
-    // The badge reads the whole comparison: a set is compared when every pair with a counterpart is.
-    val comparison = before?.let { remember(it.id, after.id) { LoadComparison.of(it.only, after.only) } }
+    // **The badge reads the pairs**, because that is what the document below it draws. Reading
+    // `before.only` against `after.only` judged the last phase of each and called a three-phase set
+    // comparable or not on the strength of one of them.
+    val counterparts = remember(before?.id, after.id) { pairs.filter { it.before != null && it.after != null } }
+    val comparable =
+        remember(before?.id, after.id) {
+            counterparts.isNotEmpty() &&
+                counterparts.all { LoadComparison.of(it.before!!, it.after!!).comparable }
+        }
     var note by remember { mutableStateOf("") }
     Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface).padding(horizontal = 8.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             val (badge, tint) =
                 when {
-                    comparison == null -> "PICK A RUN" to AppTheme.Colors.textDisabled
-                    !comparison.comparable -> "NOT COMPARABLE" to AppTheme.Colors.textSecondary
-                    after.phases.size > 1 || (before?.phases?.size ?: 1) > 1 -> {
-                        val paired = pairsOf(before!!, after).count { it.before != null && it.after != null }
-                        "COMPARED · $paired PHASE PAIRS" to AppTheme.Colors.info
-                    }
+                    before == null -> "PICK A RUN" to AppTheme.Colors.textDisabled
+                    !comparable -> "NOT COMPARABLE" to AppTheme.Colors.textSecondary
+                    pairs.size > 1 -> "COMPARED · ${counterparts.size} PHASE PAIRS" to AppTheme.Colors.info
                     else -> "COMPARED" to AppTheme.Colors.info
                 }
             Text(
@@ -215,18 +222,12 @@ private fun CompareHeader(
             }
             OtherRunPicker(records.filter { it.id != after.id }, before, onPick)
             // Refuses rather than substituting: a run fired against a different template of the same name
-            // is worse than not being able to fire it at all.
+            // is worse than not being able to fire it at all. A **set** goes back through its saved file,
+            // because replanning one phase of it would rerun a third of the thing that regressed.
             SlimButton(
                 if (after.phases.size > 1) "Run this set again" else "Run this plan again",
                 modifier = Modifier.testTag("compare-rerun"),
-                onClick = {
-                    viewModel
-                        .replanLoad(after.only)
-                        .onSuccess {
-                            note = ""
-                            viewModel.startLoadRun(it)
-                        }.onFailure { note = it.message.orEmpty() }
-                },
+                onClick = { note = rerun(viewModel, after) },
             )
         }
         if (note.isNotEmpty()) {
@@ -237,6 +238,36 @@ private fun CompareHeader(
                 modifier = Modifier.padding(top = 3.dp).testTag("compare-rerun-refusal"),
             )
         }
+    }
+}
+
+/**
+ * **Fires this record again**, and returns the sentence to print when it could not. Empty on success.
+ *
+ * A set of several phases goes through its saved file by name, which is the only thing that can reproduce
+ * all of it: the record's phases are reports, and replanning one of them would rerun a third of the run
+ * that regressed. A set that never came from a file says so rather than running a fraction of itself.
+ */
+private fun rerun(viewModel: FixMessageViewModel, record: LoadRecord): String {
+    if (record.phases.size <= 1) {
+        return viewModel
+            .replanLoad(record.only)
+            .fold(
+                onSuccess = {
+                    viewModel.startLoadRun(it)
+                    ""
+                },
+                onFailure = { it.message.orEmpty() },
+            )
+    }
+    val name =
+        record.set?.name
+            ?: return "This set was not run from a saved set, so there is no file to run again. " +
+                "Build it under Load sets… and run it from there."
+    return when (val outcome = viewModel.startSavedLoadSet(name)) {
+        is FixMessageViewModel.SavedLoadSetRun.Started -> ""
+        is FixMessageViewModel.SavedLoadSetRun.Refused -> outcome.why
+        is FixMessageViewModel.SavedLoadSetRun.CannotRunNow -> outcome.why
     }
 }
 

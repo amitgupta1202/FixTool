@@ -3,6 +3,7 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -159,6 +160,99 @@ class LoadCompareTest {
         composeTestRule.onNodeWithText("COMPARED").assertIsDisplayed()
         composeTestRule.onNodeWithTag("compare-row-unanswered").assertIsDisplayed()
         composeTestRule.onNodeWithText("cleared").assertIsDisplayed()
+    }
+
+    /**
+     * **The badge judges the pairs, not the last phase of each.** It read `before.only` against
+     * `after.only`, so a set whose *last* phases measured the same exchange was called COMPARED however
+     * badly the earlier pairs disagreed, and the chip beside them said "not comparable" under a badge that
+     * said the opposite.
+     */
+    @Test
+    fun `a set whose first pair measured a different exchange is not comparable`() {
+        val yesterday = set("yesterday", unmatchedInPhaseTwo = 0, phases = 2)
+        // Phase 1 alone measured an RFQ round trip: 131 on a 35=S rather than 11 on a 35=8.
+        val today =
+            set("today", unmatchedInPhaseTwo = 0, phases = 2).let { record ->
+                record.copy(
+                    phases =
+                        record.phases.mapIndexed { i, phase ->
+                            if (i == 0) {
+                                phase.copy(match = LoadMatch(131, 131, "S"), template = phase.template.copy(msgType = "R"))
+                            } else {
+                                phase
+                            }
+                        },
+                )
+            }
+        viewModel.loadRecordStore.write(yesterday)
+        viewModel.loadRecordStore.write(today)
+
+        composeTestRule.setContent {
+            LoadCompareDocument(
+                viewModel,
+                ScenarioDoc.LoadCompare(afterId = "yesterday", beforeId = "today"),
+                Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("compare-verdict").assertTextContains("NOT COMPARABLE")
+    }
+
+    /** Every pair comparable, and the badge counts them rather than saying COMPARED about one. */
+    @Test
+    fun `a set whose every pair is comparable says how many pairs it compared`() {
+        viewModel.loadRecordStore.write(set("yesterday", unmatchedInPhaseTwo = 4))
+        viewModel.loadRecordStore.write(set("today", unmatchedInPhaseTwo = 0, phases = 2))
+
+        composeTestRule.setContent {
+            LoadCompareDocument(
+                viewModel,
+                ScenarioDoc.LoadCompare(afterId = "yesterday", beforeId = "today"),
+                Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("compare-verdict").assertTextContains("COMPARED · 2 PHASE PAIRS")
+    }
+
+    /**
+     * **A set reruns as a set.** "Run this set again" replanned `after.only`, which is one phase of it, so
+     * clicking it on a three-phase regression fired a third of the run. It goes back through the saved set
+     * by name, and refuses in a sentence when the record came from no file.
+     */
+    @Test
+    fun `Run this set again refuses a set that came from no saved file`() {
+        viewModel.loadRecordStore.write(set("after", unmatchedInPhaseTwo = 4).copy(set = null))
+        viewModel.loadRecordStore.write(set("before", unmatchedInPhaseTwo = 0).copy(set = null))
+
+        composeTestRule.setContent {
+            LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare("after", "before"), Modifier.fillMaxSize())
+        }
+        composeTestRule.onNodeWithTag("compare-rerun").assertTextContains("Run this set again")
+        composeTestRule.onNodeWithTag("compare-rerun").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("compare-rerun-refusal").assertTextContains("no file to run again", substring = true)
+    }
+
+    /** The set had a file, so the refusal is the set's own and not a replan of one phase. */
+    @Test
+    fun `Run this set again goes to the saved set by name`() {
+        viewModel.loadRecordStore.write(set("after", unmatchedInPhaseTwo = 4))
+        viewModel.loadRecordStore.write(set("before", unmatchedInPhaseTwo = 0))
+
+        composeTestRule.setContent {
+            LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare("after", "before"), Modifier.fillMaxSize())
+        }
+        composeTestRule.onNodeWithTag("compare-rerun").performClick()
+        composeTestRule.waitForIdle()
+
+        // Nothing is saved under that name here, which is what the set store says rather than the template
+        // resolver: proof the click went through the saved set and not through replanLoad.
+        composeTestRule
+            .onNodeWithTag("compare-rerun-refusal")
+            .assertTextContains("No load set 'rfq-round-trip' is saved", substring = true)
     }
 
     /** It refuses rather than substituting: a different template of the same name is the worse outcome. */

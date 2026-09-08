@@ -1979,9 +1979,17 @@ class ControlServer(
     }
 
     /** `/load-sets` — the saved sets, and one whole. Read-only: a set is authored in the app or in a checkout. */
-    private fun loadSets(ex: HttpExchange): Coded {
-        val parts = ex.requestURI.path.trim('/').split('/')
-        val name = parts.getOrNull(1)
+    private fun loadSets(ex: HttpExchange): Coded =
+        loadSetsBody(ex.requestURI.path.trim('/').split('/').getOrNull(1))
+
+    /**
+     * **The saved sets, or one of them whole**: the listing when [name] is null, the file's own JSON when it
+     * names a set, and the refusal when nothing answers to it.
+     *
+     * One body for the route and for `fixtool_load_sets`, because two places building the same JSON drift
+     * apart at the first field either one gains.
+     */
+    private fun loadSetsBody(name: String?): Coded {
         if (name == null) {
             val sets = viewModel.loadSetStore.list()
             return Coded(
@@ -4157,6 +4165,8 @@ class ControlServer(
             "fixtool_run_entry" to { a -> runEntryTool(a) },
             "fixtool_load" to { a -> startLoad(a).body },
             "fixtool_load_status" to { a -> loadStatusTool(a) },
+            // MCP has no status codes, so the 404 for a name nothing answers to is the body.
+            "fixtool_load_sets" to { a -> loadSetsBody(a["name"]?.jsonPrimitive?.contentOrNull).body },
             "fixtool_reconcile" to { a -> reconcile(mcpExchange(a)) },
             "fixtool_diff" to { a -> diffMessages(mcpExchange(a)) },
             "fixtool_delete_scenario" to { a -> deleteScenario(mcpExchange(a)) },

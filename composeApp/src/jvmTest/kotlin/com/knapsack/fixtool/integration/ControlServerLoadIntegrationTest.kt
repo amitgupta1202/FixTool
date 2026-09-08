@@ -264,10 +264,65 @@ class ControlServerLoadIntegrationTest {
 
         val tools = obj(post("/mcp", """{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"""))
         val names = tools["result"]!!.jsonObject["tools"]!!.jsonArray.map { it.jsonObject["name"]!!.jsonPrimitive.content }
-        assertTrue("fixtool_load" in names && "fixtool_load_status" in names, names.toString())
+        assertTrue(
+            "fixtool_load" in names && "fixtool_load_status" in names && "fixtool_load_sets" in names,
+            names.toString(),
+        )
 
         val text = mcpCall("fixtool_load_status", "{}")
         assertEquals(1, Json.parseToJsonElement(text).jsonObject["count"]!!.jsonPrimitive.int, text)
+    }
+
+    /**
+     * **The sets tool reads what the two routes read**, so an agent can find a set and then read its phases
+     * without having been told the name.
+     *
+     * MCP has no status codes, so the route's 404 is the tool's body, and the test says so: an agent that
+     * guessed a name gets the same sentence a caller of `GET /load-sets/nowhere` does.
+     */
+    @Test
+    fun `the sets tool lists the saved sets, reads one whole, and names one nothing answers to`() {
+        viewModel.loadSetStore.save(
+            LoadSet(
+                name = "round-trip",
+                label = "Round trip",
+                seed = mapOf("run" to "\${uuid:4}"),
+                storeAndLog = StoreAndLogOverride.FOR_LOAD,
+                phases =
+                    listOf(
+                        LoadPhaseSpec(
+                            "Ask for a quote",
+                            "Quotes",
+                            "LOADGEN",
+                            match = LoadMatch(131, 131, "S"),
+                            shape = LoadShape.Burst(10),
+                            capture = mapOf("quoteId" to 117),
+                        ),
+                        LoadPhaseSpec("Hit them", "Hits", "LOADGEN", match = LoadMatch(11, 11, "8"), shape = LoadShape.Burst(10)),
+                    ),
+            ),
+        )
+
+        val list = mcpObj("fixtool_load_sets", "{}")
+        assertEquals(1, list["count"]!!.jsonPrimitive.int, list.toString())
+        val row = list["sets"]!!.jsonArray.single().jsonObject
+        assertEquals("round-trip", row["name"]!!.jsonPrimitive.content)
+        assertEquals("Round trip", row["label"]!!.jsonPrimitive.content)
+        assertEquals(2, row["phases"]!!.jsonPrimitive.int)
+        assertEquals(listOf("LOADGEN"), row["profiles"]!!.jsonArray.map { it.jsonPrimitive.content })
+
+        val whole = mcpObj("fixtool_load_sets", """{"name":"round-trip"}""")
+        assertEquals("Round trip", whole["label"]!!.jsonPrimitive.content)
+        val phases = whole["phases"]!!.jsonArray
+        assertEquals(2, phases.size, whole.toString())
+        val quotes = phases.first().jsonObject
+        assertEquals("Ask for a quote", quotes["label"]!!.jsonPrimitive.content)
+        assertEquals("Quotes", quotes["template"]!!.jsonPrimitive.content)
+        val captured = quotes["capture"]!!.jsonObject
+        assertEquals(117, captured["quoteId"]!!.jsonPrimitive.int, whole.toString())
+
+        val missing = mcpObj("fixtool_load_sets", """{"name":"nowhere"}""")
+        assertEquals("no saved load set 'nowhere'", missing["error"]!!.jsonPrimitive.content, missing.toString())
     }
 
     /**
@@ -561,6 +616,9 @@ class ControlServerLoadIntegrationTest {
     private fun post(path: String, body: String) = request("POST", path, body)
 
     private fun obj(resp: HttpResponse<String>) = Json.parseToJsonElement(resp.body()).jsonObject
+
+    /** One tool call whose answer is a JSON object, which every tool read here returns. */
+    private fun mcpObj(name: String, args: String) = Json.parseToJsonElement(mcpCall(name, args)).jsonObject
 
     private fun mcpCall(name: String, args: String): String {
         val body = """{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"$name","arguments":$args}}"""

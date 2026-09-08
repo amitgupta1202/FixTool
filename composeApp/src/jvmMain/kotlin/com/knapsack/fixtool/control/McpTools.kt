@@ -588,6 +588,17 @@ object McpTools {
                 ),
             ),
             tool(
+                "fixtool_load_sets",
+                "The SAVED LOAD SETS: a set is several load phases in order on lanes held for the whole set, " +
+                    "under one seed and one record, so phase 2 can address the ids phase 1 minted. With no " +
+                    "argument it lists them — {count, sets:[{name, label, phases, profiles}]} — so a set can be " +
+                    "found without being told its name. name=<set> returns that one whole, the same JSON " +
+                    "load-sets/<name>.json holds: its seed, storeAndLog, onFailure and every phase with its " +
+                    "template, profile, match, shape and captures. Read-only: a set is authored in the app or in " +
+                    "a checkout. Run one with fixtool_load set=<name>.",
+                props("name" to string("a saved set's name; omit to list them all")),
+            ),
+            tool(
                 "fixtool_reconcile",
                 "Open the reconcile diff on a step that failed the last run — the one surface in the app that " +
                     "can author or repair an assertion. With no argument it takes the run's first failing step, " +

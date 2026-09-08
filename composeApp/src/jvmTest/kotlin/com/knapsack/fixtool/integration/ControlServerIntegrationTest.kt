@@ -437,11 +437,13 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(52, tools.size)
+        assertEquals(53, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_load" } &&
-                tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_load_status" },
-            "a load run can be started and polled from an agent, the same two doors a run set has",
+                tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_load_status" } &&
+                tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_load_sets" },
+            "a load run can be started and polled from an agent, and the saved sets discovered, the same " +
+                "doors a run set has",
         )
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_workspace" },

@@ -59,6 +59,14 @@ data class ScenarioViewState(
      */
     val loadDialogWidth: Float? = null,
     val loadDialogHeight: Float? = null,
+    /**
+     * The Load sets dialog's last size in dp, beside the run dialog's and for the same reason.
+     *
+     * Its own pair rather than the run dialog's: the editor is two panes wide and the run dialog is one
+     * column, so a size dragged to fit the saved-set list is the wrong size for a single burst.
+     */
+    val loadSetsDialogWidth: Float? = null,
+    val loadSetsDialogHeight: Float? = null,
 )
 
 /** What the Load run dialog opens at before anybody has resized it. Twenty percent up from 640 by 580. */
@@ -66,6 +74,12 @@ const val LOAD_DIALOG_WIDTH = 780f
 
 /** See [LOAD_DIALOG_WIDTH]. Ten rows and two folds fit at this height without the footer being scrolled to. */
 const val LOAD_DIALOG_HEIGHT = 700f
+
+/** The saved-set list and the set beside it: wider than the run dialog because it holds two panes. */
+const val LOAD_SETS_DIALOG_WIDTH = 820f
+
+/** Four sections and three phase rows fit at this height, which 620 could not do without scrolling. */
+const val LOAD_SETS_DIALOG_HEIGHT = 700f
 
 /**
  * The load dialog's last-used shape for one profile, so reopening it does not reset to 4,000 / 500 / 60s.

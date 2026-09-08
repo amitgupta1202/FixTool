@@ -30,6 +30,8 @@ import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
 import com.knapsack.fixtool.model.LOAD_DIALOG_WIDTH
+import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_HEIGHT
+import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_WIDTH
 import com.knapsack.fixtool.model.LoadRunDefaults
 import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.SendReason
@@ -314,6 +316,15 @@ class FixMessageViewModel(
     /** Remembers the size the dialog was last left at, so the next open is the size that was made to fit. */
     fun rememberLoadDialogSize(width: Float, height: Float) =
         mutateViewState { it.copy(loadDialogWidth = width, loadDialogHeight = height) }
+
+    /** The Load sets dialog's size, as width to height in dp. Its own pair, beside the run dialog's. */
+    fun loadSetsDialogSize(): Pair<Float, Float> =
+        (_scenarioViewState.value.loadSetsDialogWidth ?: LOAD_SETS_DIALOG_WIDTH) to
+            (_scenarioViewState.value.loadSetsDialogHeight ?: LOAD_SETS_DIALOG_HEIGHT)
+
+    /** Remembers the size the sets editor was last left at. */
+    fun rememberLoadSetsDialogSize(width: Float, height: Float) =
+        mutateViewState { it.copy(loadSetsDialogWidth = width, loadSetsDialogHeight = height) }
 
     /** The load set the editor was last on, when it is still saved. */
     fun lastLoadSet(): LoadSet? = _scenarioViewState.value.lastLoadSet?.let { loadSet(it) }

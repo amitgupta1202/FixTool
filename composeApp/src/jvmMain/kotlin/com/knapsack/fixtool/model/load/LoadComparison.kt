@@ -30,6 +30,22 @@ data class LoadComparison(
 ) {
     val comparable: Boolean get() = blockers.isEmpty()
 
+    /**
+     * **The one delta a pair's chip carries**, when there is one worth carrying.
+     *
+     * A set's Compare rail has one chip per phase pair and no room for a table, so it says the thing
+     * somebody opened Compare to find out. Unanswered first, because that is the verdict. Then p99, which
+     * is where a regression shows before a mean does. Then answered. Null when nothing moved, which the
+     * caller reads as "same" rather than inventing a number for it.
+     */
+    fun headline(): Row? {
+        if (!comparable) return null
+        val order = listOf("unanswered", "p99 round trip", "answered")
+        return order.firstNotNullOfOrNull { label ->
+            deltas.firstOrNull { it.label == label && it.direction != Direction.SAME }
+        }
+    }
+
     data class Row(
         val label: String,
         val before: String,

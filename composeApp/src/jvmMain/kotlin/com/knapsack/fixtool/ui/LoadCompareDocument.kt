@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.load.LoadComparison
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.time.Instant
@@ -49,9 +50,10 @@ import java.time.format.DateTimeFormatter
  */
 @Composable
 fun LoadCompareDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadCompare, modifier: Modifier = Modifier) {
-    val records = remember(doc.id) { viewModel.loadRecordStore.list() }
+    val records = remember(doc.id) { viewModel.loadRecordStore.listRecords() }
     val after = records.firstOrNull { it.id == doc.afterId }
     var beforeId by remember(doc.id) { mutableStateOf(doc.beforeId) }
+    var pair by remember(doc.id, beforeId) { mutableStateOf(0) }
     val before = records.firstOrNull { it.id == beforeId }
 
     Column(modifier = modifier.fillMaxSize().testTag("load-compare")) {
@@ -64,31 +66,120 @@ fun LoadCompareDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadCom
             Empty("Pick the run to compare this one against.", "Any run in the loads directory, whichever fired it.")
             return@Column
         }
-        val comparison = remember(before.id, after.id) { LoadComparison.of(before, after) }
+        // Phases pair by position, and one phase each is today's Compare exactly. Comparing a set against a
+        // single run pairs the run with phase 1, which is what somebody who tuned one burst and then built
+        // the set around it wants to see.
+        val pairs = remember(before.id, after.id) { pairsOf(before, after) }
+        if (pairs.size > 1) PairRail(pairs, pair) { pair = it }
+        val chosen = pairs.getOrElse(pair) { pairs.first() }
+        val b = chosen.before
+        val a = chosen.after
+        if (b == null || a == null) {
+            Empty(
+                "This phase has no counterpart.",
+                "One of the two sets has " + (if (a == null) "fewer" else "more") +
+                    " phases, or it stopped before this one ran.",
+            )
+            return@Column
+        }
+        val comparison = remember(before.id, after.id, pair) { LoadComparison.of(b, a) }
         Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 9.dp)) {
             if (!comparison.comparable) {
                 comparison.blockers.forEach { Why(it) }
                 // The three rows that decide are named first, so it is obvious which one to change if you
                 // meant to compare something else.
-                Table("What decides", comparison.deciding, before, after)
-                Table("The rest, for context", comparison.context, before, after)
+                Table("What decides", comparison.deciding, b, a)
+                Table("The rest, for context", comparison.context, b, a)
             } else {
-                Table("What changed", comparison.deltas, before, after)
-                Table("The rest, for context", comparison.deciding + comparison.context, before, after)
+                Table("What changed", comparison.deltas, b, a)
+                Table("The rest, for context", comparison.deciding + comparison.context, b, a)
             }
         }
     }
 }
 
+/** One phase pair: the two reports, and the chip the rail carries for them. */
+private data class Pair(
+    val n: Int,
+    val label: String,
+    val before: LoadReport?,
+    val after: LoadReport?,
+)
+
+/**
+ * The pairs, by position.
+ *
+ * By position and not by label, because sets from the same file always pair right, two different files
+ * pair by position, and the three deciding rows catch a mismatch, which is the refusal Compare already
+ * has. Comparing a set against a single run therefore pairs the run with phase 1.
+ */
+private fun pairsOf(before: LoadRecord, after: LoadRecord): List<Pair> =
+    (0 until maxOf(before.phases.size, after.phases.size)).map { i ->
+        val b = before.phases.getOrNull(i)
+        val a = after.phases.getOrNull(i)
+        Pair(i + 1, a?.label ?: b?.label ?: "phase ${i + 1}", b, a)
+    }
+
+/** The rail: one chip per pair, carrying the headline delta or why there is not one. */
+@Composable
+private fun PairRail(pairs: List<Pair>, focused: Int, onFocus: (Int) -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.background)
+                .padding(horizontal = 9.dp, vertical = 5.dp)
+                .testTag("compare-pair-rail"),
+    ) {
+        pairs.forEachIndexed { index, p ->
+            val (text, tint) = chipOf(p)
+            Column(
+                modifier =
+                    Modifier
+                        .clickable { onFocus(index) }
+                        .background(
+                            if (index == focused) AppTheme.Colors.surfaceVariant else AppTheme.Colors.surface,
+                            RoundedCornerShape(3.dp),
+                        ).border(1.dp, if (index == focused) tint else AppTheme.Colors.border, RoundedCornerShape(3.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                        .testTag("compare-pair-${p.n}"),
+            ) {
+                Text("${p.n} · ${p.label}", color = AppTheme.Colors.text, style = AppTheme.Type.meta, maxLines = 1)
+                Text(text, color = tint, style = AppTheme.Type.meta, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** "p99 −32%", "4 → 0 cleared", "not comparable", "no counterpart", or "same". */
+@Suppress("ReturnCount")
+private fun chipOf(p: Pair): kotlin.Pair<String, Color> {
+    val b = p.before
+    val a = p.after
+    if (b == null || a == null) return "no counterpart" to AppTheme.Colors.textDisabled
+    val comparison = LoadComparison.of(b, a)
+    if (!comparison.comparable) return "not comparable" to AppTheme.Colors.warning
+    val row = comparison.headline() ?: return "same" to AppTheme.Colors.textDisabled
+    val text =
+        if (row.label == "unanswered") {
+            "${row.before} → ${row.after} ${row.delta}"
+        } else {
+            row.label.substringBefore(' ') + " " + row.delta
+        }
+    return text to tintOf(row.direction)
+}
+
 @Composable
 private fun CompareHeader(
     viewModel: FixMessageViewModel,
-    after: LoadReport,
-    before: LoadReport?,
-    records: List<LoadReport>,
+    after: LoadRecord,
+    before: LoadRecord?,
+    records: List<LoadRecord>,
     onPick: (String) -> Unit,
 ) {
-    val comparison = before?.let { remember(it.id, after.id) { LoadComparison.of(it, after) } }
+    // The badge reads the whole comparison: a set is compared when every pair with a counterpart is.
+    val comparison = before?.let { remember(it.id, after.id) { LoadComparison.of(it.only, after.only) } }
     var note by remember { mutableStateOf("") }
     Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface).padding(horizontal = 8.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -96,6 +187,10 @@ private fun CompareHeader(
                 when {
                     comparison == null -> "PICK A RUN" to AppTheme.Colors.textDisabled
                     !comparison.comparable -> "NOT COMPARABLE" to AppTheme.Colors.textSecondary
+                    after.phases.size > 1 || (before?.phases?.size ?: 1) > 1 -> {
+                        val paired = pairsOf(before!!, after).count { it.before != null && it.after != null }
+                        "COMPARED · $paired PHASE PAIRS" to AppTheme.Colors.info
+                    }
                     else -> "COMPARED" to AppTheme.Colors.info
                 }
             Text(
@@ -121,14 +216,18 @@ private fun CompareHeader(
             OtherRunPicker(records.filter { it.id != after.id }, before, onPick)
             // Refuses rather than substituting: a run fired against a different template of the same name
             // is worse than not being able to fire it at all.
-            SlimButton("Run this plan again", modifier = Modifier.testTag("compare-rerun"), onClick = {
-                viewModel
-                    .replanLoad(after)
-                    .onSuccess {
-                        note = ""
-                        viewModel.startLoadRun(it)
-                    }.onFailure { note = it.message.orEmpty() }
-            })
+            SlimButton(
+                if (after.phases.size > 1) "Run this set again" else "Run this plan again",
+                modifier = Modifier.testTag("compare-rerun"),
+                onClick = {
+                    viewModel
+                        .replanLoad(after.only)
+                        .onSuccess {
+                            note = ""
+                            viewModel.startLoadRun(it)
+                        }.onFailure { note = it.message.orEmpty() }
+                },
+            )
         }
         if (note.isNotEmpty()) {
             Text(
@@ -142,7 +241,7 @@ private fun CompareHeader(
 }
 
 @Composable
-private fun OtherRunPicker(options: List<LoadReport>, current: LoadReport?, onPick: (String) -> Unit) {
+private fun OtherRunPicker(options: List<LoadRecord>, current: LoadRecord?, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         Row(
@@ -173,7 +272,10 @@ private fun OtherRunPicker(options: List<LoadReport>, current: LoadReport?, onPi
             }
             options.forEach { r ->
                 DropdownMenuItem(
-                    text = { Text("${stamp(r.startedAt)}  ${r.label}", style = AppTheme.Type.body) },
+                    text = {
+                        val phases = if (r.phases.size > 1) " (${r.phases.size})" else ""
+                        Text("${stamp(r.startedAt)}  ${r.label}$phases", style = AppTheme.Type.body)
+                    },
                     onClick = {
                         onPick(r.id)
                         open = false

@@ -8,6 +8,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.knapsack.fixtool.model.load.LoadMatch
+import com.knapsack.fixtool.model.load.LoadRecord
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
@@ -40,6 +42,66 @@ class LoadCompareTest {
     @After
     fun tearDown() {
         testDir.deleteRecursively()
+    }
+
+    private fun set(id: String, unmatchedInPhaseTwo: Int, phases: Int = 3) =
+        LoadRecord(
+            id = id,
+            label = "RFQ round trip",
+            startedAt = 1_000,
+            finishedAt = 64_000,
+            phases =
+                (1..phases).map { n ->
+                    LoadFixtures
+                        .burstReport(unmatched = if (n == 2) unmatchedInPhaseTwo else 0)
+                        .copy(id = id, label = "Phase $n", match = LoadMatch(11, 11, "8"))
+                },
+            set = LoadRecord.SetInfo("rfq-round-trip", OnFailure.STOP),
+        )
+
+    /**
+     * Phases pair by position, one chip each, and the pane draws the pair that is clicked. Two one-phase
+     * records draw today's Compare exactly, with no rail at all.
+     */
+    @Test
+    fun `a set against a set is one chip per phase pair, and no counterpart when one has more`() {
+        viewModel.loadRecordStore.write(set("yesterday", unmatchedInPhaseTwo = 4))
+        viewModel.loadRecordStore.write(set("today", unmatchedInPhaseTwo = 0, phases = 2))
+
+        composeTestRule.setContent {
+            LoadCompareDocument(
+                viewModel,
+                ScenarioDoc.LoadCompare(afterId = "yesterday", beforeId = "today"),
+                Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("compare-verdict").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("compare-pair-rail").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("compare-pair-1").assertIsDisplayed()
+        // Phase 2 moved: 0 unanswered against 4, which is the one delta a chip has room for.
+        composeTestRule.onNodeWithTag("compare-pair-2").assertIsDisplayed()
+        // Phase 3 exists in one record and not the other.
+        composeTestRule.onNodeWithTag("compare-pair-3").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("This phase has no counterpart.", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `two one-phase records draw no rail, which is today's Compare exactly`() {
+        viewModel.loadRecordStore.write(LoadFixtures.burstReport(unmatched = 0).copy(id = "before", startedAt = 1_000))
+        viewModel.loadRecordStore.write(LoadFixtures.burstReport(unmatched = 4).copy(id = "after", startedAt = 2_000))
+
+        composeTestRule.setContent {
+            LoadCompareDocument(
+                viewModel,
+                ScenarioDoc.LoadCompare(afterId = "after", beforeId = "before"),
+                Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("compare-pair-rail").assertDoesNotExist()
+        composeTestRule.onNodeWithText("What changed", substring = true).assertIsDisplayed()
     }
 
     @Test

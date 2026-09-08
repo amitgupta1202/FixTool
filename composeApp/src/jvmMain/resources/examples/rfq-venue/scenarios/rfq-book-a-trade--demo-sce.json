@@ -44,8 +44,7 @@
           {
             "tag": 117,
             "matcher": {
-              "type": "exact",
-              "value": "Q-DEMO-RFQ-1"
+              "type": "presence"
             }
           },
           {
@@ -73,7 +72,7 @@
     {
       "stepId": "ed0a44f3-fba0-4571-8a2b-a96597424095",
       "type": "send",
-      "raw": "35=AJ|693=DEMO-RESP-1|694=1|117=Q-DEMO-RFQ-1|11=DEMO-TRADE-1|55=EUR/USD|54=1|38=1000000|44=${in.S.133}",
+      "raw": "35=AJ|693=DEMO-RESP-1|694=1|117=${in.S.117}|11=DEMO-TRADE-1|55=EUR/USD|54=1|38=1000000|44=${in.S.133}",
       "session": "RFQ Client 1"
     },
     {

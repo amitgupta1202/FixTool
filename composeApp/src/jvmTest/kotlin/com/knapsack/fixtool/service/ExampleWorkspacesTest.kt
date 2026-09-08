@@ -2,6 +2,12 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.load.LoadPlan
+import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.model.load.OnFailure
+import com.knapsack.fixtool.service.load.LoadSetStore
+import com.knapsack.fixtool.service.load.LoadTemplates
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -311,23 +317,84 @@ class ExampleWorkspacesTest {
         assertEquals(setOf("rfq-load-quote-request", "rfq-load-quote-response", "rfq-load-pass"), forLoad.toSet())
     }
 
-    /** What the load run's two phases rely on: both templates vary from the same `run` seed. */
+    /**
+     * **The load templates address quotes they were told about, not quotes they guessed.**
+     *
+     * The venue's QuoteID is opaque and its price is drawn, so neither can be derived from the request
+     * the way the first slice of this example derived both. What replaced the derivation is the first
+     * phase's `capture`, and these are the names it writes: a phase reading `${quoteId}` that no phase
+     * captures is refused before the run starts, so this pin and the set's own `capture` block are two
+     * halves of one claim.
+     */
     @Test
-    fun `the RFQ load templates address the same quotes from the same seed`() {
+    fun `the RFQ load templates read the quote the first phase captured`() {
         val workspace = openRfqInTemp()
         val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
         val byId = messages.loadMessagesForProfile("rfq-profile-RFQ_LOAD").associateBy { it.id }
         fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
         assertEquals("RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-request", "131"))
-        assertEquals("Q-RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-response", "117"))
+        assertEquals("\${quoteId}", value("rfq-load-quote-response", "117"), "the id is the venue's, not ours")
         assertEquals("RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-response", "11"))
-        assertEquals("1.09010", value("rfq-load-quote-response", "44"), "the lift is at the EUR/USD offer the venue quotes")
-        // The third phase of an RFQ set passes the quotes the second one did not hit, so it addresses the
-        // same ids from the same seed and matches on 117, because a QuoteStatusReport carries no ClOrdID.
+        assertEquals("\${offer}", value("rfq-load-quote-response", "44"), "the hit is at the price we were quoted")
+        // The third phase passes the quotes the second one did not hit, so it reads the same captured
+        // ids and matches on 117, because a QuoteStatusReport carries no ClOrdID.
         assertEquals("AJ", value("rfq-load-pass", "35"))
         assertEquals("6", value("rfq-load-pass", "694"))
-        assertEquals("Q-RFQ-\${run}-\${messageIndex}", value("rfq-load-pass", "117"))
+        assertEquals("\${quoteId}", value("rfq-load-pass", "117"))
         assertEquals("P-RFQ-\${run}-\${messageIndex}", value("rfq-load-pass", "693"))
+    }
+
+    /**
+     * **The shipped set, pinned whole**, because it is the one artefact of this example that nothing
+     * else in the build exercises: a phase whose template reads a name no earlier phase captures is
+     * refused at plan time, and this is where that refusal would show up before a user met it.
+     */
+    @Test
+    fun `the RFQ example ships a three-phase set that plans without a refusal`() {
+        val workspace = openRfqInTemp()
+        val store = LoadSetStore(File(workspace, "load-sets").absolutePath)
+        val set = assertNotNull(store.load("rfq-round-trip"), "the shipped load set did not come across")
+
+        assertEquals("RFQ round trip", set.label)
+        assertEquals(listOf("Quote", "Hit", "Pass"), set.phases.map { it.label })
+        assertEquals(mapOf("run" to "\${uuid:4}"), set.seed, "one seed, rendered once and frozen for the set")
+        assertEquals(OnFailure.STOP, set.onFailure, "there is no point hitting quotes that were never sent")
+        assertEquals(FixConnectionConfig.MessageStoreKind.MEMORY, set.storeAndLog?.store)
+        assertEquals(FixConnectionConfig.MessageLogKind.NONE, set.storeAndLog?.log)
+
+        // Phase 1 captures what phases 2 and 3 read. Named here because the templates above read them.
+        assertEquals(mapOf("quoteId" to 117, "offer" to 133), set.phases[0].capture)
+        assertEquals(2001, set.phases[2].indexFrom, "the pass answers the quotes the hits left alone")
+        assertEquals(listOf("S", "8", "AI"), set.phases.map { it.match?.replyType })
+
+        val resolver = exampleResolver(workspace)
+        assertEquals(
+            emptyList(),
+            set.problems(resolve = resolver, surface = LoadPlan.Surface.CLI),
+            "the set this example ships would be refused before it ran",
+        )
+        val planned = set.plan(resolver, emptyMap(), id = "example-check")
+        assertEquals(3, planned.phases.size)
+        assertEquals(8_000L, planned.phases.sumOf { it.requested }, "4,000 quotes, 2,000 hits, 2,000 passes")
+    }
+
+    /** The workspace's own profiles and templates, as a set resolves them. */
+    private fun exampleResolver(workspace: File): LoadSet.Resolver {
+        val profiles = ConnectionProfileService(customPath = File(workspace, "connection_profiles.json").absolutePath)
+        val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
+        return object : LoadSet.Resolver {
+            override fun profile(key: String): LoadSet.Profile? =
+                profiles
+                    .loadProfiles()
+                    .firstOrNull { it.id == key || it.name == key }
+                    ?.let { LoadSet.Profile(it.id, it.name, it.config) }
+
+            override fun template(key: String, profileId: String?): LoadTemplate? =
+                messages
+                    .loadMessagesForProfile(profileId.orEmpty())
+                    .firstOrNull { it.id == key || it.name == key }
+                    ?.let { LoadTemplates.of(it) }
+        }
     }
 
     @Test

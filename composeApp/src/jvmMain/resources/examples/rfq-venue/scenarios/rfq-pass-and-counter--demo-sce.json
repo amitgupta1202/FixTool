@@ -44,8 +44,7 @@
           {
             "tag": 117,
             "matcher": {
-              "type": "exact",
-              "value": "Q-DEMO-RFQ-2"
+              "type": "presence"
             }
           },
           {
@@ -59,51 +58,9 @@
       }
     },
     {
-      "stepId": "82da5cc4-bc85-41e2-b8e4-4dbc729d3e42",
-      "type": "send",
-      "raw": "35=AJ|693=DEMO-RESP-2|694=6|117=Q-DEMO-RFQ-2|55=GBP/USD",
-      "session": "RFQ Client 1"
-    },
-    {
-      "stepId": "cd6e89ea-ef3b-484e-afdb-c1c1dfad046d",
-      "type": "expect",
-      "session": "RFQ Client 1",
-      "direction": "in",
-      "match": {
-        "messageType": "AI",
-        "fields": [
-          {
-            "tag": 693,
-            "value": "DEMO-RESP-2"
-          }
-        ]
-      },
-      "timeoutMs": 10000,
-      "expectation": {
-        "messageType": "AI",
-        "mode": "open",
-        "fields": [
-          {
-            "tag": 117,
-            "matcher": {
-              "type": "exact",
-              "value": "Q-DEMO-RFQ-2"
-            }
-          },
-          {
-            "tag": 297,
-            "matcher": {
-              "type": "exact",
-              "value": "11"
-            }
-          }
-        ]
-      }
-    },
-    {
       "stepId": "d0be0c9a-c6b7-4c40-b44c-a7cb09dd1c28",
       "type": "send",
-      "raw": "35=AJ|693=DEMO-RESP-3|694=2|117=Q-DEMO-RFQ-2|11=DEMO-TRADE-3|55=GBP/USD|54=1|38=500000|44=${in.S.132}",
+      "raw": "35=AJ|693=DEMO-RESP-3|694=2|117=${in.S.117}|11=DEMO-TRADE-3|55=GBP/USD|54=1|38=500000|44=${in.S.132}",
       "session": "RFQ Client 1"
     },
     {
@@ -145,7 +102,7 @@
     {
       "stepId": "cccb2330-b218-45b7-8840-399fdf8626bb",
       "type": "send",
-      "raw": "35=AJ|693=DEMO-RESP-4|694=1|117=Q-DEMO-RFQ-2|11=DEMO-TRADE-4|55=GBP/USD|54=1|38=500000|44=${in.S.132}",
+      "raw": "35=AJ|693=DEMO-RESP-4|694=1|117=${in.S.117}|11=DEMO-TRADE-4|55=GBP/USD|54=1|38=500000|44=${in.S.132}",
       "session": "RFQ Client 1"
     },
     {
@@ -172,6 +129,90 @@
             "matcher": {
               "type": "regex",
               "pattern": ".*quoted price"
+            }
+          },
+          {
+            "tag": 297,
+            "matcher": {
+              "type": "exact",
+              "value": "5"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "82da5cc4-bc85-41e2-b8e4-4dbc729d3e42",
+      "type": "send",
+      "raw": "35=AJ|693=DEMO-RESP-2|694=6|117=${in.S.117}|55=GBP/USD",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "cd6e89ea-ef3b-484e-afdb-c1c1dfad046d",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "AI",
+        "fields": [
+          {
+            "tag": 693,
+            "value": "DEMO-RESP-2"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "AI",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 117,
+            "matcher": {
+              "type": "reference",
+              "expression": "${in.S.117}"
+            }
+          },
+          {
+            "tag": 297,
+            "matcher": {
+              "type": "exact",
+              "value": "11"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "5f2c1a90-4b7d-4f2e-9d31-6a0e5c8b41d2",
+      "type": "send",
+      "raw": "35=AJ|693=DEMO-RESP-5|694=1|117=${in.S.117}|11=DEMO-TRADE-5|55=GBP/USD|54=1|38=500000|44=${in.S.133}",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "c07b3e14-2d58-4a6f-8e90-1b4f7a2c9d63",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "AI",
+        "fields": [
+          {
+            "tag": 693,
+            "value": "DEMO-RESP-5"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "AI",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 58,
+            "matcher": {
+              "type": "regex",
+              "pattern": ".*already answered"
             }
           },
           {

@@ -1,0 +1,65 @@
+{
+    "schema": 1,
+    "name": "rfq-round-trip",
+    "label": "RFQ round trip",
+    "seed": {
+        "run": "${uuid:4}"
+    },
+    "storeAndLog": {
+        "store": "MEMORY",
+        "log": "NONE"
+    },
+    "onFailure": "STOP",
+    "phases": [
+        {
+            "label": "Quote",
+            "template": "RFQ Load QuoteRequest",
+            "profile": "RFQ Load Client",
+            "match": {
+                "requestTag": 131,
+                "replyTag": 131,
+                "replyType": "S"
+            },
+            "shape": {
+                "kind": "burst",
+                "count": 4000
+            },
+            "settleMs": 30000,
+            "capture": {
+                "quoteId": 117,
+                "offer": 133
+            }
+        },
+        {
+            "label": "Hit",
+            "template": "RFQ Load QuoteResponse",
+            "profile": "RFQ Load Client",
+            "match": {
+                "requestTag": 11,
+                "replyTag": 11,
+                "replyType": "8"
+            },
+            "shape": {
+                "kind": "burst",
+                "count": 2000
+            },
+            "settleMs": 60000
+        },
+        {
+            "label": "Pass",
+            "template": "RFQ Load Pass",
+            "profile": "RFQ Load Client",
+            "match": {
+                "requestTag": 117,
+                "replyTag": 117,
+                "replyType": "AI"
+            },
+            "shape": {
+                "kind": "burst",
+                "count": 2000
+            },
+            "indexFrom": 2001,
+            "settleMs": 30000
+        }
+    ]
+}

@@ -1,9 +1,11 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.QuoteConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * **An RFQ desk, as rules you can read**: the second shipped example, and the first real use case for a
@@ -19,102 +21,133 @@ import java.math.BigDecimal
  * FIX 4.4's QuoteResponse carries no QuoteReqID, its ExecutionReport carries neither QuoteID nor
  * QuoteReqID, and its QuoteStatusReport has no QuoteRejectReason. So the trade report ties back by
  * QuoteRespID (693) and ClOrdID (11), which both do carry, and a refusal says why in QuoteStatus (297)
- * and Text (58). QuoteStatusReport requires a QuoteID, and nothing on a QuoteResponse can supply one
- * but the QuoteResponse's own optional 117, so every refusal is conditioned on 117 being present and
+ * and Text (58). QuoteStatusReport requires a QuoteID and a Symbol, and nothing on a QuoteResponse can
+ * supply the QuoteID but its own optional 117, so every refusal is conditioned on 117 being present and
  * the one QuoteResponse that lacks it gets a BusinessMessageReject. That is the preset discipline: a
  * rule never reads a tag its trigger does not guarantee.
  *
- * ### Why the QuoteID follows from the QuoteReqID
+ * ### Nothing here is derived any more
  *
- * `117=Q-${req.131}`, not `${uuid}`. A load run's second phase has to address the quotes the first
- * phase created without having seen them, and a client can only do that if the QuoteID follows from
- * the QuoteReqID it chose. The FX venue mints a fresh id per quote, and for a venue nobody drives at
- * load that is the more realistic choice. This venue exists to be driven at load.
+ * The first slice of this venue derived its QuoteID from the QuoteReqID and quoted a fixed price, so a
+ * load run's second phase could address a quote it had never seen and hit a price it had never been
+ * told. Both were the shape of the tooling showing through, and a client written against them would
+ * pass here and fail against any real venue: an opaque QuoteID is the one thing every RFQ venue has in
+ * common, and a firm price that never moves is the one thing none of them has.
  *
- * ### Why the prices do not move
+ * So the QuoteID is `${uuid}` and each side is drawn from its own band. What replaced the derivation is
+ * the venue's own memory — `QuoteBookService` — and the two things it made expressible: a trigger that
+ * compares the client's price against **the price this quote actually carried**
+ * ([Matcher.QuoteField]), and a reply that books at it (`${quote.offer}`). A load run addresses the
+ * quotes by capturing 117 and 133 off each reply, which is what a client does.
  *
- * The FX venue draws a price per quote. This venue quotes the FX pair table's bid floor and its offer
- * with no draw, for two reasons that are the same reason: a second load phase has to know the price to
- * hit without having seen the quote, and "a hit at a price other than the quoted one is refused" can
- * only be a rule if the rule knows the quoted price. The numbers are computed once here with
- * `BigDecimal` from the pair's own string literals, so `1.08990 + 2.0E-4` is exactly `1.09010` and the
- * quote's `133` and the booking rule's condition on `44` are the same string.
+ * ### The bands, and why they cannot overlap
+ *
+ * Each side is drawn from `[floor, floor + 9 ticks]` on the pair's own tick — the *pipette*, so a
+ * five-decimal price does not always end in `0`. The bid band starts at the pair's `bidFloor` and the
+ * offer band a full spread above it, so **no draw can put a bid at or above an offer**: an inverted
+ * quote is not a quote, and a venue that emitted one would be teaching a client to accept one.
+ * `RfqVenuePresetTest` asserts the bands are disjoint rather than trusting the arithmetic here.
  */
 object RfqVenuePreset {
     /** The id [AcceptorPresets.byId] answers to, and what the RFQ example workspace carries. */
     const val ID = "rfq-venue"
 
-    // ------------------------------------------------------------------ the prices, fixed
+    /** How long a quote stands. Thirty seconds: long enough to hit by hand, short enough to test expiry. */
+    const val VALIDITY_SECONDS = 30
 
-    /** One pair's firm two-way price. Both sides are the strings the wire and the conditions share. */
-    internal data class FirmPrice(
+    /** Ticks of movement in each band. Nine, so the band's own width is visible in the prices. */
+    private const val BAND_TICKS = 9
+
+    // ------------------------------------------------------------------ the bands
+
+    /** One side's closed range, as the two strings a `${random:…}` is written from. */
+    internal data class Band(
+        val low: String,
+        val high: String,
+    )
+
+    /** One pair, priced as two bands. */
+    internal data class Quoted(
         val pair: FxVenuePreset.FxPair,
-        val bid: String,
-        val offer: String,
+        val bid: Band,
+        val offer: Band,
     ) {
         val symbol: String get() = pair.symbol
     }
 
-    internal val PRICES: List<FirmPrice> =
+    internal val QUOTED: List<Quoted> =
         FxVenuePreset.PAIRS.map { pair ->
-            val bid = BigDecimal(pair.bidFloor).setScale(pair.decimals)
-            val offer = (BigDecimal(pair.bidFloor) + BigDecimal(pair.spread)).setScale(pair.decimals)
-            FirmPrice(pair, bid.toPlainString(), offer.toPlainString())
+            val floor = BigDecimal(pair.bidFloor)
+            Quoted(pair, bid = band(pair, floor), offer = band(pair, floor + BigDecimal(pair.spread)))
         }
 
-    private val SYMBOLS = PRICES.map { it.symbol }
+    /** `[from, from + 9 ticks]`, both ends at the pair's own decimals so the wire never carries `1.0899E+0`. */
+    private fun band(pair: FxVenuePreset.FxPair, from: BigDecimal): Band {
+        fun at(value: BigDecimal) = value.setScale(pair.decimals, RoundingMode.HALF_UP).toPlainString()
+        return Band(at(from), at(from + BigDecimal(pair.tick) * BigDecimal(BAND_TICKS)))
+    }
+
+    private val SYMBOLS = QUOTED.map { it.symbol }
 
     // ------------------------------------------------------------------ templates
 
     /**
-     * A firm two-way quote. `131` echoes the request, `117` is derived from it, the sizes echo the
-     * request's `38`, and `62` is a minute out because the shorthand's finest unit is the minute.
+     * A two-way quote, priced by the venue and valid for [validitySeconds].
+     *
+     * `117` is opaque, so the only way to answer this quote is to have read it. The sizes echo the
+     * request's `38`, because an RFQ names an amount and quoting a different one would be the venue
+     * answering a question nobody asked.
      */
-    private fun quote(price: FirmPrice): String =
+    private fun quote(quoted: Quoted, validitySeconds: Int): String =
         listOf(
             "35=S",
             "131=\${req.131}",
-            "117=Q-\${req.131}",
-            "55=${price.symbol}",
-            "132=${price.bid}",
-            "133=${price.offer}",
+            "117=\${uuid}",
+            "55=${quoted.symbol}",
+            "132=${random(quoted.bid, quoted.pair.decimals)}",
+            "133=${random(quoted.offer, quoted.pair.decimals)}",
             "134=\${req.38}",
             "135=\${req.38}",
-            "15=${price.pair.quoteCurrency}",
-            "62=\${utcnow+1min}",
-            "60=\${now}",
+            "15=${quoted.pair.quoteCurrency}",
+            "62=\${utcnow+${validitySeconds}s}",
+            "60=\${utcnow}",
         ).joinToString("|")
 
+    /** `${random:low:high:decimals}` — rendered natively, so a burst of four thousand costs microseconds. */
+    private fun random(band: Band, decimals: Int): String = "\${random:${band.low}:${band.high}:$decimals}"
+
     /**
-     * The refusal a request without a size earns. An RFQ names an amount, and quoting a size the client
-     * never asked for would be the venue answering a question nobody asked. NoRelatedSym is required
-     * on a QuoteRequestReject, hence the group, as the FX venue's own reject builds it.
+     * The refusal a request without a size earns. NoRelatedSym is required on a QuoteRequestReject,
+     * hence the group, as the FX venue's own reject builds it.
      */
     private const val QUOTE_REQUEST_NO_SIZE =
         "35=AG|131=\${req.131}|658=99|146=1|55=\${req.55}|58=QuoteRequest without OrderQty: this venue quotes a size"
 
     /**
-     * A QuoteStatusReport. `117` and `55` are required on it and `693` is required on the trigger, so
-     * the only read that needs a condition is `117`, and every rule using this carries one.
+     * A QuoteStatusReport.
+     *
+     * [symbol] is a parameter rather than a constant because it has two honest sources. For a quote
+     * this venue sent it is `${quote.symbol}`, the venue's own record. For a quote it never sent there
+     * is nothing to read, so the client's own `55` is the only thing that can name the instrument, and
+     * the rule that uses it requires `55` to be there.
      */
-    private fun quoteStatus(status: String, text: String? = null): String =
+    private fun quoteStatus(status: String, symbol: String, text: String? = null): String =
         listOfNotNull(
             "35=AI",
             "117=\${req.117}",
             "693=\${req.693}",
-            "55=\${req.55}",
+            "55=$symbol",
             "297=$status",
             text?.let { "58=$it" },
-            "60=\${now}",
+            "60=\${utcnow}",
         ).joinToString("|")
 
     /**
-     * The booked trade, priced from the rule's own content: a hit is conditioned on `44` being the
-     * quoted side, so `31` and `6` are that side, and one fill has one price. `693` ties the report to
-     * the response that caused it, `11` to the trade the client named, which is how a load run's second
-     * phase matches it.
+     * The booked trade, priced from **the quote's own record** rather than from anything the client
+     * sent. `693` ties the report to the response that caused it, `11` to the trade the client named,
+     * which is how a load run's third phase matches it.
      */
-    private fun trade(price: String): String =
+    private fun trade(side: String): String =
         AcceptorPresets.executionReport(
             "150=F",
             "39=2",
@@ -123,33 +156,47 @@ object RfqVenuePreset {
             "14=\${req.38}",
             "151=0",
             "32=\${req.38}",
-            "31=$price",
-            "6=$price",
+            "31=\${quote.$side}",
+            "6=\${quote.$side}",
         )
 
-    /** `380=5` is BusinessRejectReason *Conditionally required field missing*, and `379` names the response. */
-    private const val NO_QUOTE_ID_REJECT =
-        "35=j|372=AJ|379=\${req.693}|380=5|58=QuoteID (117) is required to answer a quote"
+    /**
+     * `380=5` is BusinessRejectReason *Conditionally required field missing*, and `379` names the
+     * response. It answers two cases at once, and its text says both: a response with no QuoteID, and
+     * a response about a quote this venue did not send with no Symbol to name the instrument with.
+     * Neither can be answered with a QuoteStatusReport, which requires both.
+     */
+    private const val CANNOT_ANSWER =
+        "35=j|372=AJ|379=\${req.693}|380=5|" +
+            "58=A QuoteResponse needs QuoteID (117), and one naming a quote this venue did not send needs Symbol (55)"
 
     private const val REJECTED = "5"
     private const val PASS = "11"
+    private const val NOT_FOUND = "9"
+    private const val EXPIRED = "7"
+
+    private const val QUOTE_SYMBOL = "\${quote.symbol}"
 
     // ------------------------------------------------------------------ conditions, named
 
     private val quoteIdPresent = AcceptorPresets.condition(117, Matcher.Presence)
+    private val symbolPresent = AcceptorPresets.condition(55, Matcher.Presence)
     private val clOrdIdPresent = AcceptorPresets.condition(11, Matcher.Presence)
     private val quantityPresent = AcceptorPresets.condition(38, Matcher.Presence)
     private val pricedPair = AcceptorPresets.condition(55, Matcher.OneOf(SYMBOLS))
+
+    /** The instrument the client named has to be the instrument the venue quoted. */
+    private val quotedSymbol = AcceptorPresets.condition(55, Matcher.QuoteField("symbol"))
 
     private fun respType(value: String) = AcceptorPresets.condition(694, Matcher.Exact(value))
 
     // ------------------------------------------------------------------ 35=R
 
-    private fun quoteRule(price: FirmPrice) =
+    private fun quoteRule(quoted: Quoted, validitySeconds: Int) =
         AcceptorResponseRule(
             whenMsgType = "R",
-            conditions = listOf(AcceptorPresets.condition(55, Matcher.Exact(price.symbol)), quantityPresent),
-            steps = listOf(ResponseStep(quote(price))),
+            conditions = listOf(AcceptorPresets.condition(55, Matcher.Exact(quoted.symbol)), quantityPresent),
+            steps = listOf(ResponseStep(quote(quoted, validitySeconds))),
         )
 
     private val quoteNoSize =
@@ -159,10 +206,51 @@ object RfqVenuePreset {
             steps = listOf(ResponseStep(QUOTE_REQUEST_NO_SIZE)),
         )
 
-    // ------------------------------------------------------------------ 35=AJ
+    // ------------------------------------------------------------------ 35=AJ, judged against the book
 
-    /** A hit or lift on the quoted side, at the quoted price, with a trade named and sized. Booked. */
-    private fun bookingRule(price: FirmPrice, side: String, at: String) =
+    /**
+     * **The three states a quote can be in that owe the client a refusal**, and they are first because
+     * every rule below them is written for a quote that is live.
+     *
+     * Each is a real question a venue is asked every day, and before the quote book none of them was
+     * expressible: nothing on the incoming message distinguishes a hit on a live quote from a hit that
+     * arrived too late, a second hit on one already answered, or a hit on a quote this venue never sent.
+     */
+    private val unknownQuote =
+        AcceptorResponseRule(
+            whenMsgType = "AJ",
+            conditions = listOf(quoteIdPresent, symbolPresent),
+            whenQuote = QuoteConstraint.UNKNOWN,
+            steps = listOf(ResponseStep(quoteStatus(NOT_FOUND, "\${req.55}", "This venue did not send that quote"))),
+        )
+
+    private val expiredQuote =
+        AcceptorResponseRule(
+            whenMsgType = "AJ",
+            conditions = listOf(quoteIdPresent),
+            whenQuote = QuoteConstraint.EXPIRED,
+            steps =
+                listOf(
+                    ResponseStep(quoteStatus(EXPIRED, QUOTE_SYMBOL, "The quote expired before this arrived")),
+                ),
+        )
+
+    private val doneQuote =
+        AcceptorResponseRule(
+            whenMsgType = "AJ",
+            conditions = listOf(quoteIdPresent),
+            whenQuote = QuoteConstraint.DONE,
+            steps = listOf(ResponseStep(quoteStatus(REJECTED, QUOTE_SYMBOL, "Quote already answered"))),
+        )
+
+    /**
+     * A hit or lift on the quoted side **at the price the quote actually carried**, with a trade named
+     * and sized. Booked, at the venue's own number.
+     *
+     * One rule per side rather than one per pair and side: the symbol and the price are read from the
+     * quote, so the three pairs are one rule. That is the whole of what the quote book bought here.
+     */
+    private fun bookingRule(side: String, field: String) =
         AcceptorResponseRule(
             whenMsgType = "AJ",
             conditions =
@@ -171,64 +259,82 @@ object RfqVenuePreset {
                     clOrdIdPresent,
                     quantityPresent,
                     respType("1"),
-                    AcceptorPresets.condition(55, Matcher.Exact(price.symbol)),
+                    quotedSymbol,
                     AcceptorPresets.condition(54, Matcher.Exact(side)),
-                    AcceptorPresets.condition(44, Matcher.Exact(at)),
+                    AcceptorPresets.condition(44, Matcher.QuoteField(field)),
                 ),
-            steps = listOf(ResponseStep(trade(at))),
+            whenQuote = QuoteConstraint.OPEN,
+            steps = listOf(ResponseStep(trade(field))),
         )
 
     /** A buy lifts the offer, a sell hits the bid. */
-    private fun bookingRules(price: FirmPrice) =
-        listOf(bookingRule(price, side = "1", at = price.offer), bookingRule(price, side = "2", at = price.bid))
+    private val buyHit = bookingRule(side = "1", field = "offer")
+    private val sellHit = bookingRule(side = "2", field = "bid")
 
     private val wrongPrice =
         AcceptorResponseRule(
             whenMsgType = "AJ",
-            conditions = listOf(quoteIdPresent, clOrdIdPresent, quantityPresent, respType("1"), pricedPair),
-            steps = listOf(ResponseStep(quoteStatus(REJECTED, "Price is not the quoted price"))),
+            conditions = listOf(quoteIdPresent, clOrdIdPresent, quantityPresent, respType("1")),
+            whenQuote = QuoteConstraint.OPEN,
+            steps =
+                listOf(
+                    ResponseStep(quoteStatus(REJECTED, QUOTE_SYMBOL, "Price is not the quoted price")),
+                ),
         )
 
     private val cannotBook =
         AcceptorResponseRule(
             whenMsgType = "AJ",
-            conditions = listOf(quoteIdPresent, respType("1"), pricedPair),
-            steps = listOf(ResponseStep(quoteStatus(REJECTED, "A hit needs ClOrdID (11) and OrderQty (38) to book"))),
+            conditions = listOf(quoteIdPresent, respType("1")),
+            whenQuote = QuoteConstraint.OPEN,
+            steps =
+                listOf(
+                    ResponseStep(
+                        quoteStatus(REJECTED, QUOTE_SYMBOL, "A hit needs ClOrdID (11) and OrderQty (38) to book"),
+                    ),
+                ),
         )
 
     private val counter =
         AcceptorResponseRule(
             whenMsgType = "AJ",
-            conditions = listOf(quoteIdPresent, respType("2"), pricedPair),
-            steps = listOf(ResponseStep(quoteStatus(REJECTED, "Counter not accepted: this venue quotes firm"))),
+            conditions = listOf(quoteIdPresent, respType("2")),
+            whenQuote = QuoteConstraint.OPEN,
+            steps =
+                listOf(
+                    ResponseStep(
+                        quoteStatus(REJECTED, QUOTE_SYMBOL, "Counter not accepted: this venue quotes firm"),
+                    ),
+                ),
         )
 
     private val pass =
         AcceptorResponseRule(
             whenMsgType = "AJ",
-            conditions = listOf(quoteIdPresent, respType("6"), pricedPair),
-            steps = listOf(ResponseStep(quoteStatus(PASS))),
+            conditions = listOf(quoteIdPresent, respType("6")),
+            whenQuote = QuoteConstraint.OPEN,
+            steps = listOf(ResponseStep(quoteStatus(PASS, QUOTE_SYMBOL))),
         )
 
     private val otherResponse =
         AcceptorResponseRule(
             whenMsgType = "AJ",
-            conditions = listOf(quoteIdPresent, pricedPair),
+            conditions = listOf(quoteIdPresent),
+            whenQuote = QuoteConstraint.OPEN,
             steps =
                 listOf(
-                    ResponseStep(quoteStatus(REJECTED, "QuoteRespType not accepted: hit or lift, counter, or pass")),
+                    ResponseStep(
+                        quoteStatus(
+                            REJECTED,
+                            QUOTE_SYMBOL,
+                            "QuoteRespType not accepted: hit or lift, counter, or pass",
+                        ),
+                    ),
                 ),
         )
 
-    private val unknownSymbol =
-        AcceptorResponseRule(
-            whenMsgType = "AJ",
-            conditions = listOf(quoteIdPresent),
-            steps = listOf(ResponseStep(quoteStatus(REJECTED, "Unknown symbol"))),
-        )
-
-    private val noQuoteId =
-        AcceptorResponseRule(whenMsgType = "AJ", steps = listOf(ResponseStep(NO_QUOTE_ID_REJECT)))
+    private val cannotAnswer =
+        AcceptorResponseRule(whenMsgType = "AJ", steps = listOf(ResponseStep(CANNOT_ANSWER)))
 
     // ------------------------------------------------------------------ the bundle
 
@@ -236,24 +342,31 @@ object RfqVenuePreset {
      * Declared backwards to read forwards, as the FX venue is: [AcceptorPresets.insert] places each
      * conditioned rule above the first rule for its MsgType and appends an unconditioned one, so each
      * block below lists its conditioned rules last-first and its catch-all last. What the cards read is
-     * asserted by `RfqVenuePresetTest`. Two things depend on it: the bookings must outrank the
-     * wrong-price refusal or every hit is refused, and each catch-all must land at the foot of its own
-     * block, which means declaring it before the next MsgType begins.
+     * asserted by `RfqVenuePresetTest`. Two things depend on it: the three quote-state refusals must
+     * outrank everything, because every rule below them is written for a live quote, and the bookings
+     * must outrank the wrong-price refusal or every hit is refused.
+     *
+     * [validitySeconds] is a parameter for one reason: a test has to be able to watch a quote expire
+     * without waiting thirty seconds for it.
      */
+    internal fun rules(validitySeconds: Int): List<AcceptorResponseRule> =
+        // 35=R: the three priced pairs, then a request without a size, then the FX refusal by name.
+        listOf(quoteNoSize) +
+            QUOTED.reversed().map { quoteRule(it, validitySeconds) } +
+            FxVenuePreset.quoteUnknownSymbol +
+            // 35=AJ: what the book says first, then the bookings, then every other response answered.
+            listOf(otherResponse, pass, counter, cannotBook, wrongPrice, sellHit, buyHit) +
+            listOf(doneQuote, expiredQuote, unknownQuote) +
+            cannotAnswer
+
     val preset: AcceptorPreset =
         AcceptorPreset(
             id = ID,
-            name = "RFQ venue: EUR/USD, GBP/USD, USD/JPY quoted firm",
+            name = "RFQ venue: EUR/USD, GBP/USD, USD/JPY quoted live",
             group = AcceptorPresets.GROUP_BUNDLES,
-            summary = "18 rules · firm quotes per pair · hits booked at the quoted price · every response answered",
-            rules =
-                // 35=R: the three priced pairs, then a request without a size, then the FX refusal by name.
-                listOf(quoteNoSize) +
-                    PRICES.reversed().map(::quoteRule) +
-                    FxVenuePreset.quoteUnknownSymbol +
-                    // 35=AJ: bookings, the two refusals a hit can earn, counter, pass, the rest, then the reject.
-                    listOf(unknownSymbol, otherResponse, pass, counter, cannotBook, wrongPrice) +
-                    PRICES.reversed().flatMap { bookingRules(it).reversed() } +
-                    noQuoteId,
+            summary =
+                "${rules(VALIDITY_SECONDS).size} rules · a fresh price per quote · hits booked at the " +
+                    "quoted price · stale, spent and unknown quotes refused by name",
+            rules = rules(VALIDITY_SECONDS),
         )
 }

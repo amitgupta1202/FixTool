@@ -9,6 +9,10 @@ import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.OrderEvent
 import com.knapsack.fixtool.model.OrderState
+import com.knapsack.fixtool.model.QuoteConstraint
+import com.knapsack.fixtool.model.QuoteEntry
+import com.knapsack.fixtool.model.QuoteReading
+import com.knapsack.fixtool.model.QuoteState
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import org.junit.Test
@@ -66,8 +70,16 @@ class AcceptorPresetsTest {
             "AJ" -> {
                 val respType = (rule.trigger().firstOrNull { it.tag == 694 }?.parsed() as? Matcher.Exact)?.value ?: "1"
                 val side = (rule.trigger().firstOrNull { it.tag == 54 }?.parsed() as? Matcher.Exact)?.value ?: "1"
-                val price = (rule.trigger().firstOrNull { it.tag == 44 }?.parsed() as? Matcher.Exact)?.value ?: "1.09010"
-                "35=AJ|693=RESP-1|694=$respType|117=Q-RFQ-1|11=TRD-1|55=$symbol|54=$side|38=1000000|44=$price"
+                // A `quoteField` condition is satisfied by whatever the quote carries, so the price and
+                // the symbol are read out of the very quote this rule will be judged against. Derived
+                // rather than hardcoded: the sample and the quote cannot drift apart if one comes from
+                // the other, and the venue's bands are free to move.
+                val price =
+                    (rule.trigger().firstOrNull { it.tag == 44 }?.parsed() as? Matcher.Exact)?.value
+                        ?: fromQuote(rule, 44)
+                        ?: "1.09010"
+                val named = fromQuote(rule, 55) ?: symbol
+                "35=AJ|693=RESP-1|694=$respType|117=$QUOTE_ID|11=TRD-1|55=$named|54=$side|38=1000000|44=$price"
             }
             "F" -> cancel
             "G" -> replace
@@ -75,6 +87,39 @@ class AcceptorPresetsTest {
             else -> error("no sample message for 35=${rule.whenMsgType}")
         }
     }
+
+    /** What a `quoteField` condition on [tag] resolves to, given the quote [rule] is judged against. */
+    private fun fromQuote(rule: AcceptorResponseRule, tag: Int): String? =
+        (rule.trigger().firstOrNull { it.tag == tag }?.parsed() as? Matcher.QuoteField)
+            ?.let { quoteFor(rule)?.field(it.name) }
+
+    /**
+     * The quote state **each rule** is designed against — [bookFor]'s twin, and it earns its place the
+     * same way: a rule conditioned `open` is a claim about a venue holding a live quote, and judging it
+     * against a venue that has quoted nothing would be asking whether it fires in the one situation it
+     * promises not to.
+     */
+    private fun quoteFor(rule: AcceptorResponseRule): QuoteReading? =
+        rule.whenQuote?.let { constraint ->
+            if (constraint == QuoteConstraint.UNKNOWN) {
+                QuoteReading.unknown(QUOTE_ID)
+            } else {
+                QuoteReading(QUOTE_ID, quoteEntry(constraint), constraint.word)
+            }
+        }
+
+    private fun quoteEntry(constraint: QuoteConstraint) =
+        QuoteEntry(
+            quoteId = QUOTE_ID,
+            quoteReqId = "Q-1",
+            symbol = "EUR/USD",
+            bid = "1.08990",
+            offer = "1.09010",
+            bidSize = "1000000",
+            offerSize = "1000000",
+            validUntil = null,
+            state = if (constraint == QuoteConstraint.DONE) QuoteState.DONE else QuoteState.OPEN,
+        )
 
     /**
      * The venue state **each rule** is designed against, which for a rule that asks the book is the
@@ -128,6 +173,15 @@ class AcceptorPresetsTest {
             ),
         )
 
+    /** [rule]'s whole reply to [raw], against both books in the state the rule asks for. */
+    private fun planFor(rule: AcceptorResponseRule, raw: String) =
+        AcceptorResponder.plan(
+            rule,
+            AcceptorResponder.buildMessage(raw),
+            request(raw),
+            quote = { quoteFor(rule) },
+        ) { bookedOrder }
+
     private fun eachRule(action: (String, AcceptorResponseRule, String) -> Unit) =
         AcceptorPresets.all.forEach { preset ->
             preset.rules.forEach { rule -> action(preset.id, rule, sampleFor(rule)) }
@@ -169,11 +223,17 @@ class AcceptorPresetsTest {
     fun `every rule of every preset fires against the message it claims to answer`() {
         eachRule { id, rule, raw ->
             // Asked alone, so nothing else in the list can be the reason it did or did not win.
-            val outcomes = AcceptorResponder.explain(listOf(rule), AcceptorResponder.buildMessage(raw), bookFor(rule))
+            val outcomes =
+                AcceptorResponder.explain(
+                    listOf(rule),
+                    AcceptorResponder.buildMessage(raw),
+                    bookFor(rule),
+                    quoteFor(rule),
+                )
             assertTrue(
                 outcomes.single().selected,
-                "$id answers nothing when sent $raw against a ${rule.whenOrder?.word ?: "any"} order — " +
-                    "the one thing a preset must not do",
+                "$id answers nothing when sent $raw against a ${rule.whenOrder?.word ?: "any"} order and a " +
+                    "${rule.whenQuote?.word ?: "any"} quote — the one thing a preset must not do",
             )
         }
     }
@@ -202,6 +262,33 @@ class AcceptorPresetsTest {
     }
 
     /**
+     * The same claim for the quote book, and it is the one that keeps the RFQ venue honest: without it
+     * `whenQuote` could be ignored entirely by the engine and every other test here would still pass.
+     */
+    @Test
+    fun `a preset that asks the quote book stays silent in every state but its own`() {
+        eachRule { id, rule, raw ->
+            val wanted = rule.whenQuote ?: return@eachRule
+            QuoteConstraint.entries.filterNot { it == wanted }.forEach { other ->
+                val quote =
+                    if (other == QuoteConstraint.UNKNOWN) {
+                        QuoteReading.unknown(QUOTE_ID)
+                    } else {
+                        QuoteReading(QUOTE_ID, quoteEntry(other), other.word)
+                    }
+                val outcome =
+                    AcceptorResponder
+                        .explain(listOf(rule), AcceptorResponder.buildMessage(raw), bookFor(rule), quote)
+                        .single()
+                assertFalse(
+                    outcome.matched,
+                    "$id asks for a ${wanted.word} quote but fired against a ${other.word} one",
+                )
+            }
+        }
+    }
+
+    /**
      * The hazard this guards is not hypothetical: `${req.44}` against a market order substitutes an
      * empty string and the parser reads `31=` back as a field with an empty value, so the venue sends
      * a malformed message and the client is blamed for it. Every preset is checked against its own
@@ -210,7 +297,7 @@ class AcceptorPresetsTest {
     @Test
     fun `no preset puts an empty field on the wire`() {
         eachRule { id, rule, raw ->
-            AcceptorResponder.plan(rule, AcceptorResponder.buildMessage(raw), request(raw)) { bookedOrder }.forEach { planned ->
+            planFor(rule, raw).forEach { planned ->
                 val empty = planned.render().split('|').filter { it.isNotBlank() }.filter { it.endsWith("=") }
                 assertTrue(
                     empty.isEmpty(),
@@ -223,7 +310,7 @@ class AcceptorPresetsTest {
     @Test
     fun `every preset replies with the message type its template advertises`() {
         eachRule { id, rule, raw ->
-            AcceptorResponder.plan(rule, AcceptorResponder.buildMessage(raw), request(raw)) { bookedOrder }.forEach { planned ->
+            planFor(rule, raw).forEach { planned ->
                 val advertised = planned.render().split('|').first { it.startsWith("35=") }.removePrefix("35=")
                 assertEquals(
                     advertised,
@@ -648,5 +735,10 @@ class AcceptorPresetsTest {
 
         assertEquals(0, insertion.index, "appended, it would sit below a rule that answers every 35=F")
         assertNull(AcceptorResponder.shadowingRule(insertion.rules, 0))
+    }
+
+    private companion object {
+        /** Opaque, as a real venue's quote ids are: nothing about it is derivable from a request. */
+        const val QUOTE_ID = "8f14e45f-ea1a-4d9f-b3c1-6bd0f0e2a7c3"
     }
 }

@@ -356,7 +356,7 @@
                 },
                 {
                     "tag": "117",
-                    "value": "Q-RFQ-${run}-${messageIndex}"
+                    "value": "${quoteId}"
                 },
                 {
                     "tag": "11",
@@ -376,7 +376,7 @@
                 },
                 {
                     "tag": "44",
-                    "value": "1.09010"
+                    "value": "${offer}"
                 }
             ],
             "createdAt": 0,
@@ -405,7 +405,7 @@
                 },
                 {
                     "tag": "117",
-                    "value": "Q-RFQ-${run}-${messageIndex}"
+                    "value": "${quoteId}"
                 },
                 {
                     "tag": "55",

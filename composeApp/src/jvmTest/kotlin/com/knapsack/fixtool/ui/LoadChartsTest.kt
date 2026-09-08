@@ -122,3 +122,34 @@ class LaneSentenceTest {
         assertEquals("completeness per lane · no round trips to compare", laneSentence(listOf(lane(1, null), lane(2, null))))
     }
 }
+
+/** Which lanes earn a row when there are more lanes than rows. */
+class WorstLanesTest {
+    private fun lane(slot: Int, p95: Long, unanswered: Long = 0) =
+        LoadReport.LaneCounts(slot, matched = 79, unanswered = unanswered, duplicates = 0, p50Us = 3_162, p95Us = p95)
+
+    @Test
+    fun `under the limit every lane is shown`() {
+        val lanes = listOf(lane(1, 4_000), lane(2, 4_000))
+
+        assertEquals(lanes, worstOf(lanes, 8))
+    }
+
+    /** Unanswered first: four unanswered requests all on one lane is the answer, whatever its p95 was. */
+    @Test
+    fun `a lane with something unanswered keeps its row however fast it was`() {
+        val quickButMissing = lane(9, 1_000, unanswered = 4)
+        val slow = (1..8).map { lane(it, 90_000 - it.toLong()) }
+
+        val shown = worstOf(slow + quickButMissing, 3)
+
+        assertEquals(listOf(9, 1, 2), shown.map { it.slot })
+    }
+
+    @Test
+    fun `otherwise the limit takes them in the order it was given, which is worst p95 first`() {
+        val sorted = (1..50).map { lane(it, 90_000 - it.toLong()) }
+
+        assertEquals((1..8).toList(), worstOf(sorted, 8).map { it.slot })
+    }
+}

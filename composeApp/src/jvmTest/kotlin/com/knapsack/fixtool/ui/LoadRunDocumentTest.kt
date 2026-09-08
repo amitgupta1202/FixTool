@@ -213,6 +213,32 @@ class LoadRunDocumentTest {
         composeTestRule.onNodeWithTag("load-tool-rate").assertTextContains("never judged", substring = true)
     }
 
+    /**
+     * **Fifty lanes must not push the verdict off the bottom.** All fifty rows inline did exactly that,
+     * and printed the 50 × 6 matrix the design note says answers no question anyone asks.
+     */
+    @Test
+    fun `a fifty-lane run shows the lanes worth looking at, and asks before printing the rest`() {
+        val base = LoadFixtures.burstReport(unmatched = 4)
+        val fifty =
+            base.copy(
+                lanes = 50,
+                perLane = (1..50).map { LoadReport.LaneCounts(it, 79, if (it == 37) 1 else 0, 0, 3_162, if (it == 37) 19_952 else 7_943) },
+            )
+
+        composeTestRule.setContent { LoadReportView(fifty, emptyList(), File("loads/x"), onStop = {}, modifier = Modifier.fillMaxSize()) }
+
+        composeTestRule.onNodeWithTag("load-lane-count").assertTextContains("8 of 50 lanes", substring = true)
+        composeTestRule.onNodeWithTag("load-lane-37").assertExists("the lane with something unanswered is always shown")
+        composeTestRule.onNodeWithTag("load-lane-50").assertDoesNotExist()
+        // The verdict is still on the screen, which is the point of the cap.
+        composeTestRule.onNodeWithTag("load-judgements").assertExists()
+
+        composeTestRule.onNodeWithTag("load-lane-all").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-lane-50").assertExists("and the whole matrix is one click away")
+    }
+
     @Test
     fun `a stored report that claims to be running reads as stopped, because nothing is running it`() {
         val abandoned = LoadFixtures.burstReport(unmatched = 590, status = LoadStatus.RUNNING).copy(finishedAt = null)

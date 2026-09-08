@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -122,15 +124,25 @@ fun LoadReportView(
             LoadHeader(report, records, narrow, onStop, onCompare)
             ProgressBar(report)
             BarLine(report)
-            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                Leads(report, narrow)
-                QuietStrip(report)
-                Throughput(report, narrow)
-                RoundTrip(report, narrow)
-                if (report.unmatched.isNotEmpty()) UnmatchedTable(report, unmatchedWire, narrow, onReveal)
-                Lanes(report, narrow)
-                ToolPart(report)
-                Judgements(report, records)
+            // The scrollbar is the affordance, not a nicety: with the tool block and the three judgements
+            // at the bottom of a document that can run past a screen, a reader who cannot see that there
+            // is more below stops at whatever the fold happens to cut.
+            val body = rememberScrollState()
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(body)) {
+                    Leads(report, narrow)
+                    QuietStrip(report)
+                    Throughput(report, narrow)
+                    RoundTrip(report, narrow)
+                    if (report.unmatched.isNotEmpty()) UnmatchedTable(report, unmatchedWire, narrow, onReveal)
+                    Lanes(report, narrow)
+                    ToolPart(report)
+                    Judgements(report, records)
+                }
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(body),
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(end = 2.dp),
+                )
             }
         }
     }
@@ -651,6 +663,8 @@ private fun Cell(text: String, width: Dp, tint: Color) {
 private fun Lanes(r: LoadReport, narrow: Boolean) {
     if (r.perLane.size < 2) return
     val sorted = r.perLane.sortedByDescending { it.p95Us ?: -1 }
+    var all by remember(r.id) { mutableStateOf(false) }
+    val rows = if (all) sorted else worstOf(sorted, LANE_ROWS)
     Section("Per lane", laneSentence(sorted)) {
         Column(modifier = Modifier.fillMaxWidth().let { if (narrow) it.horizontalScroll(rememberScrollState()) else it }) {
             Row {
@@ -661,7 +675,7 @@ private fun Lanes(r: LoadReport, narrow: Boolean) {
                 Head("p50", LANE_COUNT_COL)
                 Head("p95", LANE_COUNT_COL)
             }
-            sorted.forEach { l ->
+            rows.forEach { l ->
                 Row(modifier = Modifier.testTag("load-lane-${l.slot}")) {
                     Cell(l.slot.toString(), LANE_NAME_COL, AppTheme.Colors.textSecondary)
                     Cell(LoadReportCodec.fmt(l.matched), LANE_COUNT_COL, AppTheme.Colors.text)
@@ -676,7 +690,46 @@ private fun Lanes(r: LoadReport, narrow: Boolean) {
                 }
             }
         }
+        // Fifty rows of near-identical numbers is the matrix that answers nothing, and on a fifty-lane run
+        // it pushed the tool block and the three judgements off the bottom of the document. So: the lanes
+        // worth looking at, and an explicit ask for the rest.
+        if (sorted.size > rows.size || all) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 3.dp),
+            ) {
+                Text(
+                    if (all) {
+                        "all ${sorted.size} lanes"
+                    } else {
+                        "${rows.size} of ${sorted.size} lanes · every lane with something unanswered, then the worst by p95"
+                    },
+                    color = AppTheme.Colors.textDisabled,
+                    style = AppTheme.Type.meta,
+                    modifier = Modifier.weight(1f).testTag("load-lane-count"),
+                )
+                SlimButton(
+                    if (all) "show the worst only" else "show all ${sorted.size}",
+                    onClick = { all = !all },
+                    modifier = Modifier.testTag("load-lane-all"),
+                )
+            }
+        }
     }
+}
+
+/**
+ * The lanes worth a row: every lane with something unanswered, then the slowest, up to [limit].
+ *
+ * Unanswered first because it is the finding that does not need latency at all — four unanswered
+ * requests all on one lane is the answer, whatever that lane's p95 was.
+ */
+internal fun worstOf(sorted: List<LoadReport.LaneCounts>, limit: Int): List<LoadReport.LaneCounts> {
+    if (sorted.size <= limit) return sorted
+    val missing = sorted.filter { it.unanswered > 0 }
+    val slowest = sorted.filter { it.unanswered == 0L }
+    return (missing + slowest).take(limit)
 }
 
 /** "no lane is out of line", or the lane that is — which is the whole answer a lane table owes. */
@@ -908,3 +961,6 @@ private const val STRAY_SLACK = 20
 
 /** How many times the median lane's p95 a lane has to reach before the sentence names it. */
 private const val LANE_OUTLIER = 2.0
+
+/** Rows the lane table shows before it asks. Enough to see a spread, few enough to keep the verdict on screen. */
+private const val LANE_ROWS = 8

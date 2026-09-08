@@ -745,13 +745,20 @@
         lands on any participating session.</p>
     <p>Two doors, one dialog. In the <strong>Message Editor</strong>, the <strong>&#9889; Load</strong> button
         beside Send and Send to All opens the Load run dialog with the editor's fields as the template. In the
-        Scenarios rail, <strong>Run &#9662; &rarr; Load run&hellip;</strong> opens the same dialog with a picker over
-        the saved messages. The dialog is one row per decision: the template and which of its tags vary per
+        <strong>toolbar</strong>, <strong>Run &#9662; &rarr; Load run&hellip;</strong> opens the same dialog with a
+        picker over the saved messages. The dialog is one row per decision: the template and which of its tags vary per
         message, the profile whose lanes issue, other logged-on profiles that only listen, burst or rate, the tag
         pair a reply is matched on, the settle window, the seeds, and the store and log for this run. Every
         refusal is a sentence on screen and Run is what refuses. The run opens as a document tab that updates
         live and has <strong>Stop</strong>, and <strong>Recent &#9656;</strong> lists it with &#9889; beside the run
-        sets, opening the same document over the record afterwards. From the command line:</p>
+        sets, opening the same document over the record afterwards.</p>
+    <p><strong>Where the doors are.</strong> Your saved load sets, your saved scenario sets,
+        <strong>Load run&hellip;</strong>, <strong>Load sets&hellip;</strong> and <strong>Recent</strong> are all in
+        the <strong>toolbar's Run &#9662;</strong>, beside Quick Connect: each of them runs a saved configuration by
+        name, and none of them has anything to do with which tool window is open. The Scenarios rail's own Run menu
+        runs what its list is showing: what is starred, what the filter shows, what is ticked, which scenario has an
+        examples table, and a fan-out over sessions. <strong>Save these as a set&hellip;</strong> there names the
+        selection it saves, and is how a scenario set gets into the toolbar's Run &#9662;. From the command line:</p>
     <pre><code>fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
 fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed run=c118</code></pre>
     <ul>
@@ -831,6 +838,21 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     one connects it. Changing <em>which</em> workspace you are in is the switcher at the top left &mdash;
     see <a href="#workspaces">Workspaces</a> &mdash; because opening a workspace changes which profiles
     exist at all, and that is a different question from which one to connect.</p>
+
+    <p><strong>Run &#9662;</strong> sits beside it and is the app's one run menu: your saved load sets and
+    scenario sets, each running at once, then <strong>Load run&hellip;</strong>,
+    <strong>Load sets&hellip;</strong> and <strong>Recent</strong>. See
+    <a href="#load-runs">Load runs</a>.</p>
+
+    <p><strong>&#9211; Disconnect all</strong> is the third of the three, and it takes every session down at
+    once, which is what putting a box back to nothing connected used to mean doing one profile at a time.
+    The tooltip says how many sessions it will drop and over how many profiles. <strong>It asks no
+    confirmation</strong>, because a disconnect loses nothing: Quick Connect puts it all back in one click,
+    and nothing is cleared on the way out. The venue's orders and quotes stay where <strong>Clear order
+    book</strong> can reach them, and the message logs, the run records and the panes are untouched. The one
+    case that would lose something is a live load run or set, and there the button is disabled with the
+    reason in its tooltip: stop the run first. On the control surface the same action is
+    <code>POST /disconnect {"all": true}</code>, which reports what it dropped and is refused the same way.</p>
 
     <h3 id="workspaces">Workspaces</h3>
     <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run
@@ -2859,22 +2881,26 @@ ${incoming["D"].valueOfTag(38)}
     visible before it starts. A single run is a set of one, which is why nothing downstream &mdash; the
     report, the reconcile view, the JUnit output &mdash; had to learn a second shape.</p>
 
-    <h4>Run &#9662; &mdash; the four ways to make one</h4>
+    <h4>Run &#9662; &mdash; the ways to make one</h4>
 
     <p>Beside the rail's filter, <strong>Run &#9662;</strong> opens on:</p>
 
     <table>
         <tr><th>Item</th><th>What it runs</th></tr>
-        <tr><td><code>Run set &#9656; &lt;name&gt; (N)</code></td><td>A saved set, with its size on the item.</td></tr>
         <tr><td><code>Run &#9733; favourites (N)</code></td><td>Everything starred, in rail order.</td></tr>
         <tr><td><code>Run filtered (N)</code></td><td>Whatever the list is showing right now.</td></tr>
         <tr><td><code>Run selected&hellip; (N)</code></td><td>The rows picked in the rail &mdash; an ad-hoc set, without starring anything you did not mean to.</td></tr>
         <tr><td><code>Repeat a scenario &times;N&hellip;</code></td><td>The flakiness question. <em>&ldquo;Run one scenario N times and report every iteration.&rdquo;</em></td></tr>
         <tr><td><code>Run examples table&hellip; (N)</code></td><td>One entry per live row of a scenario's table.</td></tr>
         <tr><td><code>Fan out over sessions&hellip; (N)</code></td><td>One lane per session of a multi-session profile, concurrently &mdash; see <a href="#connections">Fanning a scenario out</a>.</td></tr>
-        <tr><td><code>Save as set&hellip;</code></td><td>Turns what is on screen into the named file CI runs.</td></tr>
-        <tr><td><code>Recent &#9656; &lt;label&gt; (passed/total)</code></td><td>Reopens a finished set from its record on disk.</td></tr>
+        <tr><td><code>Save these as a set&hellip;</code></td><td>Names the selection it saves, turning what is on screen into the file CI runs, and is how a scenario set gets into the toolbar's <strong>Run &#9662;</strong>.</td></tr>
     </table>
+
+    <p><strong>Every item here reads the list beside it</strong>: what is starred, what the filter shows, what is
+    ticked, which scenario has a table. <strong>A saved set by name, a load run, a load set and Recent are in the
+    toolbar's <a href="#quick-connect">Run &#9662;</a></strong>, beside Quick Connect, because none of them is
+    about the scenario list: a saved configuration runs by name whatever the rail happens to be showing, and Recent
+    is about records rather than about scenarios, which is also where you look for what a saved thing produced.</p>
 
     <p>An item that cannot be used <strong>stays visible and disabled, with its count showing</strong>. You
     cannot tell &ldquo;there is nothing starred&rdquo; from &ldquo;this feature does not exist&rdquo; if the

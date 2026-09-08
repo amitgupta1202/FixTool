@@ -37,6 +37,24 @@ class MatcherDocsTest {
     }
 
     /**
+     * The one matcher the *scenario* list does not carry, and the reason it needs its own check:
+     * [MATCHER_TYPES] is the scenario vocabulary, so a trigger-only type is invisible to the test
+     * above however completely it is implemented. `quoteField` is exactly that, and an agent writing
+     * an RFQ venue's rules cannot compare a hit against the quoted price without being told it exists.
+     */
+    @Test
+    fun `the trigger-only matcher is named in every matcher reference too`() {
+        for (path in references) {
+            val text = repoFile(path).readText()
+            assertTrue(
+                "quoteField" in text,
+                "$path documents no quoteField — the one comparison an RFQ venue's trigger cannot do " +
+                    "without, and the one no scenario can make",
+            )
+        }
+    }
+
+    /**
      * The three the *field's type* decides, and the reason each reference has to say so: they do not fail
      * on a wrong value, they fail on every value a text field can hold. An author who reads only the table
      * has no way to know that `numeric` on a ClOrdID is a row that can never go green.

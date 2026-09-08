@@ -162,6 +162,55 @@ with `unknown`, `open`, `done`, `expired`, and one guard rule: `35=AJ` with `whe
 `35=AI 297=9` Quote not found. That is the RFQ desk's version of the unknown cancel, and the first slice
 is written so that adding it is one rule at the top of the AJ block.
 
+
+## The second slice, built (2026-09-08)
+
+It landed, and it departed from the sketch above in one structural way and gained two things the sketch
+did not ask for.
+
+**Not a `BookSpec`.** The sketch's own objection turned out to be the answer. `OrderBook.route()` decides
+what a message does *by direction*: an entry is born by a received message and moved by a sent one, which
+is the shape of every order flow. A quote is the other way round, so carrying quotes in the order book
+would mean inverting the one rule it is built on, and "either the spec grows a direction per event or the
+service holds a second book" resolves to neither: it is a **separate model and service**,
+`QuoteBook.kt` and `QuoteBookService`, beside `OrderBookService` and shaped like it. Four words of state
+instead of an order's fold over its trail, because a quote has one life and no partial fills. Cheaper than
+either option the sketch weighed, and it leaves order behaviour untouched.
+
+**One indirection the sketch missed.** A QuoteResponse carries its own `QuoteRespID (693)`, and the
+venue's answer to it echoes **693 and not 117**, because a FIX 4.4 ExecutionReport has no QuoteID field at
+all. So the book remembers each response as `693 → 117` and resolves the venue's own reply back to the
+quote through that map. The received `35=AJ` moves nothing: whether a quote is spent is the venue's
+decision, and that lives in the reply, not in the request. The sketch had the AJ doing the moving.
+
+**Four guard rules, not one.** `whenQuote = unknown` answering `297=9` is there as sketched, and two more
+came with it for free once the book existed: `expired` answering `297=7` and `done` answering `297=5`
+*Quote already answered*. `expired` is a clock comparison made when a rule asks rather than a stored
+state, because a quote does not go stale at a moment anybody sends a message. The three sit above every
+other QuoteResponse rule, which is what lets every rule below them be written for a live quote.
+
+**Two things beyond the sketch.** A trigger can compare a tag against the quote's *own* value
+(`quoteField`), which is the only way to write "the client hit the price we quoted". No literal can,
+because every quote carries a different price, and no tag on the incoming message can either, because
+the price the client sends is the claim under test. And a reply can read the quote (`${quote.offer}`), so a hit is
+booked at the venue's number rather than the client's. Together they collapsed the venue's six per-pair
+booking rules into two: the symbol and the price come from the quote, so the three pairs are one buy rule
+and one sell rule. Eighteen rules became sixteen, each saying more.
+
+**What this fixed at `:111` above.** The unattributed report at the bottom of every RFQ run is gone. An
+ExecutionReport the quote book claims through 693 is a quote event, not an order event, so it is no longer
+offered to the order book, which could only ever have filed it as noise.
+
+**Two consequences worth naming.** The QuoteID had to become opaque and the price had to move, which is
+what the venue should always have done and what made the first slice's load templates unwritable. A
+load set now *captures* 117 and 133 off each quote and reads them back, which is what a client does. And a
+pass now spends the quote, so the bundled *pass and counter* scenario had to be reordered: everything
+after a pass is refused as spent, which is the venue being right and the scenario being stale.
+
+**Still not enforced:** nothing sweeps the book to expire quotes on a timer, and nothing on the UI shows
+the quote book the way the order book panel shows orders. The first is by design. The second is the next
+thing worth building if anyone asks for it.
+
 ## Verification plan
 
 Against a build of this branch on `FIXTOOL_CONTROL_PORT=8799`, the RFQ example opened through

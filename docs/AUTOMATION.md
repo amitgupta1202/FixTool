@@ -370,7 +370,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /acceptor/rules` | `{"profile", "rule"?, "preset"?, "index"?, "enabled"?}` | add (`rule`, no index), replace (`rule` + `index`), toggle (`index` + `enabled`) or insert a ready-made behaviour (`preset`) — **one** rule at a time, leaving the rest of the profile alone |
 | `GET /acceptor/presets` | —                                    | the shipped acceptor behaviours by `id`, each with what triggers it and the reply it inserts |
 | `DELETE /acceptor/rules` | `{"profile", "index"}`             | remove one rule; the rules after it shift up                |
-| `POST /acceptor/test` | `{"profile", "raw", "orderState"?, "order"?}` | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back. `order` is the order to render `${order.…}` against, by the book's own names |
+| `POST /acceptor/test` | `{"profile", "raw", "orderState"?, "order"?, "quoteState"?, "quote"?}` | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back. `order` is the order to render `${order.…}` against, by the book's own names. `quoteState` and `quote` are the same pair for the quote book (`unknown`\|`open`\|`expired`\|`done`, default `unknown`; `quote` given alone assumes `open`), reported back as `assumedQuoteState` and per rule as `whenQuote` |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
@@ -814,6 +814,16 @@ not carry is a question with no answer. `reference` does **not** — it
 resolves against a scenario run's scope, and a trigger has none; one is refused by name rather than
 silently never matching. Express OR as a second rule; first match wins.
 
+One matcher works **only** here, and it is `reference`'s mirror image:
+`{"type":"quoteField","name":"offer"}` compares the tag against one field of the quote this message
+names, read from the venue's own [quote book](#rules-that-ask-what-the-venue-quoted). `44` equal to
+`quoteField(offer)` is how "the client hit the price we quoted" is written, and nothing else can
+express it: every quote carries a different price, and the price the client sends is the claim under
+test. `name` is one of `quoteId`, `quoteReqId`, `symbol`, `bid`, `offer`, `bidSize`, `offerSize`,
+`validUntil`, `state`. With no quote to resolve against it is **false**, which is what lets an
+unknown-quote rule sit below a hit rule and answer instead. It is refused in a scenario by name, for
+the reason `reference` is refused here.
+
 `whenFields` is the older exact-only form (`{"55":"EUR/USD"}`) and still works. The two spellings are
 **ANDed, never chosen between** — unlike the two spellings of a *reply*, where picking one sends one
 message or the other. Ignoring a trigger spelling would drop a constraint, and a rule that fires on
@@ -975,6 +985,54 @@ author excluded is the dangerous way to be wrong. `GET /acceptor/orders` is the 
 and reports the `cap` each book is running — set in **Settings → Sessions → Order book**, applied to
 books already open, with the oldest *finished* orders evicted first and every eviction counted.
 
+#### Rules that ask what the venue quoted
+
+`whenQuote` is `whenOrder`'s sibling, ANDed the same way, and it is what makes an RFQ venue a venue
+rather than a message echo. It reads the venue's **quote book** for the QuoteID (`117`) this message
+names, and takes one of four words: `unknown` (this venue never sent that quote, or the message names
+none), `open` (sent, unanswered, still inside its `ValidUntilTime`), `expired` (sent and unanswered,
+but its validity has passed), `done` (already hit or already passed on).
+
+**Nothing on the incoming message distinguishes those four**, so without it a venue either honours
+every hit or none:
+
+```
+35=AJ  quote open     → 35=8            a trade, at the price that quote carried
+35=AJ  quote expired  → 35=AI  297=7    too late
+35=AJ  quote done     → 35=AI  297=5    already answered
+35=AJ  quote unknown  → 35=AI  297=9    we did not send that quote
+```
+
+The book is fed from the wire like the order book, with one thing reversed: a quote is **born by a
+message the venue sends** (`35=S`) and answered by one it receives (`35=AJ`), which is why it is a
+second small book and not a setting on the first. `expired` is a clock comparison made when a rule
+asks, not a state anything writes, because a quote does not go stale at a moment anybody sends a
+message.
+The reading is taken **before** the incoming message is recorded, so a hit is judged against the
+quote as it stood when the hit arrived.
+
+One indirection is forced by FIX 4.4: a QuoteResponse carries its own `QuoteRespID (693)`, and the
+venue's answer echoes **693 and not 117**, because a 4.4 ExecutionReport has no QuoteID field. The
+book remembers each response by its own id and resolves the venue's reply back to the quote through
+that map. An ExecutionReport that books a quote hit is deliberately **not** offered to the order
+book, because it carries a ClOrdID the venue never saw on an order, so the order book could only file
+it as unattributed noise. `POST /sessions/{}/clear-order-book` empties both, because they are one venue's
+memory.
+
+A dry run takes both halves of the assumption, because a quote rule asks both questions at once:
+*is it open, and what was its offer*.
+
+```bash
+curl -s -XPOST $B/acceptor/test -d '{"profile":"RFQ Demo Venue",
+  "raw":"35=AJ|693=R-1|117=Q-1|694=1|11=T-1|55=EUR/USD|54=1|38=1000000|44=1.09013",
+  "quoteState":"open", "quote":{"symbol":"EUR/USD","bid":"1.08993","offer":"1.09013"}}'
+# → assumedQuoteState {state:"open", quote:"Q-1", given:true}
+#   per rule: whenQuote {constraint:"open", actual:"open", satisfied:true}
+#             conditions: 44 exact 1.09013 satisfied:true   ← the quoteField, resolved
+```
+
+Giving `quote` without `quoteState` assumes `open`, since fields describe a quote that exists.
+
 #### Templates that read the book
 
 A step's template can also **read** what the venue is holding: `${order.<name>}`, where the names are
@@ -1008,6 +1066,14 @@ putting `37=` on the wire as a real field with no value.
 "Reply With…" applies the same rule with the message in hand: a shape reading the book against an
 order the venue has not got is offered and greyed out with the reason, the way Fill is already
 refused on a market order.
+
+`${quote.<name>}` reads the quote book the same way, over the same names `quoteField` takes:
+`31=${quote.offer}` books a hit at the price the venue actually quoted rather than the price the
+client claimed. The refusal is sharper here, because the field is a *price*: an empty substitution
+would put `31=` in a trade confirmation and the client would be blamed for it. So a rule whose reply
+reads `${quote.…}` will not validate without a `whenQuote` of `open`, `expired` or `done`. Unlike an
+order, no trigger can mint the quote it reads, because a rule never answers the venue's own send, so
+the constraint is the only way to be sure there is one.
 
 Two things every preset does that a hand-written rule should copy:
 

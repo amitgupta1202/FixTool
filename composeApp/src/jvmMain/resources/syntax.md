@@ -30,7 +30,9 @@ The two mini-languages an agent needs to author messages and scenarios: **templa
 | `${now}` | current **local** timestamp, `yyyyMMdd-HH:mm:ss.SSS` |
 | `${utcnow}` | current **UTC** timestamp — what capture mints for UTCTimestamp fields (TransactTime, …) so a replay's stamp does not carry your local offset; takes the same `:pattern` and offsets as `now` |
 | `${now:yyyyMMdd}` | `now` in a custom `DateTimeFormatter` pattern |
-| `${now+1h}`, `${utcnow+5min}` | offset — units `min` (minutes), `h` (hours), `d` (days), `w` (weeks), `m` (months), `y` (years); `min` is minutes, a bare `m` is months |
+| `${now+1h}`, `${utcnow+5min}` | offset. Units are `s` (seconds), `min` (minutes), `h` (hours), `d` (days), `w` (weeks), `m` (months), `y` (years). `min` is minutes, a bare `m` is months |
+| `${utcnow+30s}` | seconds, which a `ValidUntilTime(62)` needs and nothing coarser can say |
+| `${random:1.09010:1.09019:5}` | a number drawn from that **closed** range, quantised to that many decimals (0 to 10). What a venue prices its own quotes with, since a price identical on four thousand quotes is no venue |
 | `${now+1d:yyyyMMdd}` | offset *and* custom pattern |
 
 **Message references** — read a tag off the latest message of a given type on this session:
@@ -86,7 +88,8 @@ Each entry in an expectation's `fields` is `{tag, matcher: {type, ...}}`. There 
 | `numeric` | `value`, `tolerance`? | `abs(actual − value) <= tolerance`; tolerance `0` still ignores formatting (`1.2345` == `1.23450`) |
 | `range` | `min`?, `max`?, `minInclusive`? (default true), `maxInclusive`? (default true) | the number is above and/or below a bound. Either bound may be omitted, so this covers `>`, `>=`, `<`, `<=` and *between*. Omitting **both** is refused rather than passing — it would assert nothing |
 | `temporal` | `kind` (`today` \| `now_within_tolerance`), `toleranceSeconds`? (default 60) | parsed as UTCTimestamp / UTCDateOnly |
-| `reference` | `expression` | the value equals a resolved `${...}` expression (§1) |
+| `reference` | `expression` | the value equals a resolved `${...}` expression (§1). **Scenarios only**, because a trigger has no run to resolve it against, and one there is refused by name |
+| `quoteField` | `name` | the value equals one field of the quote this message names, read from the venue's own quote book. **Acceptor triggers only**, because a scenario has no venue book, and one there is refused by name. `name` is one of `quoteId`, `quoteReqId`, `symbol`, `bid`, `offer`, `bidSize`, `offerSize`, `validUntil`, `state`. With no quote to resolve against it is **false**, which is what lets an unknown-quote rule sit below a hit rule and answer instead |
 
 `notEqual` is not `absent`. A tag that never arrived satisfies neither: "not X" about a field the
 message does not carry is a question with no answer.
@@ -206,12 +209,28 @@ language than §1 — plain replacement, no variables, offsets or message refere
 | Expression | Produces |
 | --- | --- |
 | `${req.<tag>}` | that tag echoed from the request, e.g. `${req.11}` |
-| `${uuid}` | a fresh UUID |
+| `${uuid}`, `${uuid:12}` | a fresh UUID, optionally trimmed to that many hex characters |
 | `${now}` | current local timestamp (`${utcnow}` for UTC) |
+| `${utcnow+30s}`, `${utcnow:yyyyMMdd}` | the UTC clock, shifted or in a pattern of your own, with the same units as §1 |
+| `${random:1.09010:1.09019:5}` | a drawn, quantised number |
+| `${order.<name>}` | what this venue is holding for the order the message names: `orderId`, `clOrdId`, `origClOrdId`, `symbol`, `side`, `orderQty`, `cumQty`, `leavesQty`, `avgPx`, `price`, `ordStatus`. Needs a `whenOrder` of `pending`/`working`/`done`, or a `35=D` trigger, or the rule will not validate |
+| `${quote.<name>}` | what this venue quoted, over the same names `quoteField` takes. Needs a `whenQuote` of `open`/`expired`/`done`, since no trigger can mint the quote it reads |
+
+`${req.…}` is fixed when the trigger arrives. Everything else resolves **per step, as that step is
+sent**, so a fill sent a second after the ack carries its own ExecID and its own TransactTime. A
+reference that cannot resolve is **not sent** and says why, rather than putting `31=` on the wire as
+a real field with no value.
 
 ```json
 {"whenMsgType": "D",
  "responseTemplate": "35=8|150=0|39=0|37=${uuid}|11=${req.11}|55=${req.55}|38=${req.38}"}
+```
+
+```json
+{"whenMsgType": "AJ", "whenQuote": "open",
+ "conditions": [{"tag": 117, "matcher": {"type": "presence"}},
+                {"tag": 44, "matcher": {"type": "quoteField", "name": "offer"}}],
+ "steps": [{"template": "35=8|150=F|39=2|11=${req.11}|31=${quote.offer}|6=${quote.offer}"}]}
 ```
 
 ---
@@ -227,7 +246,7 @@ runs first, `teardown` always runs, even on failure. A step is `{type, ...}`:
 | `expect` | `session?`, `direction?`, `match?`, `timeoutMs?`, `expectation: {messageType?, mode?, fields: [...]}` |
 | `wait` | `session?`, `state?` (e.g. `LOGGED_ON`), `match?`, `timeoutMs?` |
 | `clearMessages` | `session?` |
-| `clearOrderBook` | `session?` — empties the order book FixTool keeps **as the venue** on that session (what its rules read, as opposed to what the grid shows). Only valid on a session FixTool hosts as an acceptor; anywhere else the run is refused in preflight, by name. |
+| `clearOrderBook` | `session?`. Empties **both** books FixTool keeps as the venue on that session, orders and quotes (what its rules read, as opposed to what the grid shows). Only valid on a session FixTool hosts as an acceptor; anywhere else the run is refused in preflight, by name. |
 | `resetSeqNum` | `session?`, `sender?`, `target?` |
 
 ### The examples table — a scenario run once per row

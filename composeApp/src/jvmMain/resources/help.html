@@ -401,54 +401,71 @@
     never left in silence. Two clients, <strong>RFQ Client 1</strong> and <strong>RFQ Client 2</strong>, and an
     <strong>RFQ Load Client</strong> of five sessions are pointed at it. The venue injects no latency, because
     it is the venue a load run is measured against.</p>
-    <p>Two things differ from the FX venue on purpose. <strong>The QuoteID follows from the QuoteReqID</strong>:
-    a request with <code>131=RFQ-7</code> is quoted as <code>117=Q-RFQ-7</code>, so a client can address a quote
-    it never saw, which is what a load run's second phase has to do. And <strong>the prices are firm</strong>:
-    every quote for a pair carries the same bid and offer, the FX venue's mid-market price with no movement,
-    so a rule can know the quoted price and refuse a hit at any other. The shapes follow the bundled FIX 4.4
-    dictionary: a QuoteResponse carries no QuoteReqID and an ExecutionReport carries neither QuoteID nor
-    QuoteReqID, so the trade report ties back by <strong>QuoteRespID (693)</strong> and the
-    <strong>ClOrdID (11)</strong> the client named its trade with.</p>
+    <p>Two things differ from the FX venue on purpose, and both are about being a venue rather than an
+    echo. <strong>The QuoteID is opaque</strong>: it is a fresh uuid, so the only way to answer a quote is
+    to have read it, which is what every real RFQ venue requires. And <strong>the venue remembers what it
+    quoted</strong>, in its <a href="#quote-book">quote book</a>, so it can refuse a hit that arrived too
+    late, a second hit on a quote it already booked, and a hit on a quote it never sent: three
+    refusals that nothing on the incoming message could tell apart.</p>
+    <p>The shapes follow the bundled FIX 4.4 dictionary: a QuoteResponse carries no QuoteReqID and an
+    ExecutionReport carries neither QuoteID nor QuoteReqID, so the trade report ties back by
+    <strong>QuoteRespID (693)</strong> and the <strong>ClOrdID (11)</strong> the client named its trade
+    with.</p>
 
-    <h4>Firm Prices</h4>
+    <h4>The Prices</h4>
+    <p>Each side is drawn per quote from its own band, nine ticks wide on the pair's <em>pipette</em> so a
+    five-decimal price does not always end in <code>0</code>:</p>
     <table>
-        <tr><th>Symbol</th><th>Bid</th><th>Offer</th><th>Decimals</th></tr>
-        <tr><td>EUR/USD</td><td>1.08990</td><td>1.09010</td><td>5</td></tr>
-        <tr><td>GBP/USD</td><td>1.26985</td><td>1.27015</td><td>5</td></tr>
-        <tr><td>USD/JPY</td><td>149.490</td><td>149.510</td><td>3</td></tr>
+        <tr><th>Symbol</th><th>Bid band</th><th>Offer band</th><th>Decimals</th></tr>
+        <tr><td>EUR/USD</td><td>1.08990 &ndash; 1.08999</td><td>1.09010 &ndash; 1.09019</td><td>5</td></tr>
+        <tr><td>GBP/USD</td><td>1.26985 &ndash; 1.26994</td><td>1.27015 &ndash; 1.27024</td><td>5</td></tr>
+        <tr><td>USD/JPY</td><td>149.490 &ndash; 149.499</td><td>149.510 &ndash; 149.519</td><td>3</td></tr>
     </table>
-    <p>A buy lifts the offer and a sell hits the bid. The quote is for the size the request asked
-    (<code>134</code> and <code>135</code> echo <code>38</code>), and it is valid for a minute
-    (<code>62</code>), though this venue keeps no quote state and does not yet refuse a late hit.</p>
+    <p>The bands are a full spread apart, so <strong>no draw can put a bid at or above an offer</strong>.
+    An inverted quote is not a quote, and a venue that emitted one would be teaching a client to accept
+    one. A buy lifts the offer and a sell hits the bid. The quote is for the size the request asked
+    (<code>134</code> and <code>135</code> echo <code>38</code>) and stands for <strong>thirty
+    seconds</strong> (<code>62</code>), which is long enough to hit by hand and short enough to watch
+    expire.</p>
 
     <h4>What the Venue Answers</h4>
+    <p>The first three rows are the venue's memory answering, and they sit above everything else because
+    every rule below them is written for a quote that is live:</p>
     <table>
         <tr><th>You send</th><th>The venue replies</th></tr>
+        <tr><td>QuoteResponse (35=AJ) naming a QuoteID this venue never sent</td>
+            <td>QuoteStatusReport (35=AI), 297=9, &ldquo;This venue did not send that quote&rdquo;</td></tr>
+        <tr><td>Any QuoteResponse after the quote's ValidUntilTime</td>
+            <td>QuoteStatusReport, 297=7 Expired</td></tr>
+        <tr><td>A second QuoteResponse about a quote already hit or passed</td>
+            <td>QuoteStatusReport, 297=5, &ldquo;Quote already answered&rdquo;</td></tr>
         <tr><td>QuoteRequest (35=R) for a priced pair, with OrderQty</td>
-            <td>Quote (35=S): <code>117=Q-</code>&lt;your 131&gt;, the pair's firm bid and offer, your size, <code>62</code> a minute out</td></tr>
+            <td>Quote (35=S): a fresh <code>117</code>, a drawn bid and offer, your size, <code>62</code> thirty seconds out</td></tr>
         <tr><td>QuoteRequest for a priced pair without OrderQty</td>
             <td>QuoteRequestReject (35=AG), 658=99, &ldquo;this venue quotes a size&rdquo;</td></tr>
         <tr><td>QuoteRequest for anything else</td>
             <td>QuoteRequestReject (35=AG), 658=1 Unknown symbol</td></tr>
-        <tr><td>QuoteResponse (35=AJ) 694=1 hit or lift, on the quoted side at the quoted price, with ClOrdID and OrderQty</td>
-            <td>ExecutionReport (35=8), 150=F 39=2, filled at the quoted price, echoing your 11 and 693</td></tr>
-        <tr><td>Hit or lift at any other price</td>
-            <td>QuoteStatusReport (35=AI), 297=5, &ldquo;Price is not the quoted price&rdquo;</td></tr>
+        <tr><td>QuoteResponse 694=1 hit or lift on a live quote, on the quoted side <strong>at the price that quote carried</strong>, with ClOrdID and OrderQty</td>
+            <td>ExecutionReport (35=8), 150=F 39=2, filled at <code>${quote.offer}</code> or <code>${quote.bid}</code>, echoing your 11 and 693</td></tr>
+        <tr><td>Hit or lift at any other price, or naming a different instrument</td>
+            <td>QuoteStatusReport, 297=5, &ldquo;Price is not the quoted price&rdquo;</td></tr>
         <tr><td>Hit or lift without ClOrdID or OrderQty</td>
             <td>QuoteStatusReport, 297=5, naming the two tags a booking needs</td></tr>
         <tr><td>QuoteResponse 694=2 counter</td>
             <td>QuoteStatusReport, 297=5, &ldquo;this venue quotes firm&rdquo;</td></tr>
         <tr><td>QuoteResponse 694=6 pass</td>
-            <td>QuoteStatusReport, 297=11 Pass</td></tr>
-        <tr><td>Any other QuoteRespType, or an unpriced symbol</td>
-            <td>QuoteStatusReport, 297=5, saying which</td></tr>
-        <tr><td>QuoteResponse without a QuoteID</td>
-            <td>BusinessMessageReject (35=j), 380=5, because a QuoteStatusReport needs a QuoteID to name</td></tr>
+            <td>QuoteStatusReport, 297=11 Pass, and the quote is now spent</td></tr>
+        <tr><td>Any other QuoteRespType</td>
+            <td>QuoteStatusReport, 297=5, saying which types are accepted</td></tr>
+        <tr><td>QuoteResponse without a QuoteID, or naming an unknown quote without a Symbol</td>
+            <td>BusinessMessageReject (35=j), 380=5, because a QuoteStatusReport needs both to name</td></tr>
     </table>
-    <p>Eighteen rules, and none of them asks the venue's <a href="#order-book">order book</a>: the first slice of
-    this venue is built from the triggering message and the rule's own content. A trade it books shows on the
-    venue side's book as an unattributed report, because no order was ever placed for it. A quote book, keyed by
-    QuoteID and able to refuse a response to a quote the venue never sent, is the next slice.</p>
+    <p>Sixteen rules, where the first slice of this venue needed eighteen and said less. Two of them are
+    the whole booking: because the symbol and the price are read off the quote
+    (<a href="#when-quote"><code>quoteField</code></a> in the trigger, <code>${quote.&hellip;}</code> in
+    the reply), the three pairs are one buy rule and one sell rule rather than six. None of them asks the
+    <a href="#order-book">order book</a>, because a booked quote hit is a quote event and not an order
+    event, so the quote book takes it off the order book's hands.</p>
 
     <h4>RFQ Message Templates</h4>
     <table>
@@ -463,17 +480,26 @@
         <tr><td>RFQ Load QuoteRequest</td><td>35=R</td>
             <td>For the load client: <code>131=RFQ-${run}-${messageIndex}</code></td></tr>
         <tr><td>RFQ Load QuoteResponse</td><td>35=AJ</td>
-            <td>For the load client: lifts <code>117=Q-RFQ-${run}-${messageIndex}</code> at the EUR/USD offer,
-                naming the trade <code>11=RFQ-${run}-${messageIndex}</code></td></tr>
+            <td>For the load client: lifts <code>117=${quoteId}</code> at <code>44=${offer}</code>, both
+                <a href="#load-sets">captured</a> off the quote by the phase before it, naming the trade
+                <code>11=RFQ-${run}-${messageIndex}</code></td></tr>
+        <tr><td>RFQ Load Pass</td><td>35=AJ</td>
+            <td>For the load client: passes on <code>117=${quoteId}</code>, so a third phase can answer the
+                quotes the hits left alone</td></tr>
     </table>
 
     <h4>The Bundled Scenarios</h4>
-    <p><strong>RFQ book a trade</strong> requests a EUR/USD quote, expects a Quote whose QuoteID is
-    <code>Q-</code> plus the QuoteReqID with both prices present, lifts it at the offer it was quoted
-    (<code>44=${in.S.133}</code>), and expects an ExecutionReport with <code>150=F</code> and a LastPx equal to
-    that offer. <strong>RFQ pass and counter</strong> asks for a GBP/USD quote and then passes, counters and hits
-    at the wrong price, expecting the three QuoteStatusReports that say why. Both clear the client pane and the
-    venue pane's book in their setup, as the FX scenarios do, and both run green twice.</p>
+    <p><strong>RFQ book a trade</strong> requests a EUR/USD quote, expects a Quote carrying a QuoteID and
+    both prices, lifts it at the id and the offer it was actually sent
+    (<code>117=${in.S.117}</code>, <code>44=${in.S.133}</code>), and expects an ExecutionReport with
+    <code>150=F</code> and a LastPx equal to that offer. Reading both back off the quote is not a
+    convenience: neither can be predicted, which is the point of the venue.</p>
+    <p><strong>RFQ pass and counter</strong> asks for a GBP/USD quote, counters it, hits it at the wrong
+    price, then passes, and finally hits it once more, expecting &ldquo;Quote already
+    answered&rdquo;. <strong>The order matters now.</strong> A pass spends the quote, so anything sent
+    after one is refused as spent, and the last two steps are there to prove exactly that. Both scenarios
+    clear the client pane and the venue pane's books in their setup, as the FX scenarios do, and both run
+    green twice.</p>
 
     <h4 id="rfq-load">The Load Client, and a Load Run Against This Venue</h4>
     <p>The <strong>RFQ Load Client</strong> is a profile of five sessions, <code>RFQLG1</code> to
@@ -481,22 +507,41 @@
     Logon, which is the setting a <a href="#load-runs">load run</a> wants and the one
     <a href="#store-and-log">Store and log</a> describes. Connect it and its five lanes log on to the venue,
     each with its own pane on the venue side.</p>
-    <p>The two load templates are written for a two-phase run. Issue <strong>RFQ Load QuoteRequest</strong>
-    with a seed, say <code>run=b7</code>, and every lane sends requests numbered <code>RFQ-b7-1</code>,
-    <code>RFQ-b7-2</code>, and so on, each answered with a Quote whose QuoteID is <code>Q-RFQ-b7-</code>&lt;n&gt;.
-    The match infers as QuoteReqID to QuoteReqID. Then issue <strong>RFQ Load QuoteResponse</strong> with the
-    same seed and the same count, and every message lifts the quote the first phase created, without having
-    seen it, naming the trade <code>RFQ-b7-</code>&lt;n&gt;. The match infers as ClOrdID to ClOrdID, and matched
-    in the second run equals issued in the first. That is the multi-phase case load runs were built for, and it
-    is why this venue's QuoteID follows from the QuoteReqID.</p>
+    <p>The three load templates are written for a <strong>three-phase <a href="#load-sets">load
+    set</a></strong>, and the example ships it as <strong>RFQ round trip</strong>. Pick it from
+    <strong>Run &rarr; Load sets</strong>, or run it from the command line:</p>
+
+    <div class="example"><code>fixtool load --set rfq-round-trip --workspace "RFQ Venue"</code></div>
+
+    <table>
+        <tr><th>Phase</th><th>Sends</th><th>Matched on</th><th>Keeps</th></tr>
+        <tr><td>1. Quote</td><td>4,000 QuoteRequests, <code>131=RFQ-&lt;run&gt;-&lt;n&gt;</code></td>
+            <td>QuoteReqID to QuoteReqID, reply <code>35=S</code></td>
+            <td><code>quoteId</code> from 117 and <code>offer</code> from 133, per message</td></tr>
+        <tr><td>2. Hit</td><td>2,000 QuoteResponses at <code>117=${quoteId}</code>, <code>44=${offer}</code></td>
+            <td>ClOrdID to ClOrdID, reply <code>35=8</code></td><td>nothing</td></tr>
+        <tr><td>3. Pass</td><td>2,000 passes, numbered from 2,001 so they answer the other half</td>
+            <td>QuoteID to QuoteID, reply <code>35=AI</code></td><td>nothing</td></tr>
+    </table>
+
+    <p>The seed <code>run=${uuid:4}</code> is rendered once and frozen for the whole set, so all three
+    phases address the same conversation, and the whole set is <strong>one record with one verdict</strong>.
+    <code>onFailure</code> is <code>stop</code>, because there is no point hitting quotes that were never
+    sent.</p>
+
+    <p>The <code>capture</code> block in phase one is what makes the rest possible. This venue's QuoteID is
+    opaque and its price is drawn, so neither can be computed from the request. The only way to hit
+    a quote is to have read it, which is exactly what a client does. A phase whose template reads
+    <code>${quoteId}</code> when no earlier phase captures that name is <strong>refused before the run
+    starts</strong>, by name, rather than sending four thousand messages with an unresolved field in them.</p>
+
     <p>Read the numbers for what they are. FixTool's own acceptor answers every session on one thread, so a
     round trip measured against this venue is the tool's ceiling, not a venue's, and a shortfall at a high
     rate is a fact about the acceptor. The load dialog and <code>POST /load</code> say so in their far-end
-    notice. This venue's replies carry no Kotlin expression, so that ceiling is the socket and the panes: on
-    a laptop it held 100 requests a second with a median round trip under a millisecond, and a burst of
-    500 drained in about 100 ms. The FX venue's prices are Kotlin expressions, compiled per quote at about
-    60 ms each, so it answers roughly seventeen quotes a second and is not the example to run load against.
-    Point the load client at a real RFQ venue and the same two templates measure that venue instead.</p>
+    notice. This venue's replies are all <strong>generators</strong>, so that ceiling is the socket and
+    the panes: the drawn prices and the thirty-second validity render natively, in microseconds. The FX venue's prices are Kotlin expressions, compiled per quote at about 60&nbsp;ms each, so it
+    answers roughly seventeen quotes a second and is not the example to run load against. Point the load
+    client at a real RFQ venue and the same set measures that venue instead.</p>
 
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This
@@ -718,7 +763,7 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             of every unanswered request beside it and fifty specimen pairs. <code>--json</code> and
             <code>--junit</code> write the report where a build wants it.</li>
     </ul>
-    <p><strong>Load sets: several runs in order, under one seed.</strong> Most load proofs against a venue are two
+    <p id="load-sets"><strong>Load sets: several runs in order, under one seed.</strong> Most load proofs against a venue are two
         or three runs that depend on each other. Burst NewOrderSingle, then cancel the same ClOrdIDs. Ask for
         quotes, then order against them. A <strong>load set</strong> is that as a saved file: an ordered list of
         <em>phases</em>, each a complete load plan with its own template, profile, match tags, shape and settle
@@ -3205,8 +3250,21 @@ ${incoming["D"].valueOfTag(38)}
         <tr><td><code>${req.&lt;tag&gt;}</code></td><td>that tag's value from the message that triggered the rule, e.g. <code>${req.11}</code> for the client's ClOrdID</td><td>when the trigger arrives</td></tr>
         <tr><td><code>${uuid}</code></td><td>a fresh random id &mdash; an OrderID or ExecID</td><td><strong>per step, as that step is sent</strong></td></tr>
         <tr><td><code>${now}</code></td><td>the current UTC timestamp (<code>yyyyMMdd-HH:mm:ss.SSS</code>)</td><td><strong>per step, as that step is sent</strong></td></tr>
+        <tr><td><code>${uuid:12}</code></td><td>the same id trimmed to that many hex characters, no dashes, for a venue whose ExecIDs are a fixed width</td><td><strong>per step</strong></td></tr>
+        <tr><td><code>${utcnow+30s}</code></td><td>the UTC clock, shifted. Units are <code>s</code> seconds, <code>min</code> minutes, <code>h</code> hours, <code>d</code> days, <code>w</code> weeks, <code>m</code> <em>months</em>, <code>y</code> years. A ValidUntilTime(62) thirty seconds out is <code>${utcnow+30s}</code>.</td><td><strong>per step</strong></td></tr>
+        <tr><td><code>${utcnow:yyyyMMdd}</code></td><td>the clock in a pattern of your own, since a TradeDate(75) is a date and not a timestamp</td><td><strong>per step</strong></td></tr>
+        <tr><td><code>${random:1.09010:1.09019:5}</code></td><td>a number drawn from that closed range, quantised to that many decimals. What an RFQ venue prices its own quotes with, since a price identical on four thousand quotes is no venue anybody would recognise</td><td><strong>per step</strong></td></tr>
+        <tr><td><code>${order.leavesQty}</code>, <code>${quote.offer}</code></td><td>what this venue is holding. See <a href="#order-vocabulary">Reading the book in a reply</a> and <a href="#quote-vocabulary">Reading the quote in a reply</a></td><td><strong>per step</strong></td></tr>
         <tr><td><code>${req.38 / 2}</code></td><td>arithmetic on a request field &mdash; a <code>req</code> reference <em>inside</em> a larger expression is evaluated by the same engine <a href="#message-templates">message templates</a> use</td><td>when the trigger arrives</td></tr>
     </table>
+
+    <p>Every row above except the last two is a <strong>generator</strong>, and generators are rendered
+    natively rather than compiled: a quote carrying <code>${utcnow+30s}</code> and two
+    <code>${random:&hellip;}</code> prices costs microseconds. That matters because it used to cost about
+    60&nbsp;ms: the shorthand became a Kotlin expression and the script engine compiled it, once per
+    reply, on the one dispatch thread every acceptor reply shares. A venue with a single shorthand in its
+    quote answered fourteen requests a second because of it. Anything that is <em>not</em> a pure
+    generator (arithmetic, an assignment, a book reference) still goes to the engine.</p>
 
     <p>The per-step timing of <code>${uuid}</code> and <code>${now}</code> is the point of the split: a fill
     sent a second after the ack carries <em>its own</em> ExecID and <em>its own</em> TransactTime. A
@@ -3447,6 +3505,116 @@ ${incoming["D"].valueOfTag(38)}
         <strong>Clear order book</strong> scenario step is the run boundary that fixes it &mdash; see
         <a href="#assertions">Automated Verification &amp; Scenarios</a>. Capture writes one for you when
         it authors a both-sides flow.
+    </div>
+
+    <h3 id="quote-book">What the venue remembers: the quote book</h3>
+
+    <p>Beside the order book, and shaped like it with one thing reversed. An order is <strong>born by a
+    message the client sends</strong> and moved by the venue's replies. A quote is the other way round:
+    the venue sends the <code>35=S</code> that creates it, and the client's <code>35=AJ</code> answers it.
+    So a quote book is not the order book with different tags in it, and this is a second small book
+    rather than a setting on the first.</p>
+
+    <p>It is fed from the wire, exactly as the order book is, and it keeps four facts about each quote it
+    has sent: the id, the instrument, both prices and their sizes, and the ValidUntilTime. What it does
+    <em>not</em> keep is whether the quote has expired, because a quote does not become stale at a moment
+    anybody sends a message. That is a clock comparison, made when a rule asks.</p>
+
+    <p>One indirection is forced by FIX 4.4 itself. A client's QuoteResponse carries its own
+    <strong>QuoteRespID (693)</strong> as well as the QuoteID it is answering, and the venue's reply
+    (an ExecutionReport for a booked hit, a QuoteStatusReport for a refusal) echoes
+    <strong>693 and not 117</strong>, because a 4.4 ExecutionReport has no QuoteID field at all. So the
+    book remembers each response by its own id and resolves the venue's answer back to the quote through
+    that. The QuoteResponse itself moves nothing: whether a quote is spent is the venue's decision, and
+    that lives in the reply.</p>
+
+    <p>An ExecutionReport that books a quote hit is <strong>not</strong> offered to the order book. It
+    carries a ClOrdID the venue never saw on an order, so the order book could only file it as an
+    unattributed report, which is noise at the bottom of every RFQ run.</p>
+
+    <p><strong>Clear order book</strong>, the button and the scenario step alike, empties both.
+    They are one venue's memory, and a venue that had forgotten the orders but still refused a quote as
+    spent would be the most confusing possible half-answer.</p>
+
+    <h3 id="when-quote">Rules that read the quote</h3>
+
+    <p>A trigger can carry one <strong>whenQuote</strong> constraint beside its <code>whenOrder</code>,
+    ANDed the same way, taking one of four words:</p>
+
+    <table>
+        <tr><th>Word</th><th>What it means</th></tr>
+        <tr><td><code>unknown</code></td><td>This venue never sent that QuoteID, or the message names none.</td></tr>
+        <tr><td><code>open</code></td><td>Sent, unanswered, and still inside its ValidUntilTime.</td></tr>
+        <tr><td><code>expired</code></td><td>Sent and unanswered, but its validity has passed.</td></tr>
+        <tr><td><code>done</code></td><td>Already hit or already passed on.</td></tr>
+    </table>
+
+    <p>Which is the difference between a venue and a message echo. <strong>Nothing on the incoming
+    message distinguishes these four cases</strong>, so without the constraint a venue either honours
+    every hit or none:</p>
+
+    <div class="example">
+        <p><code>35=AJ</code> and the quote is <strong>open</strong> &rarr; <code>35=8</code>, a
+        trade at the price the quote carried<br>
+        <code>35=AJ</code> and the quote is <strong>expired</strong> &rarr; <code>35=AI</code>,
+        <code>297=7</code>, too late<br>
+        <code>35=AJ</code> and the quote is <strong>done</strong> &rarr; <code>35=AI</code>,
+        <code>297=5</code>, already answered<br>
+        <code>35=AJ</code> and the quote is <strong>unknown</strong> &rarr; <code>35=AI</code>,
+        <code>297=9</code>, we did not send that quote</p>
+    </div>
+
+    <div class="warning">
+    <p><strong>The constraint reads what the venue held <em>before</em> this message</strong>, exactly as
+    <code>whenOrder</code> does. A hit has to be judged against the quote as it stood when the hit
+    arrived, not against the quote its own reply is about to close.</p>
+    </div>
+
+    <p>There is one more thing a quote rule can do that no <code>whenOrder</code> rule needs: compare a
+    tag against <strong>the quote's own value</strong>. Pick <strong>quoteField</strong> as a condition's
+    matcher and choose which field: <em>44 equal to the quote's offer</em> is how &ldquo;the client
+    hit the price we quoted&rdquo; is written. No literal can express it, because every quote carries a
+    different price, and no tag on the incoming message can either: the price the client sends is
+    precisely the claim under test. A <code>quoteField</code> with no quote to resolve against is
+    <strong>false</strong>, which is what lets the unknown-quote rule sit below the hit rule and answer
+    instead.</p>
+
+    <p>It is offered only on an acceptor trigger, and refused in a scenario by name, because a scenario
+    replays against a counterparty and has no venue book to ask. That is the mirror image of
+    <code>reference</code>, which names a scenario variable and is refused in a trigger for the same
+    reason.</p>
+
+    <h3 id="quote-vocabulary">Reading the quote in a reply</h3>
+
+    <p>A reply template reads the quote the same way it reads the order:</p>
+
+    <table>
+        <tr><th>Reference</th><th>What it resolves to</th></tr>
+        <tr><td><code>${quote.quoteId}</code></td><td>The QuoteID this venue minted.</td></tr>
+        <tr><td><code>${quote.quoteReqId}</code></td><td>The QuoteReqID the client asked with.</td></tr>
+        <tr><td><code>${quote.symbol}</code></td><td>The instrument, as the venue quoted it.</td></tr>
+        <tr><td><code>${quote.bid}</code>, <code>${quote.offer}</code></td><td>The two prices this quote carried.</td></tr>
+        <tr><td><code>${quote.bidSize}</code>, <code>${quote.offerSize}</code></td><td>The sizes quoted on each side.</td></tr>
+        <tr><td><code>${quote.validUntil}</code></td><td>The ValidUntilTime, as epoch milliseconds.</td></tr>
+        <tr><td><code>${quote.state}</code></td><td><code>open</code> or <code>done</code>.</td></tr>
+    </table>
+
+    <p><code>31=${quote.offer}</code> is how a hit is booked at the price the venue actually quoted rather
+    than the price the client claimed. As with the order book, <strong>a reference that cannot resolve is
+    never sent as an empty field</strong>: the field here is a <em>price</em>, so an empty substitution
+    would put <code>31=</code> in a trade confirmation and the client would be blamed for it. The
+    structural answer is that a rule whose reply reads <code>${quote.&hellip;}</code> will not validate
+    without a <code>whenQuote</code> of <code>open</code>, <code>expired</code> or <code>done</code>.
+    Unlike an order, no trigger can mint the quote it reads, because a rule never answers the venue's
+    own send, so the constraint is the only way to be sure there is one.</p>
+
+    <div class="tip">
+        <strong>Trying it without a counterparty.</strong> <code>POST /acceptor/test</code> takes
+        <code>quoteState</code> (<code>unknown</code>, <code>open</code>, <code>expired</code> or
+        <code>done</code>) and a <code>quote</code> object of the venue's own names, so &ldquo;what
+        would this venue do with a hit that arrived too late&rdquo; is answerable without waiting thirty
+        seconds for one. It reports <code>assumedQuoteState</code> back, and each conditioned rule reports
+        <code>whenQuote</code> with what it asked for, what it read and the verdict.
     </div>
 
     <h3 id="reply-with">Replying by hand &mdash; Reply With&hellip;</h3>

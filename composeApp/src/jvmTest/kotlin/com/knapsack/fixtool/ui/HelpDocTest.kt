@@ -107,6 +107,66 @@ class HelpDocTest {
     }
 
     /**
+     * The acceptor chapter's *quote* half, pinned the same way and for the same reason: the venue grew a
+     * second memory, and each claim below is a fact whose absence turns a venue back into a message echo.
+     */
+    @Test
+    fun `the acceptor chapter states what the venue remembers about its quotes`() {
+        val chapter = html.substringAfter("""id="acceptor-rules"""").substringBefore("""<h2 id="trace"""")
+
+        val claims =
+            mapOf(
+                "a quote is born by a message the venue sends" to "born by a message the client sends",
+                "expiry is a clock comparison, not a stored flag" to "a clock comparison, made when a rule asks",
+                "the venue's answer echoes 693, not 117" to "<strong>693 and not 117</strong>",
+                "a booked quote hit is kept off the order book" to "not</strong> offered to the order book",
+                "clearing the book clears both" to "empties both",
+                "whenQuote's four words" to "whenQuote",
+                "nothing on the message tells the four cases apart" to
+                    "Nothing on the incoming message distinguishes these four cases",
+                "quoteField compares against the quote's own value" to "quoteField",
+                "an unresolvable quoteField is false" to "<strong>false</strong>",
+                "quoteField is refused in a scenario" to "refused in a scenario by name",
+                "\${quote.…} is never sent as an empty field" to "never sent as an empty field",
+                "a reply reading the quote needs a whenQuote" to "will not validate",
+                "no trigger can mint the quote it reads" to "no trigger can mint the quote it reads",
+                "the dry run takes a quote state" to "quoteState",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the acceptor chapter no longer says: $missing")
+    }
+
+    /**
+     * The RFQ example, by the four things a reader has to know before they can drive it. Every one of
+     * them was a different fact in the first slice of that venue, which is why they are pinned rather
+     * than left to whoever last edited the chapter.
+     */
+    @Test
+    fun `the RFQ example chapter states what the venue does now, not what it used to`() {
+        val chapter = html.substringAfter("""id="rfq-venue"""").substringBefore("""<h3>Closing the Workspace""")
+
+        val claims =
+            mapOf(
+                "the QuoteID is opaque" to "The QuoteID is opaque",
+                "each side is drawn from a band" to "drawn per quote from its own band",
+                "no draw can invert the quote" to "no draw can put a bid at or above an offer",
+                "a quote stands for thirty seconds" to "thirty seconds",
+                "the memory answers first" to "the venue's memory answering",
+                "the shipped set is named" to "RFQ round trip",
+                "the set is run by name from the CLI" to "--set rfq-round-trip",
+                "the capture names are the ones the templates read" to "\${quoteId}",
+                "an uncaptured name is refused before the run starts" to "refused before the run starts",
+                "the generators are why this venue can be loaded" to "render natively",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the RFQ example chapter no longer says: $missing")
+    }
+
+    /**
      * The scenarios chapter's multi-run half. A run set, an examples table and the batch CLI were each
      * reachable long before the guide mentioned them, and a feature nobody can find is one that did not
      * ship.
@@ -261,6 +321,12 @@ class HelpDocTest {
                 "minutes are spelled min" to "\${now+5min}",
                 "utcnow exists for UTCTimestamp fields" to "\${utcnow}",
                 "and why local time is wrong there" to "TransactTime(60)",
+                // Each of these is a generator an author cannot use without being told it exists, and
+                // each shipped before the guide named it.
+                "a trimmed uuid" to "\${uuid:12}",
+                "seconds, which a quote's validity needs" to "\${utcnow+30s}",
+                "a clock in a pattern of your own" to "\${utcnow:yyyyMMdd}",
+                "a drawn number, for a venue that prices its own quotes" to "\${random:1.09010:1.09019:5}",
             )
         val missing = claims.filterValues { it.flat() !in flat }.keys
 

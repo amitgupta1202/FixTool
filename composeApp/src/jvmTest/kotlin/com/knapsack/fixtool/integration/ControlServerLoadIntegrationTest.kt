@@ -3,6 +3,13 @@ package com.knapsack.fixtool.integration
 import com.knapsack.fixtool.control.ControlServer
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.load.LoadMatch
+import com.knapsack.fixtool.model.load.LoadPhaseSpec
+import com.knapsack.fixtool.model.load.LoadRecord
+import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.OnFailure
+import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
@@ -49,7 +56,7 @@ class ControlServerLoadIntegrationTest {
         testDir.deleteRecursively()
     }
 
-    private fun profile(resetOnLogon: Boolean) =
+    private fun profile(resetOnLogon: Boolean = true) =
         FixConnectionProfile(
             id = "lg",
             name = "LOADGEN",
@@ -109,6 +116,84 @@ class ControlServerLoadIntegrationTest {
 
         assertEquals(409, post("/loads/${report.id}/stop", "{}").statusCode())
         assertEquals(404, get("/loads/nothing-here").statusCode())
+    }
+
+    /** A row leads on the live phase and says how many phases there are, which a poller reads. */
+    @Test
+    fun `a set's record lists with its phase counts, and reads back whole`() {
+        val one = LoadFixtures.burstReport(unmatched = 0).copy(label = "Ask for a quote")
+        val two = LoadFixtures.burstReport(unmatched = 4).copy(label = "Hit them")
+        viewModel.loadRecordStore.write(
+            LoadRecord(
+                id = "set-1",
+                label = "Round trip",
+                startedAt = 1_000,
+                finishedAt = 2_000,
+                phases = listOf(one, two),
+                set = LoadRecord.SetInfo("round-trip", OnFailure.STOP),
+                seed = mapOf("run" to "b7f2"),
+            ),
+        )
+
+        val row = obj(get("/loads"))["loads"]!!.jsonArray.single().jsonObject
+        assertEquals("set-1", row["id"]!!.jsonPrimitive.content)
+        assertEquals(2, row["phases"]!!.jsonObject["total"]!!.jsonPrimitive.int)
+        assertEquals(2, row["phases"]!!.jsonObject["done"]!!.jsonPrimitive.int)
+        assertEquals(1, row["exitCode"]!!.jsonPrimitive.int)
+
+        val whole = obj(get("/loads/set-1"))
+        assertEquals(2, whole["phases"]!!.jsonArray.size)
+        assertEquals("round-trip", whole["set"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertEquals("FAILED", whole["verdict"]!!.jsonObject["outcome"]!!.jsonPrimitive.content)
+        assertEquals(2, whole["verdict"]!!.jsonObject["phase"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `the saved sets list, one reads back whole, and a name nothing answers to is a 404`() {
+        viewModel.loadSetStore.save(
+            LoadSet(
+                name = "round-trip",
+                label = "Round trip",
+                seed = mapOf("run" to "\${uuid:4}"),
+                storeAndLog = StoreAndLogOverride.FOR_LOAD,
+                phases =
+                    listOf(
+                        LoadPhaseSpec("Ask for a quote", "Quotes", "LOADGEN", match = LoadMatch(131, 131, "S"), shape = LoadShape.Burst(10)),
+                        LoadPhaseSpec("Hit them", "Hits", "LOADGEN", match = LoadMatch(11, 11, "8"), shape = LoadShape.Burst(10)),
+                    ),
+            ),
+        )
+
+        val list = obj(get("/load-sets"))
+        assertEquals(1, list["count"]!!.jsonPrimitive.int)
+        val row = list["sets"]!!.jsonArray.single().jsonObject
+        assertEquals("round-trip", row["name"]!!.jsonPrimitive.content)
+        assertEquals(2, row["phases"]!!.jsonPrimitive.int)
+        assertEquals(listOf("LOADGEN"), row["profiles"]!!.jsonArray.map { it.jsonPrimitive.content })
+
+        val whole = obj(get("/load-sets/round-trip"))
+        assertEquals("Round trip", whole["label"]!!.jsonPrimitive.content)
+        assertEquals(2, whole["phases"]!!.jsonArray.size)
+
+        assertEquals(404, get("/load-sets/nowhere").statusCode())
+    }
+
+    @Test
+    fun `a set whose phase names nothing is refused in that phase's voice, and none of it dials`() {
+        viewModel.saveConnectionProfile(profile())
+
+        val body =
+            """
+            {"phases":[
+              {"label":"Ask for a quote","template":"nowhere","profile":"LOADGEN",
+               "match":{"requestTag":131,"replyTag":131,"replyType":"S"},
+               "shape":{"kind":"burst","count":10}}]}
+            """.trimIndent()
+        val refused = obj(post("/load", body))
+        assertTrue(refused["error"]!!.jsonPrimitive.content.startsWith("Phase 1 · Ask for a quote:"), refused.toString())
+        assertTrue(refused["error"]!!.jsonPrimitive.content.contains("no template 'nowhere'"), refused.toString())
+
+        assertEquals(404, post("/load", """{"set":"nowhere"}""").statusCode())
     }
 
     @Test

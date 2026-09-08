@@ -695,7 +695,7 @@
         live and has <strong>Stop</strong>, and <strong>Recent &#9656;</strong> lists it with &#9889; beside the run
         sets, opening the same document over the record afterwards. From the command line:</p>
     <pre><code>fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
-fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --set run=c118</code></pre>
+fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed run=c118</code></pre>
     <ul>
         <li><strong>Burst or rate.</strong> <code>--count 4000</code> issues four thousand as fast as the lanes
             carry them. <code>--rate 500/s --for 10m</code> issues on a schedule the run never skips: a message
@@ -718,6 +718,39 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --set run
             of every unanswered request beside it and fifty specimen pairs. <code>--json</code> and
             <code>--junit</code> write the report where a build wants it.</li>
     </ul>
+    <p><strong>Load sets: several runs in order, under one seed.</strong> Most load proofs against a venue are two
+        or three runs that depend on each other. Burst NewOrderSingle, then cancel the same ClOrdIDs. Ask for
+        quotes, then order against them. A <strong>load set</strong> is that as a saved file: an ordered list of
+        <em>phases</em>, each a complete load plan with its own template, profile, match tags, shape and settle
+        window, and two things the set owns.</p>
+    <ul>
+        <li><strong>The seed.</strong> Rendered once when the set starts and shared by every phase, which is the
+            whole mechanism: <code>${messageIndex}</code> is 1-based per phase and independent of the lane, so
+            <code>ORD-${run}-${messageIndex}</code> in phase 1 and <code>41=ORD-${run}-${messageIndex}</code> in
+            phase 2 line up for every message. A seed value may be a generator such as
+            <code>${uuid:4}</code>, so a saved set gets a fresh run id every night rather than replaying one
+            machine's four hex characters at the venue. <code>--seed run=…</code> overrides it, which is how a
+            build passes its own number in.</li>
+        <li><strong>The store and log</strong>, applied once to every lane the set opens, because applying them
+            per phase would put a logon and a sequence reset in the middle of the set's clock.</li>
+        <li><strong>Where a phase starts counting.</strong> <code>${messageIndex}</code> restarts at 1 in every
+            phase, so a phase that should address the second half says <em>from 2,001</em>. That is what makes a
+            three-phase RFQ set possible: ask for 4,000 quotes, hit the first 2,000, pass the other 2,000.</li>
+        <li><strong>If a phase fails.</strong> By default the set stops and reports the rest as skipped, each
+            carrying its plan and a note saying why. Carry on runs every phase and the set verdict names the
+            first that did not pass. Either way the set exits 1.</li>
+        <li><strong>One record.</strong> <code>loads/&lt;id&gt;/load.json</code> holds every phase, and the JUnit
+            file is one <code>&lt;testsuites&gt;</code> with a <code>&lt;testsuite&gt;</code> per phase. A single
+            run is the same record with one phase, which is why the document, Compare and Recent needed nothing
+            new to read a set.</li>
+    </ul>
+    <p>Sets live in <code>&lt;workspace&gt;/load-sets/&lt;name&gt;.json</code>, beside the records they produce,
+        so a set checked in next to the code survives a fresh <code>--home</code>. From a build:</p>
+    <pre><code>fixtool load --set rfq-round-trip --seed run=$BUILD_NUMBER --junit reports/rfq.xml
+echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stopped · 2 it could not start</code></pre>
+    <p>A reply that arrives while a later phase is running is credited to the phase that asked for it. Against a
+        matching venue that is not a corner case: phase 1's orders keep drawing fills through the cancel phase,
+        and a set counts them as phase 1's late replies rather than as phase 2 strays.</p>
     <p>Pick <strong>Memory</strong> and <strong>None</strong> under <a href="#store-and-log">Store and log</a> for
         the load profile, or pass <code>--store memory --log none</code>, so the run measures the venue's
         keep-up rather than FixTool's file appends. A memory store needs Reset on Logon.</p>

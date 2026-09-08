@@ -115,11 +115,15 @@ import com.knapsack.fixtool.ui.diff.ViewerSlot
 import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.ui.sessionOrNull
 import com.knapsack.fixtool.model.load.LoadPlan
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.service.load.LoadRecordStore
 import com.knapsack.fixtool.service.load.LoadRefused
 import com.knapsack.fixtool.service.load.LoadRunner
+import com.knapsack.fixtool.service.load.LoadSetRunner
+import com.knapsack.fixtool.service.load.LoadSetStore
 import com.knapsack.fixtool.service.load.LoadTemplates
 import com.knapsack.fixtool.util.NotifyingLogger
 import com.knapsack.fixtool.util.Rebuildable
@@ -2238,6 +2242,21 @@ class FixMessageViewModel(
         }
     val loadRecordStore by loadRecordHolder
 
+    /**
+     * Saved load sets — `<home>/load-sets/<name>.json`, beside the records they produce.
+     *
+     * Its own store beside [runSetStore] for the same reason [loadRecordStore] is its own: a load set has
+     * phases rather than scenario entries, and CI selects it by name on `fixtool load --set`.
+     */
+    private val loadSetHolder =
+        Rebuildable {
+            LoadSetStore(
+                customDir = resolveStoragePath("", "load-sets"),
+                onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            )
+        }
+    val loadSetStore by loadSetHolder
+
     // The rail's view-chrome store — a small local JSON beside app_settings.json, never in the scenarios dir.
     private val scenarioViewStateService by lazy {
         ScenarioViewStateService(
@@ -3546,9 +3565,15 @@ class FixMessageViewModel(
 
     // ---- Load runs -------------------------------------------------------------------------------------
 
-    /** The load run in progress, as the document draws it. Null when none is. */
-    private val _activeLoadRun = MutableStateFlow<LoadReport?>(null)
-    val activeLoadRun: StateFlow<LoadReport?> = _activeLoadRun.asStateFlow()
+    /**
+     * The load run in progress, as the document draws it. Null when none is.
+     *
+     * A record and not a report, because a set is several phases under one id and the document has to draw
+     * the one that is running beside the ones that are done. A single run is the one-phase record it always
+     * was on disk.
+     */
+    private val _activeLoadRun = MutableStateFlow<LoadRecord?>(null)
+    val activeLoadRun: StateFlow<LoadRecord?> = _activeLoadRun.asStateFlow()
 
     /** The template the editor asked to load with, while the dialog for it is open. */
     private val _loadDialogTemplate = MutableStateFlow<LoadTemplate?>(null)
@@ -3681,8 +3706,12 @@ class FixMessageViewModel(
             }
         val host =
             ViewModelLoadHost(
-                lanes = lanes,
-                listeners = listeners,
+                lanesByProfile = mapOf(plan.profileId to lanes),
+                listenersByProfile =
+                    plan.listenProfileIds.associateWith { pid ->
+                        val ofProfile = getProfileSessions(pid)
+                        listeners.filter { it in ofProfile }
+                    },
                 resolve = { template, scope, sessionTitle -> ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle) },
                 dictionaryProvider = { _dictionary.value },
                 settingsProvider = { _appSettings.value },
@@ -3692,7 +3721,7 @@ class FixMessageViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 LoadRunner(host, loadRecordStore).run(reserved, cancelled = { claim.stop.get() }) { progress ->
-                    _activeLoadRun.value = progress
+                    _activeLoadRun.value = LoadRecord.of(progress)
                 }
             } catch (e: LoadRefused) {
                 showNotification(e.message ?: "the load run could not start", NotificationType.ERROR)
@@ -3705,7 +3734,89 @@ class FixMessageViewModel(
                 release(claim)
                 // Whatever the run left behind, the live flow says what the record says: with the claim gone,
                 // a record still marked running heals to stopped on this read, and a poller sees the truth.
-                _activeLoadRun.value = loadRecordStore.read(reserved.id)
+                _activeLoadRun.value = loadRecordStore.readRecord(reserved.id)
+                loadRecordStore.prune(_appSettings.value.runRecordsKept)
+            }
+        }
+        return reserved
+    }
+
+    /** One field's once-per-lane expression, through the evaluator a scenario step uses. */
+    private fun loadResolve(template: String, scope: Map<String, String>, sessionTitle: String): String =
+        ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle)
+
+    /** Every saved load set, by name. What the Run menu lists and the editor's left column holds. */
+    fun loadSets(): List<LoadSet> = loadSetStore.list()
+
+    fun loadSet(name: String): LoadSet? = loadSetStore.load(name)
+
+    /**
+     * **Starts a load set over this window's live sessions.** Null when it cannot, with the reason shown.
+     *
+     * The lanes are gathered for every profile any phase names, before phase 1, and claimed together, so a
+     * scenario on any of those sessions is refused for the length of the set rather than between its
+     * phases. The document opens the moment the set starts.
+     */
+    @Suppress("ReturnCount")
+    fun startLoadSet(planned: LoadSet.Planned): LoadSet.Planned? {
+        val lanesByProfile = linkedMapOf<String, List<Pair<Lane, FixMessageSession>>>()
+        for (profileId in planned.phases.map { it.profileId }.distinct()) {
+            when (val available = fanOutLanes(profileId)) {
+                is FanOutLanes.Unavailable -> {
+                    showNotification(available.why, NotificationType.ERROR)
+                    return null
+                }
+                is FanOutLanes.Available -> {
+                    available.shortfall?.let { showNotification(it, NotificationType.WARNING) }
+                    lanesByProfile[profileId] =
+                        available.lanes.mapNotNull { lane ->
+                            _sessions.firstOrNull { it.title == lane.sessionTitle }?.let { lane to it }
+                        }
+                }
+            }
+        }
+        val listenersByProfile =
+            planned.phases
+                .flatMap { it.listenProfileIds }
+                .distinct()
+                .associateWith { pid ->
+                    getProfileSessions(pid).filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
+                }
+        val titles =
+            lanesByProfile.values.flatten().map { it.second.title } +
+                listenersByProfile.values.flatten().map { it.title }
+        val reserved = planned.copy(id = loadRecordStore.reserve(planned.id))
+        val claim =
+            claimSessions(RunSessions.Touched(sessions = titles.toSet()), reserved.label, reserved.id) ?: run {
+                showNotification(runBusyReason(), NotificationType.ERROR)
+                return null
+            }
+        val host =
+            ViewModelLoadHost(
+                lanesByProfile = lanesByProfile,
+                listenersByProfile = listenersByProfile,
+                resolve = { template, scope, title -> loadResolve(template, scope, title) },
+                dictionaryProvider = { _dictionary.value },
+                settingsProvider = { _appSettings.value },
+            )
+        _activeLoadRun.value = null
+        openLoadRun(reserved.id)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                LoadSetRunner(host, loadRecordStore).run(reserved, cancelled = { claim.stop.get() }) { progress ->
+                    _activeLoadRun.value = progress
+                }
+            } catch (e: LoadRefused) {
+                showNotification(e.message ?: "the load set could not start", NotificationType.ERROR)
+            } catch (e: Throwable) {
+                // Throwable, not Exception, for the reason the single run's catch says: the first live run
+                // died of a StackOverflowError, which slipped past an Exception catch.
+                @Suppress("TooGenericExceptionCaught")
+                logger.error("Load set failed: ${e.message}", e, notifyUser = true)
+            } finally {
+                host.release()
+                release(claim)
+                _activeLoadRun.value = loadRecordStore.readRecord(reserved.id)
                 loadRecordStore.prune(_appSettings.value.runRecordsKept)
             }
         }
@@ -4527,6 +4638,7 @@ class FixMessageViewModel(
         runRecordHolder.reset()
         runSetHolder.reset()
         loadRecordHolder.reset()
+        loadSetHolder.reset()
 
         loadConnectionProfiles()
         loadEnvironments()

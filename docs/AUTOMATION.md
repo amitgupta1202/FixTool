@@ -154,12 +154,14 @@ for replies**, then accounts for every reply that lands on any participating ses
 
 ```bash
 fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
-fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --set run=c118 --junit reports/soak.xml
+fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed run=c118 --junit reports/soak.xml
+fixtool load --set rfq-round-trip --seed run=$BUILD_NUMBER --junit reports/rfq.xml
 echo $?      # 0 everything answered · 1 unmatched, tool-limited, stopped, or a strict-rate shortfall · 2 could not run
 ```
 
 ```
 fixtool load <template> --profile <name> (--count <n> | --rate <r>/s --for <d>) [options]
+fixtool load --set <name> [--seed <k>=<v>]… [--on-failure stop|continue] [options]
 
   <template>             a saved message's name or id, or a path to a .fix file holding one message
   --profile <name>       the multi-session initiator profile whose lanes issue
@@ -170,21 +172,33 @@ fixtool load <template> --profile <name> (--count <n> | --rate <r>/s --for <d>) 
   --listen <profile>     also match replies landing on this profile's sessions (repeatable)
   --match <req>=<rep>    request tag to reply tag (default: the template's first correlation tag, both sides)
   --reply-type <35>      count only replies of this MsgType as answers
-  --set <k>=<v>          seed a value into every message's scope as ${k} (repeatable)
+  --set <name>           run a saved load set (<home>/load-sets/<name>.json): several phases in order,
+                         under one seed, with one record
+  --on-failure stop|continue   after a phase that did not pass (default: the file's, then stop)
+  --seed <k>=<v>         seed a value into every message's scope as ${k} (repeatable). With --set it
+                         overrides the file's value, so a build can pass its own run id
+  --set <k>=<v>          still read as a seed this release, with a note on stderr to write --seed
   --store file|memory    message store for this run's sessions (default: the profile's)
   --log file|none        message log for this run's sessions (default: the profile's)
-  --strict-rate          exit 1 on a rate shortfall, not only on unmatched replies
-  --json <file>          write the load report
-  --junit <file>         write one <testsuite> with three cases: completeness, rate, tool
-  --home <dir>           read profiles and templates from <dir> instead of ~/.fixtool
+  --strict-rate          exit 1 on a rate shortfall, not only on unmatched replies. With --set it
+                         applies to every phase
+  --json <file>          write the record: the same JSON as loads/<id>/load.json and GET /loads/<id>
+  --junit <file>         write one <testsuite> with three cases: completeness, rate, tool. A set of several
+                         phases writes one <testsuites> with a <testsuite> per phase
+  --home <dir>           read profiles, templates and load sets from <dir> instead of ~/.fixtool
 ```
+
+**`--set` changed meaning.** It seeded a value until load sets needed the spelling `fixtool run --set
+<name>` already has. The seed flag is `--seed`, and a `--set` whose value carries an `=` is still read as a
+seed this release, with one line on stderr. Set names are slugs and cannot contain `=`, so the two never
+collide.
 
 **What varies per message.** `${messageIndex}` (1-based), the `--set` seeds, `${uuid}`, `${uuid:N}`,
 `${now}` and `${utcnow}` with their offsets and patterns are rendered per message by string substitution.
 `${sessionIndex}` and the other lane names are the lane's, as in a fan-out. Anything else, a `${out.D.11}`
 or a Kotlin expression, is evaluated **once per lane** and frozen, and the report lists its tag under
 `fixedTags` so nobody believes it was re-read per message. A `${name}` nothing seeds is refused before a
-lane dials, with the `--set` that would fix it.
+lane dials, with the `--seed` that would fix it.
 
 **How replies are matched.** One matcher reads the socket stamps of every participating session, the lanes
 and the `--listen` sessions alike. A request is pending from its SEND stamp until the first reply carrying
@@ -201,22 +215,86 @@ that never left the socket, or sends the engine refused. `issued` is therefore t
 handed to the engine and left the socket, and completeness is judged over the last.
 
 **The report.** `loads/<id>/load.json` in the workspace, written as the run progresses and once more at the
-end, beside `unmatched.fix` (the wire of every unanswered request) and `specimens.fix` (fifty matched
-pairs, request then reply). Never every message. The JSON carries `issue`, `rate`, `replies`, `timing`
-(`elapsedMs` first send to last matched reply, `drainMs` last send to last matched reply), `roundTrip`
-(min, p50, p95, p99, max, mean, samples), `perSecond` buckets, `tool`, the first 1,000 `unmatched` with
-`unmatchedTotal`, and `verdict`. The JUnit file is one `<testsuite>` with the three cases, so a build that
-already ingests `fixtool run`'s XML needs no change.
+end, beside each phase's `NN-unmatched.fix` (the wire of every unanswered request) and `NN-specimens.fix`
+(fifty matched pairs, request then reply). Never every message. The file is a **record**: `schema`, `id`,
+`label`, `startedAt`, `finishedAt`, `status`, `exitCode`, the set's `seed` and `verdict`, and `phases[]`.
+Each phase carries `issue`, `rate`, `replies`, `timing` (`elapsedMs` first send to last matched reply,
+`drainMs` last send to last matched reply), `roundTrip` (min, p50, p95, p99, max, mean, samples),
+`perSecond` buckets, `tool`, the first 1,000 `unmatched` with `unmatchedTotal`, `evidence` naming its
+files, and its own `verdict`. A single run is a record with one phase.
 
-**From the control surface.** `POST /load` starts the same run as a job and answers 202 with its id;
-`GET /loads/<id>?wait=10000` polls it and returns the finished report; `POST /loads/<id>/stop` stops it.
-The MCP tools are `fixtool_load` and `fixtool_load_status`, the same shape as `fixtool_run_set` and
-`fixtool_run_status`.
+`--json` and `GET /loads/<id>` write that record too, so the file, the flag and the route agree byte for
+byte. **This is a break from 1.17**, where both wrote the bare report: a reader of the top-level
+`.verdict` now reads `.phases[0].verdict`, or the set-level `.exitCode`.
+
+The JUnit file is one `<testsuite>` with the three cases for a single run, so a build that already ingests
+`fixtool run`'s XML needs no change. A set of several phases writes one `<testsuites>` with a `<testsuite>`
+per phase, and a skipped phase is three `<skipped/>` cases carrying the note saying why.
 
 **Store and log for a load run.** Pass `--store memory --log none` unless the profile already says so: the
 per-message file appends cap how fast a lane can issue, and a store that grows for the length of a soak is
 not wanted. A memory store needs Reset on Logon on the profile, and the command exits 2 with the reason
 when it is off.
+
+## Load sets (`--set <name>`)
+
+Most load proofs against a venue are two or three runs that depend on each other: burst NewOrderSingle,
+then cancel the same ClOrdIDs. Ask for quotes, then order against them. A **load set** is that, as a file:
+several phases in order, on lanes held for the whole set, under one seed, with one record and one exit
+code.
+
+```jsonc
+// <home>/load-sets/rfq-round-trip.json
+{ "schema": 1,
+  "name": "rfq-round-trip",
+  "label": "RFQ round trip",
+  "seed": { "run": "${uuid:4}" },                      // rendered once per run, then frozen
+  "storeAndLog": { "store": "MEMORY", "log": "NONE" },  // once, for every lane the set opens
+  "onFailure": "STOP",                                  // or CONTINUE
+  "phases": [
+    { "label": "Ask for a quote", "template": "RFQ Load QuoteRequest", "profile": "RFQ Load Client",
+      "match": { "requestTag": 131, "replyTag": 131, "replyType": "S" },
+      "shape": { "kind": "burst", "count": 4000 }, "settleMs": 60000 },
+    { "label": "Pass the other 2,000", "template": "RFQ Load Pass", "profile": "RFQ Load Client",
+      "match": { "requestTag": 117, "replyTag": 117, "replyType": "AI" },
+      "shape": { "kind": "burst", "count": 2000 }, "indexFrom": 2001, "settleMs": 30000 }
+  ] }
+```
+
+**The seed is the set's.** Sharing it is the whole point: `${messageIndex}` is 1-based per phase and
+independent of the lane, so `ORD-${run}-${messageIndex}` in phase 1 and `41=ORD-${run}-${messageIndex}` in
+phase 2 line up for every message, whatever the lane count. A seed value may be a **generator**
+(`${uuid:4}`), rendered once when the set starts, so a saved set gets a fresh run id every night rather
+than replaying one machine's four hex characters at the venue. `--seed` on the command line overrides it.
+
+**`indexFrom`** says where a phase's `${messageIndex}` starts, so a three-phase set can hit the first 2,000
+quotes and pass the other 2,000. Default 1.
+
+**The store is the set's**, because applying it per phase would put a logon and a sequence reset in the
+middle of the set's clock.
+
+**Nothing dials until every phase is fine.** Every phase goes through the same refusals a single run does,
+each sentence carrying its phase: "Phase 2 · Hit the first 2,000: The template reads `${desk}` and nothing
+seeds it." The store's own sentence is printed once for the set. A set of six never fails on phase five for
+something that could have been said before phase one.
+
+**A phase passes when its exit code is 0**, which is the rule `fixtool load` already exits on. Under `STOP`
+the phases after a failure are `SKIPPED`, carrying their plan and a note saying why, and the set exits 1.
+Under `CONTINUE` they all run and the set verdict names the first that did not pass. Stopping by hand
+stops the running phase and skips the rest, and the set exits 1 because a build cannot pass on a run
+somebody ended.
+
+**Late replies go to the phase that asked.** The set owns one stamp listener per session. Every reply is
+offered to the live phase first, then to each finished phase newest first, and only a reply nobody issued
+is a stray, on the phase that was running when it came. Against a matching venue that is not a corner
+case: phase 1's orders keep drawing fills while phase 2 cancels them.
+
+**From the control surface.** `POST /load` starts the same run as a job and answers 202 with its id.
+`{"set": "rfq-round-trip", "seed": {"run": "b4412"}}` runs a saved set, and a body carrying `phases` runs
+one inline. `GET /loads/<id>?wait=10000` polls it and returns the record, `POST /loads/<id>/stop` stops it,
+`GET /load-sets` lists the saved sets and `GET /load-sets/<name>` returns one whole. The MCP tools are
+`fixtool_load` (which takes the same `set` argument) and `fixtool_load_status`, the same shape as
+`fixtool_run_set` and `fixtool_run_status`.
 
 ## HTTP API
 
@@ -274,9 +352,12 @@ acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill Q
 | `POST /scenarios/capture` | `{"name", "profile"?, "sessions"?}` | record the live message flow into a scenario (auto-parameterized, echoed ids wired to `reference` matchers). Returns `warning` when the loaded dictionary cannot name a captured tag — an unclassifiable tag is replayed as a literal, so a timestamp among them replays **stale**; `omitted[]` names messages left out entirely. `echoProposals[]` lists correlation ids this **flow** reveals that nobody has declared — `{kind: MINT\|CAPTURE, role, tags[], suggestedName, value, evidence}`. Reported, never applied: accept one by POSTing it to `/dictionary/roles` and capturing again |
 | `POST /scenarios/capture-paste` | `{"name", "wire", "session"?, "senderCompId"?, "targetCompId"?, "profile"?}` | capture from **pasted wire** — one FIX message per line, read like the paste sheet: a `\|`-inside-a-value line is **refused** (never guessed), and a message whose direction `SenderCompID(49)` cannot settle **blocks the save**. Every step is badged `pasted`. Returns `{status, id, steps, pasted, warning?, echoProposals?, refused[]}` or `{status:"refused", undirected[]}` — `warning` names the tags the loaded dictionary cannot classify (see `/scenarios/capture`) |
 | `POST /load`         | `{"profile", "template"\|"fields"\|"raw", "count"\|("rate","forMs"), "settleMs"?, "listen"?, "match"?, "seed"?, "store"?, "log"?, "strictRate"?}` | **starts a load run as a job** → 202 `{load, status, label, notice?}`; 409 when the lanes are held or none is logged on; an error object when the plan is wrong, including a memory store without Reset on Logon. See [Running a load without the app](#running-a-load-without-the-app-fixtool-load) for what every field means |
-| `GET /loads`         | —                                      | recent load runs, newest first: `{count, loads:[{id, label, status, phase, issued, matched, unmatched, startedAt, finishedAt?, exitCode?}]}` |
-| `GET /loads/<id>`    | query: `wait`? (ms, max 10000)         | the load report, live while it runs and from `loads/<id>/load.json` afterwards, the same JSON `fixtool load --json` writes. `wait` holds the call until the run finishes or the wait runs out |
-| `POST /loads/<id>/stop` | —                                   | 202 `{status:"stopping"}`, or 409 when that run is not running |
+| `POST /load`         | `{"set", "seed"?, "onFailure"?}` or `{"phases":[…], "seed"?, "storeAndLog"?, "onFailure"?}` | **starts a load set as a job** → 202 `{load, status, label, phases}`; 404 when no set answers to the name; an error object naming the phase whose plan is wrong. See [Load sets](#load-sets---set-name) |
+| `GET /loads`         | —                                      | recent load runs, newest first: `{count, loads:[{id, label, status, stage, phases:{total, done, current?}, issued, matched, unmatched, startedAt, finishedAt?, exitCode?}]}`. The counts are the live phase's, or the last one's |
+| `GET /loads/<id>`    | query: `wait`? (ms, max 10000)         | the load **record**, live while it runs and from `loads/<id>/load.json` afterwards, the same JSON `fixtool load --json` writes. `wait` holds the call until the run finishes or the wait runs out |
+| `POST /loads/<id>/stop` | —                                   | 202 `{status:"stopping"}`, or 409 when that run is not running. A set stops its live phase and skips the rest |
+| `GET /load-sets`     | —                                      | the saved load sets: `{count, sets:[{name, label, phases, profiles}]}` |
+| `GET /load-sets/<name>` | —                                   | one set whole, the same JSON `load-sets/<name>.json` holds; 404 when nothing answers to the name |
 | `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`?, `sessions`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`). `sessions` is a throwaway `{from: to}` session remap for this run only — nothing persisted; sessions the run needs are auto-connected from saved profiles. To keep an environment durably, save a remapped copy of the scenario (the rail's ▾ beside Run). **409** while a run or a set holds the slot |
 | `POST /scenarios/run` (a **set**) | `{"set":"nightly"}`, `{"ids":[…],"repeat"?}` or `{"id","repeat":20}`, and `{"id","rows":true}` / `{"id","rows":["row name"]}` for the Examples table or named rows, or `{"id","fanOut":{"profile","session"?}}` to run it once per session of a multi-session profile, concurrently, plus `stopOnFailure`?, `pauseMs`? | **starts a job** and answers `202 {runSet, status, entries, unresolved?}` — a twelve-scenario suite is minutes and this route runs on one of four HTTP threads. Each entry runs isolated and writes its record as it lands |
 | `GET /scenarios/runs` | — | the recent sets, newest first: `{count, sets:[{id,label,status,total,done,passed,failed,startedAt}]}` |

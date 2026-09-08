@@ -22,8 +22,8 @@ class ViewModelLoadHostTest {
 
     private fun host(lanes: List<Pair<Lane, FixMessageSession>> = emptyList()) =
         ViewModelLoadHost(
-            lanes = lanes,
-            listeners = emptyList(),
+            lanesByProfile = mapOf("p" to lanes),
+            listenersByProfile = emptyMap(),
             resolve = { template, scope, title -> "$title:$template:${scope["run"]}" },
             dictionaryProvider = { dictionary },
             settingsProvider = { settings },

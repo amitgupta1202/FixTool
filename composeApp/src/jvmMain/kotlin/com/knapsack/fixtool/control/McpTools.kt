@@ -540,8 +540,14 @@ object McpTools {
                     "says otherwise; a repeat is a duplicate, a reply to nothing issued is a stray, nothing is " +
                     "aged out before settleMs closes. Poll with fixtool_load_status. Prefer store=memory, log=none " +
                     "so the run measures the venue rather than FixTool's file appends; a memory store needs Reset " +
-                    "on Logon on the profile. Returns {load, status, label} or an error naming what is wrong.",
+                    "on Logon on the profile. set='<name>' runs a SAVED LOAD SET instead: several phases in order " +
+                    "on lanes held for the whole set, under one seed, with one record, so phase 2 can address the " +
+                    "ids phase 1 minted. A set takes seed and onFailure=stop|continue and needs no profile or " +
+                    "template, because each phase names its own. Returns {load, status, label} plus {phases} for a " +
+                    "set, or an error naming what is wrong and which phase.",
                 props(
+                    "set" to string("run this saved load set by name, instead of one template"),
+                    "onFailure" to enumStr("stop", "continue"),
                     "profile" to string("the multi-session initiator profile whose lanes issue (name or id)"),
                     "template" to string("a saved message's name"),
                     "fields" to arraySchema(objectSchema("{tag, value}"), "the message as tag-value pairs (alternative to template)"),
@@ -552,12 +558,13 @@ object McpTools {
                     "settleMs" to integer("how long to wait for replies after the last send (default 60000)"),
                     "listen" to arraySchema(string(), "profiles whose sessions take part in matching but never issue"),
                     "match" to objectSchema("{requestTag, replyTag?, replyType?}: how a reply is paired with its request"),
-                    "seed" to objectSchema("values every message can read as \${name}, e.g. {run: 'b7f2'}"),
+                    "seed" to objectSchema("values every message can read as \${name}, e.g. {run: 'b7f2'}; with set it overrides the file's"),
                     "store" to enumStr("file", "memory"),
                     "log" to enumStr("file", "none"),
                     "strictRate" to boolean("make a rate shortfall a failing verdict (default false)"),
                 ),
-                required = listOf("profile"),
+                // No `required`: a run needs `profile` and a set needs `set`, and the route says which is
+                // missing in a sentence rather than the schema refusing both spellings at once.
             ),
             tool(
                 "fixtool_load_status",

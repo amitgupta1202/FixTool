@@ -86,11 +86,14 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView, modifier: Modifier = Modifier) {
     val live by viewModel.activeLoadRun.collectAsState()
-    val report = if (live?.id == doc.loadId) live else remember(doc.loadId, live) { viewModel.loadRecordStore.read(doc.loadId) }
-    if (report == null) {
+    val record =
+        if (live?.id == doc.loadId) live else remember(doc.loadId, live) { viewModel.loadRecordStore.readRecord(doc.loadId) }
+    if (record == null) {
         PrunedRecord(viewModel.loadRecordStore.directory, modifier)
         return
     }
+    // The phase the document leads on: the one running, or the last one, which for a single run is the run.
+    val report = record.phases.firstOrNull { it.status == LoadStatus.RUNNING } ?: record.only
     val wire =
         remember(report.id, report.status) {
             if (report.unmatched.isEmpty()) emptyList() else viewModel.loadRecordStore.unmatchedWire(report.id, report.evidence)

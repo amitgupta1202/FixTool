@@ -7,7 +7,7 @@ import com.knapsack.fixtool.service.load.CompiledTemplate
  * **Several load runs in order, under one seed, with one report.**
  *
  * Most load proofs against a venue are two or three runs that depend on each other: burst
- * NewOrderSingle, then cancel the same ClOrdIDs; ask for quotes, then order against them. That was a
+ * NewOrderSingle, then cancel the same ClOrdIDs. Ask for quotes, then order against them. That was a
  * wrapper script around `fixtool load`, and the script owned the seed, the stop rule and the combined
  * report, which are the three things the tool already does well for one run.
  *

@@ -22,8 +22,15 @@ import org.slf4j.LoggerFactory
  * Reconnecting means a logout and a fresh logon, which the dialog says.
  */
 class ViewModelLoadHost(
-    private val lanes: List<Pair<Lane, FixMessageSession>>,
-    private val listeners: List<FixMessageSession>,
+    /**
+     * The issuing lanes, by the profile they belong to.
+     *
+     * By profile and not one flat list, because a set's phases may issue from different profiles and the
+     * runner asks for each one by name. A single run passes the one entry it has.
+     */
+    private val lanesByProfile: Map<String, List<Pair<Lane, FixMessageSession>>>,
+    /** The listen-only sessions, by the profile they belong to, for the same reason. */
+    private val listenersByProfile: Map<String, List<FixMessageSession>>,
     private val resolve: (template: String, scope: Map<String, String>, sessionTitle: String) -> String,
     /**
      * Named for what they are, not what they return. A constructor property called `dictionary` beside
@@ -38,13 +45,16 @@ class ViewModelLoadHost(
     /** Sessions reconnected under the override, with the config to put back. */
     private val restore = mutableListOf<Pair<FixMessageSession, FixConnectionConfig>>()
 
-    override fun openLanes(profileId: String, override: StoreAndLogOverride?): List<LoadLane> {
-        val ready = lanes.filter { (_, session) -> applyOverride(session, override) }
-        return ready.map { (lane, session) -> SessionLoadLane(lane, session) }
-    }
+    override fun openLanes(profileId: String, override: StoreAndLogOverride?): List<LoadLane> =
+        lanesByProfile[profileId]
+            .orEmpty()
+            .filter { (_, session) -> applyOverride(session, override) }
+            .map { (lane, session) -> SessionLoadLane(lane, session) }
 
     override fun openListeners(profileIds: List<String>, override: StoreAndLogOverride?): List<LoadLane> =
-        listeners
+        profileIds
+            .flatMap { listenersByProfile[it].orEmpty() }
+            .distinct()
             .filter { applyOverride(it, override) }
             .map { SessionLoadLane(Lane(0, it.title, it.currentConfig?.senderCompID.orEmpty(), it.sessionQualifier), it) }
 

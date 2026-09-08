@@ -22,11 +22,14 @@ import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadRecord
+import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.load.LoadReportCodec
+import com.knapsack.fixtool.service.load.LoadSetCodec
 import com.knapsack.fixtool.service.load.LoadTemplates
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.RunEntry
@@ -177,6 +180,7 @@ class ControlServer(
         httpServer.createContext("/scenarios/runs") { ex -> handleCoded(ex) { runSets(ex) } }
         httpServer.createContext("/load") { ex -> handleCoded(ex) { startLoad(readJson(ex)) } }
         httpServer.createContext("/loads") { ex -> handleCoded(ex) { loads(ex) } }
+        httpServer.createContext("/load-sets") { ex -> handleCoded(ex) { loadSets(ex) } }
         httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
         httpServer.createContext("/scenarios/capture-paste") { ex -> handle(ex) { capturePaste(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
@@ -1754,6 +1758,9 @@ class ControlServer(
      */
     @Suppress("ReturnCount", "LongMethod", "CyclomaticComplexMethod")
     private fun startLoad(body: JsonObject): Coded {
+        // A set by name, or a set inline: several phases in order under one seed, with one record. Today's
+        // one-phase body is untouched, because on this surface a set is the same job a run is.
+        if (body["set"] != null || body["phases"] != null) return startLoadSet(body)
         val profileKey = body["profile"]?.jsonPrimitive?.contentOrNull ?: return Coded(HTTP_OK, errorObject("a load run needs a 'profile'"))
         val profile =
             onEdt { viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey } }
@@ -1841,6 +1848,106 @@ class ControlServer(
     }
 
     /**
+     * **Starts a load set as a job**: 202 with the id and the phase count, the refusals as an error object.
+     *
+     * `{"set": "rfq-round-trip", "seed": {"run": "b4412"}}` runs a saved set, and `{"phases": [...]}` with
+     * the set-level fields runs one inline, which is how an agent runs a set it composed. Either way the
+     * refusals come out before a lane dials, each naming its phase.
+     */
+    @Suppress("ReturnCount")
+    private fun startLoadSet(body: JsonObject): Coded {
+        val named = body["set"]?.jsonPrimitive?.contentOrNull
+        val set =
+            when {
+                named != null ->
+                    viewModel.loadSet(named)
+                        ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved load set '$named'"))
+                else ->
+                    runCatching { LoadSetCodec.fromJson(body) }.getOrNull()
+                        ?: return Coded(HTTP_OK, errorObject(INLINE_SET_REFUSAL))
+            }
+        val resolve = ControlSetResolver()
+        val problems = set.problems(resolve, LoadPlan.Surface.API)
+        if (problems.isNotEmpty()) {
+            val first = problems.first()
+            return Coded(HTTP_OK, errorObject(first.describe(first.phase?.let { set.phases.getOrNull(it - 1)?.label })))
+        }
+        val seed = (body["seed"] as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content }
+        val onFailure =
+            body["onFailure"]?.jsonPrimitive?.contentOrNull?.let { k ->
+                OnFailure.entries.firstOrNull { it.name.equals(k, ignoreCase = true) }
+            } ?: set.onFailure
+        val planned =
+            set
+                .copy(onFailure = onFailure)
+                .plan(resolve, seed, RunSets.id(System.currentTimeMillis(), set.name))
+        val started =
+            onEdt { viewModel.startLoadSet(planned) }
+                ?: return Coded(
+                    HTTP_CONFLICT,
+                    errorObject(
+                        laneRefusal(planned.phases.first().profileId) ?: viewModel.runBusyReason(),
+                    ),
+                )
+        return Coded(
+            HTTP_ACCEPTED,
+            buildJsonObject {
+                put("load", started.id)
+                put("status", "running")
+                put("label", started.label)
+                put("phases", started.phases.size)
+            },
+        )
+    }
+
+    /** One row of `GET /load-sets`: what it is called, how many phases, and whose lanes they issue on. */
+    private fun loadSetSummary(set: LoadSet): JsonObject =
+        buildJsonObject {
+            put("name", set.name)
+            put("label", set.label)
+            put("phases", set.phases.size)
+            val profiles = set.phases.map { it.profile }.distinct()
+            put("profiles", buildJsonArray { profiles.forEach { add(it) } })
+        }
+
+    /** Why a profile cannot supply lanes, in the fan-out's own words. */
+    private fun laneRefusal(profileId: String): String? =
+        (onEdt { viewModel.loadLanes(profileId) } as? FixMessageViewModel.FanOutLanes.Unavailable)?.why
+
+    /** The window's profiles and saved messages as a set's resolver, the same two the CLI builds. */
+    private inner class ControlSetResolver : LoadSet.Resolver {
+        override fun profile(key: String): LoadSet.Profile? =
+            onEdt { viewModel.connectionProfiles.filter { it.id == key || it.name == key }.distinctBy { it.id } }
+                ?.singleOrNull()
+                ?.let { LoadSet.Profile(it.id, it.name, it.config) }
+
+        override fun template(key: String, profileId: String?): LoadTemplate? =
+            onEdt { viewModel.loadTemplates(profileId) }?.firstOrNull { it.name.equals(key, ignoreCase = true) }
+                // A path too, the way the CLI reads one, so a set checked in beside the code works here.
+                ?: java.io.File(key).takeIf { it.isFile }?.let { LoadTemplates.fromFile(it) }
+    }
+
+    /** `/load-sets` — the saved sets, and one whole. Read-only: a set is authored in the app or in a checkout. */
+    private fun loadSets(ex: HttpExchange): Coded {
+        val parts = ex.requestURI.path.trim('/').split('/')
+        val name = parts.getOrNull(1)
+        if (name == null) {
+            val sets = viewModel.loadSetStore.list()
+            return Coded(
+                HTTP_OK,
+                buildJsonObject {
+                    put("count", sets.size)
+                    put("sets", buildJsonArray { sets.forEach { add(loadSetSummary(it)) } })
+                },
+            )
+        }
+        val set =
+            viewModel.loadSetStore.load(name)
+                ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved load set '$name'"))
+        return Coded(HTTP_OK, LoadSetCodec.toJson(set))
+    }
+
+    /**
      * `/loads` — list, poll one, stop one. The state comes off disk, as the run set's does, so a run started
      * headless leaves exactly the same thing to read, and the answer survives a restart.
      */
@@ -1880,10 +1987,9 @@ class ControlServer(
      */
     private fun awaitLoad(id: String, waitMs: Long): LoadRecord? {
         val deadline = System.currentTimeMillis() + waitMs
-        fun current(): LoadRecord? {
-            val live = viewModel.activeLoadRun.value?.takeIf { it.id == id }
-            return if (live != null) LoadRecord.of(live) else viewModel.loadRecordStore.readRecord(id)
-        }
+        fun current(): LoadRecord? =
+            viewModel.activeLoadRun.value?.takeIf { it.id == id }
+                ?: viewModel.loadRecordStore.readRecord(id)
         var record = current() ?: return null
         while (record.status == LoadStatus.RUNNING && System.currentTimeMillis() < deadline) {
             Thread.sleep(WAIT_POLL_MS)
@@ -1893,25 +1999,35 @@ class ControlServer(
     }
 
     private fun loadList(): JsonObject {
-        val loads = viewModel.loadRecordStore.list()
+        val records = viewModel.loadRecordStore.listRecords()
         return buildJsonObject {
-            put("count", loads.size)
+            put("count", records.size)
             put(
                 "loads",
                 buildJsonArray {
-                    loads.forEach { r ->
+                    records.forEach { record ->
+                        // The phase a row leads on: the live one, or the last, which for a run is the run.
+                        val r = record.phases.firstOrNull { it.status == LoadStatus.RUNNING } ?: record.only
                         add(
                             buildJsonObject {
-                                put("id", r.id)
-                                put("label", r.label)
-                                put("status", r.status.name.lowercase())
+                                put("id", record.id)
+                                put("label", record.label)
+                                put("status", record.status.name.lowercase())
                                 put("stage", r.stage.name.lowercase())
+                                put(
+                                    "phases",
+                                    buildJsonObject {
+                                        put("total", record.phases.size)
+                                        put("done", record.donePhases)
+                                        record.currentPhase?.let { put("current", it) }
+                                    },
+                                )
                                 put("issued", r.issue.leftSocket)
                                 put("matched", r.replies.matched)
                                 put("unmatched", r.replies.unmatched)
-                                put("startedAt", r.startedAt)
-                                r.finishedAt?.let { put("finishedAt", it) }
-                                r.verdict.exitCode?.let { put("exitCode", it) }
+                                put("startedAt", record.startedAt)
+                                record.finishedAt?.let { put("finishedAt", it) }
+                                record.exitCode?.let { put("exitCode", it) }
                             },
                         )
                     }
@@ -4198,6 +4314,10 @@ class ControlServer(
          * fifteen and an agent that waits past its own transport's patience learns nothing.
          */
         private const val MAX_SET_WAIT_MS = 10_000L
+
+        /** What an inline set on `POST /load` needs, said once so the line fits. */
+        private const val INLINE_SET_REFUSAL =
+            "could not read the set: a phase needs a label, a template, a profile and a shape"
         private const val MCP_PROTOCOL_VERSION = "2025-06-18"
         private const val MCP_METHOD_NOT_FOUND = -32601
         private const val MCP_INTERNAL_ERROR = -32603

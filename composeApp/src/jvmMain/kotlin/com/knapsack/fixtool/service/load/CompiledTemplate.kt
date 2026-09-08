@@ -404,20 +404,22 @@ class CompiledTemplate private constructor(
             }
 
         /**
-         * A number in the closed range, quantised to the generator's decimals.
+         * **A whole number of ticks above the low bound**, uniform over the closed range.
+         *
+         * The bounds arrive already at the generator's decimals, so the draw is over the width plus one
+         * tick and the offset is *floored* onto a tick: both bounds are answers, and no answer leaves the
+         * band. Rounding a draw from the bare width did neither, and `random:0.15:2.85:0` quoted 0 and 3.
          *
          * `ThreadLocalRandom` because a burst renders on one thread per lane, and `BigDecimal` because the
          * value goes on a wire as a price: the quantisation is the point, not a rounding of a double.
          */
-        private fun random(g: Generator.Random): String {
-            val span = g.max.subtract(g.min)
-            val at = BigDecimal.valueOf(ThreadLocalRandom.current().nextDouble())
-            return span
-                .multiply(at)
+        private fun random(g: Generator.Random): String =
+            BigDecimal
+                .valueOf(ThreadLocalRandom.current().nextDouble())
+                .multiply(g.drawSpan())
+                .setScale(g.decimals, RoundingMode.FLOOR)
                 .add(g.min)
-                .setScale(g.decimals, RoundingMode.HALF_UP)
                 .toPlainString()
-        }
 
         @Suppress("CyclomaticComplexMethod")
         private fun shifted(now: LocalDateTime, g: Generator.Timestamp): LocalDateTime {

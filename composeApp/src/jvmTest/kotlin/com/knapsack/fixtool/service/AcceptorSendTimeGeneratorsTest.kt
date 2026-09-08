@@ -105,6 +105,63 @@ class AcceptorSendTimeGeneratorsTest {
         assertTrue(seen.size > 10, "every quote got the same price, which is no venue: $seen")
     }
 
+    /**
+     * **Bounds carrying more decimals than the price does cannot push the draw out of the band.**
+     *
+     * `${'$'}{random:0.15:2.85:0}` asks for a whole number between the two, so the only answers are 1 and 2.
+     * Rounding a draw from the raw band gave 0 and 3 as well, and a venue quoting outside its own band is
+     * the bug a client would report against the tool.
+     */
+    @Test
+    fun `a band quoted finer than its decimals still draws inside itself`() {
+        val low = "0.15".toBigDecimal()
+        val high = "2.85".toBigDecimal()
+        val seen = mutableSetOf<String>()
+        repeat(400) {
+            val price = field(AcceptorResponder.resolveAtSendTime("35=S|133=\${random:0.15:2.85:0}"), 133)!!
+            seen += price
+            assertTrue(price.toBigDecimal() >= low, "below the band: $price")
+            assertTrue(price.toBigDecimal() <= high, "above the band: $price")
+        }
+        assertEquals(setOf("1", "2"), seen, "the only whole numbers in [0.15, 2.85]")
+    }
+
+    /** Both ends are answers, not just the middle: a closed range that cannot reach its own bounds is not one. */
+    @Test
+    fun `both ends of a band are reachable`() {
+        val seen = mutableSetOf<String>()
+        repeat(600) {
+            seen += field(AcceptorResponder.resolveAtSendTime("35=S|133=\${random:1.09000:1.09002:5}"), 133)!!
+        }
+        assertEquals(setOf("1.09000", "1.09001", "1.09002"), seen, "min and max are both quotable")
+    }
+
+    /**
+     * The Kotlin the old path still compiles draws from the **narrowed** band too.
+     *
+     * A scenario step's `${'$'}{random:…}` is rewritten by the expander rather than rendered natively, so the
+     * two would quote different bands if only one of them narrowed.
+     */
+    @Test
+    fun `the rewritten Kotlin draws from the same narrowed band`() {
+        val rewritten = ShorthandTemplateExpander.expand("133=\${random:0.15:2.85:0}", null)
+
+        // [0.15, 2.85] narrows to [1, 2], one tick wide, so the draw is over two ticks and floored.
+        assertTrue(rewritten.contains("""multiply(java.math.BigDecimal("2")"""), rewritten)
+        assertTrue(rewritten.contains("setScale(0, java.math.RoundingMode.FLOOR)"), rewritten)
+        assertTrue(rewritten.contains("""add(java.math.BigDecimal("1")"""), rewritten)
+    }
+
+    /** A band with no quotable price in it is not a band, and is refused where a reversed one is. */
+    @Test
+    fun `a band that quantises to nothing is refused`() {
+        val template = "133=\${random:0.15:0.85:0}"
+
+        assertEquals(template, AcceptorResponder.resolveAtSendTime(template), "no whole number lies in [0.15, 0.85]")
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.any { it.contains("min no greater than max") }, errors.toString())
+    }
+
     @Test
     fun `a random whose numbers cannot mean anything is left for the engine to complain about`() {
         val template = "133=\${random:1.09:1.08:5}"

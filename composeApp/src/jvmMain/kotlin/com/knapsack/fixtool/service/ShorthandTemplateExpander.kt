@@ -137,12 +137,28 @@ object ShorthandTemplateExpander {
          *
          * `BigDecimal` and not a double, because the value goes on a wire as a price: `1.0901` and
          * `1.09010000000000001` are the same number and only one of them is a quote.
+         *
+         * [min] and [max] are **already at [decimals]** — narrowed to the band's own quotable prices by
+         * the parser, so nothing downstream has to round and nothing downstream can round out of the
+         * range. See `randomOf`.
          */
         data class Random(
             val min: java.math.BigDecimal,
             val max: java.math.BigDecimal,
             val decimals: Int,
-        ) : Generator
+        ) : Generator {
+            /**
+             * The band's width **plus one tick**, which is the interval a uniform draw is taken over.
+             *
+             * Floor a draw from `[0, drawSpan)` onto a whole number of ticks and every tick from zero to
+             * the width is equally likely, so both bounds are answers. A draw over the bare width can
+             * never reach the top, and rounding one instead of flooring it reaches past both ends.
+             */
+            fun drawSpan(): java.math.BigDecimal =
+                max
+                    .subtract(min)
+                    .add(java.math.BigDecimal.ONE.movePointLeft(decimals))
+        }
     }
 
     /** The generator [expression] names, or null when it is not one of the shorthand generators. */
@@ -168,14 +184,28 @@ object ShorthandTemplateExpander {
         return null
     }
 
-    /** `random:1.09:1.10:5` as its generator, or null when the numbers cannot mean anything. */
+    /**
+     * `random:1.09:1.10:5` as its generator, or null when the numbers cannot mean anything.
+     *
+     * **The bounds are narrowed to the band's own quotable prices before anything draws from it**: the
+     * lowest price at [Generator.Random.decimals] that is not below `min`, and the highest that is not
+     * above `max`. `random:0.15:2.85:0` therefore means "1 or 2", where drawing from the raw band and
+     * rounding after meant "0, 1, 2 or 3" and quoted outside the band a quarter of the time.
+     *
+     * Narrowing can empty a band that read as a band, and `random:0.15:0.85:0` holds no whole number at
+     * all. Refused here, alongside a reversed one, because both are the same mistake: a range with no
+     * price in it.
+     */
     @Suppress("ReturnCount")
     private fun randomOf(m: MatchResult): Generator.Random? {
         val min = m.groupValues[1].toBigDecimalOrNull() ?: return null
         val max = m.groupValues[2].toBigDecimalOrNull() ?: return null
         val decimals = m.groupValues[3].toIntOrNull() ?: return null
         if (decimals !in RANDOM_DECIMALS_RANGE || max < min) return null
-        return Generator.Random(min, max, decimals)
+        val low = min.setScale(decimals, java.math.RoundingMode.CEILING)
+        val high = max.setScale(decimals, java.math.RoundingMode.FLOOR)
+        if (high < low) return null
+        return Generator.Random(low, high, decimals)
     }
 
     /** The FIX UTCTimestamp pattern a bare `${now}` renders with. */
@@ -399,12 +429,15 @@ object ShorthandTemplateExpander {
      * The Kotlin a `${random:…}` used to have to be written as, for the one path that still compiles.
      *
      * `BigDecimal` throughout, and `toPlainString()` at the end, so the wire never carries `1.0901E+0`.
+     * The arithmetic is `CompiledTemplate.random`'s, tick for tick: floor the offset onto a whole number
+     * of ticks and add the low bound, so the two paths cannot draw from different bands.
      */
     private fun expandRandom(g: Generator.Random): String =
         "java.math.BigDecimal.valueOf(java.util.concurrent.ThreadLocalRandom.current().nextDouble())" +
-            ".multiply(java.math.BigDecimal(\"${g.max.subtract(g.min).toPlainString()}\"))" +
+            ".multiply(java.math.BigDecimal(\"${g.drawSpan().toPlainString()}\"))" +
+            ".setScale(${g.decimals}, java.math.RoundingMode.FLOOR)" +
             ".add(java.math.BigDecimal(\"${g.min.toPlainString()}\"))" +
-            ".setScale(${g.decimals}, java.math.RoundingMode.HALF_UP).toPlainString()"
+            ".toPlainString()"
 
     /** True when the timestamp keyword carried the `utc` prefix — group 1 of every timestamp pattern. */
     private fun MatchResult.utc(): Boolean = groupValues[1].isNotEmpty()
@@ -496,8 +529,9 @@ object ShorthandTemplateExpander {
                 val matched = RANDOM_PATTERN.matchEntire(expression.substringAfter("=").trim())
                 if (matched == null || randomOf(matched) == null) {
                     errors.add(
-                        "\${random:<min>:<max>:<decimals>} needs two numbers with min no greater than max and " +
-                            "decimals between ${RANDOM_DECIMALS_RANGE.first} and ${RANDOM_DECIMALS_RANGE.last}, " +
+                        "\${random:<min>:<max>:<decimals>} needs a price in its band: min no greater than max, " +
+                            "and one value at <decimals> decimals between them. Decimals go from " +
+                            "${RANDOM_DECIMALS_RANGE.first} to ${RANDOM_DECIMALS_RANGE.last}, " +
                             "got '\${$expression}'",
                     )
                 }

@@ -51,9 +51,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.humanDuration
 import com.knapsack.fixtool.service.RunSetStats
@@ -92,7 +92,9 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
         return
     }
     val wire =
-        remember(report.id, report.status) { if (report.unmatched.isEmpty()) emptyList() else viewModel.loadRecordStore.unmatchedWire(report.id) }
+        remember(report.id, report.status) {
+            if (report.unmatched.isEmpty()) emptyList() else viewModel.loadRecordStore.unmatchedWire(report.id, report.evidence)
+        }
     LoadReportView(
         report = report,
         unmatchedWire = wire,
@@ -876,8 +878,8 @@ private fun PrunedRecord(loads: File, modifier: Modifier) {
 /** The verdict as one loud line, in the badge. */
 private fun verdictHeadline(r: LoadReport): Pair<String, Color> =
     when {
-        r.status == LoadStatus.RUNNING && r.phase == LoadPhase.SETTLING -> "SETTLING" to AppTheme.Colors.warning
-        r.status == LoadStatus.RUNNING && r.phase == LoadPhase.PREPARING -> "PREPARING" to AppTheme.Colors.info
+        r.status == LoadStatus.RUNNING && r.stage == LoadStage.SETTLING -> "SETTLING" to AppTheme.Colors.warning
+        r.status == LoadStatus.RUNNING && r.stage == LoadStage.PREPARING -> "PREPARING" to AppTheme.Colors.info
         r.status == LoadStatus.RUNNING -> "ISSUING" to AppTheme.Colors.info
         r.status == LoadStatus.STOPPED ->
             "STOPPED  after ${LoadReportCodec.fmt(r.issue.leftSocket)} of ${LoadReportCodec.fmt(r.issue.requested)} issued" to
@@ -893,8 +895,8 @@ private fun verdictHeadline(r: LoadReport): Pair<String, Color> =
 /** The same state in one word, for the header's meta line. */
 private fun stateWord(r: LoadReport): String =
     when {
-        r.status == LoadStatus.RUNNING && r.phase == LoadPhase.SETTLING -> "settling · ${humanDuration(r.settleLeftMs ?: r.settleMs)} left"
-        r.status == LoadStatus.RUNNING -> r.phase.name.lowercase()
+        r.status == LoadStatus.RUNNING && r.stage == LoadStage.SETTLING -> "settling · ${humanDuration(r.settleLeftMs ?: r.settleMs)} left"
+        r.status == LoadStatus.RUNNING -> r.stage.name.lowercase()
         r.status == LoadStatus.STOPPED -> "stopped"
         r.verdict.completeness == LoadReport.Completeness.UNMATCHED -> "unanswered ${LoadReportCodec.fmt(r.replies.unmatched)}"
         r.verdict.tool == LoadReport.ToolVerdict.LIMITED -> "tool limited"

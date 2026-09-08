@@ -16,7 +16,8 @@ data class LoadReport(
     /** "NOS EUR/USD 1M ×4,000 on LOADGEN". */
     val label: String,
     val status: LoadStatus,
-    val phase: LoadPhase,
+    /** Where the phase is in its own lifecycle: preparing, issuing, settling, done. */
+    val stage: LoadStage,
     val template: TemplateInfo,
     val profileName: String,
     val lanes: Int,
@@ -59,6 +60,11 @@ data class LoadReport(
     /** The first [UNMATCHED_IN_JSON] unanswered requests. The whole set is in `unmatched.fix`. */
     val unmatched: List<UnmatchedRequest>,
     val unmatchedTotal: Int,
+    /**
+     * The evidence files this phase wrote, by their names in the record directory. Null for a record
+     * written before the names were in the JSON, which is the same thing as "the bare names".
+     */
+    val evidence: Evidence? = null,
     val verdict: Verdict,
 ) {
     /** What the template was, and which of its tags were rendered per message. */
@@ -70,6 +76,30 @@ data class LoadReport(
         /** The fixed tags that reached the script engine once per lane. */
         val onceTags: List<Int>,
     )
+
+    /**
+     * **The names of this phase's evidence files**, so nothing has to guess one.
+     *
+     * A set writes several phases into one record directory, so the names carry the phase number:
+     * `02-unmatched.fix`. A record written before schema 3 has no names at all and its reader falls back
+     * to the bare `unmatched.fix` the one-phase writer used.
+     */
+    data class Evidence(
+        val unmatched: String,
+        val specimens: String,
+        /** The captured values, one line per index. Absent when the phase captures nothing. */
+        val captured: String? = null,
+    ) {
+        companion object {
+            /** `01-unmatched.fix`, `01-specimens.fix`: the names phase [n] writes, 1-based. */
+            fun forPhase(n: Int, captured: Boolean = false): Evidence =
+                Evidence(
+                    unmatched = "%02d-unmatched.fix".format(n),
+                    specimens = "%02d-specimens.fix".format(n),
+                    captured = if (captured) "%02d-captured.tsv".format(n) else null,
+                )
+        }
+    }
 
     /**
      * **"Issued" is three numbers.** Requested is what the plan asked for, handed to the engine is what
@@ -247,6 +277,12 @@ data class LoadReport(
 }
 
 enum class LoadStatus {
+    /**
+     * A phase of a set that has not started. Only a set has one, and the live document has to draw it,
+     * which is why it is a status and not the absence of a report.
+     */
+    PENDING,
+
     RUNNING,
 
     /** Ran to the end of its settle window, whatever the verdict. */
@@ -254,9 +290,20 @@ enum class LoadStatus {
 
     /** Stopped by the author, or found stopped by a process that exited under it. Exit 1: it proved nothing whole. */
     STOPPED,
+
+    /**
+     * A phase of a set that will never run: an earlier one did not pass and the set stops on failure, or
+     * the set was stopped by hand. It carries its plan and no measurements, so a reader can still say what
+     * the set was for, and it is not judged.
+     */
+    SKIPPED,
 }
 
-enum class LoadPhase {
+/**
+ * **Where one phase is in its own lifecycle.** Not to be confused with a phase of a set, which is what
+ * `LoadRecord.phases` holds: this is the stage that phase has reached.
+ */
+enum class LoadStage {
     PREPARING,
     ISSUING,
     SETTLING,

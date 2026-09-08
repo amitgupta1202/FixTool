@@ -3,10 +3,11 @@ package com.knapsack.fixtool.headless
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.load.LoadMatch
-import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadPlan
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
@@ -54,6 +55,8 @@ object HeadlessLoad {
         val jsonFile: String? = null,
         val junitFile: String? = null,
         val home: String? = null,
+        /** `--set k=v` was used to seed a value. Tolerated for one release, with a note on stderr. */
+        val seededWithSet: Boolean = false,
     ) {
         /** Burst or rate, or null when the arguments say neither or both. */
         val shape: LoadShape?
@@ -83,6 +86,7 @@ object HeadlessLoad {
                 var json: String? = null
                 var junit: String? = null
                 var home: String? = null
+                var seededWithSet = false
                 var i = 0
                 while (i < args.size) {
                     val arg = args[i]
@@ -95,10 +99,20 @@ object HeadlessLoad {
                         arg == "--listen" -> listen += args.getOrNull(++i) ?: return null
                         arg == "--match" -> match = parseMatch(args.getOrNull(++i)) ?: return null
                         arg == "--reply-type" -> replyType = args.getOrNull(++i)?.takeIf { it.isNotBlank() } ?: return null
+                        arg == "--seed" -> {
+                            val pair = args.getOrNull(++i) ?: return null
+                            val (k, v) = pair.split("=", limit = 2).takeIf { it.size == 2 && it[0].isNotBlank() } ?: return null
+                            seed[k.trim()] = v
+                        }
+                        // `--set k=v` seeded a value until #45 needed `--set <name>` to mean a saved load
+                        // set, as it already does on `fixtool run`. Read as a seed for one release, with a
+                        // note on stderr. A set name is a slug and cannot carry an `=`, so the two never
+                        // collide.
                         arg == "--set" -> {
                             val pair = args.getOrNull(++i) ?: return null
                             val (k, v) = pair.split("=", limit = 2).takeIf { it.size == 2 && it[0].isNotBlank() } ?: return null
                             seed[k.trim()] = v
+                            seededWithSet = true
                         }
                         arg == "--store" -> store = enumOrNull<FixConnectionConfig.MessageStoreKind>(args.getOrNull(++i)) ?: return null
                         arg == "--log" -> log = enumOrNull<FixConnectionConfig.MessageLogKind>(args.getOrNull(++i)) ?: return null
@@ -112,7 +126,10 @@ object HeadlessLoad {
                     }
                     i++
                 }
-                return Options(template, profile, count, perSecond, forMs, settleMs, listen, match?.copy(replyType = replyType), replyType, seed, store, log, strictRate, json, junit, home)
+                return Options(
+                    template, profile, count, perSecond, forMs, settleMs, listen, match?.copy(replyType = replyType),
+                    replyType, seed, store, log, strictRate, json, junit, home, seededWithSet,
+                )
             }
 
             /** `500/s` or a bare `500`. */
@@ -144,6 +161,11 @@ object HeadlessLoad {
                 return HeadlessRun.EXIT_USAGE
             }
         WorkspacePaths.use(options.home)
+        if (options.seededWithSet) {
+            err.appendLine(
+                "fixtool load: --set <k>=<v> now seeds through --seed <k>=<v>. --set <name> runs a saved load set.",
+            )
+        }
         if (options.template.isBlank() || options.profile.isBlank()) {
             err.appendLine("fixtool load: name a template and a --profile")
             err.appendLine(USAGE)
@@ -220,7 +242,10 @@ object HeadlessLoad {
         store.prune(settings.runRecordsKept)
 
         out.append(summary(report, store.directoryFor(report.id)))
-        options.jsonFile?.let { write(it, LoadReportCodec.toJson(report).toString(), err) }
+        // The record, not the bare report: the file on disk, this flag and GET /loads/<id> are one shape,
+        // so a set and a run read the same at every door. A reader of the old top-level `.verdict` reads
+        // `.phases[0].verdict` or the set-level `.exitCode` now, and the changelog says so.
+        options.jsonFile?.let { write(it, LoadReportCodec.recordToJson(LoadRecord.of(report)).toString(), err) }
         options.junitFile?.let { write(it, LoadReportCodec.toJUnitXml(report), err) }
         return report.verdict.exitCode ?: HeadlessRun.EXIT_FAILED
     }
@@ -248,28 +273,28 @@ object HeadlessLoad {
     private class Narrator(
         private val err: Appendable,
     ) {
-        private var lastPhase: LoadPhase? = null
+        private var lastStage: LoadStage? = null
         private var lastSettleLine = 0L
 
         fun tell(r: LoadReport) {
-            val phase = r.phase
-            if (phase != lastPhase) {
-                lastPhase = phase
-                when (phase) {
-                    LoadPhase.PREPARING -> Unit
-                    LoadPhase.ISSUING -> {
+            val stage = r.stage
+            if (stage != lastStage) {
+                lastStage = stage
+                when (stage) {
+                    LoadStage.PREPARING -> Unit
+                    LoadStage.ISSUING -> {
                         err.appendLine("fixtool: prepared ${r.lanes} lane${if (r.lanes == 1) "" else "s"} in ${r.issue.prepareMs}ms (per message: ${r.template.perMessageTags.joinToString(", ").ifEmpty { "none" }})")
                         err.appendLine("fixtool: issuing ${LoadReportCodec.fmt(r.issue.requested)} ${r.shape.describe().removePrefix("×")}")
                     }
-                    LoadPhase.SETTLING -> {
+                    LoadStage.SETTLING -> {
                         r.issue.spanMs?.let { span ->
                             err.appendLine("fixtool: ${LoadReportCodec.fmt(r.issue.leftSocket)} left the socket in ${RunSetStats.humanMs(span)}" + (r.issue.achievedPerSecond?.let { " (${LoadReportCodec.fmt(it)}/s)" } ?: ""))
                         }
                         settleLine(r)
                     }
-                    LoadPhase.DONE -> err.appendLine("fixtool: settle closed with ${LoadReportCodec.fmt(r.replies.unmatched)} pending")
+                    LoadStage.DONE -> err.appendLine("fixtool: settle closed with ${LoadReportCodec.fmt(r.replies.unmatched)} pending")
                 }
-            } else if (phase == LoadPhase.SETTLING && System.currentTimeMillis() - lastSettleLine > SETTLE_LINE_EVERY_MS) {
+            } else if (stage == LoadStage.SETTLING && System.currentTimeMillis() - lastSettleLine > SETTLE_LINE_EVERY_MS) {
                 settleLine(r)
             }
         }
@@ -359,11 +384,12 @@ object HeadlessLoad {
           --listen <profile>     also match replies landing on this profile's sessions (repeatable)
           --match <req>=<rep>    request tag to reply tag (default: the template's first correlation tag, both sides)
           --reply-type <35>      count only replies of this MsgType as answers
-          --set <k>=<v>          seed a value into every message's scope as ${'$'}{k} (repeatable)
+          --seed <k>=<v>         seed a value into every message's scope as ${'$'}{k} (repeatable)
+          --set <k>=<v>          still read as a seed this release, with a note on stderr to write --seed
           --store file|memory    message store for this run's sessions (default: the profile's)
           --log file|none        message log for this run's sessions (default: the profile's)
           --strict-rate          exit 1 on a rate shortfall, not only on unmatched replies
-          --json <file>          write the load report
+          --json <file>          write the record: the same JSON as loads/<id>/load.json and GET /loads/<id>
           --junit <file>         write one <testsuite> with three cases: completeness, rate, tool
           --home <dir>           read profiles and templates from <dir> instead of ~/.fixtool
 

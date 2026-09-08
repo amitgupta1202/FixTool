@@ -2,9 +2,9 @@ package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.load.LoadMatch
-import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
@@ -26,7 +26,7 @@ object LoadFixtures {
             id = "20260905-140211-nos-eur-usd-1m",
             label = "NOS EUR/USD 1M ×4,000 on LOADGEN",
             status = status,
-            phase = LoadPhase.DONE,
+            stage = LoadStage.DONE,
             template = LoadReport.TemplateInfo("NOS EUR/USD 1M", "D", perMessageTags = listOf(11, 60), fixedTags = listOf(35, 55, 54, 38, 40, 44, 59), onceTags = emptyList()),
             profileName = "LOADGEN",
             lanes = 50,
@@ -66,6 +66,7 @@ object LoadFixtures {
                     LoadReport.UnmatchedRequest("ORD-b7f2-3902", 2, T0 + 794),
                 ).take(unmatched),
             unmatchedTotal = unmatched,
+            evidence = LoadReport.Evidence.forPhase(1),
             verdict = LoadReport.verdict(status, replies, rate, tool, strictRate),
         )
     }

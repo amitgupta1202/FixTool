@@ -66,7 +66,7 @@ data class LoadPlan(
         internal val seedRemedy: (String) -> String,
     ) {
         DIALOG({ "Add $it=… under Seed." }),
-        CLI({ "Pass --set $it=… on the command line." }),
+        CLI({ "Pass --seed $it=… on the command line." }),
         API({ "Add \"$it\" to the request's seed object." }),
     }
 

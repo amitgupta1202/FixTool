@@ -1,8 +1,8 @@
 package com.knapsack.fixtool.service.load
 
-import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
 import com.knapsack.fixtool.service.WorkspacePaths
@@ -70,13 +70,23 @@ class LoadRecordStore(
             false
         }
 
-    /** The evidence files: one unanswered request per line, and specimen pairs as request then reply. */
+    /**
+     * The evidence files: one unanswered request per line, and specimen pairs as request then reply.
+     *
+     * [evidence] names them, because a set writes several phases into one directory and nothing downstream
+     * should have to reconstruct `02-unmatched.fix` from a phase number.
+     */
     @Suppress("TooGenericExceptionCaught")
-    fun writeEvidence(id: String, unmatched: List<StampMatcher.Unmatched>, specimens: List<StampMatcher.Specimen>): Boolean =
+    fun writeEvidence(
+        id: String,
+        evidence: LoadReport.Evidence,
+        unmatched: List<StampMatcher.Unmatched>,
+        specimens: List<StampMatcher.Specimen>,
+    ): Boolean =
         try {
             val d = directoryFor(id).also { it.mkdirs() }
-            File(d, UNMATCHED_FILE).writeText(unmatched.joinToString("") { it.wire.toRawFixMessage() + "\n" })
-            File(d, SPECIMENS_FILE).writeText(
+            File(d, evidence.unmatched).writeText(unmatched.joinToString("") { it.wire.toRawFixMessage() + "\n" })
+            File(d, evidence.specimens).writeText(
                 specimens.joinToString("") { it.request.toRawFixMessage() + "\n" + it.reply.toRawFixMessage() + "\n" },
             )
             true
@@ -105,9 +115,18 @@ class LoadRecordStore(
             null
         }
 
-    /** The unanswered requests' wire, one per line, as the document's reveal reads them. */
-    fun unmatchedWire(id: String): List<String> =
-        File(directoryFor(id), UNMATCHED_FILE).takeIf { it.isFile }?.readLines()?.filter { it.isNotBlank() }.orEmpty()
+    /**
+     * The unanswered requests' wire, one per line, as the document's reveal reads them.
+     *
+     * [evidence] is the phase's own block. Null is a record written before the names were in the JSON, and
+     * falls back to the bare name the one-phase writer used.
+     */
+    fun unmatchedWire(id: String, evidence: LoadReport.Evidence? = null): List<String> =
+        File(directoryFor(id), evidence?.unmatched ?: UNMATCHED_FILE)
+            .takeIf { it.isFile }
+            ?.readLines()
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
 
     /** Every record, newest first. */
     fun list(): List<LoadReport> = listRecords().map { it.only }
@@ -146,7 +165,7 @@ class LoadRecordStore(
     private fun heal(report: LoadReport, lastWrite: Long): LoadReport =
         report.copy(
             status = LoadStatus.STOPPED,
-            phase = LoadPhase.DONE,
+            stage = LoadStage.DONE,
             finishedAt = report.finishedAt ?: lastWrite.takeIf { it > 0 } ?: report.startedAt,
             settleLeftMs = null,
             verdict = LoadReport.verdict(LoadStatus.STOPPED, report.replies, report.rate, report.tool, strictRate = false),

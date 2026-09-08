@@ -21,7 +21,7 @@ import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
-import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
@@ -1855,8 +1855,8 @@ class ControlServer(
             return Coded(HTTP_ACCEPTED, buildJsonObject { put("status", "stopping"); put("load", id) })
         }
         val waitMs = queryParams(ex)["wait"]?.toLongOrNull()?.coerceIn(0, MAX_SET_WAIT_MS) ?: 0
-        val report = awaitLoad(id, waitMs) ?: return Coded(HTTP_NOT_FOUND, errorObject("no load run '$id'"))
-        return Coded(HTTP_OK, LoadReportCodec.toJson(report))
+        val record = awaitLoad(id, waitMs) ?: return Coded(HTTP_NOT_FOUND, errorObject("no load run '$id'"))
+        return Coded(HTTP_OK, LoadReportCodec.recordToJson(record))
     }
 
     /** `fixtool_load_status`: the listing, the poll and the stop behind one tool, as `fixtool_run_status` is. */
@@ -1867,20 +1867,29 @@ class ControlServer(
             viewModel.stopLoadRun(id)
         }
         val waitMs = args["wait"]?.jsonPrimitive?.longOrNull?.coerceIn(0, MAX_SET_WAIT_MS) ?: 0
-        val report = awaitLoad(id, waitMs) ?: return errorObject("no load run '$id'")
-        return LoadReportCodec.toJson(report)
+        val record = awaitLoad(id, waitMs) ?: return errorObject("no load run '$id'")
+        return LoadReportCodec.recordToJson(record)
     }
 
-    /** The live report while the run is this process's, the record otherwise, held up to [waitMs] for it to finish. */
-    private fun awaitLoad(id: String, waitMs: Long): LoadReport? {
+    /**
+     * The live record while the run is this process's, the record on disk otherwise, held up to [waitMs]
+     * for it to finish.
+     *
+     * The record and not the bare report, because a set has no bare report and this route, `--json` and
+     * the file on disk are one shape.
+     */
+    private fun awaitLoad(id: String, waitMs: Long): LoadRecord? {
         val deadline = System.currentTimeMillis() + waitMs
-        fun current(): LoadReport? = viewModel.activeLoadRun.value?.takeIf { it.id == id } ?: viewModel.loadRecordStore.read(id)
-        var report = current() ?: return null
-        while (report.status == LoadStatus.RUNNING && System.currentTimeMillis() < deadline) {
-            Thread.sleep(WAIT_POLL_MS)
-            report = current() ?: report
+        fun current(): LoadRecord? {
+            val live = viewModel.activeLoadRun.value?.takeIf { it.id == id }
+            return if (live != null) LoadRecord.of(live) else viewModel.loadRecordStore.readRecord(id)
         }
-        return report
+        var record = current() ?: return null
+        while (record.status == LoadStatus.RUNNING && System.currentTimeMillis() < deadline) {
+            Thread.sleep(WAIT_POLL_MS)
+            record = current() ?: record
+        }
+        return record
     }
 
     private fun loadList(): JsonObject {
@@ -1896,7 +1905,7 @@ class ControlServer(
                                 put("id", r.id)
                                 put("label", r.label)
                                 put("status", r.status.name.lowercase())
-                                put("phase", r.phase.name.lowercase())
+                                put("stage", r.stage.name.lowercase())
                                 put("issued", r.issue.leftSocket)
                                 put("matched", r.replies.matched)
                                 put("unmatched", r.replies.unmatched)

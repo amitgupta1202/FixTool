@@ -1,9 +1,9 @@
 package com.knapsack.fixtool.service.load
 
-import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.scenario.Lane
@@ -45,8 +45,15 @@ class LoadRunner(
      * type, a variable nothing seeds, no lane logged on.
      */
     @Suppress("LongMethod", "CyclomaticComplexMethod")
-    fun run(plan: LoadPlan, cancelled: () -> Boolean = { false }, onProgress: (LoadReport) -> Unit = {}): Outcome {
+    fun run(
+        plan: LoadPlan,
+        /** Which phase of its set this is, 1-based. It names the evidence files, and nothing else. */
+        phase: Int = 1,
+        cancelled: () -> Boolean = { false },
+        onProgress: (LoadReport) -> Unit = {},
+    ): Outcome {
         val startedAt = host.now()
+        val evidence = LoadReport.Evidence.forPhase(phase)
         val compiled =
             try {
                 CompiledTemplate.compile(plan.template)
@@ -57,12 +64,12 @@ class LoadRunner(
         if (missing.isNotEmpty()) {
             throw LoadRefused(
                 "the template reads ${missing.joinToString(", ") { "\${$it}" }} and nothing seeds " +
-                    "${if (missing.size == 1) "it" else "them"}: pass --set ${missing.first()}=…",
+                    "${if (missing.size == 1) "it" else "them"}: pass --seed ${missing.first()}=…",
             )
         }
 
-        val progress = Progress(plan, compiled, startedAt, onProgress)
-        progress.emit(LoadPhase.PREPARING)
+        val progress = Progress(plan, compiled, startedAt, evidence, onProgress)
+        progress.emit(LoadStage.PREPARING)
 
         val lanes = host.openLanes(plan.profileId, plan.storeAndLog)
         if (lanes.isEmpty()) throw LoadRefused("no session of '${plan.profileName}' reached LOGGED_ON, so there is nothing to issue on")
@@ -97,7 +104,7 @@ class LoadRunner(
         val producers = RenderAhead.forLanes(prototypes, plan.requested)
 
         try {
-            progress.emit(LoadPhase.ISSUING)
+            progress.emit(LoadStage.ISSUING)
             val handed = AtomicLong()
             var lastEmit = clock.nanoTime()
             val stats =
@@ -110,7 +117,7 @@ class LoadRunner(
                         val now = clock.nanoTime()
                         if (now - lastEmit > PROGRESS_EVERY_NANOS) {
                             lastEmit = now
-                            progress.emit(LoadPhase.ISSUING)
+                            progress.emit(LoadStage.ISSUING)
                         }
                         ok
                     },
@@ -143,7 +150,7 @@ class LoadRunner(
                     break
                 }
                 progress.settleLeftMs = (plan.settleMs - (host.now() - settleStart)).coerceAtLeast(0)
-                progress.emit(LoadPhase.SETTLING)
+                progress.emit(LoadStage.SETTLING)
                 host.sleep(SETTLE_POLL_MS)
             }
             val result = matcher.finish()
@@ -163,7 +170,7 @@ class LoadRunner(
                     finishedAt = host.now(),
                 )
             store?.write(report)
-            store?.writeEvidence(plan.id, result.unmatched, result.specimens)
+            store?.writeEvidence(plan.id, evidence, result.unmatched, result.specimens)
             onProgress(report)
             return Outcome(report, result.unmatched, result.specimens)
         } finally {
@@ -177,6 +184,7 @@ class LoadRunner(
         private val plan: LoadPlan,
         private val compiled: CompiledTemplate,
         private val startedAt: Long,
+        private val evidence: LoadReport.Evidence,
         private val onProgress: (LoadReport) -> Unit,
     ) {
         var lanes = 0
@@ -186,18 +194,18 @@ class LoadRunner(
         var matcher: StampMatcher? = null
         var stats: Pacer.IssueStats? = null
 
-        fun emit(phase: LoadPhase) {
-            val report = build(phase, LoadStatus.RUNNING, finishedAt = null, result = null, late = null, discarded = 0)
+        fun emit(stage: LoadStage) {
+            val report = build(stage, LoadStatus.RUNNING, finishedAt = null, result = null, late = null, discarded = 0)
             store?.write(report)
             onProgress(report)
         }
 
         fun finalReport(status: LoadStatus, result: StampMatcher.Result, late: Long, discarded: Long, finishedAt: Long): LoadReport =
-            build(LoadPhase.DONE, status, finishedAt, result, late, discarded)
+            build(LoadStage.DONE, status, finishedAt, result, late, discarded)
 
         @Suppress("LongParameterList")
         private fun build(
-            phase: LoadPhase,
+            stage: LoadStage,
             status: LoadStatus,
             finishedAt: Long?,
             result: StampMatcher.Result?,
@@ -248,7 +256,7 @@ class LoadRunner(
                 id = plan.id,
                 label = plan.label,
                 status = status,
-                phase = phase,
+                stage = stage,
                 template = LoadReport.TemplateInfo(plan.template.name, compiled.msgType, compiled.perMessageTags, compiled.fixedTags, compiled.onceTags),
                 profileName = plan.profileName,
                 lanes = lanes,
@@ -261,7 +269,7 @@ class LoadRunner(
                 strictRate = plan.strictRate,
                 startedAt = startedAt,
                 finishedAt = finishedAt,
-                settleLeftMs = if (phase == LoadPhase.SETTLING) settleLeftMs else null,
+                settleLeftMs = if (stage == LoadStage.SETTLING) settleLeftMs else null,
                 issue = issue,
                 rate = rate,
                 replies = replies,
@@ -285,6 +293,7 @@ class LoadRunner(
                         LoadReport.UnmatchedRequest(it.id, it.laneSlot, it.sentMicros / MICROS_PER_MILLI)
                     },
                 unmatchedTotal = result?.unmatched?.size ?: (counts?.pendingNow ?: 0),
+                evidence = evidence,
                 verdict = LoadReport.verdict(status, replies, rate, tool, plan.strictRate),
             )
         }

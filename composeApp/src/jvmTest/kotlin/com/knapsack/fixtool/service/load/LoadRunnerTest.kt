@@ -4,10 +4,10 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.WireDirection
 import com.knapsack.fixtool.model.load.LoadMatch
-import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
@@ -164,9 +164,9 @@ class LoadRunnerTest {
         val clock = FakeClock()
         val lanes = (1..4).map { FakeLane(it, clock, ::echo) }
         val host = FakeHost(clock, lanes)
-        val phases = mutableListOf<LoadPhase>()
+        val stages = mutableListOf<LoadStage>()
 
-        val outcome = LoadRunner(host, clock = clock).run(plan()) { phases += it.phase }
+        val outcome = LoadRunner(host, clock = clock).run(plan()) { stages += it.stage }
         val r = outcome.report
 
         assertEquals(LoadStatus.DONE, r.status)
@@ -186,8 +186,8 @@ class LoadRunnerTest {
         assertTrue(lanes[2].sent.all { it.contains("58=once-3") }, "and its frozen value rides every message of that lane")
         assertEquals(StoreAndLogOverride.FOR_LOAD, host.openedWith)
         assertTrue(host.released)
-        assertEquals(LoadPhase.PREPARING, phases.first())
-        assertEquals(LoadPhase.DONE, phases.last())
+        assertEquals(LoadStage.PREPARING, stages.first())
+        assertEquals(LoadStage.DONE, stages.last())
         assertTrue(r.finishedAt!! - r.startedAt < 2_000, "settle ended the moment nothing was pending, not after the window: ${r.finishedAt!! - r.startedAt}ms")
         assertNotNull(r.roundTrip).let { assertEquals(40, it.samples) }
         assertNotNull(r.timing)
@@ -305,7 +305,7 @@ class LoadRunnerTest {
 
         val missing = assertFailsWith<LoadRefused> { LoadRunner(host, clock = clock).run(plan(seed = emptyMap())) }
         assertTrue(missing.message!!.contains("\${run}"), missing.message)
-        assertTrue(missing.message!!.contains("--set run="), missing.message)
+        assertTrue(missing.message!!.contains("--seed run="), missing.message)
 
         val typeless = assertFailsWith<LoadRefused> {
             LoadRunner(host, clock = clock).run(plan().copy(template = LoadTemplate("x", listOf(11 to "A"))))

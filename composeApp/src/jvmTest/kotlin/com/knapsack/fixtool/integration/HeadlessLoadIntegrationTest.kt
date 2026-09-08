@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.integration
 
 import com.knapsack.fixtool.headless.HeadlessRun
+import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.service.load.LoadRecordStore
 import com.knapsack.fixtool.service.load.LoadReportCodec
 import kotlinx.serialization.json.Json
@@ -96,7 +97,7 @@ class HeadlessLoadIntegrationTest {
     fun `a burst answered in full exits zero and leaves a small record`() {
         server.answer = { request -> listOf(TestFixServer.executionReportFor(request)) }
 
-        val (code, out, err) = load("--count", "200", "--set", "run=a1", "--store", "memory", "--log", "none", "--settle", "20s")
+        val (code, out, err) = load("--count", "200", "--seed", "run=a1", "--store", "memory", "--log", "none", "--settle", "20s")
 
         assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
         assertTrue(out.contains("issued             200   requested 200 · handed to engine 200 · left socket 200"), out)
@@ -114,8 +115,8 @@ class HeadlessLoadIntegrationTest {
         assertEquals(0, json["verdict"]!!.jsonObject["exitCode"]!!.jsonPrimitive.int)
         assertEquals(listOf(11, 60), json["template"]!!.jsonObject["perMessageTags"]!!.jsonArray.map { it.jsonPrimitive.int })
         val dir = File(home, "loads/$id")
-        assertEquals(100, File(dir, LoadRecordStore.SPECIMENS_FILE).readLines().size, "fifty pairs, request then reply")
-        assertEquals("", File(dir, LoadRecordStore.UNMATCHED_FILE).readText())
+        assertEquals(100, File(dir, LoadReport.Evidence.forPhase(1).specimens).readLines().size, "fifty pairs, request then reply")
+        assertEquals("", File(dir, LoadReport.Evidence.forPhase(1).unmatched).readText())
         assertTrue(!File(home, "store").exists(), "a memory store writes nothing under store/")
     }
 
@@ -128,19 +129,24 @@ class HeadlessLoadIntegrationTest {
         val junit = File(home, "reports/load.xml")
         val jsonFile = File(home, "reports/load.json")
 
-        val (code, out, err) = load("--count", "30", "--set", "run=b2", "--settle", "2s", "--junit", junit.absolutePath, "--json", jsonFile.absolutePath)
+        val (code, out, err) = load("--count", "30", "--seed", "run=b2", "--settle", "2s", "--junit", junit.absolutePath, "--json", jsonFile.absolutePath)
 
         assertEquals(1, code, "stdout:\n$out\nstderr:\n$err")
         assertTrue(out.contains("unmatched            2   ORD-b2-7 (lane 2) · ORD-b2-13 (lane 3)"), out)
         assertTrue(out.contains("UNMATCHED    2 of 30 unanswered within 2s"), out)
         assertTrue(err.contains("settle closed with 2 pending"), err)
+        // --json writes the record, the same shape as the file on disk and GET /loads/<id>, so the
+        // unanswered ids live under the phase rather than at the top level.
         val json = Json.parseToJsonElement(jsonFile.readText()).jsonObject
-        assertEquals(listOf("ORD-b2-7", "ORD-b2-13"), json["unmatched"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content })
+        assertEquals(LoadReportCodec.SCHEMA, json["schema"]!!.jsonPrimitive.int)
+        val phase = json["phases"]!!.jsonArray.single().jsonObject
+        assertEquals(listOf("ORD-b2-7", "ORD-b2-13"), phase["unmatched"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content })
+        assertEquals(1, json["exitCode"]!!.jsonPrimitive.int, "the set-level exit code is what a build reads now")
         val xml = junit.readText()
         assertTrue(xml.contains("failures=\"1\""), xml)
         assertTrue(xml.contains("2 of 30 unanswered within 2s: ORD-b2-7 (lane 2), ORD-b2-13 (lane 3)"), xml)
         val (id, _) = onlyRecord()
-        val wire = File(File(home, "loads/$id"), LoadRecordStore.UNMATCHED_FILE).readLines()
+        val wire = File(File(home, "loads/$id"), LoadReport.Evidence.forPhase(1).unmatched).readLines()
         assertEquals(2, wire.size)
         assertTrue(wire[0].contains("11=ORD-b2-7"), wire[0])
     }
@@ -149,7 +155,7 @@ class HeadlessLoadIntegrationTest {
     fun `a venue that answers twice reports duplicates and stays complete`() {
         server.answer = { request -> listOf(TestFixServer.executionReportFor(request, "0"), TestFixServer.executionReportFor(request, "2")) }
 
-        val (code, out, err) = load("--count", "40", "--set", "run=c3", "--settle", "5s")
+        val (code, out, err) = load("--count", "40", "--seed", "run=c3", "--settle", "5s")
 
         assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
         assertTrue(out.contains("matched             40"), out)
@@ -160,7 +166,7 @@ class HeadlessLoadIntegrationTest {
     fun `a rate run issues what the schedule asked and reports it held`() {
         server.answer = { request -> listOf(TestFixServer.executionReportFor(request)) }
 
-        val (code, out, err) = load("--rate", "100/s", "--for", "3s", "--set", "run=d4", "--settle", "5s")
+        val (code, out, err) = load("--rate", "100/s", "--for", "3s", "--seed", "run=d4", "--settle", "5s")
 
         assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
         assertTrue(out.contains("issued             300   requested 300"), out)
@@ -174,7 +180,7 @@ class HeadlessLoadIntegrationTest {
     fun `a reply routed to a listen-only session is matched, not a stray plus an unmatched`() {
         server.answer = { request -> listOf(TestFixServer.executionReportFor(request, toClient = "DC$runId")) }
 
-        val (code, out, err) = load("--count", "25", "--set", "run=e5", "--listen", "DROPCOPY", "--settle", "5s")
+        val (code, out, err) = load("--count", "25", "--seed", "run=e5", "--listen", "DROPCOPY", "--settle", "5s")
 
         assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
         assertTrue(out.contains("matched             25"), out)
@@ -186,7 +192,7 @@ class HeadlessLoadIntegrationTest {
     fun `a memory store without Reset on Logon exits two with the config's sentence`() {
         writeProfiles(resetOnLogon = false)
 
-        val (code, _, err) = load("--count", "10", "--set", "run=f6", "--store", "memory")
+        val (code, _, err) = load("--count", "10", "--seed", "run=f6", "--store", "memory")
 
         assertEquals(HeadlessRun.EXIT_USAGE, code, err)
         assertTrue(err.contains("Reset on Logon"), err)
@@ -199,8 +205,19 @@ class HeadlessLoadIntegrationTest {
 
         assertEquals(HeadlessRun.EXIT_USAGE, code, err)
         assertTrue(err.contains("\${run}"), err)
-        assertTrue(err.contains("--set run="), err)
+        assertTrue(err.contains("--seed run="), err)
         assertEquals(0, server.logonCount.get(), err)
+    }
+
+    @Test
+    fun `the old --set spelling still seeds, and says to write --seed`() {
+        server.answer = { request -> listOf(TestFixServer.executionReportFor(request)) }
+
+        val (code, out, err) = load("--count", "10", "--set", "run=old1", "--store", "memory", "--log", "none", "--settle", "10s")
+
+        assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
+        assertTrue(err.contains("--set <k>=<v> now seeds through --seed <k>=<v>"), err)
+        assertTrue(server.applicationMessages.all { TestFixServer.fieldValue(it, 11)!!.startsWith("ORD-old1-") }, "it still seeded")
     }
 
     @Test

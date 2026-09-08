@@ -2,10 +2,10 @@ package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.load.LoadMatch
-import com.knapsack.fixtool.model.load.LoadPhase
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
@@ -78,7 +78,7 @@ object LoadReportCodec {
             put("id", r.id)
             put("label", r.label)
             put("status", r.status.name)
-            put("phase", r.phase.name)
+            put("stage", r.stage.name)
             put(
                 "template",
                 buildJsonObject {
@@ -193,6 +193,16 @@ object LoadReportCodec {
             )
             put("unmatchedTotal", r.unmatchedTotal)
             put(
+                "evidence",
+                r.evidence?.let { e ->
+                    buildJsonObject {
+                        put("unmatched", e.unmatched)
+                        put("specimens", e.specimens)
+                        e.captured?.let { put("captured", it) }
+                    }
+                } ?: JsonNull,
+            )
+            put(
                 "verdict",
                 buildJsonObject {
                     put("completeness", r.verdict.completeness.name)
@@ -254,7 +264,8 @@ object LoadReportCodec {
             id = o.str("id"),
             label = o.str("label"),
             status = enumOr(o.strOrNull("status"), LoadStatus.DONE),
-            phase = enumOr(o.strOrNull("phase"), LoadPhase.DONE),
+            // `stage` since schema 3. `phase` is what schema 2 called the same enum, on one machine.
+            stage = enumOr(o.strOrNull("stage") ?: o.strOrNull("phase"), LoadStage.DONE),
             template =
                 LoadReport.TemplateInfo(
                     name = template.str("name"),
@@ -345,6 +356,14 @@ object LoadReportCodec {
                     LoadReport.UnmatchedRequest(u.str("id"), u.intOrNull("lane") ?: 0, u.longOrNull("sentAt") ?: 0)
                 },
             unmatchedTotal = o.intOrNull("unmatchedTotal") ?: 0,
+            evidence =
+                (o["evidence"] as? JsonObject)?.let { e ->
+                    LoadReport.Evidence(
+                        unmatched = e.strOrNull("unmatched") ?: LoadRecordStore.UNMATCHED_FILE,
+                        specimens = e.strOrNull("specimens") ?: LoadRecordStore.SPECIMENS_FILE,
+                        captured = e.strOrNull("captured"),
+                    )
+                },
             verdict =
                 LoadReport.Verdict(
                     completeness = enumOr(verdict.strOrNull("completeness"), LoadReport.Completeness.PENDING),
@@ -499,8 +518,12 @@ object LoadReportCodec {
     private const val TEN_MILLIS_IN_MICROS = 10_000L
     private const val MICROS_PER_SECOND = 1_000_000L
 
-    /** The record schema. 1 was the bare report, which had no number and is recognised by its absence. */
-    const val SCHEMA = 2
+    /**
+     * The record schema. 1 was the bare report, which had no number and is recognised by its absence. 2
+     * added `phases`. 3 renamed the lifecycle key to `stage`, added the SKIPPED and PENDING statuses, and
+     * named each phase's evidence files inside the phase.
+     */
+    const val SCHEMA = 3
 
     private const val XML_DECLARATION = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     private const val UNMATCHED_NAMED = 20

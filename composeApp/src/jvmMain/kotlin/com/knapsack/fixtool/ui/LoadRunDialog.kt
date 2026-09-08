@@ -708,7 +708,7 @@ internal fun cliLine(plan: LoadPlan): String =
         append(" --settle ").append(compact(plan.settleMs))
         append(" --match ").append(plan.match.requestTag).append("=").append(plan.match.replyTag)
         plan.match.replyType?.let { append(" --reply-type ").append(it) }
-        plan.seed.forEach { (k, v) -> append(" --set ").append(quoted("$k=$v")) }
+        plan.seed.forEach { (k, v) -> append(" --seed ").append(quoted("$k=$v")) }
         plan.listenProfileIds.forEach { append(" --listen ").append(quoted(it)) }
         plan.storeAndLog?.let { append(" --store ").append(it.store.name.lowercase()).append(" --log ").append(it.log.name.lowercase()) }
     }

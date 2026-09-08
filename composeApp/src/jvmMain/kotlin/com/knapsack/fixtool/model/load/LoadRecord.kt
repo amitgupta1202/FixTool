@@ -35,14 +35,23 @@ data class LoadRecord(
     val status: LoadStatus
         get() =
             when {
-                phases.any { it.status == LoadStatus.RUNNING } -> LoadStatus.RUNNING
+                phases.any { it.status == LoadStatus.RUNNING || it.status == LoadStatus.PENDING } -> LoadStatus.RUNNING
                 phases.any { it.status == LoadStatus.STOPPED } -> LoadStatus.STOPPED
                 else -> LoadStatus.DONE
             }
 
-    /** The worst exit code any phase reached, or null while one is still running. */
+    /**
+     * The worst exit code any phase that ran reached, or null while one is still going.
+     *
+     * A skipped phase is not judged and contributes nothing, which is the whole reason the set can exit 1
+     * on the phase that failed while the two after it never dialled.
+     */
     val exitCode: Int?
-        get() = if (phases.any { it.verdict.exitCode == null }) null else phases.maxOf { it.verdict.exitCode ?: 0 }
+        get() {
+            val judged = phases.filterNot { it.status == LoadStatus.SKIPPED || it.status == LoadStatus.PENDING }
+            if (judged.isEmpty() || judged.any { it.verdict.exitCode == null }) return null
+            return judged.maxOf { it.verdict.exitCode ?: 0 }
+        }
 
     companion object {
         /** The one-phase set a single run makes. */

@@ -213,7 +213,7 @@ class LoadRunDialogTest {
 
         assertEquals(
             "fixtool load NOS --profile \"RFQ Load Client\" --rate 500/s --for 10m --settle 1m " +
-                "--match 131=131 --reply-type S --set run=b7f2 --store memory --log none",
+                "--match 131=131 --reply-type S --seed run=b7f2 --store memory --log none",
             cliLine(plan),
         )
     }

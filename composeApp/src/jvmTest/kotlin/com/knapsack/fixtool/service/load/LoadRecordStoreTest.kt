@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service.load
 
-import com.knapsack.fixtool.model.load.LoadPhase
+import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.service.load.LoadFixtures.burstReport
 import org.junit.After
@@ -36,14 +37,23 @@ class LoadRecordStoreTest {
         assertTrue(
             store.writeEvidence(
                 id,
+                LoadReport.Evidence.forPhase(1),
                 unmatched = listOf(StampMatcher.Unmatched("ORD-1", 3, 1L, "8=FIX.4.435=D11=ORD-1")),
                 specimens = listOf(StampMatcher.Specimen("8=FIX.4.4|35=D|11=A|", "8=FIX.4.4|35=8|11=A|", 14)),
             ),
         )
 
         assertEquals(report.copy(id = id), store.read(id))
-        assertEquals(listOf("8=FIX.4.4|35=D|11=ORD-1|"), store.unmatchedWire(id), "SOH becomes the pipe the tool shows")
-        assertEquals(listOf("8=FIX.4.4|35=D|11=A|", "8=FIX.4.4|35=8|11=A|"), File(store.directoryFor(id), LoadRecordStore.SPECIMENS_FILE).readLines())
+        assertEquals(
+            listOf("8=FIX.4.4|35=D|11=ORD-1|"),
+            store.unmatchedWire(id, LoadReport.Evidence.forPhase(1)),
+            "SOH becomes the pipe the tool shows",
+        )
+        assertEquals(
+            listOf("8=FIX.4.4|35=D|11=A|", "8=FIX.4.4|35=8|11=A|"),
+            File(store.directoryFor(id), "01-specimens.fix").readLines(),
+            "the phase number is in the name, so a set's phases never overwrite each other",
+        )
     }
 
     @Test
@@ -67,13 +77,13 @@ class LoadRecordStoreTest {
     @Test
     fun `a record that says running with no process behind it reads as stopped, once`() {
         val store = LoadRecordStore(dir.absolutePath, isLive = { false })
-        val running = burstReport(status = LoadStatus.RUNNING).copy(phase = LoadPhase.SETTLING, finishedAt = null, settleLeftMs = 4_000)
+        val running = burstReport(status = LoadStatus.RUNNING).copy(stage = LoadStage.SETTLING, finishedAt = null, settleLeftMs = 4_000)
         store.write(running)
 
         val healed = assertNotNull(store.read(running.id))
 
         assertEquals(LoadStatus.STOPPED, healed.status)
-        assertEquals(LoadPhase.DONE, healed.phase)
+        assertEquals(LoadStage.DONE, healed.stage)
         assertNull(healed.settleLeftMs)
         assertNotNull(healed.finishedAt)
         assertEquals(1, healed.verdict.exitCode)

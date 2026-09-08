@@ -95,12 +95,17 @@ class ControlServerLoadIntegrationTest {
         assertEquals("done", row["status"]!!.jsonPrimitive.content)
         assertEquals(1, row["exitCode"]!!.jsonPrimitive.int)
 
+        assertEquals("done", row["stage"]!!.jsonPrimitive.content, "the run's own lifecycle, on the row")
+
+        // The record, not the bare report: one shape at the file, the flag and this route.
         val one = get("/loads/${report.id}?wait=100")
         assertEquals(200, one.statusCode())
         val json = obj(one)
         assertEquals(report.label, json["label"]!!.jsonPrimitive.content)
-        assertEquals(4, json["replies"]!!.jsonObject["unmatched"]!!.jsonPrimitive.int)
-        assertEquals("UNMATCHED", json["verdict"]!!.jsonObject["completeness"]!!.jsonPrimitive.content)
+        assertEquals(1, json["exitCode"]!!.jsonPrimitive.int)
+        val phase = json["phases"]!!.jsonArray.single().jsonObject
+        assertEquals(4, phase["replies"]!!.jsonObject["unmatched"]!!.jsonPrimitive.int)
+        assertEquals("UNMATCHED", phase["verdict"]!!.jsonObject["completeness"]!!.jsonPrimitive.content)
 
         assertEquals(409, post("/loads/${report.id}/stop", "{}").statusCode())
         assertEquals(404, get("/loads/nothing-here").statusCode())

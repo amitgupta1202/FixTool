@@ -291,7 +291,12 @@ class LoadSetTest {
         assertEquals("the capture quoteId is also captured by phase 1. Rename one of them.", problems.single().sentence)
     }
 
-    /** A capture is readable only from an EARLIER phase, and the sentence says so rather than "seed it". */
+    /**
+     * A capture is readable only from an EARLIER phase, and **one** sentence says so.
+     *
+     * The seed sentence and the phase sentence were both printed for the same name, which reads as two
+     * faults and sends the author to the Seed band for a name that is captured, only too late.
+     */
     @Test
     fun `a template reading a capture from its own phase, or a later one, is refused in its own voice`() {
         val sameePhase =
@@ -306,7 +311,8 @@ class LoadSetTest {
         assertEquals(
             "Phase 1 · Ask for a quote: the template reads \${quoteId} and no earlier phase captures it. " +
                 "Add a capture to a phase before it, or seed it.",
-            problems.first { it.sentence.startsWith("the template reads") }.describe("Ask for a quote"),
+            problems.single().describe("Ask for a quote"),
+            problems.toString(),
         )
     }
 

@@ -129,9 +129,13 @@ data class LoadSet(
             // A name is readable in this phase when the set seeds it, a lane hands it over, or an EARLIER
             // phase captured it. A capture in this phase or a later one is a different mistake, and the
             // sentence below says which rather than sending the author to the Seed band for it.
+            //
+            // Which is why [tooLate] is handed to templateProblems as though it were seeded: a name that
+            // IS captured, only in the wrong order, is not a name nothing seeds, and printing both
+            // sentences read as two faults with two remedies for one mistake.
             val earlier = phases.take(index).flatMap { it.capture.keys }.toSet()
-            LoadPlan.templateProblems(template, seed.keys + earlier, surface).forEach { found += Problem(n, it) }
             val tooLate = phases.drop(index).flatMap { it.capture.keys }.toSet()
+            LoadPlan.templateProblems(template, seed.keys + earlier + tooLate, surface).forEach { found += Problem(n, it) }
             template.readsThatAreNotSeeded(seed.keys + earlier).filter { it in tooLate }.forEach { name ->
                 found +=
                     Problem(

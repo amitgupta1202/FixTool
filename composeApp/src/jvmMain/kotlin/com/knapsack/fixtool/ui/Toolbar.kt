@@ -19,6 +19,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.Environment
@@ -864,6 +867,8 @@ fun ToolbarRunControls(viewModel: FixMessageViewModel, modifier: Modifier = Modi
     val running by viewModel.scenarioRunning.collectAsState()
     val activeSet by viewModel.activeRunSet.collectAsState()
     val activeLoad by viewModel.activeLoadRun.collectAsState()
+    // Read so that a run starting or finishing recomposes what turns on it: Disconnect all's reason.
+    val runningIds by viewModel.runningSetIds.collectAsState()
     // Which sessions are logged on, observed here so the lane count and Disconnect all's count follow
     // them. A count remembered on anything coarser reads 0 until something unrelated happens to change.
     val sessionStates = viewModel.sessions.map { it.connectionState.collectAsState().value }
@@ -974,6 +979,24 @@ fun ToolbarRunControls(viewModel: FixMessageViewModel, modifier: Modifier = Modi
                 )
             }
         }
+
+        // No confirmation. Quick Connect puts everything back in one click, and disconnecting clears no
+        // book: the venue's orders and quotes stay where Clear order book can reach them. The one case
+        // that would lose something is a live load run, and there the button is disabled and says why.
+        val offer = viewModel.disconnectAllOffer(activeLoad, runningIds)
+        AppTooltip(offer.tooltip) {
+            ToolbarChip(
+                icon = Icons.Default.PowerSettingsNew,
+                label = "Disconnect all",
+                tint = if (offer.enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
+                chevron = false,
+                enabled = offer.enabled,
+                onClick = { viewModel.disconnectAllSessions() },
+                tag = "toolbar-disconnect-all",
+                // The tooltip again, where a test can read it: a Compose tooltip exists only while hovered.
+                description = offer.tooltip,
+            )
+        }
     }
 }
 
@@ -1061,7 +1084,12 @@ private fun RunConfigurationsMenu(
     }
 }
 
-/** A 28dp toolbar chip in Quick Connect's shape: an icon, a label, and a chevron when it opens a menu. */
+/**
+ * A 28dp toolbar chip in Quick Connect's shape: an icon, a label, and a chevron when it opens a menu.
+ *
+ * [description] puts the tooltip into the semantics as well as the hover bubble, so a test can read the
+ * reason a control is refused: a Compose tooltip exists only while the pointer is over it.
+ */
 @Composable
 @Suppress("LongParameterList")
 private fun ToolbarChip(
@@ -1071,15 +1099,20 @@ private fun ToolbarChip(
     chevron: Boolean,
     onClick: () -> Unit,
     tag: String,
+    enabled: Boolean = true,
+    description: String? = null,
 ) {
     Row(
         modifier =
             Modifier
                 .height(28.dp)
                 .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                .clickable(onClick = onClick)
+                .let { if (enabled) it.clickable(onClick = onClick) else it }
                 .padding(horizontal = 10.dp, vertical = 4.dp)
-                .testTag(tag),
+                .semantics {
+                    if (!enabled) disabled()
+                    description?.let { contentDescription = it }
+                }.testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {

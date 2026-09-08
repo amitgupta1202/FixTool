@@ -5109,6 +5109,51 @@ class FixMessageViewModel(
     }
 
     /**
+     * **What Disconnect all is about to drop, or why it is refused** — the tooltip and the enabled state
+     * in one value, the way the rail's selection bar carries its `blocked`.
+     *
+     * The count is in the sentence rather than on the button because it is the number that decides whether
+     * you meant to press it: "10 sessions on 3 profiles" is a different act from "1 session on 1 profile".
+     */
+    data class DisconnectAllOffer(val enabled: Boolean, val tooltip: String)
+
+    /** Connected or logged on: the two states a disconnect would actually change. */
+    private fun FixMessageSession.isLive(): Boolean =
+        connectionState.value == FixConnectionState.CONNECTED || connectionState.value == FixConnectionState.LOGGED_ON
+
+    /**
+     * @param activeLoad the load record on screen, from [activeLoadRun].
+     * @param runningSetIds the run ids holding sessions right now, from [runningSetIds].
+     *
+     * Both are parameters rather than reads, so the composition that collects those flows is the thing
+     * that recomposes on them, and so a test can put a run in flight without one.
+     */
+    fun disconnectAllOffer(
+        activeLoad: LoadRecord? = _activeLoadRun.value,
+        runningSetIds: Set<String> = _runningSetIds.value,
+    ): DisconnectAllOffer {
+        // A live load run is the one case a disconnect would lose something, so it is refused by name.
+        // Anything else survives: books, records and panes are all still there afterwards.
+        val live = activeLoad?.takeIf { it.id in runningSetIds }
+        if (live != null) {
+            // Word for word what `POST /disconnect` refuses with, so the button and the API cannot give
+            // two accounts of the same state. A set is a record with a set name, or with more than one
+            // phase in it.
+            val kind = if (live.set != null || live.phases.size > 1) "A load set" else "A load run"
+            return DisconnectAllOffer(enabled = false, tooltip = "$kind is running. Stop it first.")
+        }
+        val connected = _sessions.count { it.isLive() }
+        if (connected == 0) return DisconnectAllOffer(enabled = false, tooltip = "Nothing is connected")
+        val profiles = _connectionProfiles.count { p -> getProfileSessions(p.id).any { it.isLive() } }
+        return DisconnectAllOffer(
+            enabled = true,
+            tooltip =
+                "Disconnect all · $connected session${if (connected == 1) "" else "s"} on " +
+                    "$profiles profile${if (profiles == 1) "" else "s"}",
+        )
+    }
+
+    /**
      * Disconnects all active sessions
      * Called during app shutdown to gracefully logout from all servers
      */

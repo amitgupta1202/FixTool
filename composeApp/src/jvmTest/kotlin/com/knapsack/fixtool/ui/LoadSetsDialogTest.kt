@@ -4,14 +4,20 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.width
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
+import com.knapsack.fixtool.model.LOAD_DIALOG_WIDTH
+import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_HEIGHT
+import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_WIDTH
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.load.LoadMatch
@@ -412,6 +418,80 @@ class LoadSetsDialogTest {
         // Opened by name, so it is not a draft: nothing has been changed yet.
         composeTestRule.onNodeWithTag("load-set-why").assertTextContains("Phase 1", substring = true)
         composeTestRule.onNodeWithTag("load-set-phase-fixes-1").assertTextContains("1 fix", substring = true)
+    }
+
+    /**
+     * **The chrome, which is what "the two halves of one window disagree" meant.** The editor was built
+     * before the run dialog was given sections, so it drew nine-point grey group heads with nothing between
+     * them, and then a phase opened over it in the other idiom. Every section but the name row is separated
+     * by a rule, and the name row has none because the top of the pane is its own top edge.
+     */
+    @Test
+    fun `the set editor's sections are separated by rules, and the name row carries none`() {
+        viewModel.saveLoadSet(roundTrip)
+
+        show()
+
+        val rules = listOf("set-rule-identity", "set-rule-phases", "set-rule-policy")
+        rules.forEach { composeTestRule.onNodeWithTag(it).assertIsDisplayed() }
+        val name = composeTestRule.onNodeWithText("Name").getUnclippedBoundsInRoot()
+        rules.forEach { tag ->
+            val rule = composeTestRule.onNodeWithTag(tag).getUnclippedBoundsInRoot()
+            assertTrue(rule.top > name.bottom, "$tag should sit below the name row, it was at ${rule.top}")
+        }
+        composeTestRule.onNodeWithText("the seed and the store every phase shares").assertExists()
+        composeTestRule.onNodeWithText("one saved message per phase, in the order they run").assertExists()
+        composeTestRule.onNodeWithText("what happens when a phase does not pass").assertExists()
+    }
+
+    /**
+     * **One label column across both halves of the window.** The editor's own was 104.dp and left aligned,
+     * so a label here and a label in the phase editor started and stopped in different places.
+     */
+    @Test
+    fun `the set editor's label column is the run dialog's`() {
+        viewModel.saveLoadSet(roundTrip)
+
+        show()
+
+        val name = composeTestRule.onNodeWithText("Name").getUnclippedBoundsInRoot()
+        val fails = composeTestRule.onNodeWithText("If a phase fails").getUnclippedBoundsInRoot()
+
+        assertEquals(LABEL_COLUMN, name.width, "the label column is 118.dp, it measured ${name.width}")
+        assertEquals(LABEL_COLUMN, fails.width)
+        assertEquals(name.right, fails.right, "right aligned, so every label ends on the same edge")
+    }
+
+    /** The footer says what Run set will do, or the first reason it cannot, and Run set is a real button. */
+    @Test
+    fun `the footer carries Run set and the sentence beside it`() {
+        viewModel.saveLoadSet(roundTrip)
+
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-run").assertHasClickAction()
+        composeTestRule.onNodeWithText("Run set", substring = true).assertExists()
+        // Nothing is wrong and nothing is unsaved, so it says what the set is rather than staying blank.
+        composeTestRule.onNodeWithTag("load-set-why").assertTextContains("2 phases", substring = true)
+        composeTestRule.onNodeWithTag("load-set-why").assertTextContains("memory store", substring = true)
+    }
+
+    /**
+     * **820 by 700, and the user's last size after that**, in the view-state store beside the run dialog's
+     * pair and never in AppSettings: a window size is not a setting anybody edits on a settings page.
+     */
+    @Test
+    fun `the sets dialog opens at its own size until one is remembered`() {
+        assertEquals(LOAD_SETS_DIALOG_WIDTH to LOAD_SETS_DIALOG_HEIGHT, viewModel.loadSetsDialogSize())
+
+        viewModel.rememberLoadSetsDialogSize(960f, 840f)
+
+        assertEquals(960f to 840f, viewModel.loadSetsDialogSize())
+        assertEquals(
+            LOAD_DIALOG_WIDTH to LOAD_DIALOG_HEIGHT,
+            viewModel.loadDialogSize(),
+            "the two dialogs keep their own size, so one drag does not resize the other",
+        )
     }
 
     @Test

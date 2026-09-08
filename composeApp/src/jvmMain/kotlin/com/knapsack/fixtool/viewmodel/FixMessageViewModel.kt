@@ -3782,28 +3782,57 @@ class FixMessageViewModel(
     fun reserveLoadId(name: String): String = RunSets.id(System.currentTimeMillis(), name)
 
     /**
-     * Runs a saved set by name, or opens the editor on its refusals instead.
+     * **What a saved set did when it was asked to run**, which is three answers and not two.
+     *
+     * A single null told the Run menu only that nothing started, so it opened the editor for all three:
+     * for the set with the fixable problem it opened on whichever set the editor happened to select, and
+     * for the two cases with nothing in the file to fix it opened an editor with nothing to do.
+     */
+    sealed interface SavedLoadSetRun {
+        data class Started(
+            val planned: LoadSet.Planned,
+        ) : SavedLoadSetRun
+
+        /** Refused by its own file. The editor opens **on this set**, where the fields are. */
+        data class Refused(
+            val set: LoadSet,
+            val why: String,
+        ) : SavedLoadSetRun
+
+        /** Nothing in the file to fix: no set of that name, no lane logged on, or a run holds the sessions. */
+        data class CannotRunNow(
+            val why: String,
+        ) : SavedLoadSetRun
+    }
+
+    /**
+     * Runs a saved set by name, or says why it did not.
      *
      * A set that would be refused must not half-run: the Run menu's own item routes through this, which is
      * why a refused set is an editor and not a notification.
      */
-    fun startSavedLoadSet(name: String): LoadSet.Planned? {
-        val set = loadSet(name)
-        if (set == null) {
-            showNotification("No load set '$name' is saved", NotificationType.ERROR)
-            return null
-        }
+    fun startSavedLoadSet(name: String): SavedLoadSetRun {
+        val set = loadSet(name) ?: return cannotRunLoadSet("No load set '$name' is saved")
         val resolve = loadSetResolver()
-        val problems = set.problems(resolve, LoadPlan.Surface.DIALOG)
-        if (problems.isNotEmpty()) {
-            val first = problems.first()
-            showNotification(
-                first.describe(first.phase?.let { set.phases.getOrNull(it - 1)?.label }),
-                NotificationType.ERROR,
-            )
-            return null
+        val first = set.problems(resolve, LoadPlan.Surface.DIALOG).firstOrNull()
+        if (first != null) {
+            val why = first.describe(first.phase?.let { set.phases.getOrNull(it - 1)?.label })
+            showNotification(why, NotificationType.ERROR)
+            return SavedLoadSetRun.Refused(set, why)
         }
-        return startLoadSet(set.plan(resolve, seedOverride = emptyMap(), id = reserveLoadId(set.name)))
+        // startLoadSet says its own reason for the two states nothing in the file can fix, so this does not
+        // say it a second time.
+        val planned = startLoadSet(set.plan(resolve, seedOverride = emptyMap(), id = reserveLoadId(set.name)))
+        return planned?.let { SavedLoadSetRun.Started(it) }
+            ?: SavedLoadSetRun.CannotRunNow(
+                "'${set.label.ifBlank { set.name }}' cannot run now. The set itself has nothing to fix.",
+            )
+    }
+
+    /** A reason said once, and handed back so the caller does not have to say it again. */
+    private fun cannotRunLoadSet(why: String): SavedLoadSetRun.CannotRunNow {
+        showNotification(why, NotificationType.ERROR)
+        return SavedLoadSetRun.CannotRunNow(why)
     }
 
     /**

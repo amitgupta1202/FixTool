@@ -13,7 +13,10 @@ import com.knapsack.fixtool.integration.TestFixServer
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.load.LoadPhaseSpec
 import com.knapsack.fixtool.model.load.LoadRecord
+import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -160,6 +163,113 @@ class LoadRunRailTest {
 
         assertTrue(line.startsWith("✗ ⚡ RFQ round trip (2) · LOADGEN"), line)
         assertTrue(line.endsWith("(1/2)"), line)
+    }
+
+    /**
+     * **A refused `Load set ▸` opens the editor on the set that was refused.**
+     *
+     * The rail only knew that nothing had started, so it opened the editor on whichever set the editor
+     * happened to select, which was the first one alphabetically. "Zulu broken" is deliberately last in
+     * that order, so an editor showing it can only have been sent there on purpose.
+     */
+    @Test
+    fun `a refused Load set opens the editor on that set, not on the first one saved`() {
+        val server = TestFixServer()
+        server.start()
+        val runId = System.nanoTime().toString().takeLast(6)
+        try {
+            val profile =
+                FixConnectionProfile(
+                    name = "LoadGen",
+                    config =
+                        FixConnectionConfig(
+                            connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                            senderCompID = "REF{nn}$runId",
+                            targetCompID = "VENUE$runId",
+                            sessionCount = 2,
+                            host = "localhost",
+                            port = server.port.toString(),
+                            socketConnectHost = "localhost",
+                            beginString = "FIX.4.4",
+                            autoReconnect = false,
+                            resetOnLogon = true,
+                            fileStorePath = File(testDir, "store").absolutePath,
+                            fileLogPath = File(testDir, "log").absolutePath,
+                        ),
+                )
+            viewModel.saveConnectionProfile(profile)
+            // Neither set can run: each names a template nothing answers to. That is a refusal the file can
+            // fix, so both belong in the editor rather than in a notification.
+            viewModel.saveLoadSet(
+                LoadSet(
+                    name = "aaa-first",
+                    label = "Aaa first",
+                    phases = listOf(LoadPhaseSpec("Phase 1", "Nothing", "LoadGen", shape = LoadShape.Burst(10))),
+                ),
+            )
+            viewModel.saveLoadSet(
+                LoadSet(
+                    name = "zulu-broken",
+                    label = "Zulu broken",
+                    phases = listOf(LoadPhaseSpec("Phase 1", "Also nothing", "LoadGen", shape = LoadShape.Burst(10))),
+                ),
+            )
+
+            composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+            viewModel.connectProfile(profile.id, profile)
+            composeTestRule.waitUntil(25_000) {
+                viewModel.getProfileSessions(profile.id).count { it.connectionState.value == FixConnectionState.LOGGED_ON } == 2
+            }
+            composeTestRule.waitForIdle()
+
+            composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+            composeTestRule.waitForIdle()
+            composeTestRule
+                .onNodeWithTag("rail-run-load-set-zulu-broken")
+                .assertIsEnabled()
+                .performClick()
+            composeTestRule.waitForIdle()
+
+            composeTestRule.onNodeWithTag("load-sets-dialog").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("load-set-name").assertTextContains("Zulu broken")
+            composeTestRule.onNodeWithTag("load-set-phase-fixes-1").assertTextContains("1 fix", substring = true)
+        } finally {
+            viewModel.disconnectAllSessions()
+            server.stop()
+        }
+    }
+
+    /**
+     * **"Cannot run now" is a different answer from "refused".** No lane logged on is nothing the file can
+     * fix, so it stays a notification and leaves the editor shut.
+     */
+    @Test
+    fun `a set whose profile has no lane notifies rather than opening an editor with nothing to fix`() {
+        viewModel.saveConnectionProfile(
+            FixConnectionProfile(
+                id = "down",
+                name = "DOWN",
+                config = FixConnectionConfig(senderCompID = "D{n}", targetCompID = "V", sessionCount = 2),
+            ),
+        )
+        viewModel.saveLoadSet(
+            LoadSet(
+                name = "lanes-down",
+                label = "Lanes down",
+                phases = listOf(LoadPhaseSpec("Phase 1", "Nothing", "DOWN", shape = LoadShape.Burst(10))),
+            ),
+        )
+
+        val outcome = viewModel.startSavedLoadSet("lanes-down")
+
+        assertTrue(
+            outcome is FixMessageViewModel.SavedLoadSetRun.Refused,
+            "a template nothing answers to is the file's problem: $outcome",
+        )
+        assertTrue(
+            viewModel.startSavedLoadSet("no-such-set") is FixMessageViewModel.SavedLoadSetRun.CannotRunNow,
+            "a set that is not saved has no fields to fix, so no editor",
+        )
     }
 
     @Test

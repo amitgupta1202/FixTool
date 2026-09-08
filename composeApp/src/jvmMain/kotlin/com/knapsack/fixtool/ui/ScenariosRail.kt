@@ -145,6 +145,9 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var loading by remember { mutableStateOf(false) }
     var editingLoadSets by remember { mutableStateOf(false) }
     var pendingLoadSet by remember { mutableStateOf<LoadSet?>(null) }
+    // The saved set a refused `Load set ▸` wants fixed. By name, because it is already on disk: opening it
+    // as an unsaved draft would put "unsaved" in the footer of a set nobody has touched.
+    var loadSetToFix by remember { mutableStateOf<String?>(null) }
     // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
     var remapFor by remember { mutableStateOf<Scenario?>(null) }
     remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
@@ -224,13 +227,16 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             onDismiss = {
                 editingLoadSets = false
                 pendingLoadSet = null
+                loadSetToFix = null
             },
             onRun = { planned ->
                 editingLoadSets = false
                 pendingLoadSet = null
+                loadSetToFix = null
                 viewModel.startLoadSet(planned)
             },
             initial = pendingLoadSet,
+            initialName = loadSetToFix,
         )
     }
     if (savingSet) {
@@ -375,10 +381,19 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         onFanOut = { fanningOut = true },
                         onLoadRun = { loading = true },
                         loadSets = remember(activeLoad, editingLoadSets) { viewModel.loadSets() },
-                        // A set that would be refused opens the editor on its refusals rather than
-                        // half-running: the view model says which, and this opens the door.
-                        onRunLoadSet = { name -> if (viewModel.startSavedLoadSet(name) == null) editingLoadSets = true },
-                        onLoadSets = { editingLoadSets = true },
+                        // A set that would be refused opens the editor **on that set**, rather than
+                        // half-running. "Cannot run now" is a different answer: no lane, or a run already
+                        // holding the sessions, is nothing the file can fix, so it stays a notification.
+                        onRunLoadSet = { name ->
+                            (viewModel.startSavedLoadSet(name) as? FixMessageViewModel.SavedLoadSetRun.Refused)?.let {
+                                loadSetToFix = it.set.name
+                                editingLoadSets = true
+                            }
+                        },
+                        onLoadSets = {
+                            loadSetToFix = null
+                            editingLoadSets = true
+                        },
                         onOpenRecent = { run ->
                             when (run) {
                                 is RecentRun.Set -> viewModel.focusRunSet(run.id)

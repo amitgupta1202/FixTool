@@ -646,18 +646,23 @@ private fun UnmatchedTable(r: LoadReport, wire: List<String>, narrow: Boolean, o
         ) {
             // The wide row scrolls inside itself. The pane never scrolls sideways, which is what makes a
             // 460px split usable instead of merely possible.
+            //
+            // Wide, the wire is the column that gives: it takes what the three fixed ones leave and
+            // ellipsizes there, which is what keeps " open ›" one line at the right edge. Left to eat the
+            // whole row it measured that link at nothing and wrapped it to one character a line.
+            val spread = if (narrow) Modifier else Modifier.fillMaxWidth()
             Column(modifier = Modifier.fillMaxWidth().let { if (narrow) it.horizontalScroll(rememberScrollState()) else it }) {
-                Row {
+                Row(modifier = spread) {
                     Head("id (${r.match.requestTag})", ID_COL)
                     Head("lane", LANE_COL)
                     Head("sent", SENT_COL)
-                    Head("wire", Dp.Unspecified)
+                    Head("wire", Dp.Unspecified, fill = !narrow)
                 }
                 r.unmatched.take(MAX_UNMATCHED_ROWS).forEachIndexed { i, u ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier =
-                            Modifier
+                            spread
                                 .background(if (i == selected) AppTheme.Colors.selectionSecondary else Color.Transparent)
                                 .clickable {
                                     selected = i
@@ -667,8 +672,14 @@ private fun UnmatchedTable(r: LoadReport, wire: List<String>, narrow: Boolean, o
                         Cell(u.id, ID_COL, AppTheme.Colors.text)
                         Cell(u.lane.toString(), LANE_COL, AppTheme.Colors.textSecondary)
                         Cell(clock(u.sentAt), SENT_COL, AppTheme.Colors.textSecondary)
-                        Cell(wire.getOrNull(i) ?: "", Dp.Unspecified, AppTheme.Colors.textDisabled)
-                        Text(" open ›", color = AppTheme.Colors.info, style = AppTheme.Type.meta)
+                        Cell(wire.getOrNull(i) ?: "", Dp.Unspecified, AppTheme.Colors.textDisabled, fill = !narrow)
+                        Text(
+                            " open ›",
+                            color = AppTheme.Colors.info,
+                            style = AppTheme.Type.meta,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
                     }
                 }
             }
@@ -705,26 +716,42 @@ private fun UnmatchedTable(r: LoadReport, wire: List<String>, narrow: Boolean, o
 }
 
 @Composable
-private fun Head(text: String, width: Dp) {
+private fun RowScope.Head(text: String, width: Dp, fill: Boolean = false) {
     Text(
         text,
         color = AppTheme.Colors.textDisabled,
         style = AppTheme.Type.meta,
         maxLines = 1,
-        modifier = if (width == Dp.Unspecified) Modifier else Modifier.width(width),
+        modifier = column(width, fill),
     )
 }
 
 @Composable
-private fun Cell(text: String, width: Dp, tint: Color) {
+private fun RowScope.Cell(text: String, width: Dp, tint: Color, fill: Boolean = false) {
     Text(
         text,
         color = tint,
         style = AppTheme.Type.body.copy(fontFamily = FontFamily.Monospace),
         maxLines = 1,
-        modifier = if (width == Dp.Unspecified) Modifier else Modifier.width(width),
+        // The filled column is the only one that can run out of room, so it ends in an ellipsis rather
+        // than being cut through the middle of a tag.
+        overflow = if (fill) TextOverflow.Ellipsis else TextOverflow.Clip,
+        modifier = column(width, fill),
     )
 }
+
+/**
+ * A column is a fixed width, or [fill] for the one that takes whatever the fixed ones leave.
+ *
+ * Filling only means something where the row has a width to share out. Inside a horizontal scroll the row
+ * is measured with unbounded width, so a table that scrolls sideways keeps every column intrinsic.
+ */
+private fun RowScope.column(width: Dp, fill: Boolean): Modifier =
+    when {
+        fill -> Modifier.weight(1f)
+        width == Dp.Unspecified -> Modifier
+        else -> Modifier.width(width)
+    }
 
 /**
  * **The lanes, and the one sentence a lane table exists to produce.**

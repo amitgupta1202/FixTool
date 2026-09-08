@@ -1,19 +1,26 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.service.load.LoadFixtures
+import com.knapsack.fixtool.service.load.StampMatcher
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
 import org.junit.Before
@@ -173,6 +180,34 @@ class LoadRunDocumentTest {
     }
 
     /**
+     * **A wire longer than the row must not take the row with it.** With no weight on the wire column it
+     * took every pixel the three fixed columns left over, so " open ›" was measured at about nothing and
+     * wrapped a character to a line, five lines of row for each unanswered request.
+     */
+    @Test
+    fun `a wide pane keeps an overlong wire to one line, with the open link beside it`() {
+        val report = LoadFixtures.burstReport(unmatched = 4)
+        viewModel.loadRecordStore.write(report)
+        viewModel.loadRecordStore.writeEvidence(
+            report.id,
+            LoadReport.Evidence.forPhase(1),
+            unmatched =
+                report.unmatched.map {
+                    StampMatcher.Unmatched(it.id, it.lane, sentMicros = it.sentAt * 1_000, wire = longWire(it.id))
+                },
+            specimens = emptyList(),
+        )
+
+        composeTestRule.setContent {
+            LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.width(900.dp).fillMaxHeight())
+        }
+
+        val row = composeTestRule.onNodeWithTag("load-unmatched-0").performScrollTo().getUnclippedBoundsInRoot().height
+        assertTrue(row < 24.dp, "the row is one line of wire, not two or the five the wrapped link made it ($row)")
+        composeTestRule.onAllNodesWithText(" open ›")[0].assertIsDisplayed().assertWidthIsAtLeast(20.dp)
+    }
+
+    /**
      * Which chart you get follows the issue span, not the shape. A 4,000 burst leaves in 813ms and would
      * draw three bars that say nothing; the curve is drawn for every run, in the stat card's own slot.
      */
@@ -257,4 +292,14 @@ class LoadRunDocumentTest {
         composeTestRule.onNodeWithText("no longer on disk", substring = true).assertExists()
         composeTestRule.onNodeWithTag("load-reveal").assertExists()
     }
+
+    /**
+     * A single order, 176 characters of it, as the matcher hands it to the record: SOH separated, which is
+     * what the store turns into the pipes the document reads back.
+     */
+    private fun longWire(id: String): String =
+        (
+            "8=FIX.4.4|9=241|35=D|34=1187|49=LOADGEN|56=VENUE|52=20260905-14:02:11.443|11=$id|" +
+                "55=EUR/USD|54=1|38=1000000|40=2|44=1.09385|59=0|21=1|60=20260905-14:02:11.443|10=071|"
+        ).replace('|', '\u0001')
 }

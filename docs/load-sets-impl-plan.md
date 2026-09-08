@@ -258,12 +258,18 @@ data class QuoteReading(val quoteId: String?, val entry: QuoteEntry?, val word: 
   4. `694=1`, 11 and 38 present, `54=1`, `44 quoteField(offer)`, `55 quoteField(symbol)` → the trade at
      `31=${quote.offer} 6=${quote.offer}`.
   5. `694=1`, 11 and 38 present, `54=2`, `44 quoteField(bid)`, `55 quoteField(symbol)` → the trade at the bid.
-  6. `694=1`, 11 and 38 present → `297=5 58=Price is not the quoted price`.
-  7. `694=1` → `297=5 58=A hit needs ClOrdID (11) and OrderQty (38) to book`.
-  8. `694=2` → `297=5 58=Counter not accepted: this venue quotes firm`.
-  9. `694=6` → `297=11`. The book marks the quote done by pass.
-  10. any other 694 → `297=5`. No 117 → the `35=j` reject, as today.
-  The six per-pair hit rules collapse into rules 4 and 5, because the quote knows its own symbol and prices.
+  6. `694=1`, 11 and 38 present, `55 quoteField(symbol)` → `297=5 58=Price is not the quoted price`. The
+     symbol condition is load-bearing: without it this rule also catches a hit at the right price on the
+     wrong pair and blames the price, which sends a client to check pricing that is not at fault.
+  7. `694=1`, 11 and 38 present → `297=5 58=Instrument is not the quoted one`. Directly under rule 6, and
+     said by position rather than by a condition: every rule above it carries the quoted symbol, so
+     anything arriving here named something else or named nothing.
+  8. `694=1` → `297=5 58=A hit needs ClOrdID (11) and OrderQty (38) to book`.
+  9. `694=2` → `297=5 58=Counter not accepted: this venue quotes firm`.
+  10. `694=6` → `297=11`. The book marks the quote done by pass.
+  11. any other 694 → `297=5`. No 117 → the `35=j` reject, as today.
+  The six per-pair hit rules collapse into rules 4 and 5, because the quote knows its own symbol and prices,
+  which leaves the bundle at 17 rules where the first slice of the venue needed 18.
   The QuoteRequest rules stay as they are. The summary string changes to say what the venue now is.
 - **`connection_profiles.json`** in the bundle is regenerated to equal the preset (the L254 pin). Keep the
   ids, ports and `createdAt: 0`.

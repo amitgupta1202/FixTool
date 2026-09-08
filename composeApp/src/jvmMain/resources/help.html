@@ -447,8 +447,10 @@
             <td>QuoteRequestReject (35=AG), 658=1 Unknown symbol</td></tr>
         <tr><td>QuoteResponse 694=1 hit or lift on a live quote, on the quoted side <strong>at the price that quote carried</strong>, with ClOrdID and OrderQty</td>
             <td>ExecutionReport (35=8), 150=F 39=2, filled at <code>${quote.offer}</code> or <code>${quote.bid}</code>, echoing your 11 and 693</td></tr>
-        <tr><td>Hit or lift at any other price, or naming a different instrument</td>
+        <tr><td>Hit or lift on the quoted instrument at any other price</td>
             <td>QuoteStatusReport, 297=5, &ldquo;Price is not the quoted price&rdquo;</td></tr>
+        <tr><td>Hit or lift naming an instrument the quote did not</td>
+            <td>QuoteStatusReport, 297=5, &ldquo;Instrument is not the quoted one&rdquo;</td></tr>
         <tr><td>Hit or lift without ClOrdID or OrderQty</td>
             <td>QuoteStatusReport, 297=5, naming the two tags a booking needs</td></tr>
         <tr><td>QuoteResponse 694=2 counter</td>
@@ -460,7 +462,7 @@
         <tr><td>QuoteResponse without a QuoteID, or naming an unknown quote without a Symbol</td>
             <td>BusinessMessageReject (35=j), 380=5, because a QuoteStatusReport needs both to name</td></tr>
     </table>
-    <p>Sixteen rules, where the first slice of this venue needed eighteen and said less. Two of them are
+    <p>Seventeen rules, where the first slice of this venue needed eighteen and said less. Two of them are
     the whole booking: because the symbol and the price are read off the quote
     (<a href="#when-quote"><code>quoteField</code></a> in the trigger, <code>${quote.&hellip;}</code> in
     the reply), the three pairs are one buy rule and one sell rule rather than six. None of them asks the

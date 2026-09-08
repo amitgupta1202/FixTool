@@ -195,7 +195,13 @@ because every quote carries a different price, and no tag on the incoming messag
 the price the client sends is the claim under test. And a reply can read the quote (`${quote.offer}`), so a hit is
 booked at the venue's number rather than the client's. Together they collapsed the venue's six per-pair
 booking rules into two: the symbol and the price come from the quote, so the three pairs are one buy rule
-and one sell rule. Eighteen rules became sixteen, each saying more.
+and one sell rule. Eighteen rules became seventeen, each saying more. Seventeen and not sixteen because
+the price refusal had to grow a partner: with the symbol now read off the quote, a hit at the right price
+on the wrong pair fell into "Price is not the quoted price", which sends a client to check pricing that is
+not at fault, so `wrongPrice` carries the quoted symbol as a condition and a `wrongInstrument` rule sits
+directly under it answering *Instrument is not the quoted one*. It says so by **position** rather than by
+a condition, because the matcher has no "not the quote's field" shape and inventing one to express a
+refusal would be the tail wagging the venue.
 
 **What this fixed at `:111` above.** The unattributed report at the bottom of every RFQ run is gone. An
 ExecutionReport the quote book claims through 693 is a quote event, not an order event, so it is no longer
@@ -421,7 +427,7 @@ not measured).
 ### Verified live, 2026-09-08
 
 The second slice, measured rather than reasoned about. A third pass, on a **fresh copy** of the example
-(the point of a fresh copy being that the shipped set and the sixteen rules are only in one), the app on
+(the point of a fresh copy being that the shipped set and the rewritten rules are only in one), the app on
 `FIXTOOL_CONTROL_PORT=8799`, the venue and five lanes of **RFQ Load Client** logged on, memory store and
 no message log.
 

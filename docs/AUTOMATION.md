@@ -331,7 +331,9 @@ case: phase 1's orders keep drawing fills while phase 2 cancels them.
 one inline. `GET /loads/<id>?wait=10000` polls it and returns the record, `POST /loads/<id>/stop` stops it,
 `GET /load-sets` lists the saved sets and `GET /load-sets/<name>` returns one whole. The MCP tools are
 `fixtool_load` (which takes the same `set` argument) and `fixtool_load_status`, the same shape as
-`fixtool_run_set` and `fixtool_run_status`.
+`fixtool_run_set` and `fixtool_run_status`. `fixtool_load_sets` is the same two reads behind one tool: with
+no argument it lists the saved sets, and `name=<set>` returns that one whole, so an agent can find a set and
+read its phases without being told its name.
 
 ## HTTP API
 

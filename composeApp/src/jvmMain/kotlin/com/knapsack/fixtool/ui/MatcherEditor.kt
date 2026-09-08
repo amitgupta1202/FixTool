@@ -18,13 +18,21 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.QuoteEntry
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.validationError
 import com.knapsack.fixtool.service.ExpectationSeeder
 
-/** The matcher type names, in the order shown in the editor's dropdown. */
+/**
+ * The matcher type names, in the order shown in the editor's dropdown.
+ *
+ * This is the **scenario** list, which is the default. `quoteField` is deliberately not in it: a
+ * scenario replays against a counterparty and has no venue book to resolve one against. An acceptor
+ * trigger adds it — see `TRIGGER_MATCHER_TYPES` — exactly as it drops `reference`, which is the
+ * mirror-image value only a scenario has.
+ */
 val MATCHER_TYPES =
     listOf("exact", "notEqual", "presence", "absent", "oneOf", "regex", "numeric", "range", "temporal", "reference")
 
@@ -47,6 +55,7 @@ private val MATCHER_HELP = mapOf(
     "range" to "number above/below a bound",
     "temporal" to "date/time vs now/today",
     "reference" to "equals a \${...} expression",
+    "quoteField" to "equals the quote's own value",
 )
 
 /**
@@ -108,6 +117,7 @@ fun matcherTypeName(matcher: Matcher): String =
         is Matcher.Range -> "range"
         is Matcher.Temporal -> "temporal"
         is Matcher.Reference -> "reference"
+        is Matcher.QuoteField -> "quoteField"
     }
 
 /** The regex metacharacters, escaped one by one so the seeded pattern stays readable (`1\.5`, not `\Q1.5\E`). */
@@ -138,6 +148,10 @@ fun defaultMatcherForType(type: String, value: String): Matcher =
         "range" -> Matcher.Range(min = value.toDoubleOrNull() ?: 0.0)
         "temporal" -> Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)
         "reference" -> Matcher.Reference("\${out.D.11}")
+        // Seeded on the offer, because "did the client hit the price we quoted" is what this matcher
+        // was added for and the offer is the side a buy hits. A wrong pick is one dropdown away and
+        // visible in words on the card, unlike a reference's invented expression.
+        "quoteField" -> Matcher.QuoteField("offer")
         else -> Matcher.Exact(value)
     }
 
@@ -302,6 +316,18 @@ private fun MatcherParams(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+        }
+        // A closed list, because the vocabulary is nine names and a free-text field would invite `133`
+        // and then silently never fire. Named in the same words the reply template writes, so an author
+        // reading `${quote.offer}` in the step below recognises what the condition is comparing.
+        is Matcher.QuoteField -> {
+            SlimDropdown(
+                value = matcher.name,
+                options = QuoteEntry.FIELDS,
+                onValueChange = { picked -> picked?.let { onChange(Matcher.QuoteField(it)) } },
+                displayText = { "the quote's $it" },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         is Matcher.OneOf -> {
             val field: @Composable (Modifier) -> Unit = { mod ->

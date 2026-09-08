@@ -5590,7 +5590,12 @@ class FixMessageViewModel(
         // the same way Fill is already refused on a market order. A shape that needs an order the
         // venue has not got is not a shape to be offered and then discovered to be broken.
         val incoming = message.quickfixMessage
-        return AcceptorResponder.offersFor(incoming, dictionary, session.orderFields(incoming))
+        return AcceptorResponder.offersFor(
+            incoming,
+            dictionary,
+            session.orderFields(incoming),
+            session.quoteReading(incoming),
+        )
     }
 
     /**
@@ -5629,6 +5634,7 @@ class FixMessageViewModel(
                 message,
                 dictionary,
                 sessionContaining(message)?.orderFields(message.quickfixMessage),
+                sessionContaining(message)?.quoteReading(message.quickfixMessage),
             )
         val fields = rawToFields(resolved).ifEmpty { listOf(FixField()) }
         // Written now, while the book still says what it said when the author picked this shape.

@@ -8,6 +8,9 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.QuoteConstraint
+import com.knapsack.fixtool.model.QuoteEntry
+import com.knapsack.fixtool.model.QuoteReading
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.load.CompiledTemplate
@@ -79,6 +82,22 @@ data class OrderOutcome(
 )
 
 /**
+ * What a rule's `whenQuote` asked of the quote book, and what it said — [OrderOutcome]'s twin, in the
+ * same shape and reported the same way.
+ *
+ * [quoteId] is which quote was asked after, and it earns its place the way [OrderOutcome.key] does: a
+ * hit names a QuoteID and a QuoteRespID and only one of them is the quote. [actual] is null only when
+ * there was no book to ask at all, which is a different answer from a book that has never sent this
+ * quote, and neither may be reported as the other.
+ */
+data class QuoteOutcome(
+    val constraint: QuoteConstraint,
+    val quoteId: String?,
+    val actual: String?,
+    val satisfied: Boolean,
+)
+
+/**
  * How one rule answered one message — the whole of why it did or did not fire.
  *
  * [matched] is about this rule's own trigger; [selected] is about the list, since under
@@ -100,6 +119,8 @@ data class RuleOutcome(
     val conditions: List<ConditionOutcome>,
     /** What the rule asked of the book, and what it heard. Null when the rule asked nothing. */
     val order: OrderOutcome? = null,
+    /** The same, for the quote book. Null when the rule asked it nothing. */
+    val quote: QuoteOutcome? = null,
 )
 
 /**
@@ -125,6 +146,11 @@ object AcceptorResponder {
     // of ${order.leavesQty / 2}. Names rather than digits — see OrderBook.fields.
     private val ORDER_REF = Regex("\\\$\\{order\\.([A-Za-z][A-Za-z0-9]*)}")
     private val ORDER_IN_EXPR = Regex("\\border\\.([A-Za-z][A-Za-z0-9]*)\\b")
+
+    // And the same two for the quote book, so `${quote.offer}` is a price and `${quote.offer}` inside a
+    // larger expression is arithmetic on one.
+    private val QUOTE_REF = Regex("\\\$\\{quote\\.([A-Za-z][A-Za-z0-9]*)}")
+    private val QUOTE_IN_EXPR = Regex("\\bquote\\.([A-Za-z][A-Za-z0-9]*)\\b")
     private val NOW_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")
 
     /**
@@ -158,11 +184,18 @@ object AcceptorResponder {
      * same one [compile] takes with a trigger it cannot parse: a rule firing on messages its author
      * excluded is the dangerous way to be wrong.
      */
-    fun firstMatch(compiled: List<CompiledRule>, incoming: Message, book: BookReading? = null): AcceptorResponseRule? =
+    fun firstMatch(
+        compiled: List<CompiledRule>,
+        incoming: Message,
+        book: BookReading? = null,
+        /** What the venue had quoted before this message, on the same terms [book] is given. */
+        quote: QuoteReading? = null,
+    ): AcceptorResponseRule? =
         compiled.firstOrNull { (rule, conditions) ->
             valueOf(incoming, MSG_TYPE_TAG) == rule.whenMsgType &&
-                conditions.all { (tag, matcher) -> ExpectationEvaluator.satisfies(matcher, valueOf(incoming, tag)) } &&
-                satisfiesBook(rule, book)
+                conditions.all { (tag, matcher) -> holds(matcher, valueOf(incoming, tag), quote) } &&
+                satisfiesBook(rule, book) &&
+                satisfiesQuote(rule, quote)
         }?.rule
 
     /** Whether [rule]'s book constraint holds, given what [book] said. See [firstMatch] for the null case. */
@@ -170,6 +203,40 @@ object AcceptorResponder {
         val constraint = rule.whenOrder ?: return true
         return book != null && book.satisfies(constraint)
     }
+
+    /** The same for the quote book, and null means the same thing: a rule that asks does not fire. */
+    private fun satisfiesQuote(rule: AcceptorResponseRule, quote: QuoteReading?): Boolean {
+        val constraint = rule.whenQuote ?: return true
+        return quote != null && quote.satisfies(constraint)
+    }
+
+    /**
+     * One tag condition, judged — with a `quoteField` resolved against [quote] first.
+     *
+     * **False when it cannot be resolved**, and that is the whole of the design. A quote the venue never
+     * sent has no offer to compare against, so *"the client hit our offer"* is not true of it. The safe
+     * direction, the same one [compile] takes with a trigger it cannot parse, and the reason the venue's
+     * unknown-quote rule can sit under the hit rule and answer instead.
+     */
+    private fun holds(matcher: Matcher, actual: String?, quote: QuoteReading?): Boolean {
+        val resolved = resolveQuoteField(matcher, quote) ?: return false
+        return ExpectationEvaluator.satisfies(resolved, actual)
+    }
+
+    /**
+     * [matcher] with any `quoteField` replaced by the value the quote actually carries, or null when
+     * there is no such value to compare against.
+     *
+     * The resolution happens per message rather than in [compile] because the answer is a fact about
+     * the quote this message names, and [compile] runs once before any traffic. Everything else passes
+     * through untouched.
+     */
+    fun resolveQuoteField(matcher: Matcher, quote: QuoteReading?): Matcher? =
+        if (matcher is Matcher.QuoteField) {
+            quote?.field(matcher.name)?.let { Matcher.Exact(it) }
+        } else {
+            matcher
+        }
 
     /**
      * The same question [firstMatch] asks, answered for **every** rule and with its working shown:
@@ -192,7 +259,13 @@ object AcceptorResponder {
      * `AcceptorResponderExplainTest` re-asks each case through both and fails if they ever disagree.
      * A dry run that passes where the wire does nothing moves the bug from the rule into the tool.
      */
-    fun explain(rules: List<AcceptorResponseRule>, incoming: Message, book: BookReading? = null): List<RuleOutcome> {
+    @Suppress("CyclomaticComplexMethod")
+    fun explain(
+        rules: List<AcceptorResponseRule>,
+        incoming: Message,
+        book: BookReading? = null,
+        quote: QuoteReading? = null,
+    ): List<RuleOutcome> {
         val msgType = valueOf(incoming, MSG_TYPE_TAG)
         var alreadyWon = false
         return rules.mapIndexed { index, rule ->
@@ -209,7 +282,12 @@ object AcceptorResponder {
             val conditions =
                 compiled?.conditions.orEmpty().map { (tag, matcher) ->
                     val actual = valueOf(incoming, tag)
-                    ConditionOutcome(tag, matcher, actual, ExpectationEvaluator.satisfies(matcher, actual))
+                    // Reported as the comparison that was actually made, so a reader sees `exact
+                    // 1.09030` and can tell at a glance whether the venue's own price is what they
+                    // thought. Left unresolved when there was no quote to resolve it against, because
+                    // "the quote's offer" is then the truest thing that can be said about it.
+                    val resolved = resolveQuoteField(matcher, quote)
+                    ConditionOutcome(tag, resolved ?: matcher, actual, holds(matcher, actual, quote))
                 }
             // Reported for a *skipped* rule too, since "disabled" and "the book said no" are both
             // reasons a rule did nothing and an author toggling one back on wants to know the other
@@ -223,14 +301,24 @@ object AcceptorResponder {
                         satisfied = book != null && book.satisfies(constraint),
                     )
                 }
+            val quoteOutcome =
+                rule.whenQuote?.let { constraint ->
+                    QuoteOutcome(
+                        constraint = constraint,
+                        quoteId = quote?.quoteId,
+                        actual = quote?.word,
+                        satisfied = quote != null && quote.satisfies(constraint),
+                    )
+                }
             val matched =
                 skipped == null &&
                     msgType == rule.whenMsgType &&
                     conditions.all { it.satisfied } &&
-                    (order?.satisfied ?: true)
+                    (order?.satisfied ?: true) &&
+                    (quoteOutcome?.satisfied ?: true)
             val selected = matched && !alreadyWon
             if (selected) alreadyWon = true
-            RuleOutcome(index, rule, matched, selected, skipped, conditions, order)
+            RuleOutcome(index, rule, matched, selected, skipped, conditions, order, quoteOutcome)
         }
     }
 
@@ -274,11 +362,25 @@ object AcceptorResponder {
      * Null means no book — an initiator, or a dry run with nothing supplied. A step that reads the
      * book then refuses to render rather than substituting empty; see [resolveOrderRefs].
      */
+    @Suppress("LongParameterList")
     fun plan(
         rule: AcceptorResponseRule,
         incoming: Message,
         request: FixMessage? = null,
         dictionary: FixDictionary? = null,
+        /**
+         * What the venue has quoted for this message, read per step for the reason [order] is.
+         *
+         * The quote's own numbers do not move, but its *state* does, and within one reply it does: the
+         * ExecutionReport that books a hit closes the quote before the step after it is built. Reading
+         * per step keeps that honest rather than reporting a quote as open because it was open when the
+         * hit arrived.
+         *
+         * Ahead of [order] in the list on purpose: [order] came first and is what a trailing lambda at
+         * every existing call site means, and a parameter reorder that silently re-aimed those would be
+         * the quietest possible way to break a venue's replies.
+         */
+        quote: () -> QuoteReading? = { null },
         order: () -> Map<String, String>? = { null },
     ): List<PlannedSend> {
         var offset = 0L
@@ -291,7 +393,9 @@ object AcceptorResponder {
             PlannedSend(offset, dictionary) {
                 // Order refs before the expression pass, exactly as request refs are, so
                 // `${order.leavesQty / 2}` is arithmetic and not a literal.
-                resolveExpressions(resolveOrderRefs(resolveAtSendTime(againstRequest), order()), request, dictionary)
+                val books =
+                    resolveQuoteRefs(resolveOrderRefs(resolveAtSendTime(againstRequest), order()), quote())
+                resolveExpressions(books, request, dictionary)
             }
         }
     }
@@ -319,6 +423,66 @@ object AcceptorResponder {
                     ORDER_IN_EXPR.findAll(expr.groupValues[1]).map { it.groupValues[1] }
                 }
         ).distinct().toList()
+
+    /** Every name [template] reads off the quote book, both spellings, in the order they first appear. */
+    fun quoteNames(template: String): List<String> =
+        (
+            QUOTE_REF.findAll(template).map { it.groupValues[1] } +
+                ANY_EXPR.findAll(template).flatMap { expr ->
+                    QUOTE_IN_EXPR.findAll(expr.groupValues[1]).map { it.groupValues[1] }
+                }
+        ).distinct().toList()
+
+    /**
+     * Why [template] cannot be built from [quote], or null when it can — [orderRefusal]'s twin.
+     *
+     * Four answers, and they send an author to four different places: a name outside the vocabulary is
+     * a typo in the template, no book at all is a dry run or an initiator, a message naming no quote is
+     * a template on the wrong trigger, and a quote this venue never sent is a trigger that should have
+     * required one.
+     */
+    @Suppress("ReturnCount")
+    fun quoteRefusal(template: String, quote: QuoteReading?): String? {
+        val wanted = quoteNames(template)
+        if (wanted.isEmpty()) return null
+        val unknown = wanted.filterNot { it in QuoteEntry.FIELDS }
+        if (unknown.isNotEmpty()) {
+            return "${unknown.joinToString(", ") { "\${quote.$it}" }} is not a name the quote book has, " +
+                "and the names are ${QuoteEntry.FIELDS.joinToString(", ")}"
+        }
+        if (quote == null) return "this reply reads the quote book, and there is no quote here to read"
+        if (quote.quoteId == null) return "this message names no quote (117), and the reply reads one"
+        val entry =
+            quote.entry ?: return "this venue has not quoted ${quote.quoteId}, and the reply reads that quote"
+        val absent = wanted.filterNot { entry.field(it) != null }
+        if (absent.isEmpty()) return null
+        return if (absent.size == 1) {
+            "the venue did not quote a ${absent.single()} on ${quote.quoteId}, and the reply reads it"
+        } else {
+            "the venue did not quote ${absent.joinToString(", ")} on ${quote.quoteId}, and the reply reads them"
+        }
+    }
+
+    /**
+     * `${quote.offer}` and `${quote.offer / 2}` filled in from the venue's own book.
+     *
+     * **Refuses rather than substituting empty**, for the reason [resolveOrderRefs] does, and it is the
+     * sharper hazard of the two: the field a quote reply reads is a *price*, so an empty substitution
+     * would put `31=` on the wire in a trade confirmation and the client would be blamed for a
+     * malformed fill. [AcceptorResponseRule.validationError] is the structural answer, and this is the
+     * backstop for what defeats it — a book cleared mid-sequence, an eviction, a quote that expired
+     * between the trigger and the step.
+     */
+    fun resolveQuoteRefs(template: String, quote: QuoteReading?): String {
+        quoteRefusal(template, quote)?.let { throw IllegalStateException(it) }
+        val reading = quote ?: return template
+        val fields = quoteNames(template).mapNotNull { name -> reading.field(name)?.let { name to it } }.toMap()
+        if (fields.isEmpty()) return template
+        val whole = QUOTE_REF.replace(template) { m -> fields.getValue(m.groupValues[1]) }
+        return ANY_EXPR.replace(whole) { m ->
+            "\${" + QUOTE_IN_EXPR.replace(m.groupValues[1]) { r -> fields.getValue(r.groupValues[1]) } + "}"
+        }
+    }
 
     /**
      * Why [template] cannot be built from [order], or null when it can.
@@ -361,6 +525,8 @@ object AcceptorResponder {
         dictionary: FixDictionary? = null,
         /** What the venue holds for this message's order, or null if it holds nothing. */
         order: Map<String, String>? = null,
+        /** What the venue has quoted for this message, or null if it has quoted nothing. */
+        quote: QuoteReading? = null,
     ): List<ReplyOffer> {
         val msgType = valueOf(incoming, MSG_TYPE_TAG) ?: return emptyList()
         return AcceptorPresets.replyShapes
@@ -375,7 +541,8 @@ object AcceptorResponder {
                     // whichever is true rather than a list of everything wrong at once.
                     refusal =
                         missing.takeIf { it.isNotEmpty() }?.let { refusal(it, dictionary) }
-                            ?: orderRefusal(shape.template, order),
+                            ?: orderRefusal(shape.template, order)
+                            ?: quoteRefusal(shape.template, quote),
                 )
             }
     }
@@ -400,18 +567,20 @@ object AcceptorResponder {
      * differently. The expression pass is the difference that would have been missed —
      * `${req.38 / 2}` is half an order to [plan] and a literal to [resolve].
      */
+    @Suppress("LongParameterList")
     fun replyTo(
         shape: ReplyShape,
         incoming: Message,
         request: FixMessage? = null,
         dictionary: FixDictionary? = null,
         order: Map<String, String>? = null,
+        quote: QuoteReading? = null,
     ): String {
         val rule = AcceptorResponseRule(whenMsgType = shape.answers, steps = listOf(ResponseStep(shape.template)))
         // Read now rather than as a thunk: a hand-picked reply is one message composed at one moment,
         // and the moment is this one. The sequencing that makes `plan` read the book per step is a
         // property of a *rule's* reply, which this is not.
-        return plan(rule, incoming, request, dictionary) { order }
+        return plan(rule, incoming, request, dictionary, order = { order }, quote = { quote })
             .single()
             .render()
     }

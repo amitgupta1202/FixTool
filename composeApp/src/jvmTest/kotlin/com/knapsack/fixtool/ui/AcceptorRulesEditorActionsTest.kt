@@ -7,8 +7,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -273,10 +275,10 @@ class AcceptorRulesEditorActionsTest {
     // ---------------------------------------------------------------- the constraint no tag can express
 
     /**
-     * The book constraint is always on the card, including in its off position. A rule that *could*
-     * ask the venue's memory and does not is a thing an author has to be able to see in order to
-     * change it — hiding the control behind an "add" would make the whole feature something you have
-     * to already know about before you can find it.
+     * Both book constraints are always on the card, including in their off positions. A rule that
+     * *could* ask the venue's memory and does not is a thing an author has to be able to see in order
+     * to change it — hiding the control behind an "add" would make the whole feature something you
+     * have to already know about before you can find it.
      */
     @Test
     fun `every rule shows what it asks the book, including the rules that ask nothing`() {
@@ -290,7 +292,11 @@ class AcceptorRulesEditorActionsTest {
 
         composeTestRule.onNodeWithText("and the order is").assertExists()
         composeTestRule.onNodeWithTag("rule-when-order").assertExists()
-        composeTestRule.onNodeWithText("any ▾").assertExists()
+        composeTestRule.onNodeWithText("and the quote is").assertExists()
+        composeTestRule.onNodeWithTag("rule-when-quote").assertExists()
+        // One "any" per book, and counted rather than merely found: a card that showed the quote row
+        // and dropped the order row would satisfy every assertion above it.
+        composeTestRule.onAllNodesWithText("any ▾").assertCountEquals(2)
     }
 
     @Test

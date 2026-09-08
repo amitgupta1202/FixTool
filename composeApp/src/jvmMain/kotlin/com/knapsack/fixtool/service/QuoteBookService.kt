@@ -187,6 +187,9 @@ class QuoteBookService(
     companion object {
         const val DEFAULT_CAP = 5_000
 
+        /** QuoteID, the tag that names a quote. Public because callers with no book still have to find it. */
+        const val QUOTE_ID_TAG = TAG_QUOTE_ID
+
         /** The tags this book reads. Everything else in the message is somebody else's business. */
         val READ_TAGS =
             setOf(

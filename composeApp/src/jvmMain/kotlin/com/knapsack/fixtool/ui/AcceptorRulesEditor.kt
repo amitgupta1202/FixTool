@@ -50,6 +50,7 @@ import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.QuoteConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.AcceptorPreset
@@ -342,7 +343,8 @@ private fun triggerLine(rule: AcceptorResponseRule): String =
         } +
         // Last, and in words, because it is the one constraint that is not about the message at all —
         // reading it as though it were another tag is the misreading worth spending four characters on.
-        (rule.whenOrder?.let { " and the order is ${it.word}" } ?: "")
+        (rule.whenOrder?.let { " and the order is ${it.word}" } ?: "") +
+        (rule.whenQuote?.let { " and the quote is ${it.word}" } ?: "")
 
 /**
  * **A rule in one line: what has to be true, and what goes back.**
@@ -366,9 +368,11 @@ private fun ruleDigest(rule: AcceptorResponseRule): String {
     // Last, and in words, for the same reason [triggerLine] puts it last: it is the one clause that is
     // not about the message at all.
     val order = rule.whenOrder?.let { "the order is ${it.word}" }
+    val quote = rule.whenQuote?.let { "the quote is ${it.word}" }
     // Said out loud, because "no conditions" is not a rule doing nothing — it is the catch-all, and the
     // reason every card above it in the same MsgType has to be read in order.
-    val trigger = (conditions + listOfNotNull(order)).ifEmpty { listOf("any 35=${rule.whenMsgType}") }
+    val trigger =
+        (conditions + listOfNotNull(order, quote)).ifEmpty { listOf("any 35=${rule.whenMsgType}") }
 
     val steps = rule.sequence()
     val span = steps.sumOf { it.delayMillis.coerceAtLeast(0) }
@@ -581,6 +585,15 @@ private fun RuleCard(
                 onChange = { updated -> onChange(rule.copy(whenOrder = updated)) },
             )
 
+            // The quote book's row, on the same terms and for the same reason. Always shown, including
+            // at "any": an RFQ venue that could refuse an expired hit and does not is the single most
+            // common way a simulated venue stops behaving like a real one, and it must be visible on
+            // the card rather than something an author has to know to go looking for.
+            QuoteConstraintRow(
+                constraint = rule.whenQuote,
+                onChange = { updated -> onChange(rule.copy(whenQuote = updated)) },
+            )
+
             Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp)) {
                 SlimButton(
                     text = "+ condition",
@@ -760,8 +773,16 @@ private fun ConditionRow(
     }
 }
 
-/** Every matcher type except `reference`, which needs a scenario scope a trigger does not have. */
-private val TRIGGER_MATCHER_TYPES = MATCHER_TYPES.filterNot { it == "reference" }
+/**
+ * The trigger's matcher list: the scenario's, minus the one only a scenario can resolve, plus the one
+ * only a venue can.
+ *
+ * The two swaps are the same swap. A `reference` names a scenario variable and a trigger has no run to
+ * resolve it against; a `quoteField` names the venue's own quote and a scenario has no book to resolve
+ * *that* against. Each is refused by name on the other side rather than offered and left to fail
+ * silently — see `FieldCondition.reason()` and `Matcher.validationError()`.
+ */
+private val TRIGGER_MATCHER_TYPES = MATCHER_TYPES.filterNot { it == "reference" } + "quoteField"
 
 /**
  * "and the order is [ any ▾ ]" — the book constraint, as one word from a closed list.
@@ -816,6 +837,69 @@ private fun OrderConstraintRow(constraint: OrderConstraint?, onChange: (OrderCon
         }
     }
 }
+
+/**
+ * The quote book's constraint, picked from its four words — [OrderConstraintRow]'s twin, and written
+ * as one on purpose.
+ *
+ * Two rows rather than one combined "and the venue is" control, because a rule may ask both and they
+ * are about different things: `35=AJ` names a quote, and the same message may also name an order the
+ * venue is holding. Folding them together would force an author to choose.
+ */
+@Composable
+private fun QuoteConstraintRow(constraint: QuoteConstraint?, onChange: (QuoteConstraint?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("and the quote is", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+        Box {
+            SlimButton(
+                text = (constraint?.word ?: "any") + " ▾",
+                onClick = { open = true },
+                color = if (constraint == null) AppTheme.Colors.textDisabled else AppTheme.Colors.primary,
+                modifier = Modifier.testTag("rule-when-quote"),
+            )
+            DropdownMenu(
+                expanded = open,
+                onDismissRequest = { open = false },
+                modifier = Modifier.background(AppTheme.Colors.surface),
+            ) {
+                (listOf(null) + QuoteConstraint.entries).forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(option?.word ?: "any", color = AppTheme.Colors.text, fontSize = 10.sp)
+                                Text(
+                                    text = quoteConstraintMeaning(option),
+                                    color = AppTheme.Colors.textDisabled,
+                                    fontSize = 9.sp,
+                                )
+                            }
+                        },
+                        onClick = {
+                            onChange(option)
+                            open = false
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal fun quoteConstraintMeaning(constraint: QuoteConstraint?): String =
+    when (constraint) {
+        null -> "the rule does not ask the quote book"
+        QuoteConstraint.UNKNOWN -> "this venue never sent that quote"
+        QuoteConstraint.OPEN -> "sent, unanswered, still inside its validity"
+        QuoteConstraint.EXPIRED -> "sent and unanswered, but its ValidUntilTime has passed"
+        QuoteConstraint.DONE -> "already hit or already passed on"
+    }
 
 internal fun orderConstraintMeaning(constraint: OrderConstraint?): String =
     when (constraint) {

@@ -379,6 +379,10 @@ object ExpectationEvaluator {
                 val resolved = referenceResolver(matcher.expression)
                 (resolved != null && actual == resolved) to (resolved ?: matcher.expression)
             }
+            // Never resolved here. The trigger path replaces it with an Exact against the reading
+            // before this is asked (`AcceptorResponder.resolveQuoteField`), so anything reaching this
+            // branch had no venue book, which is a row that cannot pass rather than one that failed.
+            is Matcher.QuoteField -> false to "the quote's ${matcher.name}"
         }
 
     /**
@@ -552,6 +556,7 @@ object ExpectationEvaluator {
             is Matcher.Range -> "range ${matcher.describe()}"
             is Matcher.Temporal -> "temporal ${temporalExpected(matcher)}"
             is Matcher.Reference -> "reference ${matcher.expression}"
+            is Matcher.QuoteField -> "equal to the quote's ${matcher.name}"
         }
 
     private fun expectedText(matcher: Matcher, referenceResolver: (String) -> String?, now: () -> Instant): String =

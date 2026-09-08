@@ -756,7 +756,12 @@ object McpTools {
                     "`assumedOrderState` back, and each conditioned rule reports `whenOrder` with what it asked for, " +
                     "what it read and the verdict. A reply that READS the book (\${order.…}) needs an `order` to " +
                     "render against; without one those steps come back `unrendered` with the reason, because a dry " +
-                    "run that invented quantities would be confidently wrong about what the wire would carry.",
+                    "run that invented quantities would be confidently wrong about what the wire would carry. " +
+                    "A rule can condition on the venue's own QUOTES the same way (`whenQuote`), and `quoteState` " +
+                    "is that assumption — unknown|open|expired|done, defaulting to `unknown` — so \"what would " +
+                    "this venue do with a hit that arrived too late\" is answerable without waiting thirty " +
+                    "seconds. A quote's prices are the venue's own, so a trigger comparing a tag against them " +
+                    "(matcher `quoteField`) and a reply reading \${quote.…} both need `quote` as well as the state.",
                 props(
                     "profile" to string("profile id or name"),
                     "raw" to string("the incoming FIX message to test the rules against"),
@@ -767,6 +772,14 @@ object McpTools {
                             "the order to render \${order.…} against, by the book's own names " +
                                 "({\"orderId\":\"EX-1\",\"cumQty\":\"400\",\"leavesQty\":\"600\"}); " +
                                 "without it a reply that reads the book is reported unrendered rather than faked",
+                        ),
+                    "quoteState" to
+                        string("the state to assume the named quote is in: unknown|open|expired|done (default unknown)"),
+                    "quote" to
+                        objectSchema(
+                            "the quote to compare and render \${quote.…} against, by the quote book's own names " +
+                                "({\"offer\":\"1.09030\",\"bid\":\"1.09010\",\"symbol\":\"EUR/USD\"}); " +
+                                "giving it without 'quoteState' assumes the quote is open",
                         ),
                 ),
                 required = listOf("profile", "raw"),

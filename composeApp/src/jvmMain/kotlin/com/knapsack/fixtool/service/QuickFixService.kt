@@ -882,11 +882,16 @@ class QuickFixService(
             // lookup on messages nobody conditions.
             val heldBefore = orderReading(sessionId, parsedMessage)
 
+            // The same question of the quote book, and taken here for the same reason. A hit has to be
+            // judged against the quote as it stood when the hit arrived: recording first would let the
+            // client's own QuoteResponse be the thing that changed the answer.
+            val quotedBefore = quoteReading(sessionId, parsedMessage)
+
             // Then recorded, so the book and the trail are complete before anything reads them.
             book(sessionId, fixMessage, parsedMessage, sent = false)
 
             // Acceptor auto-response: if configured, reply to the incoming message per the rules.
-            maybeAutoRespond(parsedMessage, fixMessage, sessionId, heldBefore)
+            maybeAutoRespond(parsedMessage, fixMessage, sessionId, heldBefore, quotedBefore)
         } catch (e: Exception) {
             logger.error("Error processing application message: ${e.message}", e)
         }
@@ -907,9 +912,11 @@ class QuickFixService(
         sessionId: SessionID,
         /** What the venue held before this message — see [fromApp], decision 4a. */
         heldBefore: BookReading,
+        /** What the venue had quoted before this message, on the same terms. */
+        quotedBefore: QuoteReading,
     ) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
-        val rule = AcceptorResponder.firstMatch(compiledRules, incoming, heldBefore) ?: return
+        val rule = AcceptorResponder.firstMatch(compiledRules, incoming, heldBefore, quotedBefore) ?: return
         triggersMatched.incrementAndGet()
         // Which rule this is in the *profile's* list, which is the number on its card and the index
         // /acceptor/rules addresses it by. compiledRules has the disabled and unusable ones dropped,
@@ -931,7 +938,13 @@ class QuickFixService(
             // earlier steps have already reached the wire and moved the order, and a fill that read a
             // snapshot taken now would report the same quantity every time. See AcceptorResponder.plan.
             val planned =
-                AcceptorResponder.plan(rule, incoming, request, dictionary) { orderFields(sessionId, incoming) }
+                AcceptorResponder.plan(
+                    rule,
+                    incoming,
+                    request,
+                    dictionary,
+                    quote = { quoteReading(sessionId, incoming) },
+                ) { orderFields(sessionId, incoming) }
 
             // Announced here, once, and only for a rule the profile still holds. A rule that fired but
             // cannot be found in the authored list has no card to mark, and marking the wrong one is

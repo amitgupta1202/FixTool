@@ -138,6 +138,7 @@ fun matcherSummary(matcher: Matcher): String =
         is Matcher.Temporal ->
             if (matcher.kind == TemporalKind.TODAY) "today" else "now ±${matcher.toleranceSeconds}s"
         is Matcher.Reference -> "= ${matcher.expression}"
+        is Matcher.QuoteField -> "= the quote's ${matcher.name}"
     }
 
 /** A colored dot + session title; the session identity of a flow row. */

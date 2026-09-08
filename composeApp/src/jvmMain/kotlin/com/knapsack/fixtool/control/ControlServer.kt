@@ -44,9 +44,14 @@ import com.knapsack.fixtool.model.BookSpec
 import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.QuoteConstraint
+import com.knapsack.fixtool.model.QuoteEntry
+import com.knapsack.fixtool.model.QuoteReading
+import com.knapsack.fixtool.model.QuoteState
 import com.knapsack.fixtool.model.OrderState
 import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.OrderBookService
+import com.knapsack.fixtool.service.QuoteBookService
 import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.service.AcceptorPresets
 import com.knapsack.fixtool.service.BookView
@@ -3448,6 +3453,7 @@ class ControlServer(
      * Nothing is sent and nothing is saved; the profile is read as it stands on disk, which is also
      * why a dry run and a *connected* session can disagree — rules compile when a session connects.
      */
+    @Suppress("LongMethod")
     private fun acceptorTest(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val profileKey = body["profile"]?.jsonPrimitive?.content ?: return errorObject("missing 'profile'")
@@ -3475,7 +3481,15 @@ class ControlServer(
 
         val assumedOrder = assumedOrder(body)
 
-        val outcomes = AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming, assumed)
+        val quotedWord = body["quoteState"]?.jsonPrimitive?.contentOrNull
+        val quoted =
+            assumedQuote(quotedWord, incoming, body)
+                ?: return errorObject(
+                    "'$quotedWord' is not a quote state; known: ${QuoteConstraint.words.joinToString(", ")}",
+                )
+
+        val outcomes =
+            AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming, assumed, quoted)
         val winner = outcomes.firstOrNull { it.selected }
         val incomingType = request.messageType ?: ""
 
@@ -3483,6 +3497,7 @@ class ControlServer(
             put("profile", profile.name)
             put("connectionType", profile.config.connectionType.name)
             put("assumedOrderState", assumedStateJson(assumed, given = assumedWord != null))
+            put("assumedQuoteState", assumedQuoteJson(quoted, given = quotedWord != null))
             putIfNotAcceptor(profile)
             put("msgType", incomingType)
             put("matched", winner != null)
@@ -3494,7 +3509,7 @@ class ControlServer(
                 },
             )
             winner?.let { selected ->
-                put("response", plannedReplyJson(selected.rule, incoming, request, dictionary, assumedOrder))
+                put("response", plannedReplyJson(selected.rule, incoming, request, dictionary, assumedOrder, quoted))
                 put(
                     "note",
                     "offsets are from the trigger and exclude simulated latency, which is drawn once per " +
@@ -3502,6 +3517,18 @@ class ControlServer(
                 )
                 // Said only when it is true, and it is the difference between "your rule is broken"
                 // and "this dry run had nothing to read". A live venue reads its own book per step.
+                // The same note for the quote book, and it needs saying more often: a quote's numbers
+                // are the venue's own, so there is nothing on the tested message a dry run could
+                // fall back on.
+                if (selected.rule.readsTheQuote() && quoted.entry == null) {
+                    put(
+                        "quoteNote",
+                        "this reply reads \${quote.…} and no 'quote' was given, so the steps that read it " +
+                            "are reported unrendered; pass quote:{" +
+                            QuoteEntry.FIELDS.take(3).joinToString(", ") + ", …} " +
+                            "to see what would be sent",
+                    )
+                }
                 if (selected.rule.readsTheBook() && assumedOrder == null) {
                     put(
                         "orderNote",
@@ -3532,6 +3559,68 @@ class ControlServer(
             state = if (constraint == OrderConstraint.UNKNOWN) null else OrderState.valueOf(constraint.name),
         )
     }
+
+    /**
+     * **The quote a dry run is judged against**, from a state word and an optional set of fields.
+     *
+     * The quote book's half of [assumedState], and it takes one more thing than that one does. An
+     * order's state can be assumed on its own, because a `whenOrder` rule reads the state and a
+     * `${order.…}` reply reads the fields, and the two arrive separately. A quote is asked both
+     * questions by the same rule — *is it open, and what was its offer* — so `quote:{offer:"1.09030"}`
+     * fills in the second while `quoteState` says the first.
+     *
+     * `unknown` is the default and a real venue state: one that has never sent this quote. A caller
+     * who gives fields without a state gets `open`, since fields describe a quote that exists and
+     * pairing them with `unknown` would be a contradiction the caller did not write.
+     *
+     * Null when [word] is not one of the four.
+     */
+    private fun assumedQuote(word: String?, incoming: quickfix.Message, body: JsonObject): QuoteReading? {
+        val fields =
+            (body["quote"] as? JsonObject)
+                ?.mapNotNull { (name, value) -> value.jsonPrimitive.contentOrNull?.let { name to it } }
+                ?.toMap()
+        val constraint =
+            word?.let { QuoteConstraint.byWord(it) ?: return null }
+                ?: if (fields.isNullOrEmpty()) QuoteConstraint.UNKNOWN else QuoteConstraint.OPEN
+        val quoteId = QuoteBookService.fieldsOf(incoming)[QuoteBookService.QUOTE_ID_TAG] ?: fields?.get("quoteId")
+        if (constraint == QuoteConstraint.UNKNOWN) return QuoteReading.unknown(quoteId)
+        return QuoteReading(
+            quoteId = quoteId,
+            entry =
+                QuoteEntry(
+                    quoteId = quoteId.orEmpty(),
+                    quoteReqId = fields?.get("quoteReqId"),
+                    symbol = fields?.get("symbol"),
+                    bid = fields?.get("bid"),
+                    offer = fields?.get("offer"),
+                    bidSize = fields?.get("bidSize"),
+                    offerSize = fields?.get("offerSize"),
+                    validUntil = fields?.get("validUntil")?.toLongOrNull(),
+                    state = if (constraint == QuoteConstraint.DONE) QuoteState.DONE else QuoteState.OPEN,
+                ),
+            // Taken from the word rather than derived from the entry, because `expired` is a clock
+            // comparison and a dry run has no wall clock worth honouring: the caller said expired, so
+            // expired is the state the rules are judged in.
+            word = constraint.word,
+        )
+    }
+
+    /** The quote assumption, reported back whether or not it was given — see [assumedQuote]. */
+    private fun assumedQuoteJson(quoted: QuoteReading, given: Boolean): JsonObject =
+        buildJsonObject {
+            put("state", quoted.word)
+            quoted.quoteId?.let { put("quote", it) }
+            put("given", given)
+            if (!given) {
+                put(
+                    "note",
+                    "no 'quoteState' was given, so the rules were judged against a venue that has never " +
+                        "sent this quote; pass one of ${QuoteConstraint.words.joinToString(", ")} to ask " +
+                        "what would happen in another state",
+                )
+            }
+        }
 
     /**
      * Rules on an initiator are inert and that is invisible from the rules themselves, which look
@@ -3598,7 +3687,7 @@ class ControlServer(
      * so what is shown is what would be sent. `${uuid}` and `${now}` resolve per step as it goes out,
      * so a real reply differs from this in exactly those two and nowhere else.
      */
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "LongParameterList")
     private fun plannedReplyJson(
         rule: AcceptorResponseRule,
         incoming: quickfix.Message,
@@ -3606,10 +3695,13 @@ class ControlServer(
         dictionary: FixDictionary?,
         /** The order to render `${order.…}` against, or null when the caller supplied none. */
         order: Map<String, String>?,
+        /** The quote to render `${quote.…}` against — see [assumedQuote]. */
+        quote: QuoteReading?,
     ): JsonArray =
         buildJsonArray {
             val steps = rule.sequence()
-            AcceptorResponder.plan(rule, incoming, request, dictionary) { order }.forEachIndexed { index, planned ->
+            val planned = AcceptorResponder.plan(rule, incoming, request, dictionary, quote = { quote }) { order }
+            planned.forEachIndexed { index, planned ->
                 add(
                     buildJsonObject {
                         put("offsetMillis", planned.offsetMillis)
@@ -3683,6 +3775,19 @@ class ControlServer(
                         order.key?.let { put("order", it) }
                         order.actual?.let { put("actual", it) }
                         put("satisfied", order.satisfied)
+                    },
+                )
+            }
+            // Reported exactly as [whenOrder] is, and beside it: a reader diagnosing "why did nothing
+            // fire" must not have to learn a third way of being told.
+            outcome.quote?.let { quote ->
+                put(
+                    "whenQuote",
+                    buildJsonObject {
+                        put("constraint", quote.constraint.word)
+                        quote.quoteId?.let { put("quote", it) }
+                        quote.actual?.let { put("actual", it) }
+                        put("satisfied", quote.satisfied)
                     },
                 )
             }

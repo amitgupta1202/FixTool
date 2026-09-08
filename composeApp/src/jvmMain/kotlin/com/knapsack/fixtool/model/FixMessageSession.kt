@@ -744,6 +744,17 @@ class FixMessageSession(
             ?: quickFixService?.takeIf { isAcceptor }?.orderReading(null, message)
 
     /**
+     * What this venue has quoted for the quote [message] names, right now.
+     *
+     * [orderReading]'s twin, for the same one-shot reader: a hand-picked reply that reads
+     * `${quote.offer}` has to be rendered against the venue's own price, and a person picking it is at
+     * one moment. The rules engine takes its own reading a moment earlier, from the wire.
+     */
+    fun quoteReading(message: quickfix.Message): QuoteReading? =
+        venue?.quoteReading(venueSessionId, message)
+            ?: quickFixService?.takeIf { isAcceptor }?.quoteReading(null, message)
+
+    /**
      * What `${order.…}` reads for the order [message] names, or null if this venue holds none.
      *
      * The whole order rather than its state — what a reply *substitutes*, where [orderReading] is

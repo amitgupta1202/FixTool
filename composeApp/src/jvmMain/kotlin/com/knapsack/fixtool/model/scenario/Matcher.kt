@@ -108,6 +108,28 @@ sealed interface Matcher {
     data class Reference(
         val expression: String,
     ) : Matcher
+
+    /**
+     * **The value must equal one field of the quote this message names** — `117` in, the venue's own
+     * book out.
+     *
+     * [Reference]'s mirror image, and the pairing is exact. A reference is a value the *scenario*
+     * knows and the venue does not; this is a value the *venue* knows and a scenario has not got. Each
+     * is refused on the other's side of the tool, by name, because a matcher that cannot be resolved
+     * matches nothing, and a rule that silently never fires is indistinguishable from a rule whose
+     * trigger has not come up yet.
+     *
+     * It exists because a venue answering an RFQ has to check the client is hitting **the price it was
+     * quoted**, and that price was minted by the venue at quote time. No literal can express it (every
+     * quote has a different one), and no tag on the incoming message can either: the client sends the
+     * price it believes, which is precisely the claim under test.
+     *
+     * [name] is one of `QuoteEntry.FIELDS`. Resolved against the reading *before* evaluation, so the
+     * evaluator only ever sees an [Exact] — see `AcceptorResponder.resolveQuoteField`.
+     */
+    data class QuoteField(
+        val name: String,
+    ) : Matcher
 }
 
 /**
@@ -148,6 +170,11 @@ fun Matcher.validationError(): String? =
         // by clearing a field. Unbounded on both sides accepts every number there is; a min above its
         // max accepts none. Named here for the same reason as the empty oneOf — the author gets told
         // what is wrong with the row rather than watching it pass or redden for no visible reason.
+        // Refused here, which is the *scenario* side: a scenario replays against a counterparty and has
+        // no venue book to ask, so this row could only ever be red. The mirror of the refusal
+        // `FieldCondition.reason()` gives a Reference on the trigger side, and for the same reason.
+        is Matcher.QuoteField ->
+            "'$name' reads the venue's own quote book, and a scenario has no venue book to resolve it against"
         is Matcher.Range ->
             when {
                 min == null && max == null -> "range has no bound — it would accept any number"

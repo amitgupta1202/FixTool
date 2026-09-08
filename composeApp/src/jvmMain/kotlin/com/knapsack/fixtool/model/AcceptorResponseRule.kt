@@ -32,6 +32,7 @@ data class FieldCondition(
         }
 
     /** What is wrong with this condition, in the author's words, or null if it is usable. */
+    @Suppress("ReturnCount")
     fun reason(): String? {
         val parsed =
             try {
@@ -44,6 +45,17 @@ data class FieldCondition(
         // which would silently stop the rule ever firing. Refused by name instead.
         if (parsed is Matcher.Reference) {
             return "the condition on tag $tag is a reference, and a trigger has no scenario scope to resolve it against"
+        }
+        // The other half of that pairing. A quote field is exactly what a trigger *can* resolve and a
+        // scenario cannot, so `validationError()` — which speaks for the scenario side — must not be
+        // asked about it. What is left to check is the one thing that can be wrong here: the name.
+        if (parsed is Matcher.QuoteField) {
+            return if (parsed.name in QuoteEntry.FIELDS) {
+                null
+            } else {
+                "'${parsed.name}' is not a name the quote book has, and the names are " +
+                    QuoteEntry.FIELDS.joinToString(", ")
+            }
         }
         return parsed.validationError()
     }
@@ -112,6 +124,20 @@ data class AcceptorResponseRule(
      */
     val whenOrder: OrderConstraint? = null,
     /**
+     * What the venue must already have **quoted** for this rule to fire — [whenOrder]'s sibling, ANDed
+     * the same way, and the reason an RFQ venue can behave like one.
+     *
+     * Four words, and each answers a question a real venue is asked every day: `unknown` is a hit for
+     * a quote this venue never sent, `expired` is a hit that arrived too late, `done` is a second hit
+     * on a quote already answered, and `open` is the one case where a trade is owed. Without it every
+     * one of those four is the same message to a rule, so the venue either honours all of them or none.
+     *
+     * **The question is what the venue held *before* this message** (decision 4a), exactly as it is for
+     * [whenOrder]: a hit has to be judged against the quote as it stood when the hit arrived, not
+     * against the quote its own reply is about to close.
+     */
+    val whenQuote: QuoteConstraint? = null,
+    /**
      * A rule switched off is **kept and skipped**, not deleted.
      *
      * Narrowing down a venue's behaviour means asking "what happens without this one" a dozen times,
@@ -153,6 +179,23 @@ data class AcceptorResponseRule(
     /** True when any step of the reply reads the book — see [validationError] for what that implies. */
     fun readsTheBook(): Boolean = sequence().any { ORDER_REF in it.template }
 
+    /** True when any step of the reply reads the quote book, which [validationError] requires a quote for. */
+    fun readsTheQuote(): Boolean = sequence().any { QUOTE_REF in it.template }
+
+    /** True when any condition of the trigger compares a tag against the quote's own value. */
+    fun comparesTheQuote(): Boolean = trigger().any { it.parsed() is Matcher.QuoteField }
+
+    /**
+     * True when the venue is **guaranteed** to have the quote by the time this rule's reply is built.
+     *
+     * One way rather than [willHaveAnOrder]'s two, and the missing one is the difference between the
+     * two books. An order is born by a message the *client* sends, so a `35=D` rule can read the order
+     * its own trigger created. A quote is born by a message the *venue* sends, and a rule never
+     * answers its own send, so nothing a rule can trigger on will ever mint the quote it reads. The
+     * trigger has to require one.
+     */
+    fun willHaveAQuote(): Boolean = whenQuote != null && whenQuote != QuoteConstraint.UNKNOWN
+
     /**
      * True when nothing narrows this rule: it answers **every** message of its type.
      *
@@ -162,7 +205,7 @@ data class AcceptorResponseRule(
      * conditioned even with an empty trigger, and a caller that missed that would place it as though
      * it answered everything.
      */
-    fun isUnconditional(): Boolean = trigger().isEmpty() && whenOrder == null
+    fun isUnconditional(): Boolean = trigger().isEmpty() && whenOrder == null && whenQuote == null
 
     /**
      * True when the venue is **guaranteed** to hold an order by the time this rule's reply is built —
@@ -207,6 +250,20 @@ data class AcceptorResponseRule(
             readsTheBook() && !willHaveAnOrder() ->
                 "the reply reads \${order.…}, so the trigger has to require an order to read — " +
                     "set 'when the order is' to pending, working or done"
+            // The same refusal for the quote book, and structural for the same reason: every
+            // `${quote.…}` would substitute empty and the venue would put `31=` on the wire as a real
+            // field with no value. Unlike an order, no trigger can mint the quote it reads, so the
+            // constraint is the only way to be sure — see [willHaveAQuote].
+            readsTheQuote() && !willHaveAQuote() ->
+                "the reply reads \${quote.…}, so the trigger has to require a quote to read — " +
+                    "set 'when the quote is' to open, expired or done"
+            // A rule that compares a tag against a quote the venue has never sent can never fire: the
+            // comparison has nothing to resolve against, so it is false on every message. That is a
+            // rule with no purpose rather than a rule with a bug, and it is easy to reach by setting
+            // the constraint and then the condition.
+            comparesTheQuote() && whenQuote == QuoteConstraint.UNKNOWN ->
+                "the trigger wants a quote this venue has never sent and also compares a tag against " +
+                    "that quote's own value, so it can never match — drop one of the two"
             steps.isNotEmpty() && responseTemplate.isNotBlank() ->
                 "the rule carries both 'steps' and the older 'responseTemplate'; the sequence is played and " +
                     "the single template is ignored — remove it to say so"
@@ -228,3 +285,6 @@ data class AcceptorResponseRule(
  * slice C would break on.
  */
 private const val ORDER_REF = "\${order."
+
+/** How a template says it reads the quote book. A file-private constant for the reason [ORDER_REF] is. */
+private const val QUOTE_REF = "\${quote."

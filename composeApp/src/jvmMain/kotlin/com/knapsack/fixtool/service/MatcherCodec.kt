@@ -125,6 +125,7 @@ object MatcherCodec {
                     ?: ExpectationSeeder.DEFAULT_TIME_TOLERANCE_SECONDS,
             )
             "reference" -> Matcher.Reference(requireStr(obj, "expression"))
+            "quotefield" -> Matcher.QuoteField(requireStr(obj, "name"))
             else -> throw IllegalArgumentException("unknown matcher type '$type'")
         }
     }
@@ -183,6 +184,9 @@ object MatcherCodec {
                 }
                 is Matcher.Reference -> {
                     put("type", "reference"); put("expression", matcher.expression)
+                }
+                is Matcher.QuoteField -> {
+                    put("type", "quoteField"); put("name", matcher.name)
                 }
             }
         }

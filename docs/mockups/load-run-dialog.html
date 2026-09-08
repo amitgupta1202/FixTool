@@ -1,0 +1,1666 @@
+<meta charset="utf-8">
+<title>The Load Run Dialog, in Sections</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    /* The page: an editorial note, the same tokens as load-run.html so the two read as one series. */
+    --ground: #eef0f3;
+    --card: #ffffff;
+    --ink: #191c21;
+    --muted: #5b6570;
+    --faint: #8a939e;
+    --rule: #d7dce3;
+    --accent: #2f6fb0;
+    --accent-soft: #e3ecf6;
+    --good: #3f7d33;
+    --bad: #b8342f;
+    --warn: #9a6a1c;
+    --warn-soft: #f6edd9;
+
+    /* The app's own chrome, fixed in both page themes, because FixTool ships one dark palette
+       (Theme.kt has no light set). These panels are the tool, not the page. */
+    --app-bg: #1e1e1e;
+    --app-surface: #2b2b2b;
+    --app-variant: #252525;
+    --app-header: #202020;
+    --app-text: #e0e0e0;
+    --app-text2: #b0b0b0;
+    --app-dim: #6a6a6a;
+    --app-rule: #3a3a3a;
+    --app-border2: #555555;
+    --app-good: #98c379;
+    --app-warn: #ce9178;
+    --app-bad: #e06c75;
+    --app-info: #61afef;
+    --app-teal: #4ec9b0;
+    --app-field: #9cdcfe;
+    --app-tag: #dcdcaa;
+
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --col: 40rem;
+    --wide: 64rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14171a;
+      --card: #1b1f23;
+      --ink: #e3e7eb;
+      --muted: #98a2ad;
+      --faint: #737d88;
+      --rule: #2a3138;
+      --accent: #61afef;
+      --accent-soft: #1d2a36;
+      --good: #98c379;
+      --bad: #e06c75;
+      --warn: #d9a75a;
+      --warn-soft: #2b2518;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14171a;
+    --card: #1b1f23;
+    --ink: #e3e7eb;
+    --muted: #98a2ad;
+    --faint: #737d88;
+    --rule: #2a3138;
+    --accent: #61afef;
+    --accent-soft: #1d2a36;
+    --good: #98c379;
+    --bad: #e06c75;
+    --warn: #d9a75a;
+    --warn-soft: #2b2518;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+  }
+
+  .col { max-width: var(--col); }
+
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.75rem; margin-bottom: 2.25rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+    font-size: clamp(2rem, 5.5vw, 2.9rem);
+    line-height: 1.05;
+    margin: 0 0 0.9rem;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: 1.14rem;
+    color: var(--muted);
+    margin: 0;
+    max-width: 34rem;
+  }
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    margin: 3.25rem 0 0.9rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.09rem;
+    letter-spacing: -0.012em;
+    margin: 2.25rem 0 0.6rem;
+  }
+
+  p { margin: 0 0 1rem; max-width: var(--col); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  code, .m { font-family: var(--mono); font-size: 0.86em; }
+
+  p code, li code, figcaption code, td code {
+    background: var(--accent-soft);
+    padding: 0.06em 0.32em;
+    border-radius: 2px;
+  }
+
+  ul.prose, ol.prose { max-width: var(--col); padding-left: 1.2rem; margin: 0 0 1.2rem; }
+  ul.prose li, ol.prose li { margin-bottom: 0.45rem; }
+
+  .lede-mark {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+  }
+
+  /* ---------- figures and the app panel ---------- */
+
+  figure { margin: 1.5rem 0 2.25rem; }
+
+  figcaption {
+    font-size: 0.93rem;
+    color: var(--muted);
+    max-width: 46rem;
+    margin-top: 0.7rem;
+    line-height: 1.55;
+  }
+
+  .figtabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .figtabs button {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.26rem 0.7rem;
+    cursor: pointer;
+  }
+
+  .figtabs button:hover { color: var(--ink); border-color: var(--faint); }
+
+  .figtabs button[aria-selected="true"] {
+    color: var(--card);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .figtabs .hint {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--faint);
+    margin-left: 0.35rem;
+  }
+
+  button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* The tool. Dark in both page themes, on purpose. */
+  .screen {
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: var(--sans);
+    color: var(--app-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  }
+
+  .screen-bar {
+    background: var(--app-header);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 5px 9px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .screen-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--app-rule); }
+
+  .screen-bar .ttl { font-weight: 500; color: var(--app-text); }
+
+  .screen.narrow { max-width: 620px; }
+
+  .scrollhint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--app-dim);
+    border-top: 1px dashed var(--app-rule);
+    padding: 3px 9px;
+    text-align: center;
+  }
+
+  /* ---------- today's dialog: everything at one weight ---------- */
+
+  .dlg { padding: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
+
+  .dlg .intro { color: var(--app-text2); font-size: 11px; line-height: 1.45; }
+
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .row > .rl { width: 96px; flex: none; color: var(--app-text2); font-size: 11.5px; }
+
+  .sub { color: var(--app-dim); font-size: 10.5px; }
+
+  .box {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 2px;
+    padding: 2px 5px;
+    min-height: 20px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .box.n44 { width: 44px; }
+  .box.n36 { width: 36px; }
+  .box.n52 { width: 52px; }
+  .box.n64 { width: 64px; }
+  .box.n200 { width: 200px; }
+
+  .glyph { font-size: 11.5px; color: var(--app-text2); cursor: default; }
+  .glyph.on { color: var(--app-text); }
+
+  .refusal { color: var(--app-bad); font-size: 10.5px; line-height: 1.45; }
+  .farend { color: var(--app-warn); font-size: 10.5px; line-height: 1.45; }
+  .quiet { color: var(--app-dim); font-size: 10.5px; line-height: 1.45; }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 2px;
+    padding: 3px 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .btn.go { color: var(--app-good); border-color: #47603a; }
+  .btn.off { color: var(--app-dim); border-color: var(--app-rule); }
+  .btn.stop { color: var(--app-bad); border-color: #6d3a3e; }
+  .btn.primary { background: #2f4a2c; color: #d6ecc6; border-color: #4d7043; font-weight: 500; }
+
+  /* ---------- the proposed dialog ---------- */
+
+  .dlg2 { display: flex; flex-direction: column; font-size: 12px; }
+
+  .dlg2 .body { padding: 11px 12px 14px; display: flex; flex-direction: column; gap: 11px; }
+
+  .dlg2 .intro { color: var(--app-text2); font-size: 11px; line-height: 1.45; max-width: 74ch; }
+
+  .grp { display: flex; flex-direction: column; gap: 7px; }
+
+  .ghead {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ghead::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--app-rule);
+  }
+
+  .r2 { display: flex; align-items: flex-start; gap: 9px; flex-wrap: nowrap; }
+
+  .r2 > .rl2 {
+    width: 84px;
+    flex: none;
+    color: var(--app-text2);
+    font-size: 11px;
+    text-align: right;
+    padding-top: 2px;
+  }
+
+  .r2 .stack { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
+
+  .val { font-size: 12.5px; color: var(--app-text); }
+
+  .pick {
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 6px 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .pick .chev { color: var(--app-dim); font-size: 9px; }
+
+  .fld {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 6px;
+    text-align: right;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fld.w64 { width: 64px; }
+  .fld.w52 { width: 52px; }
+  .fld.w44 { width: 44px; }
+  .fld.w88 { width: 88px; }
+  .fld.left { text-align: left; justify-content: flex-start; }
+  .fld.focus { border-color: var(--app-teal); }
+
+  .seg { display: inline-flex; border: 1px solid var(--app-border2); border-radius: 3px; overflow: hidden; }
+
+  .seg span {
+    font-size: 11.5px;
+    padding: 3px 11px;
+    color: var(--app-text2);
+    background: var(--app-surface);
+    cursor: default;
+  }
+
+  .seg span + span { border-left: 1px solid var(--app-border2); }
+  .seg span.on { background: #35443f; color: var(--app-teal); font-weight: 500; }
+
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--app-text2);
+    background: transparent;
+    border: 1px solid var(--app-rule);
+    border-radius: 999px;
+    padding: 2px 8px;
+    cursor: default;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chip.on { color: var(--app-teal); border-color: #3d6b60; background: #26332f; }
+  .chip.add { color: var(--app-dim); border-style: dashed; }
+
+  .linky { font-size: 11px; color: var(--app-info); border-bottom: 1px solid #35506e; cursor: pointer; }
+
+  .cbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .cbox i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--app-border2);
+    border-radius: 2px;
+    display: inline-block;
+    flex: none;
+    position: relative;
+    background: var(--app-surface);
+  }
+
+  .cbox.on { color: var(--app-text); }
+  .cbox.on i { background: #35443f; border-color: #3d6b60; }
+
+  .cbox.on i::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 5px;
+    width: 6px;
+    height: 3px;
+    border-left: 1.5px solid var(--app-teal);
+    border-bottom: 1.5px solid var(--app-teal);
+    transform: rotate(-45deg);
+  }
+
+  .radio { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--app-text2); }
+
+  .radio i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--app-border2);
+    border-radius: 50%;
+    display: inline-block;
+    flex: none;
+    position: relative;
+    background: var(--app-surface);
+  }
+
+  .radio.on { color: var(--app-text); }
+  .radio.on i { border-color: #3d6b60; }
+
+  .radio.on i::after {
+    content: "";
+    position: absolute;
+    inset: 2.5px;
+    border-radius: 50%;
+    background: var(--app-teal);
+  }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    border-radius: 999px;
+    padding: 1px 7px;
+    border: 1px solid transparent;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .pill.ok { color: var(--app-good); background: #26331f; border-color: #47603a; }
+  .pill.no { color: var(--app-bad); background: #33201f; border-color: #6d3a3e; }
+  .pill.info { color: var(--app-info); background: #1e2a3a; border-color: #35506e; }
+  .pill.dim { color: var(--app-dim); border-color: var(--app-rule); }
+
+  /* A stripe carries the message class. No card, no radius, no shadow: those say "object". */
+  .inset {
+    border-left: 2px solid var(--app-rule);
+    padding: 4px 0 4px 9px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--app-text2);
+    display: flex;
+    gap: 7px;
+    align-items: flex-start;
+  }
+
+  .inset.bad { border-left-color: var(--app-bad); color: #f0b6ba; }
+  .inset.warn { border-left-color: var(--app-warn); color: #e6bfa6; }
+  .inset .fix { flex: none; }
+  .inset b { font-weight: 600; color: inherit; }
+
+  .disclose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--app-text2);
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    padding: 5px 8px;
+    background: var(--app-variant);
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font-family: var(--sans);
+  }
+
+  .disclose:hover { border-color: var(--app-border2); }
+  .disclose .car { color: var(--app-dim); font-size: 9px; width: 8px; flex: none; }
+  .disclose .summ {
+    color: var(--app-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chg { color: var(--app-info); font-size: 10.5px; flex: none; }
+
+  .advbody {
+    border-left: 1px solid var(--app-rule);
+    margin-left: 4px;
+    padding: 8px 0 4px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .foot {
+    border-top: 1px solid var(--app-rule);
+    background: var(--app-header);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .foot .why { font-size: 10.5px; color: var(--app-bad); flex: 1; min-width: 0; line-height: 1.35; }
+  .foot .ready { font-size: 10.5px; color: var(--app-dim); flex: 1; min-width: 0; }
+  .foot .kbd { font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); }
+
+  /* ---------- the document ---------- */
+
+  .tabs { display: flex; background: var(--app-header); border-bottom: 1px solid var(--app-rule); }
+
+  .tabs .tab {
+    font-size: 11px;
+    color: var(--app-dim);
+    padding: 5px 11px;
+    border-right: 1px solid var(--app-rule);
+    white-space: nowrap;
+  }
+
+  .tabs .tab.on { color: var(--app-text); background: var(--app-bg); }
+
+  .dhead {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--app-surface);
+    padding: 5px 9px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+
+  .dhead .label { color: var(--app-text); font-weight: 500; }
+  .dhead .meta { color: var(--app-dim); font-size: 10px; flex: 1; min-width: 120px; }
+  .dhead .state { font-size: 10px; }
+
+  /* Proposed header: the verdict is the headline. */
+  .dhead2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--app-surface);
+    padding: 7px 10px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  .badge {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-radius: 3px;
+    padding: 3px 9px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  .badge.ok { color: #d6ecc6; background: #2f4a2c; border-color: #4d7043; }
+  .badge.no { color: #f6cdd0; background: #47292c; border-color: #7d454a; }
+  .badge.run { color: #cfe6fb; background: #23374b; border-color: #3d5f80; }
+  .badge.stop { color: var(--app-text2); background: #333333; border-color: var(--app-border2); }
+  .badge.dimb { color: var(--app-dim); background: #2a2a2a; border-color: var(--app-rule); }
+
+  .dhead2 .who { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 160px; }
+  .dhead2 .who .t { font-size: 12px; color: var(--app-text); font-weight: 500; }
+  .dhead2 .who .m { font-family: var(--mono); font-size: 10px; color: var(--app-dim); }
+  .dhead2 .acts { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+
+  .bar { display: flex; height: 3px; background: var(--app-variant); }
+  .bar i { display: block; height: 100%; }
+  .bar i.ok { background: var(--app-good); }
+  .bar i.go { background: var(--app-info); }
+  .bar i.no { background: var(--app-bad); }
+
+  .bar2 { display: flex; height: 8px; background: var(--app-variant); }
+  .bar2 i { display: block; height: 100%; }
+  .bar2 i.ok { background: var(--app-good); }
+  .bar2 i.go { background: var(--app-info); }
+  .bar2 i.no { background: var(--app-bad); }
+  .bar2 i.stopmark { background: var(--app-text); }
+
+  .barline {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 10px 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--app-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Today: five tiles at one weight. */
+  .tiles { display: flex; background: var(--app-variant); }
+  .tiles > div { flex: 1; padding: 6px 9px; min-width: 0; }
+  .tiles .k { font-size: 10px; color: var(--app-dim); }
+
+  .tiles .v {
+    font-family: var(--mono);
+    font-size: 17px;
+    color: var(--app-text);
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tiles .v.no { color: var(--app-bad); }
+  .tiles .v.dim { color: var(--app-dim); }
+  .tiles .s { font-size: 10px; color: var(--app-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Proposed: two leads, then a quiet strip. */
+  .lead { display: flex; gap: 1px; background: var(--app-rule); }
+
+  .lead > div {
+    flex: 1;
+    background: var(--app-variant);
+    padding: 9px 12px 10px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .lead .k {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+  }
+
+  .lead .v {
+    font-family: var(--mono);
+    font-size: 26px;
+    line-height: 1.1;
+    color: var(--app-text);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .lead .v.ok { color: var(--app-good); }
+  .lead .v.no { color: var(--app-bad); }
+  .lead .v.go { color: var(--app-info); }
+  .lead .s { font-size: 10.5px; color: var(--app-dim); }
+
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 0;
+    padding: 6px 12px;
+    border-top: 1px solid var(--app-rule);
+    font-size: 10.5px;
+    color: var(--app-dim);
+  }
+
+  .strip span { white-space: nowrap; padding: 0 11px; border-right: 1px solid var(--app-rule); }
+  .strip span:first-child { padding-left: 0; }
+  .strip span:last-child { border-right: none; }
+
+  .strip b {
+    font-family: var(--mono);
+    font-weight: 500;
+    color: var(--app-text2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Today: the key/value sentence dump. */
+  .lines { padding: 6px 9px; display: flex; flex-direction: column; gap: 2px; }
+  .lines .ln { display: flex; gap: 0; font-size: 11px; }
+  .lines .ln .k { width: 72px; flex: none; color: var(--app-dim); }
+  .lines .ln .v { color: var(--app-text2); }
+  .lines .ln .v b { font-weight: 400; color: var(--app-text); font-family: var(--mono); }
+  .lines .ln .v .ok { color: var(--app-good); }
+  .lines .ln .v .no { color: var(--app-bad); }
+  .lines .ln.warn .v { color: var(--app-warn); }
+
+  /* Proposed: sections with a real head. */
+  .sect { padding: 10px 12px; border-top: 1px solid var(--app-rule); }
+
+  .shead {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--app-text);
+    margin-bottom: 7px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .shead .note { font-weight: 400; font-size: 10.5px; color: var(--app-dim); }
+
+  .statcard {
+    border: 1px solid var(--app-rule);
+    border-radius: 4px;
+    background: var(--app-variant);
+    padding: 9px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .statrow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .statrow.narrow3 { grid-template-columns: repeat(3, 1fr); row-gap: 8px; }
+
+  .statrow .sk {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+  }
+
+  .statrow .sv {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--app-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .statrow .sv.warn { color: var(--app-warn); }
+  .statrow .sv.no { color: var(--app-bad); }
+  .statrow .sv.ok { color: var(--app-good); }
+
+  .hist {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 10px;
+    height: 68px;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  .hist .b { flex: 1; max-width: 86px; display: flex; align-items: flex-end; height: 100%; }
+  .hist .b i { display: block; width: 100%; min-height: 2px; background: #4a7ba7; border-radius: 1px 1px 0 0; }
+  .hist .b.hi i { background: var(--app-info); }
+  .hist .b.tail i { background: var(--app-warn); }
+
+  .histx {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 3px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--app-dim);
+  }
+
+  .histx span { flex: 1; max-width: 86px; text-align: center; line-height: 1.3; }
+  .histx b { display: block; color: var(--app-text2); font-weight: 500; }
+
+  .chartwrap { overflow-x: auto; }
+  .chartwrap svg { display: block; width: 100%; min-width: 520px; height: auto; }
+
+  .legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 10.5px;
+    color: var(--app-dim);
+    margin-top: 5px;
+    align-items: center;
+  }
+
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .legend i.bars { background: #4a7ba7; }
+  .legend i.stall { background: var(--app-bad); }
+  .legend i.line { background: transparent; border-top: 2px solid var(--app-text2); height: 0; border-radius: 0; }
+  .legend i.p95 { background: transparent; border-top: 2px solid var(--app-warn); height: 0; border-radius: 0; }
+
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+
+  table.tbl th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+    font-weight: 400;
+    padding: 0 8px 4px 0;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  table.tbl td {
+    padding: 4px 8px 4px 0;
+    color: var(--app-text2);
+    border-bottom: 1px solid rgba(58, 58, 58, 0.5);
+    vertical-align: top;
+  }
+
+  table.tbl td.id { font-family: var(--mono); color: var(--app-text); white-space: nowrap; }
+  table.tbl td.w { font-family: var(--mono); color: var(--app-dim); font-size: 10px; }
+  table.tbl td.go { color: var(--app-info); white-space: nowrap; }
+  table.tbl td.better { color: var(--app-good); white-space: nowrap; font-family: var(--mono); }
+  table.tbl tr:hover td { background: #26303a; }
+
+  .vfoot {
+    background: var(--app-variant);
+    border-top: 1px solid var(--app-rule);
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .vfoot .v { font-size: 12px; font-weight: 600; }
+  .vfoot .v.ok { color: var(--app-good); }
+  .vfoot .v.no { color: var(--app-bad); }
+  .vfoot .l { font-size: 11px; color: var(--app-text2); }
+  .vfoot .l.dim { color: var(--app-dim); font-size: 10px; }
+  .vfoot .l .ok { color: var(--app-good); }
+  .vfoot .l .no { color: var(--app-bad); }
+  .vfoot .l .mu { color: var(--app-dim); }
+
+  .judge { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 2px; }
+
+  .strip.pss { border-top: none; }
+
+  /* today's per-second strip */
+  .pstrip { padding: 0 9px 6px; }
+  .pstrip .bars { display: flex; align-items: flex-end; gap: 2px; height: 36px; }
+  .pstrip .bars i { flex: 1; background: var(--app-info); display: block; }
+  .pstrip .cap { font-size: 10px; color: var(--app-dim); margin-top: 3px; }
+
+
+  /* ---------- set-level band, phase rows, phase rail, phase timeline ---------- */
+
+  /* Set-level, not phase-level: one seed serves every phase, so it cannot live inside one. */
+  .setband {
+    background: var(--app-variant);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .setband .r2 > .rl2 { padding-top: 4px; }
+
+  .phaserow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    background: var(--app-variant);
+    padding: 6px 9px;
+    font-size: 11.5px;
+  }
+
+  .phaserow .n {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--app-dim);
+    width: 14px;
+    flex: none;
+  }
+
+  .phaserow .t { color: var(--app-text); flex: none; }
+  .phaserow .d { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .phaserow .grip { color: var(--app-dim); font-size: 11px; flex: none; cursor: grab; }
+  .phaserow.add { border-style: dashed; color: var(--app-dim); justify-content: center; }
+
+  .split { display: flex; align-items: stretch; }
+  .split .rail { width: 216px; flex: none; border-right: 1px solid var(--app-rule); background: var(--app-variant); }
+  .split .detail { flex: 1; min-width: 0; }
+
+  .railrow {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 6px 9px;
+    border-bottom: 1px solid var(--app-rule);
+    font-size: 11px;
+    cursor: default;
+  }
+
+  .railrow.on { background: var(--app-bg); box-shadow: inset 2px 0 0 var(--app-info); }
+  .railrow .mk { font-size: 11px; flex: none; width: 11px; }
+  .railrow .mk.ok { color: var(--app-good); }
+  .railrow .mk.no { color: var(--app-bad); }
+  .railrow .mk.skip { color: var(--app-dim); }
+  .railrow .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .railrow.dim .nm { color: var(--app-dim); }
+  .railrow .num { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+
+  .gantt { display: flex; flex-direction: column; gap: 4px; }
+  .grow { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+  .grow .gl { width: 116px; flex: none; color: var(--app-text2); }
+  .grow .track { flex: 1; height: 13px; background: var(--app-variant); border-radius: 2px; display: flex; overflow: hidden; }
+  .grow .track i { display: block; height: 100%; }
+  .grow .track i.iss { background: var(--app-info); }
+  .grow .track i.set { background: repeating-linear-gradient(135deg, #3a4a5a 0 3px, #26303a 3px 6px); }
+  .grow .track i.pad { background: transparent; }
+  .grow .gt { width: 82px; flex: none; text-align: right; font-family: var(--mono); color: var(--app-dim); font-variant-numeric: tabular-nums; }
+  .grow.skipped .gl, .grow.skipped .gt { color: var(--app-dim); }
+  .grow.skipped .track { background: repeating-linear-gradient(135deg, #2a2a2a 0 4px, #232323 4px 8px); }
+
+  /* ---------- how-it-works lists ---------- */
+
+  dl.mech { max-width: 46rem; margin: 1rem 0 1.5rem; display: grid; gap: 0.85rem; }
+  dl.mech > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  dl.mech dt { font-family: var(--sans); font-weight: 600; font-size: 0.96rem; margin-bottom: 0.1rem; }
+  dl.mech dd { margin: 0; font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  dl.mech dd code { background: var(--accent-soft); padding: 0.06em 0.32em; border-radius: 2px; }
+
+
+  /* ---------- entry points and edge states ---------- */
+
+  .menu {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 0;
+    width: 268px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+
+  .menu .mi { padding: 4px 10px; font-size: 11.5px; color: var(--app-text); display: flex; gap: 8px; align-items: baseline; }
+  .menu .mi .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); margin-left: auto; }
+  .menu .mi.off { color: var(--app-dim); }
+  .menu .mi.on { background: #2d5a8c; }
+  .menu .sep { height: 1px; background: var(--app-rule); margin: 3px 0; }
+  .menu .grp { padding: 4px 10px 2px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .recent { display: flex; flex-direction: column; }
+  .recent .rr { display: flex; align-items: baseline; gap: 7px; padding: 3px 10px; font-size: 11.5px; }
+  .recent .rr .mk { width: 11px; flex: none; text-align: center; }
+  .recent .rr .mk.ok { color: var(--app-good); }
+  .recent .rr .mk.no { color: var(--app-bad); }
+  .recent .rr .kd { width: 13px; flex: none; text-align: center; color: var(--app-dim); font-size: 10px; }
+  .recent .rr .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent .rr .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+
+  .edge { display: flex; flex-direction: column; gap: 16px; }
+  .edge > .one { display: flex; flex-direction: column; gap: 5px; }
+
+  .edge .cap {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .empty {
+    border: 1px dashed var(--app-rule);
+    border-radius: 3px;
+    padding: 14px 12px;
+    color: var(--app-text2);
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .empty b { color: var(--app-text); font-weight: 500; }
+  .empty .hint { display: block; margin-top: 4px; color: var(--app-dim); font-size: 10.5px; }
+
+  /* ---------- change lists under a figure ---------- */
+
+  ol.changes {
+    counter-reset: ch;
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 0;
+    max-width: 46rem;
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  /* Inline flow, not grid: a grid li would make every text run and every <code> its own cell. */
+  ol.changes li {
+    counter-increment: ch;
+    position: relative;
+    padding-left: 2.2rem;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  ol.changes li::before {
+    content: counter(ch, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 0.24rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  ol.changes b {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  ol.changes .where {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+    margin-top: 0.1rem;
+  }
+
+  table.scale { border-collapse: collapse; font-family: var(--sans); font-size: 0.9rem; margin: 1rem 0 1.5rem; width: 100%; max-width: 46rem; }
+  table.scale th { text-align: left; font-size: 0.72rem; font-family: var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); font-weight: 400; padding: 0 0.8rem 0.35rem 0; border-bottom: 1px solid var(--rule); }
+  table.scale td { padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--rule); color: var(--muted); vertical-align: baseline; }
+  table.scale td.tok { font-family: var(--mono); font-size: 0.8rem; color: var(--ink); white-space: nowrap; }
+  table.scale td.ex { color: var(--ink); }
+
+  .qa { max-width: 46rem; display: grid; gap: 1.1rem; margin: 1rem 0 1.5rem; }
+  .qa > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  .qa .q { font-family: var(--sans); font-weight: 600; font-size: 0.98rem; margin-bottom: 0.15rem; }
+
+  .qa .q .tag {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 0.62rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 1px 6px;
+    border: 1px solid;
+    margin-right: 0.45rem;
+    vertical-align: 1.5px;
+    white-space: nowrap;
+  }
+
+  .qa .q .tag.dec { color: var(--good); border-color: var(--good); }
+  .qa .q .tag.asm { color: var(--faint); border-color: var(--rule); }
+  .qa .q .tag.sup { color: var(--warn); border-color: var(--warn); }
+  .qa .a { font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  .qa .a strong { color: var(--good); font-weight: 600; }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.4rem;
+  }
+
+  [hidden] { display: none !important; }
+
+  @media (max-width: 640px) {
+    .r2 { flex-wrap: wrap; }
+    .r2 > .rl2 { width: auto; text-align: left; }
+    .row > .rl { width: auto; }
+  }
+</style>
+<style>
+  /* ---------- additions for the load-sets note ---------- */
+
+  .screen.mid { max-width: 800px; }
+
+  .side { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .side > div { min-width: 260px; }
+
+  /* A terminal. Dark in both themes like the app panels: it is the tool's output, not the page's prose. */
+  pre.term {
+    margin: 0;
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 6px;
+    color: var(--app-text2);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.55;
+    padding: 12px 14px;
+    overflow-x: auto;
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+  }
+
+  pre.term .ph { color: var(--app-text); font-weight: 600; }
+  pre.term .ok { color: var(--app-good); font-weight: 600; }
+  pre.term .no { color: var(--app-bad); font-weight: 600; }
+  pre.term .sk { color: var(--app-dim); font-weight: 600; }
+  pre.term .dim { color: var(--app-dim); }
+  pre.term .cmd { color: var(--app-field); }
+  pre.term .ln { color: var(--app-text); }
+
+  /* A document in the page's own palette: JSON, XML, a Kotlin sketch. */
+  pre.code {
+    margin: 0 0 1rem;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+    white-space: pre;
+    max-width: var(--wide);
+  }
+
+  pre.code .c { color: var(--faint); }
+  pre.code .k { color: var(--accent); }
+  pre.code .s { color: var(--good); }
+  pre.code .n { color: var(--warn); }
+
+  /* The run-configurations idiom: a list on the left, the editor on the right. */
+  .rc { display: flex; align-items: stretch; min-height: 420px; }
+
+  .rc .rclist {
+    width: 188px;
+    flex: none;
+    border-right: 1px solid var(--app-rule);
+    background: var(--app-variant);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rc .rctools {
+    display: flex;
+    gap: 2px;
+    padding: 5px 7px;
+    border-bottom: 1px solid var(--app-rule);
+    align-items: center;
+  }
+
+  .rc .rctools span {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--app-text2);
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 2px;
+  }
+
+  .rc .rctools span.off { color: var(--app-dim); }
+  .rc .rctools .lbl { width: auto; margin-left: auto; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .rc .rcrow {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 5px 9px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+    cursor: default;
+  }
+
+  .rc .rcrow .kd { color: var(--app-dim); font-size: 10px; width: 12px; flex: none; text-align: center; }
+  .rc .rcrow .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rc .rcrow .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+  .rc .rcrow.on { background: var(--app-bg); box-shadow: inset 2px 0 0 var(--app-info); }
+  .rc .rcrow.new { color: var(--app-dim); border-top: 1px dashed var(--app-rule); margin-top: auto; }
+
+  .rc .rced { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .crumb {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--app-rule);
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .crumb .back { color: var(--app-info); }
+  .crumb .sepc { color: var(--app-dim); }
+  .crumb .here { color: var(--app-text); font-weight: 500; }
+  .crumb .kbd { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); }
+
+  .phaserow .acts2 { display: flex; gap: 6px; flex: none; }
+  .phaserow .acts2 span { font-size: 10px; color: var(--app-info); }
+  .phaserow .acts2 span.dimr { color: var(--app-dim); }
+
+  .namerow { display: flex; align-items: center; gap: 9px; padding: 9px 12px 0; }
+  .namerow .rl2 { width: 84px; flex: none; color: var(--app-text2); font-size: 11px; text-align: right; }
+
+  /* The mechanism drawing: boxes in the app palette, arrows as text so it needs no SVG. */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; row-gap: 10px; }
+
+  .flow .box {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 7px 10px;
+    font-size: 10.5px;
+    color: var(--app-text2);
+    min-width: 120px;
+    max-width: 176px;
+    line-height: 1.4;
+  }
+
+  .flow .box b { display: block; color: var(--app-text); font-weight: 500; font-size: 11px; margin-bottom: 2px; }
+  .flow .box.set { border-color: #3d6b60; }
+  .flow .box.phase { border-color: #3d5f80; }
+  .flow .box .m { font-family: var(--mono); font-size: 10px; color: var(--app-dim); display: block; margin-top: 3px; }
+  .flow .arr { display: flex; align-items: center; padding: 0 6px; color: var(--app-dim); font-size: 12px; }
+
+  .flowwrap { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .flowwrap .fl { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .router { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 10.5px; align-items: center; }
+  .router .who { color: var(--app-text); font-weight: 500; }
+  .router .who small { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); font-weight: 400; }
+  .router .what { color: var(--app-text2); }
+  .router .what b { color: var(--app-text); font-weight: 500; }
+
+  .pairchip {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    border-radius: 999px;
+    padding: 0 6px;
+    border: 1px solid var(--app-rule);
+    color: var(--app-dim);
+    flex: none;
+  }
+
+  .pairchip.better { color: var(--app-good); border-color: #47603a; }
+  .pairchip.worse { color: var(--app-bad); border-color: #6d3a3e; }
+  .pairchip.differs { color: var(--app-warn); border-color: #6d4a3a; }
+
+  table.tbl td.worse { color: var(--app-bad); white-space: nowrap; font-family: var(--mono); }
+  table.tbl td.same { color: var(--app-dim); white-space: nowrap; font-family: var(--mono); }
+  table.tbl td.k { color: var(--app-text2); }
+
+  .callout {
+    max-width: var(--col);
+    border-left: 2px solid var(--warn);
+    background: var(--warn-soft);
+    padding: 0.7rem 0.95rem;
+    margin: 0 0 1.2rem;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    color: var(--ink);
+    border-radius: 0 3px 3px 0;
+  }
+
+  .callout b { font-family: var(--sans); font-weight: 600; }
+
+  table.cmp { border-collapse: collapse; font-family: var(--sans); font-size: 0.9rem; margin: 0.6rem 0 1.5rem; width: 100%; max-width: 46rem; }
+  table.cmp th { text-align: left; font-size: 0.72rem; font-family: var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); font-weight: 400; padding: 0 0.8rem 0.35rem 0; border-bottom: 1px solid var(--rule); }
+  table.cmp td { padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--rule); color: var(--muted); vertical-align: top; line-height: 1.45; }
+  table.cmp td:first-child { color: var(--ink); font-family: var(--sans); font-weight: 600; white-space: nowrap; }
+  table.cmp code { font-size: 0.8em; }
+
+  .steps { counter-reset: st; list-style: none; padding: 0; margin: 1rem 0 1.5rem; max-width: 46rem; display: grid; gap: 0.7rem; }
+  .steps li { counter-increment: st; position: relative; padding-left: 2.2rem; font-size: 0.95rem; line-height: 1.5; }
+  .steps li::before { content: counter(st); position: absolute; left: 0; top: 0.05rem; font-family: var(--mono); font-size: 0.8rem; color: var(--accent); width: 1.5rem; height: 1.5rem; border: 1px solid var(--rule); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .steps b { font-family: var(--sans); font-weight: 600; }
+  .steps .where { display: block; font-family: var(--mono); font-size: 0.74rem; color: var(--faint); margin-top: 0.1rem; }
+
+  @media (max-width: 720px) {
+    .rc { flex-direction: column; }
+    .rc .rclist { width: auto; border-right: none; border-bottom: 1px solid var(--app-rule); }
+    .router { grid-template-columns: 1fr; }
+  }
+</style>
+<style>
+  /* ---------- the sectioned dialog ---------- */
+  .dlg3 { display: flex; flex-direction: column; font-size: 12px; }
+  .dlg3 .lead1 { padding: 12px 16px 4px; color: var(--app-text2); font-size: 12px; }
+  .sec { padding: 10px 16px 12px; border-top: 1px solid var(--app-rule); display: flex; flex-direction: column; gap: 9px; }
+  .sec:first-of-type { border-top: none; }
+  .sech { display: flex; align-items: baseline; gap: 10px; }
+  .sech .t { font-size: 12.5px; font-weight: 600; color: var(--app-text); }
+  .sech .p { font-size: 11px; color: var(--app-dim); }
+  .row3 { display: flex; align-items: flex-start; gap: 12px; }
+  .row3 > .l { width: 118px; flex: none; color: var(--app-text2); font-size: 11.5px; padding-top: 4px; text-align: right; }
+  .row3 .v { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+  .row3 .line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .hint { font-family: var(--sans); font-size: 11px; color: var(--app-dim); line-height: 1.45; }
+  .hint b { color: var(--app-text2); font-weight: 500; }
+  .fold {
+    display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid var(--app-rule);
+    color: var(--app-text2); font-size: 12px;
+  }
+  .fold .car { color: var(--app-dim); font-size: 10px; width: 10px; }
+  .fold .t { font-weight: 600; color: var(--app-text); }
+  .fold .sum { color: var(--app-dim); font-size: 11.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fold .chg { color: var(--app-info); font-size: 11px; flex: none; }
+  .fold.open { border-bottom: none; }
+  .fold.bad .t::after { content: " · 1 fix"; color: var(--app-bad); font-weight: 400; font-family: var(--mono); font-size: 10px; }
+  .noteline { display: flex; align-items: flex-start; gap: 9px; padding: 8px 16px; border-top: 1px solid var(--app-rule); font-size: 11px; color: var(--app-warn); line-height: 1.45; }
+  .noteline .i { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--app-warn); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; margin-top: 1px; }
+  .btn.linkish { border-color: transparent; background: transparent; color: var(--app-info); }
+  .screen.dlgw { max-width: 780px; }
+  .cmp3 td:nth-child(2) { color: var(--faint); font-family: var(--mono); font-size: 0.78rem; }
+  .cmp3 td:nth-child(3) { color: var(--ink); }
+  .phases { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+  .phases .ph { display: grid; grid-template-columns: 150px 24px 1fr 24px 1fr; gap: 8px; align-items: center; }
+  .phases .ph .box { max-width: none; min-width: 0; }
+  .phases .ph .arr { text-align: center; color: var(--app-dim); }
+  .phases .ph .box.venue { border-color: #6d4a3a; }
+  .phases .ph .box.venue b { color: var(--app-warn); }
+  @media (max-width: 720px) { .phases .ph { grid-template-columns: 1fr; } .phases .ph .arr { display: none; } .row3 { flex-wrap: wrap; } .row3 > .l { width: auto; text-align: left; } }
+</style>
+
+<div class="page">
+
+  <header class="mast">
+    <p class="eyebrow">FixTool · design note · 2026-09-08</p>
+    <h1>The Load Run Dialog, in Sections</h1>
+    <p class="standfirst">Four sections with a purpose each, the first two open, the last two folded with their
+      state written on the fold, one plain sentence per row, and a window you can read. Plus the answer to
+      "where do templates come from, and how does a set hold three messages".</p>
+  </header>
+
+  <p>The dialog has ten rows at one weight, an explainer in monospace grey under each, three section labels
+    at nine points that read as more grey, a label column too narrow for the word "note", and a fixed window
+    of 640 by 580. It is not that there is too much. It is that nothing says where to start. Sections with
+    rank fix that, and folding the two sections a first run does not need makes the first view four rows.</p>
+
+  <div class="callout"><b>Sections, without the overwhelm.</b> A section is open when a first run needs it and folded
+    when it does not. A folded section carries a one-line summary of what it holds, so nothing is hidden, and it
+    opens itself when a refusal names something inside it. That is the run-configuration idiom: the
+    configuration open, "Before launch" folded with its state on the fold.</div>
+
+  <h2>The dialog</h2>
+
+  <figure>
+    <div class="figtabs" role="tablist" aria-label="dialog states">
+      <button role="tab" aria-selected="true" data-for="d-first">first view</button>
+      <button role="tab" aria-selected="false" data-for="d-refused">a fold opened by a refusal</button>
+      <span class="hint">click a state</span>
+    </div>
+
+    <div id="d-first" class="pane">
+    <div class="screen dlgw">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Load run</span><span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--app-dim)">780 × 700, resizable</span></div>
+      <div class="dlg3">
+        <div class="lead1">Send one message many times across a profile's sessions, and count the replies.</div>
+
+        <div class="sec">
+          <div class="sech"><span class="t">What to send</span><span class="p">the message, and the lanes that carry it</span></div>
+          <div class="row3"><span class="l">Template</span>
+            <span class="v">
+              <span class="line"><span class="pick">RFQ Load QuoteRequest <span class="chev">▾</span></span><span class="linky">view in editor</span></span>
+              <span class="hint"><b>35=R QuoteRequest</b>, saved under RFQ Load Client. <b>131 QuoteReqID</b> changes on every message, the other five tags are fixed.</span>
+            </span>
+          </div>
+          <div class="row3"><span class="l">Issue on</span>
+            <span class="v">
+              <span class="line"><span class="pick">RFQ Load Client · 5 lanes <span class="chev">▾</span></span></span>
+              <span class="hint">RFQLG1 to RFQLG5, all logged on. Messages are dealt across the lanes in turn.</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sech"><span class="t">How much</span><span class="p">how many, how fast, and how long to wait</span></div>
+          <div class="row3"><span class="l">Shape</span>
+            <span class="v">
+              <span class="line"><span class="seg"><span class="on">Burst</span><span>Rate</span></span><span class="fld w64">4,000</span><span class="hint">messages, as fast as the lanes accept them</span></span>
+              <span class="line"><span class="chip">100 smoke</span><span class="chip on">4,000 burst</span><span class="chip">500/s for 10m</span><span class="chip">2,000/s for 1h</span></span>
+            </span>
+          </div>
+          <div class="row3"><span class="l">Wait for replies</span>
+            <span class="v">
+              <span class="line"><span class="fld w52">60s</span><span class="hint">after the last send. Ends early once nothing is outstanding.</span></span>
+            </span>
+          </div>
+        </div>
+
+        <div class="fold"><span class="car">▸</span><span class="t">How replies are counted</span><span class="sum">matching 131 QuoteReqID to 131 · any reply type counts · listening on RFQ Load Client only</span><span class="chg">change</span></div>
+        <div class="fold"><span class="car">▸</span><span class="t">Identity and store</span><span class="sum">run = b7f2 · memory store, no log</span><span class="chg">change</span></div>
+
+        <div class="noteline"><span class="i">i</span><span>The far end is FixTool's own acceptor, so these numbers are the tool's ceiling, not a venue's. Point the lanes at the server under test to measure one.</span></div>
+
+        <div class="foot">
+          <span class="ready">4,000 messages on 5 lanes · wait 60s</span>
+          <span class="linky">Make this a set…</span>
+          <span class="btn">Copy as <span class="m">fixtool load</span></span>
+          <span class="btn">Cancel</span>
+          <span class="btn primary">Run <span class="kbd">⌘↵</span></span>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <div id="d-refused" class="pane" hidden>
+    <div class="screen dlgw">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Load run</span></div>
+      <div class="dlg3">
+        <div class="lead1">Send one message many times across a profile's sessions, and count the replies.</div>
+
+        <div class="sec">
+          <div class="sech"><span class="t">What to send</span><span class="p">the message, and the lanes that carry it</span></div>
+          <div class="row3"><span class="l">Template</span>
+            <span class="v">
+              <span class="line"><span class="val">the message in the editor</span></span>
+              <span class="hint"><b>35=D NewOrderSingle</b>, unsaved. <b>11 ClOrdID</b> and <b>60 TransactTime</b> change on every message, the other seven tags are fixed.</span>
+            </span>
+          </div>
+          <div class="row3"><span class="l">Issue on</span>
+            <span class="v">
+              <span class="line"><span class="pick">LOADGEN · 5 lanes <span class="chev">▾</span></span></span>
+              <span class="hint">LG1 to LG5, all logged on. Messages are dealt across the lanes in turn.</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sech"><span class="t">How much</span><span class="p">how many, how fast, and how long to wait</span></div>
+          <div class="row3"><span class="l">Shape</span>
+            <span class="v">
+              <span class="line"><span class="seg"><span>Burst</span><span class="on">Rate</span></span><span class="fld w52">500</span><span class="hint">a second, for</span><span class="fld w52">10m</span></span>
+              <span class="line"><span class="chip">100 smoke</span><span class="chip">4,000 burst</span><span class="chip on">500/s for 10m</span><span class="chip">2,000/s for 1h</span></span>
+            </span>
+          </div>
+          <div class="row3"><span class="l">Wait for replies</span>
+            <span class="v"><span class="line"><span class="fld w52">60s</span><span class="hint">after the last send. Ends early once nothing is outstanding.</span></span></span>
+          </div>
+        </div>
+
+        <div class="fold"><span class="car">▸</span><span class="t">How replies are counted</span><span class="sum">matching 11 ClOrdID to 11 · only 35=8 counts · listening on DROPCOPY too</span><span class="chg">change</span></div>
+
+        <div class="fold open bad"><span class="car">▾</span><span class="t">Identity and store</span><span class="sum"></span><span class="chg">close</span></div>
+        <div class="sec" style="border-top:none;padding-top:0">
+          <div class="row3"><span class="l">Seed</span>
+            <span class="v">
+              <span class="line"><span class="fld w88 left">run</span><span class="sub">=</span><span class="fld left focus" style="width:96px"></span><span class="chip">mint a new one</span></span>
+              <span class="line"><span class="fld w88 left" style="color:var(--app-dim)">name</span><span class="sub">=</span><span class="fld left" style="width:96px;color:var(--app-dim)">value</span><span class="chip add">+ add</span></span>
+              <div class="inset bad" style="margin-top:2px"><span class="fix"><span class="pill no">fix</span></span><span>The template reads <span class="m">${run}</span> and nothing seeds it. Give <span class="m">run</span> a value, or mint one.</span></div>
+              <span class="hint">Available as <span class="m">${run}</span> in every message of this run. Mint a fresh one each run so ids never collide with the last run's.</span>
+            </span>
+          </div>
+          <div class="row3"><span class="l">Store and log</span>
+            <span class="v">
+              <span class="line"><span class="radio on"><i></i>Memory store, no log for this run</span><span class="radio"><i></i>As the profile: file store, file log</span></span>
+              <span class="hint">A memory store is faster and leaves no files. It needs Reset on Logon, which LOADGEN has.</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="foot">
+          <span class="why">Run is off: <span class="m">run</span> has no value.</span>
+          <span class="linky">Make this a set…</span>
+          <span class="btn">Copy as <span class="m">fixtool load</span></span>
+          <span class="btn">Cancel</span>
+          <span class="btn off">Run <span class="kbd">⌘↵</span></span>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <figcaption>The first view is four rows and two folds. Each fold says what it holds, so the reader who
+      never opens one still knows the run matches on 131 and seeds <span class="m">run</span>. In the second
+      state the editor's message reads <span class="m">${run}</span> and nothing seeds it, so the Identity fold
+      opens itself with the fix under the row that takes it, the footer says why Run is off, and the other fold
+      stays closed. When the profile already runs a memory store with no log, the Store row is one sentence,
+      not two radios that mean the same thing.</figcaption>
+
+    <ol class="changes">
+      <li><b>Four sections with rank.</b> A heading at body size in weight, and a purpose beside it in the dim
+        colour. The two a first run needs stay open. The two it does not are folds with a summary line and a
+        "change" link, and a refusal inside a fold opens it.
+        <span class="where">LoadRunDialog.kt, the three GroupHead rows and the Advanced disclosure</span></li>
+      <li><b>One sentence per row, in the sans face.</b> The monospace grey explainers go. What stays is a hint
+        that tells the reader what the value means for this run, in the same typeface as the labels, with the
+        one or two facts that matter in a slightly stronger colour.</li>
+      <li><b>"Wait for replies", not "Settle".</b> The row is named by what it does. The engine can keep calling it
+        the settle window in the report.</li>
+      <li><b>"view in editor" opens the editor.</b> Today it loads the message into an editor that may be hidden
+        behind the dialog, so it looks like a dead link. It opens the editor panel and brings the main window
+        forward, and is labelled by what it does.
+        <span class="where">LoadRunDialog.kt:392 loadEditorMessage</span></li>
+      <li><b>Seed rows read as a table.</b> Name, value, mint on the row that has a name, add on the empty one.
+        A value that is itself a <span class="m">${…}</span> is refused with a sentence rather than sent as text,
+        and a generator such as <span class="m">${uuid:4}</span> renders once, as it does in a set.</li>
+      <li><b>Also listen on offers only profiles that can receive replies</b> for the issuing lanes, never the
+        acceptor those lanes are connected to.</li>
+      <li><b>The note is one line with a marker that fits.</b> The 22dp "note" column that wrapped to "not / e"
+        becomes an icon.
+        <span class="where">LoadRunDialog.kt:715 Notice marker width</span></li>
+      <li><b>780 by 700, resizable, remembered</b> in the view-state store. Twenty percent up from today, and
+        the user's last size wins after that.
+        <span class="where">LoadRunDialog.kt:88 rememberDialogState</span></li>
+    </ol>
+  </figure>
+
+  <h2>The words, row by row</h2>
+
+  <table class="cmp cmp3">
+    <thead><tr><th>row</th><th>today</th><th>proposed</th></tr></thead>
+    <tbody>
+      <tr><td>Intro</td><td>Issues this message across a profile's sessions without waiting for replies, then accounts for every reply that lands on any session that is logged on.</td><td>Send one message many times across a profile's sessions, and count the replies.</td></tr>
+      <tr><td>Template</td><td>35=R QuoteRequest · per message 131 · fixed 35, 146, 55, 54, 38</td><td>35=R QuoteRequest, saved under RFQ Load Client. 131 QuoteReqID changes on every message, the other five tags are fixed.</td></tr>
+      <tr><td>Issue on</td><td>5 lanes logged on · RFQLG1, RFQLG2, RFQLG3, RFQLG4, RFQLG5</td><td>RFQLG1 to RFQLG5, all logged on. Messages are dealt across the lanes in turn.</td></tr>
+      <tr><td>Shape</td><td>messages, as fast as the lanes carry them</td><td>messages, as fast as the lanes accept them. (Rate: a second, for 10m.)</td></tr>
+      <tr><td>Settle</td><td>wait for replies after the last send, then judge</td><td>Wait for replies: after the last send. Ends early once nothing is outstanding.</td></tr>
+      <tr><td>Match</td><td>tags read off the template. A reply carrying the tag under any other type is a stray.</td><td>Request 131 QuoteReqID is answered by reply 131 QuoteReqID. Count only replies of type [ ] (empty counts any type).</td></tr>
+      <tr><td>Also match on</td><td>listen only, never issue</td><td>Also listen on: other profiles that may receive the replies, such as a drop copy. They never send.</td></tr>
+      <tr><td>Seed</td><td>in scope as ${name}, on every message this run issues</td><td>Available as ${run} in every message of this run. Mint a fresh one each run so ids never collide with the last run's.</td></tr>
+      <tr><td>Store and log</td><td>As the profile: memory store, no log / Memory store, no log · recommended</td><td>One sentence when they agree. Two radios only when the profile differs, with why memory is faster.</td></tr>
+      <tr><td>Note</td><td>not / e (wrapped)</td><td>An icon, and the same sentence.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="set">Where templates come from, and how a set holds three messages</h2>
+
+  <p>A template is a saved message. You build it in the message editor, press Save, and name it. It is stored
+    in the workspace and tagged to the profile you were on. The Load run dialog's picker lists those messages,
+    the issuing profile's first. The editor's Load button skips the picker and uses the message in the editor
+    as it stands.</p>
+
+  <p>A set does not hold three messages in one template. It holds one <em>phase per message the client
+    sends</em>, and each phase names its own saved message. The messages the venue sends back are not authored
+    at all: they are what a phase <em>matches</em> and, when asked, <em>captures</em> values from. So the RFQ
+    round trip is three saved messages and three phases, and the Quote in the middle belongs to the venue:</p>
+
+  <figure>
+    <div class="screen">
+      <div class="phases">
+        <div class="ph">
+          <div class="box phase"><b>Phase 1 · Quote</b>saved message <span class="m">RFQ Load QuoteRequest</span><br>35=R, 131=RFQ-${run}-${messageIndex}<br>capture quoteId=117, offer=133</div>
+          <div class="arr">→</div>
+          <div class="box venue"><b>the venue answers</b>35=S Quote, echoing 131, minting 117 and pricing 133<span class="m">matched on 131 · 117 and 133 kept per index</span></div>
+          <div class="arr"></div><div></div>
+        </div>
+        <div class="ph">
+          <div class="box phase"><b>Phase 2 · Hit</b>saved message <span class="m">RFQ Load QuoteResponse</span><br>35=AJ 694=1, 117=${quoteId}, 44=${offer}<br>11=RFQ-${run}-${messageIndex}</div>
+          <div class="arr">→</div>
+          <div class="box venue"><b>the venue answers</b>35=8 fill at the quoted price, echoing 11<span class="m">matched on 11 · only 35=8 counts</span></div>
+          <div class="arr"></div><div></div>
+        </div>
+        <div class="ph">
+          <div class="box phase"><b>Phase 3 · Pass, from 2,001</b>saved message <span class="m">RFQ Load Pass</span><br>35=AJ 694=6, 117=${quoteId}</div>
+          <div class="arr">→</div>
+          <div class="box venue"><b>the venue answers</b>35=AI 297=11<span class="m">matched on 117</span></div>
+          <div class="arr"></div><div></div>
+        </div>
+      </div>
+    </div>
+    <figcaption>Left, what the client sends: one saved message per phase, picked in the phase editor. Right,
+      what the venue sends back: never authored, only matched and captured. The seed <span class="m">run</span>
+      and the captures <span class="m">quoteId</span> and <span class="m">offer</span> are the set's, so phases 2
+      and 3 can name what phase 1 was given.</figcaption>
+  </figure>
+
+  <p>To build one from nothing: save the three messages in the editor, open Run ▾ → Load sets…, add a set,
+    add a phase per message, tick the capture on phase 1, and Run set. The shipped RFQ example already has all
+    three messages and the set, which is why it appears in Run ▾ as soon as the example is opened fresh.</p>
+
+  <h2>Order of work</h2>
+
+  <ol class="steps">
+    <li><b>The window and the words.</b> 780 by 700, resizable, remembered in the view-state store. Every
+      explainer replaced by the sentence in the table above, in the sans face. "Settle" becomes "Wait for
+      replies" in the dialog only. The note marker becomes an icon.
+      <span class="where">LoadRunDialog.kt:88, the Sub and GroupHead composables, Notice</span></li>
+    <li><b>The sections and folds.</b> Four sections with heading and purpose. The last two as folds with a
+      summary line built from the plan (match, reply type, listen profiles, seed names and values, store).
+      Advanced's existing auto-open on a refusal becomes the fold's. Compose tests: the summary text, a refusal
+      opening its fold, the other fold staying closed.
+      <span class="where">LoadRunDialog.kt, Where.ADVANCED and placeOf</span></li>
+    <li><b>The five behaviours.</b> A self-referencing or generator seed value rendered once or refused. The
+      acceptor excluded from Also listen on. The Store row collapsing to a sentence when the profile agrees.
+      "view in editor" opening the editor panel and bringing the window forward. Each with a test.
+      <span class="where">LoadRunDialog.kt:392, :501, :586 · the seed render in LoadSet.plan as the model</span></li>
+  </ol>
+
+  <h2>Decisions</h2>
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Fold, or show everything?</div>
+      <div class="a"><strong>Fold the two sections a first run does not need,</strong> with their state on the fold.
+        Everything visible at one weight is what made ten rows feel like thirty.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Rename Settle?</div>
+      <div class="a"><strong>In the dialog, yes: "Wait for replies".</strong> The report and the CLI keep "settle",
+        because they are read by people who know the engine and by scripts.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>The same sections in the phase editor.</div>
+      <div class="a">The phase editor is this dialog's body in phase mode, so it gets the sections for free, minus
+        the Identity fold, which is the set's.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  (function () {
+    document.querySelectorAll('.figtabs[role="tablist"]').forEach(function (group) {
+      var buttons = group.querySelectorAll('button[data-for]');
+      buttons.forEach(function (button) {
+        button.addEventListener('click', function () {
+          buttons.forEach(function (other) {
+            other.setAttribute('aria-selected', other === button ? 'true' : 'false');
+            var pane = document.getElementById(other.getAttribute('data-for'));
+            if (pane) pane.hidden = other !== button;
+          });
+        });
+      });
+    });
+  })();
+</script>

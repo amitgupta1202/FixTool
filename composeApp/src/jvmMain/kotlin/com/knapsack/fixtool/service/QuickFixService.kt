@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.PendingSendReason
+import com.knapsack.fixtool.model.QuoteReading
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
@@ -287,13 +288,26 @@ class QuickFixService(
     private val orderBooks = OrderBookService(initialCap = orderBookCap)
 
     /**
+     * **What this venue has quoted, per counterparty** — the order book's sibling, fed the same messages.
+     *
+     * Its own service rather than a [BookSpec] of the order book, because `OrderBook.route()` decides
+     * what a message does by direction: an entry is born by a *received* message and moved by a sent
+     * one. A quote is the other way round — the venue sends the `35=S` that creates it — so carrying
+     * quotes in the order book would mean inverting the one rule it is built on.
+     */
+    private val quoteBooks = QuoteBookService(initialCap = orderBookCap)
+
+    /**
      * Changes how many orders each of this venue's books keeps, on books already open.
      *
      * Reached from Settings while sessions are up, because the cap's whole purpose is soak runs and
      * that is exactly when reconnecting to change it would cost the state being measured. See
      * [OrderBookService.setCap] for what lowering it does.
      */
-    fun setOrderBookCap(cap: Int) = orderBooks.setCap(cap)
+    fun setOrderBookCap(cap: Int) {
+        orderBooks.setCap(cap)
+        quoteBooks.setCap(cap)
+    }
 
     /**
      * This venue's book for one counterparty, or an empty one for a client it has never heard from.
@@ -335,8 +349,29 @@ class QuickFixService(
             .booked((sessionId ?: boundSessionId)?.toString().orEmpty(), bookFields(message))
             ?.let { OrderBook.fields(it) }
 
-    fun clearOrderBook(sessionId: SessionID? = null, by: String = "manually") =
-        orderBooks.clear((sessionId ?: boundSessionId)?.toString().orEmpty(), by)
+    /**
+     * What this venue has quoted for the quote [message] names — the value a `whenQuote` constraint
+     * reads and a quote reference renders from.
+     *
+     * "Right now" is the caller's responsibility here for the reason it is on [orderReading], and it
+     * matters more: a hit has to be judged against the quote as it stood when the hit arrived, not
+     * against the quote its own reply is about to close.
+     */
+    fun quoteReading(sessionId: SessionID?, message: Message): QuoteReading =
+        quoteBooks.reading((sessionId ?: boundSessionId)?.toString().orEmpty(), QuoteBookService.fieldsOf(message))
+
+    /**
+     * Empties both books for one counterparty.
+     *
+     * Both, from the one call and the one scenario step, because a tester clearing "the book" before a
+     * fresh RFQ means the venue's memory — and a venue that had forgotten the orders but still refused
+     * the quote as done would be the most confusing possible half-answer.
+     */
+    fun clearOrderBook(sessionId: SessionID? = null, by: String = "manually") {
+        val key = (sessionId ?: boundSessionId)?.toString().orEmpty()
+        orderBooks.clear(key, by)
+        quoteBooks.clear(key)
+    }
 
     /**
      * The one place an acceptor auto-response reaches the wire. Off the callback thread on purpose —
@@ -755,6 +790,17 @@ class QuickFixService(
     private fun book(sessionId: SessionID, fixMessage: FixMessage, message: Message, sent: Boolean) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
         try {
+            // Offered to the quote book first, and a message it claims stops here. Only one thing is
+            // claimed today: an ExecutionReport that books a quote hit. That report carries a ClOrdID
+            // the venue never saw on an order, so the order book could only file it as unattributed —
+            // which is the noise docs/rfq-venue-proposal.md records at the bottom of every RFQ run.
+            val claimed =
+                quoteBooks.record(
+                    sessionKey = sessionId.toString(),
+                    sent = sent,
+                    fields = QuoteBookService.fieldsOf(message),
+                )
+            if (claimed) return
             orderBooks.record(
                 sessionKey = sessionId.toString(),
                 at = fixMessage.timestamp,

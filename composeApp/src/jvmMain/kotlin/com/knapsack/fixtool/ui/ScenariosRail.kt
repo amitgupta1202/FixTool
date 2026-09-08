@@ -78,7 +78,6 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
-import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
@@ -89,7 +88,6 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.service.RunSetStats
-import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.awt.Desktop
 
@@ -142,12 +140,6 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var savingSet by remember { mutableStateOf(false) }
     var outlining by remember { mutableStateOf(false) }
     var fanningOut by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
-    var editingLoadSets by remember { mutableStateOf(false) }
-    var pendingLoadSet by remember { mutableStateOf<LoadSet?>(null) }
-    // The saved set a refused `Load set ▸` wants fixed. By name, because it is already on disk: opening it
-    // as an unsaved draft would put "unsaved" in the footer of a set nobody has touched.
-    var loadSetToFix by remember { mutableStateOf<String?>(null) }
     // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
     var remapFor by remember { mutableStateOf<Scenario?>(null) }
     remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
@@ -202,41 +194,6 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 fanningOut = false
                 viewModel.startFanOut(scenario, profileId, leg)
             },
-        )
-    }
-    if (loading) {
-        LoadRunDialog(
-            viewModel = viewModel,
-            fixedTemplate = null,
-            onDismiss = { loading = false },
-            onRun = { plan ->
-                loading = false
-                viewModel.startLoadRun(plan)
-            },
-            // The path from one burst to a set: tune the burst here, then want the cancel storm after it.
-            onMakeSet = { set ->
-                loading = false
-                pendingLoadSet = set
-                editingLoadSets = true
-            },
-        )
-    }
-    if (editingLoadSets) {
-        LoadSetsDialog(
-            viewModel = viewModel,
-            onDismiss = {
-                editingLoadSets = false
-                pendingLoadSet = null
-                loadSetToFix = null
-            },
-            onRun = { planned ->
-                editingLoadSets = false
-                pendingLoadSet = null
-                loadSetToFix = null
-                viewModel.startLoadSet(planned)
-            },
-            initial = pendingLoadSet,
-            initialName = loadSetToFix,
         )
     }
     if (savingSet) {
@@ -335,14 +292,8 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 onFilter = { filter = it },
                 runMenu =
                     RunMenu(
-                        savedSets = remember(scenarios, activeSet) { viewModel.runSetStore.list() },
                         favourites = viewState.favouriteIds.size,
                         filtered = if (filter.isBlank()) 0 else visible.size,
-                        recent =
-                            remember(activeSet, activeLoad) {
-                                RecentRun.merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.listRecords()).take(RECENT_RUNS)
-                            },
-                        onRunSaved = { name -> viewModel.startSavedRunSet(name) },
                         onRunFavourites = {
                             viewModel.startRunSet(
                                 viewModel.planSuite(
@@ -371,27 +322,6 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                             },
                         onRunExamples = { outlining = true },
                         onFanOut = { fanningOut = true },
-                        onLoadRun = { loading = true },
-                        loadSets = remember(activeLoad, editingLoadSets) { viewModel.loadSets() },
-                        // A set that would be refused opens the editor **on that set**, rather than
-                        // half-running. "Cannot run now" is a different answer: no lane, or a run already
-                        // holding the sessions, is nothing the file can fix, so it stays a notification.
-                        onRunLoadSet = { name ->
-                            (viewModel.startSavedLoadSet(name) as? FixMessageViewModel.SavedLoadSetRun.Refused)?.let {
-                                loadSetToFix = it.set.name
-                                editingLoadSets = true
-                            }
-                        },
-                        onLoadSets = {
-                            loadSetToFix = null
-                            editingLoadSets = true
-                        },
-                        onOpenRecent = { run ->
-                            when (run) {
-                                is RecentRun.Set -> viewModel.focusRunSet(run.id)
-                                is RecentRun.Load -> viewModel.openLoadRun(run.id)
-                            }
-                        },
                     ),
                 sort = viewState.sortMode,
                 onSort = { viewModel.setScenarioSort(it) },
@@ -1055,23 +985,18 @@ private fun RailHeader(
 
 /**
  * **What the Run menu can do, and how many of each there are.** Passed as one value rather than eight
- * parameters, because every item is the same shape of thing — a way to make a set — and the header should
- * not have to know which of them the rail's state happens to support today.
+ * parameters, because every item is the same shape of thing — a way to run what the list is showing — and
+ * the header should not have to know which of them the rail's state happens to support today.
  */
 private data class RunMenu(
-    val savedSets: List<SavedRunSet>,
     val favourites: Int,
     val filtered: Int,
     /** How many rows the author has ticked — an ad-hoc set, gone once it runs. */
     val selected: Int,
-    val recent: List<RecentRun>,
     /** How many saved scenarios carry a table — the count on the outline item. */
     val outlines: Int,
     /** What the workspace can supply, for the one item here that fans out over sessions. */
     val lanes: Lanes,
-    /** The saved load sets, one runnable item each, the way `Run set ▸ nightly (12)` is. */
-    val loadSets: List<LoadSet>,
-    val onRunSaved: (String) -> Unit,
     val onRunFavourites: () -> Unit,
     val onRunFiltered: () -> Unit,
     val onRunSelected: () -> Unit,
@@ -1079,10 +1004,6 @@ private data class RunMenu(
     val onRepeat: () -> Unit,
     val onRunExamples: () -> Unit,
     val onFanOut: () -> Unit,
-    val onLoadRun: () -> Unit,
-    val onRunLoadSet: (String) -> Unit,
-    val onLoadSets: () -> Unit,
-    val onOpenRecent: (RecentRun) -> Unit,
 )
 
 /**
@@ -1178,39 +1099,30 @@ internal sealed interface RecentRun {
 }
 
 /**
- * The four ways to build a set and the one way to look at an old one.
+ * **The ways to run what the list beside this menu is showing, and the one way to keep them.**
+ *
+ * Every item left here reads the rail: what is starred, what the filter shows, what is ticked, which
+ * scenario carries a table, which profiles could supply lanes. The *named* doors that used to sit among
+ * them — Load run…, Load set ▸, Run set ▸, Load sets… and Recent — moved to the toolbar's Run ▾, which is
+ * about saved configurations and is independent of which tool window happens to be open. Thirteen items
+ * of four kinds became seven of one.
  *
  * Every item that cannot be used stays **visible and disabled with its count showing**, because an author
  * cannot tell "there is nothing starred" from "this feature does not exist" if the item is withheld.
  */
 @Composable
 private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit) {
-    if (menu.savedSets.isEmpty()) {
-        RailMenuItem("Run set ▸  (none saved)", enabled = false, tag = "rail-run-set-none") {}
-    } else {
-        menu.savedSets.forEach { set ->
-            val runs = set.entries.sumOf { it.repeat.coerceAtLeast(1) }
-            RailMenuItem(
-                "Run set ▸  ${set.name}  ($runs)",
-                enabled = !running,
-                tag = "rail-run-set-${set.name}",
-            ) {
-                onChose()
-                menu.onRunSaved(set.name)
-            }
-        }
-    }
-    RailMenuItem("Run ★ favourites  (${menu.favourites})", enabled = !running && menu.favourites > 0, tag = "rail-run-favourites") {
+    RailMenuItem("Run ★ favourites  ${menu.favourites}", enabled = !running && menu.favourites > 0, tag = "rail-run-favourites") {
         onChose()
         menu.onRunFavourites()
     }
-    RailMenuItem("Run filtered  (${menu.filtered})", enabled = !running && menu.filtered > 0, tag = "rail-run-filtered") {
+    RailMenuItem("Run filtered  ${menu.filtered}", enabled = !running && menu.filtered > 0, tag = "rail-run-filtered") {
         onChose()
         menu.onRunFiltered()
     }
     // Visible with its count at zero, like every other item here: "nothing is ticked" and "this cannot be
     // done" are different answers, and withholding the row gives the author only the second one.
-    RailMenuItem("Run selected…  (${menu.selected})", enabled = !running && menu.selected > 0, tag = "rail-run-selected") {
+    RailMenuItem("Run selected…  ${menu.selected}", enabled = !running && menu.selected > 0, tag = "rail-run-selected") {
         onChose()
         menu.onRunSelected()
     }
@@ -1221,6 +1133,14 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     // Disabled with its count showing, like the rest: "no scenario here has a table" and "this feature
     // does not exist" are different sentences, and only one of them is true.
     RailMenuItem(
+        "Run examples table…  ${outlineSentence(menu.outlines)}",
+        enabled = !running && menu.outlines > 0,
+        tag = "rail-run-examples",
+    ) {
+        onChose()
+        menu.onRunExamples()
+    }
+    RailMenuItem(
         "Fan out over sessions…  ${menu.lanes.sentence}",
         enabled = !running && menu.lanes.profiles > 0,
         tag = "rail-run-fanout",
@@ -1228,55 +1148,25 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
         onChose()
         menu.onFanOut()
     }
-    // Under fan-out, with the same count, because fan-out is the feature people reach for first and are
-    // disappointed by: a lane is sequential, so fifty sessions give fifty outstanding, not four thousand.
-    // "(2)" is a count of *profiles* that can supply lanes, and read as two lanes. Say both numbers.
-    RailMenuItem(
-        "Load run…  ${menu.lanes.sentence}",
-        enabled = !running && menu.lanes.profiles > 0,
-        tag = "rail-run-load",
-    ) {
-        onChose()
-        menu.onLoadRun()
-    }
-    // One item per saved set, because that is what `Run set ▸ nightly (12)` does and a menu that behaves
-    // two ways for two kinds of set is worse than either. A set that would be refused opens the editor.
-    menu.loadSets.forEach { set ->
-        RailMenuItem(
-            "Load set ▸  ${set.label.ifBlank { set.name }}  (${set.phases.size} phase${if (set.phases.size == 1) "" else "s"})",
-            enabled = !running && menu.lanes.profiles > 0,
-            tag = "rail-run-load-set-${set.name}",
-        ) {
-            onChose()
-            menu.onRunLoadSet(set.name)
-        }
-    }
-    RailMenuItem("Load sets…  (${menu.loadSets.size} saved)", enabled = !running, tag = "rail-load-sets") {
-        onChose()
-        menu.onLoadSets()
-    }
-    RailMenuItem(
-        "Run examples table…  (${menu.outlines})",
-        enabled = !running && menu.outlines > 0,
-        tag = "rail-run-examples",
-    ) {
-        onChose()
-        menu.onRunExamples()
-    }
-    RailMenuItem("Save as set…", tag = "rail-save-set") {
+    HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+    // "Save these as a set…" and not "Save as set…": the item names the selection it is about to save,
+    // and it is how a scenario set gets into the toolbar's Run ▾ in the first place.
+    RailMenuItem("Save these as a set…", tag = "rail-save-set") {
         onChose()
         menu.onSaveAsSet()
     }
-    if (menu.recent.isNotEmpty()) {
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-        menu.recent.forEach { run ->
-            RailMenuItem("Recent ▸  ${run.line}", tag = "rail-recent-${run.id}") {
-                onChose()
-                menu.onOpenRecent(run)
-            }
-        }
-    }
 }
+
+/**
+ * "1 scenario has one" rather than a bare "1", because the number on this row counts *scenarios that
+ * carry a table* and not rows in a table, which is what a bare figure beside "examples table" reads as.
+ */
+private fun outlineSentence(outlines: Int): String =
+    when (outlines) {
+        0 -> "none has one"
+        1 -> "1 scenario has one"
+        else -> "$outlines scenarios have one"
+    }
 
 /**
  * **What is picked, and what can be done with it** — shown only while something is, directly under the

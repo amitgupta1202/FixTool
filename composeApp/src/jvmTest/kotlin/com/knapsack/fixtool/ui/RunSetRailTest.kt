@@ -91,10 +91,20 @@ class RunSetRailTest {
         composeTestRule.onNodeWithTag("rail-run-menu").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("rail-run-favourites").assertIsDisplayed().assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("rail-run-favourites").assertIsDisplayed().assertIsNotEnabled().assertTextContains("Run ★ favourites  0")
         composeTestRule.onNodeWithTag("rail-run-filtered").assertIsDisplayed().assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("rail-run-selected").assertIsDisplayed().assertIsNotEnabled()
         composeTestRule.onNodeWithTag("rail-run-repeat").assertIsEnabled()
-        composeTestRule.onNodeWithTag("rail-save-set").assertIsEnabled()
+        composeTestRule.onNodeWithTag("rail-run-examples").assertIsDisplayed().assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("rail-run-fanout").assertIsDisplayed().assertIsNotEnabled()
+        // It names the selection it saves, and it is how a scenario set gets into the toolbar's Run ▾.
+        composeTestRule.onNodeWithTag("rail-save-set").assertIsEnabled().assertTextContains("Save these as a set…")
+
+        // And the named doors are gone from here: seven items of one kind, not thirteen of four.
+        composeTestRule.onNodeWithTag("rail-run-set-nightly").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rail-run-load").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rail-load-sets").assertDoesNotExist()
+
         composeTestRule.onNodeWithTag("rail-run-menu").performClick()
         composeTestRule.waitForIdle()
 

@@ -53,15 +53,19 @@ class ScenarioEditorTest {
         ),
     )
 
+    /** The fixture with a teardown step as well, which no fixture in the repo had. */
+    private val withTeardown = scenario.copy(teardown = listOf(ScenarioStep.ClearMessages("TRADE")))
+
     private fun render(
         dictionary: com.knapsack.fixtool.model.FixDictionary? = null,
         focusStep: Int? = null,
+        initial: Scenario = scenario,
         onSave: (Scenario) -> Unit,
     ) {
         composeTestRule.setContent {
             Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
                 ScenarioEditor(
-                    initial = scenario,
+                    initial = initial,
                     dictionary = dictionary,
                     sessionOptions = listOf("QUOTE", "TRADE"),
                     focusStep = focusStep,
@@ -401,5 +405,203 @@ class ScenarioEditorTest {
             .assertCountEquals(0)
         // The line itself stays: the step is still there, and still runs when it is unmuted.
         composeTestRule.onNodeWithTag("setup-summary").assertIsDisplayed()
+    }
+
+    // ----- runs in: a step changes which list it runs in ---------------------------------------------
+
+    /**
+     * The picker's own menu, opened by its chip and picked by the item's own words. The item carries the
+     * sentence the runner would say about its phase, and the word alone would not do: "flow · " is also in
+     * the header's summary ("setup: 2 steps before the flow · wipes the session log each run").
+     */
+    private fun runsIn(item: String) {
+        composeTestRule.onNodeWithTag("step-phase").performClick()
+        composeTestRule.onNodeWithText(item, substring = true).performClick()
+        composeTestRule.waitForIdle()
+    }
+
+    /**
+     * **The edit the rows could not make.** Insert takes the selected row's phase, so a clear inserted into
+     * the flow lands in the flow, after the step it was meant to run before. `runs in` re-files it to the
+     * end of setup, the selection follows it there, and Save writes it into the setup list.
+     */
+    @Test
+    fun `a clear inserted into the flow is re-filed to the end of setup`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        // Row 1 is the flow's first step, the fixture's setup Clear being row 0. The insert lands under it.
+        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        composeTestRule.onNodeWithTag("add-clear").performClick()
+        composeTestRule.onNodeWithText("Step 2 · clear", substring = true).assertIsDisplayed()
+
+        runsIn("setup · before the flow's first step")
+
+        // The selection travelled with the row: it is setup's second step now, and the pane says so.
+        composeTestRule.onNodeWithText("Setup 2 · clear", substring = true).assertIsDisplayed()
+        // Read off the rows, so the warning is still there: the fixture's own Clear step still wipes.
+        composeTestRule.onNodeWithText("wipes the session log each run", substring = true).assertIsDisplayed()
+        snapshot("workbench_editor_runs_in.png")
+
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val out = saved!!
+        assertEquals(2, out.setup.size, "the re-filed clear joined setup: ${out.setup}")
+        assertEquals("QUOTE", out.setup[0].sessionOrNull(), "the fixture's own Clear step stays first")
+        assertTrue(out.setup[1] is ScenarioStep.ClearMessages, "and the new one lands at the end: ${out.setup[1]}")
+        assertEquals(null, out.setup[1].sessionOrNull(), "with the session it was inserted with")
+        assertEquals(scenario.asEditorSeed().steps, out.steps, "the flow gave the step up and changed nothing else")
+    }
+
+    /** The picker is its own undo: set back to flow, the row lands at the end of the flow. */
+    @Test
+    fun `the same row set back to flow lands at the end of the flow`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        composeTestRule.onNodeWithTag("add-clear").performClick()
+        runsIn("setup · before the flow's first step")
+        runsIn("flow · in order with the other steps")
+
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val out = saved!!
+        assertEquals(1, out.setup.size, "setup is the fixture's single Clear again: ${out.setup}")
+        assertEquals("QUOTE", out.setup[0].sessionOrNull())
+        assertEquals(3, out.steps.size, "and the clear is in the flow: ${out.steps}")
+        assertTrue(out.steps[2] is ScenarioStep.ClearMessages, "at the end of it, not where it was inserted")
+    }
+
+    /** Out of setup entirely: the summary is read off the rows, so it goes with the last of them. */
+    @Test
+    fun `re-filing the setup step to teardown empties setup and retires its summary`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        composeTestRule.onNodeWithTag("step-row-0").performClick()
+        runsIn("teardown · after the flow, even when a step failed")
+
+        composeTestRule.onNodeWithTag("setup-summary").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Teardown 1 · clear", substring = true).assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val out = saved!!
+        assertTrue(out.setup.isEmpty(), "setup is empty: ${out.setup}")
+        assertEquals(1, out.teardown.size, "and the step runs after the flow now: ${out.teardown}")
+        assertEquals("QUOTE", out.teardown[0].sessionOrNull(), "carrying its session with it")
+        assertEquals(scenario.asEditorSeed().steps, out.steps, "the flow is untouched")
+    }
+
+    /**
+     * Save is read off the rows too: a scenario whose every step has been re-filed out of the flow has
+     * nothing to run, and the button that would save it is dead rather than writing an empty flow.
+     *
+     * Dead, and saying why: the refusal is on the hover, and repeated into the semantics, because a Compose
+     * tooltip exists only while the pointer is over it and that is the only place a test can read it.
+     */
+    @Test
+    fun `re-filing the whole flow away leaves nothing to save`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        // Each pick moves the selected row to the end of teardown, so row 1 is the next flow step both times.
+        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        runsIn("teardown · after the flow, even when a step failed")
+        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        runsIn("teardown · after the flow, even when a step failed")
+
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue(saved == null, "a flow of no steps must not save: ${saved?.steps}")
+        composeTestRule
+            .onNodeWithTag("editor-save")
+            .assertHasNoClickAction()
+            .assertContentDescriptionContains(
+                "Nothing to save: the scenario has no flow step. Setup and teardown run around the flow, " +
+                    "not instead of it. Set a step's runs in to flow, or insert one.",
+            )
+    }
+
+    /**
+     * The other refusal, and the one an author meets first: a scenario with no name cannot be saved. The
+     * flow is asked about first, so this is the answer only once there is a flow to save.
+     */
+    @Test
+    fun `a nameless scenario cannot be saved, and Save says so`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        composeTestRule.onNodeWithTag("scenario-name").performTextClearance()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue(saved == null, "a nameless scenario must not save: ${saved?.name}")
+        composeTestRule
+            .onNodeWithTag("editor-save")
+            .assertContentDescriptionContains("Give the scenario a name to save it.")
+    }
+
+    // ----- teardown, which no fixture had ------------------------------------------------------------
+
+    /** A teardown step lists last, below the flow, wearing the badge that says when it runs. */
+    @Test
+    fun `the teardown step is the last row, wearing its own badge`() {
+        render(initial = withTeardown) {}
+
+        composeTestRule.onNodeWithTag("step-row-3").assertExists()
+        composeTestRule.onAllNodesWithTag("step-row-4").assertCountEquals(0)
+        // Two badges now: the setup row's and this one's, in list order.
+        val badges = composeTestRule.onAllNodesWithTag("step-phase-badge", useUnmergedTree = true)
+        badges.assertCountEquals(2)
+        badges[0].assertTextEquals("SETUP")
+        badges[1].assertTextEquals("TEARDOWN")
+        composeTestRule.onNodeWithTag("step-row-3").performClick()
+        composeTestRule.onNodeWithText("Teardown 1 · clear", substring = true).assertIsDisplayed()
+        snapshot("workbench_editor_teardown.png")
+    }
+
+    /**
+     * Its ↑ is dead at the flow boundary: a move across one would change when the step runs rather than
+     * where it sits, which is the edit `runs in` is for. The flow re-orders above it either way.
+     */
+    @Test
+    fun `the teardown row's up arrow is disabled, and the flow re-orders above it`() {
+        var saved: Scenario? = null
+        render(initial = withTeardown) { saved = it }
+
+        composeTestRule.onAllNodesWithContentDescription("Up")[3].assertIsNotEnabled()
+        // Row 1 is the flow's first step, and it has somewhere to go.
+        composeTestRule.onAllNodesWithContentDescription("Down")[1].performClick()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val out = saved!!
+        assertTrue(out.steps[0] is ScenarioStep.Expect, "the flow re-ordered: ${out.steps}")
+        assertTrue(out.steps[1] is ScenarioStep.Send)
+        assertEquals(1, out.setup.size, "and neither end of it moved")
+        assertEquals(withTeardown.asEditorSeed().teardown, out.teardown)
+    }
+
+    /** And the row's controls are the list's own here too: mute parks the step in teardown. */
+    @Test
+    fun `muting the teardown row parks the step in teardown, and leaves the rest alone`() {
+        var saved: Scenario? = null
+        render(initial = withTeardown) { saved = it }
+
+        composeTestRule.onNodeWithTag("mute-step-3").performClick()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val out = saved!!
+        assertEquals(1, out.teardown.size)
+        assertTrue(out.teardown[0].muted, "the mute must reach the saved scenario's teardown list")
+        assertEquals(scenario.asEditorSeed().steps, out.steps, "the flow is untouched")
+        assertEquals(scenario.asEditorSeed().setup, out.setup, "and so is setup")
     }
 }

@@ -90,7 +90,12 @@ sealed interface ScenarioDoc {
         val focusStep: Int? = null,
         /** The failing run's context for [focusStep]. Null outside a deep-link. */
         val failure: RunFailureContext? = null,
-        /** Where the author's cursor is — kept out here so that switching tabs does not move it. */
+        /**
+         * Where the author's cursor is, kept out here so that switching tabs does not move it.
+         *
+         * A FLOW index like [focusStep], negative when a setup row is selected and past the flow's end when
+         * a teardown row is, so it is never a position in the editor's step list.
+         */
         val selectedStep: Int? = null,
         /**
          * The step-list/detail divider, as the author dragged it — kept out here for the same reason as

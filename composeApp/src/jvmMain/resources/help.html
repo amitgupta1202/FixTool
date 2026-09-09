@@ -2555,8 +2555,10 @@ ${incoming["D"].valueOfTag(38)}
     the flow and badged <strong>SETUP</strong> or <strong>TEARDOWN</strong>, so they take the same mute,
     remove, re-order and session controls. That is where a captured scenario's <strong>Clear
     messages</strong> step lives, and that step is what erases the session's message log on every run: mute
-    it or remove it there to keep the log between runs. Numbering counts the flow, so <em>Step 3</em> is
-    still the run report's step 3 however many setup rows sit above it.</p>
+    it or remove it there to keep the log between runs. A step's phase is changed with the <strong>runs
+    in</strong> picker in its detail pane, beside the session, which is how a scenario with no setup gains
+    one: insert the step, then set its <strong>runs in</strong> to setup. Numbering counts the flow, so
+    <em>Step 3</em> is still the run report's step 3 however many setup rows sit above it.</p>
 
     <p><strong>BINDING</strong> (the chip in the editor's header, <code>binding</code> in the file) says
     which messages an <code>expect</code> step may match. <strong>ANY</strong>, the default, lets a step

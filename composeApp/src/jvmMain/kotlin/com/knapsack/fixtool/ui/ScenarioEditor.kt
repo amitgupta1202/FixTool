@@ -58,6 +58,8 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,10 +109,15 @@ enum class StepKind(val label: String) {
  */
 enum class StepPhase(
     val label: String,
+    /**
+     * The lowercase word the "runs in" picker offers. The flow's is "flow" where its [label] is "Step",
+     * because the picker names the list a step runs in, not the row it becomes once it is there.
+     */
+    val word: String,
 ) {
-    SETUP("Setup"),
-    FLOW("Step"),
-    TEARDOWN("Teardown"),
+    SETUP("Setup", "setup"),
+    FLOW("Step", "flow"),
+    TEARDOWN("Teardown", "teardown"),
 }
 
 /**
@@ -354,7 +361,11 @@ fun ScenarioEditor(
         // Reported as the flow index the parameter takes back, so the cursor survives a tab switch onto
         // the row it left: a setup row reports a negative, a teardown row one past the flow's end, and
         // both translate back to themselves.
-        onSelectStep(index - setupCount)
+        //
+        // Counted here rather than read off the composition's `setupCount`, which is a frame behind an edit
+        // that has just changed it: a re-file into setup would report its row against the count taken
+        // before it joined, and the cursor would come back from a tab switch on somebody else's row.
+        onSelectStep(index - steps.count { it.phase == StepPhase.SETUP })
     }
 
     /** The number a row wears, counted inside its own phase, so "Step 2" is the flow's second step. */
@@ -394,6 +405,40 @@ fun ScenarioEditor(
         select(at)
     }
 
+    /**
+     * **A step changes which of the three lists it runs in.** The one edit the rows could not make, so a
+     * scenario written without a setup could not gain one: Insert takes the selected row's phase, and with
+     * no setup row there is nothing to select that would put a step there.
+     *
+     * Not through [StepDetail]'s `onChange`, which writes the row back where it stands: a phase written in
+     * place would leave a setup row sitting between two flow rows, and every translation above counts
+     * rather than searches precisely because the segments cannot interleave. So the row moves, and it moves
+     * to the END of the target segment. Its place inside the phase is a second decision and the arrows
+     * already make that one, while landing it first would put a new Clear ahead of a captured Clear order
+     * book, which is the wrong order for a venue.
+     *
+     * The row keeps its editor id, so the detail pane (keyed on it) keeps the drafts the author has open,
+     * and the selection travels with the row rather than staying on whatever slid into its place.
+     */
+    fun refile(index: Int, phase: StepPhase) {
+        val row = steps.getOrNull(index) ?: return
+        if (row.phase == phase) return
+        steps.removeAt(index)
+        val id = stepIds.removeAt(index)
+        // Counted after the removal, so the row on the move is not counted into its own destination.
+        val at =
+            when (phase) {
+                StepPhase.SETUP -> steps.count { it.phase == StepPhase.SETUP }
+                // The end of the flow is everything that is not teardown, teardown being the only segment
+                // below it.
+                StepPhase.FLOW -> steps.count { it.phase != StepPhase.TEARDOWN }
+                StepPhase.TEARDOWN -> steps.size
+            }
+        steps.add(at, row.copy(phase = phase))
+        stepIds.add(at, id)
+        select(at)
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         // The register every pane header speaks (Message Details: 11sp, plain weight) — this row wore the
         // app's one 14sp SemiBold, a heading from some other tool. Padding gives the row the same breathing
@@ -420,13 +465,7 @@ fun ScenarioEditor(
             if (built.setup.isNotEmpty()) {
                 SetupSummary(built.setup, dictionary, modifier = Modifier.padding(end = 12.dp))
             }
-            SlimButton(
-                text = "Save scenario",
-                onClick = { onSave(built) },
-                enabled = name.isNotBlank() && flowCount > 0,
-                color = AppTheme.Colors.success,
-                modifier = Modifier.testTag("editor-save"),
-            )
+            SaveScenarioButton(name = name, flowCount = flowCount, onSave = { onSave(built) })
         }
         // The rule every other pane header wears (Message Details, Connection, Settings). Without it the
         // toolbar bled straight into the variables strip and the step list — five stacked rows, no seam.
@@ -595,6 +634,7 @@ fun ScenarioEditor(
                             sessionOptions = sessionOptions,
                             sessionColor = sessionColors[steps[selectedIdx].session] ?: AppTheme.Colors.textDisabled,
                             onChange = { steps[selectedIdx] = it },
+                            onPhase = { picked -> refile(selectedIdx, picked) },
                             onOpenDiff = onOpenDiff?.let { open -> { tag -> open(steps[selectedIdx].stepId, tag) } },
                             takenNames = allMintedNames.toSet(),
                             onExtractColumn = ::extractToColumn,
@@ -668,13 +708,54 @@ private fun SetupSummary(setup: List<ScenarioStep>, dictionary: FixDictionary?, 
                     ". Clearing gives each run a deterministic starting point and erases the session's " +
                         "message log. To keep the log between runs, mute or remove the Clear step in the " +
                         "list below, and consider BINDING THIS RUN so a run cannot pass on an earlier " +
-                        "run's reply."
+                        "run's reply. To put a wipe back, insert a clear and set its runs in picker " +
+                        "to setup."
                 } else {
                     "."
                 },
             modifier = Modifier.padding(start = 5.dp).testTag("setup-help"),
         )
     }
+}
+
+/**
+ * **Save, and the reason it is dead when it is dead.**
+ *
+ * Two edits switch it off: emptying the name, and re-filing the last flow step into setup or teardown.
+ * Both left a button that stopped responding and said nothing, so the reason rides on the hover the way
+ * the toolbar's Disconnect all carries its refusal. It is repeated into the semantics because a Compose
+ * tooltip exists only while the pointer is over it, which is the only place a test can read it. Enabled,
+ * it wears no tooltip: a button that works needs no note.
+ */
+@Composable
+private fun SaveScenarioButton(name: String, flowCount: Int, onSave: () -> Unit) {
+    // The flow is asked about first because it is the surprising refusal: a scenario can be full of steps
+    // and still have no flow, once every row has been re-filed into setup or teardown.
+    val refusal =
+        when {
+            flowCount == 0 ->
+                "Nothing to save: the scenario has no flow step. Setup and teardown run around the flow, " +
+                    "not instead of it. Set a step's runs in to flow, or insert one."
+            name.isBlank() -> "Give the scenario a name to save it."
+            else -> null
+        }
+    if (refusal == null) {
+        SaveScenarioChip(null, onSave)
+    } else {
+        AppTooltip(refusal) { SaveScenarioChip(refusal, onSave) }
+    }
+}
+
+/** The button itself. [refusal] both disables it and is what it answers with, so the two cannot disagree. */
+@Composable
+private fun SaveScenarioChip(refusal: String?, onSave: () -> Unit) {
+    SlimButton(
+        text = "Save scenario",
+        onClick = onSave,
+        enabled = refusal == null,
+        color = AppTheme.Colors.success,
+        modifier = Modifier.semantics { refusal?.let { contentDescription = it } }.testTag("editor-save"),
+    )
 }
 
 @Composable
@@ -1000,6 +1081,38 @@ private fun secondsText(ms: Long): String =
         java.math.BigDecimal(ms).movePointLeft(3).stripTrailingZeros().toPlainString()
     }
 
+/** What the runner does with each phase, in the sentence the picker's menu offers beside its word. */
+private fun phaseRunsIn(phase: StepPhase): String =
+    when (phase) {
+        StepPhase.SETUP -> "before the flow's first step, on every run"
+        StepPhase.FLOW -> "in order with the other steps"
+        StepPhase.TEARDOWN -> "after the flow, even when a step failed"
+    }
+
+/**
+ * **Where the step runs**, beside the session it runs on: both say when and where rather than what, and a
+ * phase is a property of the step like any other, so it is edited where the others are.
+ *
+ * Every kind gets one, because the runner has no per-phase restriction: a setup Send that logs in to a
+ * venue is a legal step today, and capture itself writes a Clear order book into setup.
+ */
+@Composable
+private fun PhasePicker(phase: StepPhase, onPhase: (StepPhase) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        QuietWord("runs in")
+        SlimDropdown(
+            value = phase,
+            options = StepPhase.entries.toList(),
+            onValueChange = { picked -> picked?.let(onPhase) },
+            displayText = { it.word },
+            // The menu says what each phase does, as the matcher-type menu says what each type does. The
+            // pick moves the step, and "teardown" says nothing about when it runs until it has moved.
+            itemText = { "${it.word} · ${phaseRunsIn(it)}" },
+            modifier = Modifier.width(96.dp).testTag("step-phase"),
+        )
+    }
+}
+
 @Composable
 private fun StepDetail(
     /** The step's number inside its own phase, which is what the title is numbered with. See [StepPhase]. */
@@ -1009,6 +1122,11 @@ private fun StepDetail(
     sessionOptions: List<String>,
     sessionColor: androidx.compose.ui.graphics.Color,
     onChange: (EditStep) -> Unit,
+    /**
+     * Which list the step runs in, changed. Separate from [onChange] because it is not an edit to the row
+     * where it stands: it moves the row to another segment. See `refile` in [ScenarioEditor].
+     */
+    onPhase: (StepPhase) -> Unit,
     /** Opens this step's diff, when it is an Expect — at the clicked row's tag when there is one. */
     onOpenDiff: ((Int?) -> Unit)? = null,
     /** Names the scenario already mints anywhere — a fresh mint must not silently re-assign one. */
@@ -1021,9 +1139,9 @@ private fun StepDetail(
             // The Expect title says what the step expects, not merely that it is one — the same label the
             // step list shows, so the detail pane and the list cannot describe one step two ways.
             if (step.kind == StepKind.EXPECT) {
-                "${step.phase.label} $number — ${stepLabel(step.toStep(), dictionary)}"
+                "${step.phase.label} $number · ${stepLabel(step.toStep(), dictionary)}"
             } else {
-                "${step.phase.label} $number — ${step.kind.name.lowercase()}"
+                "${step.phase.label} $number · ${step.kind.label}"
             },
             color = AppTheme.Colors.text,
             fontWeight = FontWeight.SemiBold,
@@ -1034,11 +1152,12 @@ private fun StepDetail(
         if (step.kind == StepKind.EXPECT) ModeChipMini(step.expectation.mode)
         if (step.muted) MutedChip()
     }
-    // The Expect form carries its session inside RECEIVES — the transport facts, together. Every other kind
-    // keeps the plain labeled row until it adopts the same sections, or the editor speaks two dialects.
-    if (step.kind != StepKind.EXPECT) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
-            SlimLabeled("Session") {
+    // Where the step runs, beside what it runs on. An Expect carries its session inside RECEIVES (the
+    // transport facts, together), so for that kind the row holds the phase alone. Every other kind keeps
+    // the plain labeled session until it adopts the same sections, or the editor speaks two dialects.
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
+        if (step.kind != StepKind.EXPECT) {
+            SlimLabeled("Session", modifier = Modifier.padding(end = 14.dp)) {
                 SlimDropdown(
                     value = step.session ?: ACTIVE_SESSION,
                     options = listOf(ACTIVE_SESSION) + sessionOptions,
@@ -1048,6 +1167,7 @@ private fun StepDetail(
                 )
             }
         }
+        PhasePicker(step.phase, onPhase)
     }
     when (step.kind) {
         StepKind.SEND -> SendDetail(step, dictionary, onChange, takenNames, onExtractColumn)

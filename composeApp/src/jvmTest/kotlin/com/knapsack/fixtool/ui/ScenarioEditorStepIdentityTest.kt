@@ -214,6 +214,46 @@ class ScenarioEditorStepIdentityTest {
         )
     }
 
+    /**
+     * All three phases at once, which nothing asked before: every fixture in the repo had a setup step and
+     * none had a teardown one, so the partition's third list was only ever compile-checked. A save that
+     * touches nothing must hand every phase back the ids it came with, and leave [withIds] nothing to mint
+     * anywhere: a re-mint in teardown would point a held run report at a step that is not the one it means,
+     * exactly as it would in the flow.
+     */
+    @Test
+    fun `a three-phase save round-trips every step id`() {
+        val loaded =
+            scenario
+                .copy(
+                    setup = listOf(ScenarioStep.ClearMessages("DEMO1")),
+                    steps = listOf(expectStep("A"), expectStep("B")),
+                    teardown = listOf(ScenarioStep.ClearMessages("DEMO2")),
+                ).withIds()
+        var saved: Scenario? = null
+        composeTestRule.setContent {
+            ScenarioEditor(
+                initial = loaded,
+                dictionary = null,
+                sessionOptions = emptyList(),
+                onSave = { saved = it },
+            )
+        }
+
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+
+        val out = saved!!
+        val ids = { s: Scenario ->
+            s.setup.map { it.stepId } + s.steps.map { it.stepId } + s.teardown.map { it.stepId }
+        }
+        assertTrue(ids(loaded).all { it.isNotBlank() }, "the fixture has four ids to keep: ${ids(loaded)}")
+        assertEquals(loaded.setup.map { it.stepId }, out.setup.map { it.stepId }, "setup's id")
+        assertEquals(loaded.steps.map { it.stepId }, out.steps.map { it.stepId }, "the flow's ids")
+        assertEquals(loaded.teardown.map { it.stepId }, out.teardown.map { it.stepId }, "teardown's id")
+        // And nothing for the service's own withIds() to mint, in any of the three.
+        assertEquals(ids(out), ids(out.withIds()))
+    }
+
     @Test
     fun `the selection follows its own step across a removal`() {
         assertEquals(1, selectionAfterRemoval(removed = 0, selected = 2, remaining = 3), "a step above shifts it down")

@@ -1,0 +1,837 @@
+<meta charset="utf-8">
+<title>Setup, Flow, Teardown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    /* The page: an editorial note, the same tokens as the rest of docs/mockups so the series reads as one. */
+    --ground: #eef0f3;
+    --card: #ffffff;
+    --ink: #191c21;
+    --muted: #5b6570;
+    --faint: #8a939e;
+    --rule: #d7dce3;
+    --accent: #2f6fb0;
+    --accent-soft: #e3ecf6;
+    --good: #3f7d33;
+    --bad: #b8342f;
+    --warn: #9a6a1c;
+    --warn-soft: #f6edd9;
+
+    /* The app's own chrome, fixed in both page themes: FixTool ships one dark palette. */
+    --app-bg: #1e1e1e;
+    --app-surface: #2b2b2b;
+    --app-variant: #252525;
+    --app-header: #202020;
+    --app-text: #e0e0e0;
+    --app-text2: #b0b0b0;
+    --app-dim: #6a6a6a;
+    --app-rule: #3a3a3a;
+    --app-border2: #555555;
+    --app-sel: #2b4b73;
+    --app-good: #98c379;
+    --app-warn: #ce9178;
+    --app-bad: #e06c75;
+    --app-info: #61afef;
+    --app-teal: #4ec9b0;
+    --app-var: #c586c0;
+    --app-field: #9cdcfe;
+
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --col: 40rem;
+    --wide: 64rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14171a;
+      --card: #1b1f23;
+      --ink: #e3e7eb;
+      --muted: #98a2ad;
+      --faint: #737d88;
+      --rule: #2a3138;
+      --accent: #61afef;
+      --accent-soft: #1d2a36;
+      --good: #98c379;
+      --bad: #e06c75;
+      --warn: #d9a75a;
+      --warn-soft: #2b2518;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14171a;
+    --card: #1b1f23;
+    --ink: #e3e7eb;
+    --muted: #98a2ad;
+    --faint: #737d88;
+    --rule: #2a3138;
+    --accent: #61afef;
+    --accent-soft: #1d2a36;
+    --good: #98c379;
+    --bad: #e06c75;
+    --warn: #d9a75a;
+    --warn-soft: #2b2518;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+  }
+
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.75rem; margin-bottom: 2.25rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+    font-size: clamp(2rem, 5.5vw, 2.9rem);
+    line-height: 1.05;
+    margin: 0 0 0.9rem;
+    text-wrap: balance;
+  }
+
+  .standfirst { font-size: 1.14rem; color: var(--muted); margin: 0; max-width: 34rem; }
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    margin: 3.25rem 0 0.9rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.09rem;
+    letter-spacing: -0.012em;
+    margin: 2.25rem 0 0.6rem;
+  }
+
+  p { max-width: var(--col); margin: 0 0 1.2rem; }
+
+  p code, li code, figcaption code, td code {
+    font-family: var(--mono);
+    font-size: 0.82em;
+    background: var(--accent-soft);
+    padding: 0.06em 0.32em;
+    border-radius: 2px;
+  }
+
+  .m { font-family: var(--sans); font-weight: 600; font-size: 0.95em; }
+
+  ul.prose, ol.prose { max-width: var(--col); padding-left: 1.2rem; margin: 0 0 1.2rem; }
+  ul.prose li, ol.prose li { margin-bottom: 0.45rem; }
+
+  .callout {
+    max-width: var(--col);
+    border-left: 2px solid var(--warn);
+    background: var(--warn-soft);
+    padding: 0.7rem 0.95rem;
+    margin: 0 0 1.2rem;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    color: var(--ink);
+    border-radius: 0 3px 3px 0;
+  }
+  .callout b { font-family: var(--sans); font-weight: 600; }
+
+  /* ---------- figures and the app panel ---------- */
+
+  figure { margin: 1.5rem 0 2.25rem; }
+
+  figcaption { font-size: 0.93rem; color: var(--muted); max-width: 46rem; margin-top: 0.7rem; line-height: 1.55; }
+
+  .figtabs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-bottom: 0.6rem; }
+
+  .figtabs button {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.26rem 0.7rem;
+    cursor: pointer;
+  }
+  .figtabs button:hover { color: var(--ink); border-color: var(--faint); }
+  .figtabs button[aria-selected="true"] { color: var(--card); background: var(--accent); border-color: var(--accent); }
+  .figtabs .hint { font-family: var(--sans); font-size: 0.78rem; color: var(--faint); margin-left: 0.35rem; }
+
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .screen {
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: var(--sans);
+    color: var(--app-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+    font-size: 11px;
+  }
+
+  .screen-bar {
+    background: var(--app-header);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 5px 9px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+  .screen-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--app-rule); }
+  .screen-bar .ttl { font-weight: 500; color: var(--app-text); }
+  .screen-bar .far { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--app-dim); }
+
+  /* ---------- the scenario editor ---------- */
+
+  .edhead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--app-rule);
+    flex-wrap: wrap;
+  }
+  .edhead .ttl { font-weight: 600; font-size: 12px; color: var(--app-text); }
+  .edhead .qw { color: var(--app-text2); font-size: 10.5px; }
+  .edhead .name {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    padding: 3px 8px;
+    width: 190px;
+  }
+  .mchip {
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--app-info);
+    border: 1px solid rgba(97, 175, 239, 0.45);
+    border-radius: 3px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .mchip.warn { color: var(--app-warn); border-color: rgba(206, 145, 120, 0.45); }
+  .edhead .summary { margin-left: auto; color: var(--app-dim); font-size: 9.5px; line-height: 1.3; display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 260px; text-align: right; }
+  .edhead .summary .i { flex: none; }
+  .edhead .summary.new { color: var(--app-text2); }
+  .edhead .summary .i { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--app-dim); font-size: 8px; display: inline-flex; align-items: center; justify-content: center; }
+  .edhead .save { color: var(--app-good); border: 1px solid #47603a; background: var(--app-surface); border-radius: 3px; padding: 3px 9px; font-size: 11px; }
+  .edhead .summary + .save { margin-left: 0; }
+  .edhead .save.solo { margin-left: auto; }
+
+  .edsplit { display: flex; align-items: stretch; min-height: 250px; }
+  .edlist { width: 55%; flex: none; border-right: 1px solid var(--app-rule); display: flex; flex-direction: column; }
+  .eddetail { flex: 1; min-width: 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 9px; position: relative; }
+
+  .varstrip { display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+  .vchip { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0; text-transform: none; color: var(--app-var); background: rgba(197, 134, 192, 0.14); border-radius: 3px; padding: 0 5px; }
+
+  .rows { display: flex; flex-direction: column; gap: 2px; padding: 0 6px; flex: 1; }
+  .srow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 4px 5px 8px;
+    border-radius: 3px;
+    color: var(--app-text);
+    font-size: 11px;
+    min-height: 26px;
+  }
+  .srow.on { background: var(--app-sel); }
+  .srow .num { font-family: var(--mono); font-size: 11px; color: var(--app-text2); width: 26px; flex: none; text-align: right; padding-right: 8px; font-variant-numeric: tabular-nums; }
+  .srow .sess { width: 120px; flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--app-text2); }
+  .srow .sess .d { width: 7px; height: 7px; border-radius: 50%; background: var(--app-teal); }
+  .srow .sess .d.b { background: var(--app-info); }
+  .srow .g { width: 12px; text-align: center; font-size: 10px; }
+  .srow .g.out { color: var(--app-info); }
+  .srow .g.in { color: var(--app-teal); }
+  .srow .g.cl { color: var(--app-text2); }
+  .srow .lbl { white-space: nowrap; }
+  .srow .lbl .sub { color: var(--app-text2); }
+  .pbadge {
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--app-text2);
+    border: 1px solid rgba(176, 176, 176, 0.45);
+    border-radius: 3px;
+    padding: 1px 6px;
+    margin-left: 2px;
+  }
+  .pbadge.hot { color: var(--app-info); border-color: rgba(97, 175, 239, 0.6); }
+  .srow .tools { margin-left: auto; display: inline-flex; gap: 8px; color: var(--app-text2); font-size: 11px; padding-right: 4px; }
+  .srow .tools .off { color: var(--app-dim); opacity: 0.5; }
+  .srow .tools .del { color: var(--app-bad); }
+
+  .ibar { display: flex; align-items: center; gap: 6px; padding: 8px 10px 10px; margin-top: auto; color: var(--app-text2); font-size: 10px; flex-wrap: wrap; }
+  .ibar .b { color: var(--app-text); background: var(--app-surface); border: 1px solid var(--app-rule); border-radius: 3px; padding: 3px 9px; font-size: 11px; }
+  .ibar .b.hot { border-color: var(--app-info); }
+
+  .dtitle { font-weight: 600; font-size: 12px; color: var(--app-text); }
+  .dfields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dfields .qw { color: var(--app-text2); font-size: 10.5px; }
+  .dd {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--app-text);
+    min-width: 92px;
+    justify-content: space-between;
+  }
+  .dd .chev { color: var(--app-dim); font-size: 9px; }
+  .dd.hot { border-color: var(--app-info); }
+  .dd.wide { min-width: 180px; }
+  .dnote { color: var(--app-text2); font-size: 10.5px; line-height: 1.5; max-width: 46ch; }
+  .dnote b { color: var(--app-text); font-weight: 500; }
+
+  .menu {
+    position: absolute;
+    left: 284px;
+    top: 60px;
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 0;
+    width: 300px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    z-index: 2;
+  }
+  .menu .mi { padding: 5px 10px; font-size: 11px; color: var(--app-text); display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+  .menu .mi .why { font-size: 10px; color: var(--app-text2); }
+  .menu .mi .why::before { content: "· "; color: var(--app-dim); }
+  .menu .mi.on { background: var(--app-sel); }
+  .menu .mi.on .why { color: var(--app-text2); }
+
+  .fgrid { display: grid; grid-template-columns: 44px 120px 1fr; gap: 6px 8px; align-items: center; font-size: 10.5px; }
+  .fgrid .box { font-family: var(--mono); font-size: 10.5px; color: var(--app-text); background: var(--app-surface); border: 1px solid var(--app-rule); border-radius: 2px; padding: 2px 5px; min-height: 20px; display: inline-flex; align-items: center; }
+  .fgrid .box.v { color: var(--app-field); }
+  .fgrid .nm { color: var(--app-text2); }
+
+  .foot { border-top: 1px solid var(--app-rule); padding: 6px 12px; color: var(--app-dim); font-size: 10.5px; display: flex; gap: 12px; align-items: center; }
+
+  /* ---------- the note's own furniture ---------- */
+
+  .qa { max-width: 46rem; display: grid; gap: 1.1rem; margin: 1rem 0 1.5rem; }
+  .qa > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  .qa .q { font-family: var(--sans); font-weight: 600; font-size: 0.98rem; margin-bottom: 0.15rem; }
+  .qa .q .tag {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 0.62rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 1px 6px;
+    border: 1px solid;
+    margin-right: 0.45rem;
+    vertical-align: 1.5px;
+    white-space: nowrap;
+  }
+  .qa .q .tag.dec { color: var(--good); border-color: var(--good); }
+  .qa .q .tag.asm { color: var(--faint); border-color: var(--rule); }
+  .qa .q .tag.rej { color: var(--warn); border-color: var(--warn); }
+  .qa .a { font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  .qa .a strong { color: var(--good); font-weight: 600; }
+
+  .steps { counter-reset: st; list-style: none; padding: 0; margin: 1rem 0 1.5rem; max-width: 46rem; display: grid; gap: 0.7rem; }
+  .steps li { counter-increment: st; position: relative; padding-left: 2.2rem; font-size: 0.95rem; line-height: 1.5; }
+  .steps li::before {
+    content: counter(st);
+    position: absolute; left: 0; top: 0.05rem;
+    font-family: var(--mono); font-size: 0.8rem; color: var(--accent);
+    width: 1.5rem; height: 1.5rem; border: 1px solid var(--rule); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .steps b { font-family: var(--sans); font-weight: 600; }
+  .steps .where { display: block; font-family: var(--mono); font-size: 0.74rem; color: var(--faint); margin-top: 0.1rem; }
+
+  table.tbl { border-collapse: collapse; max-width: 46rem; width: 100%; font-size: 0.92rem; margin: 0 0 1.4rem; }
+  table.tbl th, table.tbl td { text-align: left; padding: 0.45rem 0.7rem 0.45rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.tbl th { font-family: var(--sans); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.04em; color: var(--muted); }
+  table.tbl td:first-child { font-family: var(--sans); font-weight: 600; white-space: nowrap; }
+  .tblwrap { overflow-x: auto; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="page">
+
+  <header class="mast">
+    <p class="eyebrow">FixTool · design note · 2026-09-09</p>
+    <h1>Setup, Flow, Teardown</h1>
+    <p class="standfirst">Setup and teardown steps became rows in the scenario editor today. One edit is still
+      impossible: a step cannot change which of the three lists it runs in, so a scenario written without a setup
+      cannot gain one. This note adds that control and closes the two smaller gaps beside it.</p>
+  </header>
+
+  <p>A captured scenario arrives with a <span class="m">Clear messages</span> step in its setup, and that step is
+    what erases the session log on every run. Until today the editor showed setup as one read-only sentence in
+    its header, so the only way to keep the log was to open the JSON and delete the step by hand. Now setup and
+    teardown steps are rows in the step list, badged <span class="m">SETUP</span> and
+    <span class="m">TEARDOWN</span>, and they take the controls the list already had: mute, remove, re-order and
+    the session picker.</p>
+
+  <p>What they do not take is a way in. Insert puts a new step into the phase of the selected row, which is right
+    when a setup row exists and useless when none does. A hand-written scenario, or a captured one whose author
+    removed the Clear step and wants it back, has nowhere to put a setup step.</p>
+
+  <h2>What shipped</h2>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Edit scenario</span><span class="far">rfq flow, as captured</span></div>
+      <div class="edhead">
+        <span class="ttl">Edit scenario</span>
+        <span class="qw">Name</span><span class="name">rfq flow</span>
+        <span class="mchip">TRAFFIC OPEN</span><span class="mchip">BINDING ANY</span>
+        <span class="summary">setup: 1 step before the flow · wipes the session log each run <span class="i">i</span></span>
+        <span class="save">Save scenario</span>
+      </div>
+      <div class="edsplit">
+        <div class="edlist">
+          <div class="varstrip">variables <span class="vchip">●id0</span></div>
+          <div class="rows">
+            <div class="srow">
+              <span class="num"></span>
+              <span class="sess"><span class="d"></span>QUOTE</span>
+              <span class="g cl">⚙</span><span class="lbl">Clear messages</span><span class="pbadge">SETUP</span>
+              <span class="tools"><span>🔈</span><span class="off">↑</span><span class="off">↓</span><span class="del">🗑</span></span>
+            </div>
+            <div class="srow on">
+              <span class="num">1</span>
+              <span class="sess"><span class="d"></span>QUOTE</span>
+              <span class="g out">▶</span><span class="lbl">Send D</span><span class="vchip">●id0</span>
+              <span class="tools"><span>🔈</span><span class="off">↑</span><span>↓</span><span class="del">🗑</span></span>
+            </div>
+            <div class="srow">
+              <span class="num">2</span>
+              <span class="sess"><span class="d b"></span>TRADE</span>
+              <span class="g in">◀</span><span class="lbl">Expect 8 <span class="sub">· 2 tags</span></span><span class="vchip">$id0</span>
+              <span class="tools"><span>🔈</span><span>↑</span><span class="off">↓</span><span class="del">🗑</span></span>
+            </div>
+          </div>
+          <div class="ibar">Insert: <span class="b">send</span><span class="b">wait</span><span class="b">expect</span><span class="b">clear</span><span class="b">clear book</span><span class="b">reset</span></div>
+        </div>
+        <div class="eddetail">
+          <div class="dtitle">Step 1 · send</div>
+          <div class="dfields"><span class="qw">Session</span><span class="dd wide">QUOTE <span class="chev">▾</span></span></div>
+          <div class="fgrid">
+            <span class="box">35</span><span class="nm">MsgType</span><span class="box v">D</span>
+            <span class="box">11</span><span class="nm">ClOrdID</span><span class="box v">${id0 = UUID.randomUUID()}</span>
+          </div>
+        </div>
+      </div>
+      <div class="foot">▸ Examples <span>no table · this scenario runs once</span></div>
+    </div>
+    <figcaption>The step list after today's change. The setup row sits above the flow with its badge and no
+      number, so the flow's <span class="m">1</span> and <span class="m">2</span> still match the run report.
+      Its up and down arrows are disabled: a move across the boundary would change when the step runs, not where
+      it sits. The header summary is read off the rows, so muting the Clear step retires the wipe warning in the
+      same frame.</figcaption>
+  </figure>
+
+  <h2>The gap</h2>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Edit scenario</span><span class="far">a scenario written by hand, no setup</span></div>
+      <div class="edhead">
+        <span class="ttl">Edit scenario</span>
+        <span class="qw">Name</span><span class="name">book a trade</span>
+        <span class="mchip">TRAFFIC OPEN</span><span class="mchip warn">BINDING THIS RUN</span>
+        <span class="save solo">Save scenario</span>
+      </div>
+      <div class="edsplit">
+        <div class="edlist">
+          <div class="varstrip">variables <span class="vchip">●id0</span></div>
+          <div class="rows">
+            <div class="srow on">
+              <span class="num">1</span>
+              <span class="sess"><span class="d"></span>QUOTE</span>
+              <span class="g out">▶</span><span class="lbl">Send D</span><span class="vchip">●id0</span>
+              <span class="tools"><span>🔈</span><span class="off">↑</span><span>↓</span><span class="del">🗑</span></span>
+            </div>
+            <div class="srow">
+              <span class="num">2</span>
+              <span class="sess"><span class="d b"></span>TRADE</span>
+              <span class="g in">◀</span><span class="lbl">Expect 8 <span class="sub">· 2 tags</span></span><span class="vchip">$id0</span>
+              <span class="tools"><span>🔈</span><span>↑</span><span class="off">↓</span><span class="del">🗑</span></span>
+            </div>
+          </div>
+          <div class="ibar">Insert: <span class="b">send</span><span class="b">wait</span><span class="b">expect</span><span class="b hot">clear</span><span class="b">clear book</span><span class="b">reset</span></div>
+        </div>
+        <div class="eddetail">
+          <div class="dtitle">Step 1 · send</div>
+          <div class="dfields"><span class="qw">Session</span><span class="dd wide">QUOTE <span class="chev">▾</span></span></div>
+          <div class="dnote">Insert takes the selected row's phase. Every row here is a flow row, so
+            <b>clear</b> can only land in the flow, after this step, where it runs after the send it was meant
+            to run before.</div>
+        </div>
+      </div>
+      <div class="foot">▸ Examples <span>no table · this scenario runs once</span></div>
+    </div>
+    <figcaption>No setup row, so nothing to select that would put a new step into setup. The same scenario
+      under <span class="m">BINDING THIS RUN</span> gets the run isolation it wants, but the log still fills up
+      run after run with nothing to clear it.</figcaption>
+  </figure>
+
+  <div class="callout"><b>Why not let ↑ cross the line?</b> Pressing ↑ on the first flow row could turn it into the last
+    setup row: the row would not move, it would gain a badge. Ten lines of code, and a press of ↑ that visibly does
+    nothing reads as broken. The boundary is the one place where "earlier" means "a different list", and that edit
+    deserves a control that says so.</div>
+
+  <h2>Runs in, in the detail pane</h2>
+
+  <p>A step's phase is a property of the step, like its session, so it is edited where the step's other properties
+    are: a <span class="m">runs in</span> dropdown beside <span class="m">Session</span> in the detail pane, in the
+    same quiet-word register as <span class="m">on</span> and <span class="m">waits up to</span>. Choosing a
+    different phase re-files the row to the end of that phase's segment, the selection follows it, and the header
+    summary appears or retires in the same frame.</p>
+
+  <figure>
+    <div class="figtabs" role="tablist" aria-label="three moments of one edit">
+      <button role="tab" aria-selected="true" data-for="ri-1">1 · a clear, inserted into the flow</button>
+      <button role="tab" aria-selected="false" data-for="ri-2">2 · the menu open</button>
+      <button role="tab" aria-selected="false" data-for="ri-3">3 · re-filed as setup</button>
+      <span class="hint">click a moment</span>
+    </div>
+
+    <div id="ri-1" class="pane">
+      <div class="screen">
+        <div class="screen-bar"><span class="dot"></span><span class="ttl">Edit scenario</span><span class="far">after Insert → clear with step 1 selected</span></div>
+        <div class="edhead">
+          <span class="ttl">Edit scenario</span>
+          <span class="qw">Name</span><span class="name">book a trade</span>
+          <span class="mchip">TRAFFIC OPEN</span><span class="mchip warn">BINDING THIS RUN</span>
+          <span class="save solo">Save scenario</span>
+        </div>
+        <div class="edsplit">
+          <div class="edlist">
+            <div class="varstrip">variables <span class="vchip">●id0</span></div>
+            <div class="rows">
+              <div class="srow">
+                <span class="num">1</span>
+                <span class="sess"><span class="d"></span>QUOTE</span>
+                <span class="g out">▶</span><span class="lbl">Send D</span><span class="vchip">●id0</span>
+                <span class="tools"><span>🔈</span><span class="off">↑</span><span>↓</span><span class="del">🗑</span></span>
+              </div>
+              <div class="srow on">
+                <span class="num">2</span>
+                <span class="sess"><span class="d"></span>QUOTE</span>
+                <span class="g cl">⚙</span><span class="lbl">Clear messages</span>
+                <span class="tools"><span>🔈</span><span>↑</span><span>↓</span><span class="del">🗑</span></span>
+              </div>
+              <div class="srow">
+                <span class="num">3</span>
+                <span class="sess"><span class="d b"></span>TRADE</span>
+                <span class="g in">◀</span><span class="lbl">Expect 8 <span class="sub">· 2 tags</span></span><span class="vchip">$id0</span>
+                <span class="tools"><span>🔈</span><span>↑</span><span class="off">↓</span><span class="del">🗑</span></span>
+              </div>
+            </div>
+            <div class="ibar">Insert: <span class="b">send</span><span class="b">wait</span><span class="b">expect</span><span class="b">clear</span><span class="b">clear book</span><span class="b">reset</span></div>
+          </div>
+          <div class="eddetail">
+            <div class="dtitle">Step 2 · clear</div>
+            <div class="dfields">
+              <span class="qw">Session</span><span class="dd wide">QUOTE <span class="chev">▾</span></span>
+              <span class="qw">runs in</span><span class="dd hot">flow <span class="chev">▾</span></span>
+            </div>
+            <div class="dnote">Clears the session's message log when it runs. In the flow that is between two
+              steps. <b>runs in</b> is the new control, and it is the only new thing on this pane.</div>
+          </div>
+        </div>
+        <div class="foot">▸ Examples <span>no table · this scenario runs once</span></div>
+      </div>
+    </div>
+
+    <div id="ri-2" class="pane" hidden>
+      <div class="screen">
+        <div class="screen-bar"><span class="dot"></span><span class="ttl">Edit scenario</span><span class="far">runs in ▾ opened</span></div>
+        <div class="edhead">
+          <span class="ttl">Edit scenario</span>
+          <span class="qw">Name</span><span class="name">book a trade</span>
+          <span class="mchip">TRAFFIC OPEN</span><span class="mchip warn">BINDING THIS RUN</span>
+          <span class="save solo">Save scenario</span>
+        </div>
+        <div class="edsplit">
+          <div class="edlist">
+            <div class="varstrip">variables <span class="vchip">●id0</span></div>
+            <div class="rows">
+              <div class="srow">
+                <span class="num">1</span>
+                <span class="sess"><span class="d"></span>QUOTE</span>
+                <span class="g out">▶</span><span class="lbl">Send D</span><span class="vchip">●id0</span>
+                <span class="tools"><span>🔈</span><span class="off">↑</span><span>↓</span><span class="del">🗑</span></span>
+              </div>
+              <div class="srow on">
+                <span class="num">2</span>
+                <span class="sess"><span class="d"></span>QUOTE</span>
+                <span class="g cl">⚙</span><span class="lbl">Clear messages</span>
+                <span class="tools"><span>🔈</span><span>↑</span><span>↓</span><span class="del">🗑</span></span>
+              </div>
+              <div class="srow">
+                <span class="num">3</span>
+                <span class="sess"><span class="d b"></span>TRADE</span>
+                <span class="g in">◀</span><span class="lbl">Expect 8 <span class="sub">· 2 tags</span></span><span class="vchip">$id0</span>
+                <span class="tools"><span>🔈</span><span>↑</span><span class="off">↓</span><span class="del">🗑</span></span>
+              </div>
+            </div>
+            <div class="ibar">Insert: <span class="b">send</span><span class="b">wait</span><span class="b">expect</span><span class="b">clear</span><span class="b">clear book</span><span class="b">reset</span></div>
+          </div>
+          <div class="eddetail">
+            <div class="dtitle">Step 2 · clear</div>
+            <div class="dfields">
+              <span class="qw">Session</span><span class="dd wide">QUOTE <span class="chev">▾</span></span>
+              <span class="qw">runs in</span><span class="dd hot">flow <span class="chev">▴</span></span>
+            </div>
+            <div class="menu" role="listbox" aria-label="runs in">
+              <div class="mi" role="option"><span>setup</span><span class="why">before the flow's first step, on every run</span></div>
+              <div class="mi on" role="option" aria-selected="true"><span>flow</span><span class="why">in order with the other steps</span></div>
+              <div class="mi" role="option"><span>teardown</span><span class="why">after the flow, even when a step failed</span></div>
+            </div>
+            <div class="dnote" style="margin-top:104px">Three items, each with the sentence the runner would
+              say about it on the same line, which is how the app's dropdown draws an item. The current phase is
+              highlighted, as the session picker highlights its own.</div>
+          </div>
+        </div>
+        <div class="foot">▸ Examples <span>no table · this scenario runs once</span></div>
+      </div>
+    </div>
+
+    <div id="ri-3" class="pane" hidden>
+      <div class="screen">
+        <div class="screen-bar"><span class="dot"></span><span class="ttl">Edit scenario</span><span class="far">after choosing setup</span></div>
+        <div class="edhead">
+          <span class="ttl">Edit scenario</span>
+          <span class="qw">Name</span><span class="name">book a trade</span>
+          <span class="mchip">TRAFFIC OPEN</span><span class="mchip warn">BINDING THIS RUN</span>
+          <span class="summary new">setup: 1 step before the flow · wipes the session log each run <span class="i">i</span></span>
+          <span class="save">Save scenario</span>
+        </div>
+        <div class="edsplit">
+          <div class="edlist">
+            <div class="varstrip">variables <span class="vchip">●id0</span></div>
+            <div class="rows">
+              <div class="srow on">
+                <span class="num"></span>
+                <span class="sess"><span class="d"></span>QUOTE</span>
+                <span class="g cl">⚙</span><span class="lbl">Clear messages</span><span class="pbadge hot">SETUP</span>
+                <span class="tools"><span>🔈</span><span class="off">↑</span><span class="off">↓</span><span class="del">🗑</span></span>
+              </div>
+              <div class="srow">
+                <span class="num">1</span>
+                <span class="sess"><span class="d"></span>QUOTE</span>
+                <span class="g out">▶</span><span class="lbl">Send D</span><span class="vchip">●id0</span>
+                <span class="tools"><span>🔈</span><span class="off">↑</span><span>↓</span><span class="del">🗑</span></span>
+              </div>
+              <div class="srow">
+                <span class="num">2</span>
+                <span class="sess"><span class="d b"></span>TRADE</span>
+                <span class="g in">◀</span><span class="lbl">Expect 8 <span class="sub">· 2 tags</span></span><span class="vchip">$id0</span>
+                <span class="tools"><span>🔈</span><span>↑</span><span class="off">↓</span><span class="del">🗑</span></span>
+              </div>
+            </div>
+            <div class="ibar">Insert: <span class="b">send</span><span class="b">wait</span><span class="b">expect</span><span class="b">clear</span><span class="b">clear book</span><span class="b">reset</span></div>
+          </div>
+          <div class="eddetail">
+            <div class="dtitle">Setup 1 · clear</div>
+            <div class="dfields">
+              <span class="qw">Session</span><span class="dd wide">QUOTE <span class="chev">▾</span></span>
+              <span class="qw">runs in</span><span class="dd hot">setup <span class="chev">▾</span></span>
+            </div>
+            <div class="dnote">The row moved to the top with its badge, the selection followed it, the flow is
+              numbered <b>1, 2</b> again, and the header now carries the wipe warning. Save writes the step into
+              <b>setup</b>. Setting <b>runs in</b> back to flow undoes all of it.</div>
+          </div>
+        </div>
+        <div class="foot">▸ Examples <span>no table · this scenario runs once</span></div>
+      </div>
+    </div>
+
+    <figcaption>One edit in three moments. The list, the detail title, the badge and the header summary all
+      change together, because they are all read off the same row list. Nothing here is a new surface: the
+      dropdown is the session picker's twin, the badge and the summary already exist.</figcaption>
+  </figure>
+
+  <h3>The rules of a re-file</h3>
+
+  <div class="tblwrap">
+  <table class="tbl">
+    <tr><th>Question</th><th>Answer</th></tr>
+    <tr><td>Where does the row land?</td><td>At the end of the target phase's segment. Its place inside the phase is a second decision, and the arrows already make that one.</td></tr>
+    <tr><td>What travels with it?</td><td>The row, its stable editor id, its mute state and its session. The detail pane is keyed on the id, so its drafts survive the move.</td></tr>
+    <tr><td>Where does the cursor go?</td><td>With the row. A re-file that left the selection on whatever slid into the old position would open the wrong step's detail.</td></tr>
+    <tr><td>Which kinds get the control?</td><td>Every kind. The runner has no per-phase restriction: a setup Send that logs in to a venue is legal today, and capture itself writes a Clear order book into setup.</td></tr>
+    <tr><td>What about numbering?</td><td>Re-counted from the rows. The flow is numbered <span class="m">1..n</span>, setup and teardown rows carry no number in the list and are "Setup 1", "Teardown 1" in the detail title.</td></tr>
+    <tr><td>Is it undoable?</td><td>By setting it back. The dropdown is its own undo, and the scenario is not saved until Save.</td></tr>
+  </table>
+  </div>
+
+  <h2>Two smaller gaps, closed in passing</h2>
+
+  <h3>Teardown has no test</h3>
+
+  <p>Every test fixture in the repo has a setup step and none has a teardown step, so the teardown path is
+    symmetric with setup and only compile-checked. Three tests on a fixture with a teardown Clear close it:</p>
+
+  <ul class="prose">
+    <li>It lists last, below the flow, with the <span class="m">TEARDOWN</span> badge.</li>
+    <li>Its ↑ is disabled at the flow boundary, and the flow re-orders above it without disturbing it.</li>
+    <li>Muting it and saving writes <code>teardown[0].muted = true</code> and leaves the flow untouched.</li>
+  </ul>
+
+  <p>The step identity test gains one three-phase save, so a teardown step's id survives the partition with
+    nothing left for <code>withIds()</code> to mint.</p>
+
+  <h3>The hoisted selection can be negative</h3>
+
+  <p>The editor reports its cursor as a flow index so a tab switch lands back on the same row, which makes a
+    selected setup row a negative number. Nothing indexes with it today. One KDoc line on
+    <code>ScenarioDoc.Editor.selectedStep</code>, saying it is a flow index and negative for a setup row, stops
+    a future reader treating it as a list position.</p>
+
+  <h2>Order of work</h2>
+
+  <ol class="steps">
+    <li><b>The runs in dropdown and the re-file.</b> A phase field is already on the row; this adds the control to
+      the detail pane and one editor function that moves a row and its id to the end of a segment and re-selects.
+      <span class="where">ScenarioEditor.kt · StepDetail, and the editor's step list state</span></li>
+    <li><b>Its tests.</b> A clear inserted into the flow and re-filed to setup saves into <code>setup</code>, the
+      selection follows, the summary appears. The same row set back to flow saves as it started.
+      <span class="where">ScenarioEditorTest.kt</span></li>
+    <li><b>The teardown fixture and its three tests</b>, plus the three-phase identity save.
+      <span class="where">ScenarioEditorTest.kt · ScenarioEditorStepIdentityTest.kt</span></li>
+    <li><b>The detail title's separator</b> becomes a middle dot, matching the row label's
+      <span class="m">Expect 8 · 2 tags</span>. One line, every step's title.
+      <span class="where">ScenarioEditor.kt · StepDetail</span></li>
+    <li><b>Words.</b> The KDoc line on the hoisted selection, one sentence in the setup ⓘ ("or insert a clear and
+      set runs in to setup"), one sentence in the help page.
+      <span class="where">ScenarioDocuments.kt · ScenarioEditor.kt · help.html</span></li>
+  </ol>
+
+  <h2>Decisions</h2>
+
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag dec">decided</span>In the detail pane, not on the row.</div>
+      <div class="a"><strong>Detail pane.</strong> The row already carries a session, a glyph, a label, a badge, the
+        variable chips and four tools. Phase is a property of the step and is edited beside its other property, the
+        session, in the same register.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>The re-file lands at the end of the target phase.</div>
+      <div class="a"><strong>End of segment.</strong> A step moved into setup most often wants to be its last step
+        anyway, and the arrows are there for the rest. Landing it at the start would put a new Clear before a
+        captured Clear order book, which is the wrong order for a venue.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Every step kind may change phase.</div>
+      <div class="a"><strong>Every kind.</strong> Restricting the control to clears and resets would encode a rule the
+        runner does not have, and a scenario that logs in to a venue in setup with a Send is a real one.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>The detail title separator is a middle dot.</div>
+      <div class="a"><strong>Middle dot.</strong> Today it is an em dash, which the rest of the editor's labels do not
+        use. "Setup 1 · clear" reads with "Expect 8 · 2 tags". It changes every step's title, and it is one line.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag rej">rejected</span>↑ crosses the phase boundary.</div>
+      <div class="a">Cheapest by far, and it would make the row's most-used control do two different things depending
+        on where the row sits. The callout above has the rest.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag rej">rejected</span>A phase-aware Insert bar.</div>
+      <div class="a">An "into: setup / flow / teardown" choice beside the six insert buttons is chrome for an action
+        that happens once per scenario, and it still leaves an existing step unable to move.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>A menu item is one line, word and sentence together.</div>
+      <div class="a"><strong>One line.</strong> The app's dropdown draws one text per item, and the matcher-type
+        picker already writes its items as "word · what it does". A two-line item would need a new dropdown for
+        one menu. Built this way on 2026-09-09.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>The hoisted cursor is counted at the moment it is reported.</div>
+      <div class="a"><strong>Counted live.</strong> Building this showed the editor reporting the cursor against
+        a setup count one frame old, so a row that had just become setup came back from a tab switch on
+        somebody else's row. The count is taken when the selection is reported, not from the composition.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>No keyboard shortcut.</div>
+      <div class="a">The dropdown takes focus and arrows like any other. A shortcut for the phase itself can follow
+        if the edit turns out to be frequent, which nothing suggests.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>The rail keeps listing the flow only.</div>
+      <div class="a">The Scenarios rail shows a run's verdict per flow step, and the run report numbers the flow.
+        Setup rows in the rail would need a verdict column of their own, which is a different note.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  (function () {
+    document.querySelectorAll('.figtabs[role="tablist"]').forEach(function (group) {
+      var buttons = group.querySelectorAll('button[data-for]');
+      buttons.forEach(function (button) {
+        button.addEventListener('click', function () {
+          buttons.forEach(function (other) {
+            other.setAttribute('aria-selected', other === button ? 'true' : 'false');
+            var pane = document.getElementById(other.getAttribute('data-for'));
+            if (pane) pane.hidden = other !== button;
+          });
+        });
+      });
+    });
+  })();
+</script>

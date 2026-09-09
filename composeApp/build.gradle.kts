@@ -156,6 +156,13 @@ detekt {
     )
 }
 
+// The uber jar passed 65,535 entries, and a zip without the zip64 extension cannot hold more: Gradle
+// stops writing and leaves a file `java -jar` calls corrupt. Every Zip task, because a Jar is one and so
+// is the plugin's own uber jar task.
+tasks.withType<Zip>().configureEach {
+    isZip64 = true
+}
+
 tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
     reports {
         html.required.set(true)

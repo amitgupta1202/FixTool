@@ -288,6 +288,35 @@ class StampMatcher(
         }
     }
 
+    /**
+     * **Can this matcher name [stamp]?** A send it handed over on its way to the socket, or a reply
+     * carrying an id it has outstanding or has already matched.
+     *
+     * **The stamp and not an id**, because there is no id a caller could read for this matcher. A phase
+     * waiting on `LoadMatch(131, 131, "S")` and the phase beside it waiting on `LoadMatch(11, 11, "8")`
+     * read a different tag off a different message type, so the only thing that can extract this
+     * matcher's id is this matcher. A set's router asks rather than offers for exactly that reason.
+     *
+     * Asking changes nothing here: it reads the same three maps [offer] would write, so a router can put
+     * a stamp to every phase in turn and only the phase that owns it is touched.
+     */
+    fun owns(stamp: SocketStamp): Boolean {
+        val sessionId = stamp.sessionId ?: return false
+        val type = WireTags.msgType(stamp.wire) ?: return false
+        return when (stamp.direction) {
+            WireDirection.SEND -> {
+                val id = requestId(sessionId, type, stamp.wire)
+                id != null && issuedIndex.containsKey(id)
+            }
+            WireDirection.RECEIVE -> {
+                val id = replyId(type, stamp.wire)
+                // `pending` outlives closeSettle and is never emptied, so a reply to something this phase
+                // issued is still this phase's however long after the phase ended it arrives.
+                id != null && (pending.containsKey(id) || matchedIds.containsKey(id))
+            }
+        }
+    }
+
     /** A reply nobody issued, counted against this matcher. The router decides which phase that is. */
     fun countStray() {
         strays.incrementAndGet()
@@ -322,9 +351,25 @@ class StampMatcher(
     /** Ids handed over by [issued] that no SEND stamp has claimed yet. `internal` because a test reads it. */
     internal fun issuedNotStamped(): Int = issuedIndex.size
 
+    /**
+     * The id this matcher reads off a send of its own shape, or null when the send is not its shape.
+     *
+     * Its own tag and its own filters, in one place, because [owns] has to ask the same question [onSend]
+     * answers. A phase that reads tag 131 off a `35=R` must never be handed the tag 11 of a `35=D`.
+     */
+    private fun requestId(sessionId: SessionID, type: String, wire: String): String? =
+        if (sessionId !in issuing || type != requestType) null else WireTags.tagValue(wire, match.requestTag)
+
+    /** The same for a reply: the admin skip and the [LoadMatch.replyType] filter, then [LoadMatch.replyTag]. */
+    private fun replyId(type: String, wire: String): String? =
+        if (WireTags.isAdmin(type) || (match.replyType != null && type != match.replyType)) {
+            null
+        } else {
+            WireTags.tagValue(wire, match.replyTag)
+        }
+
     private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp): Claim {
-        if (sessionId !in issuing || type != requestType) return Claim.NOT_A_REPLY
-        val id = WireTags.tagValue(stamp.wire, match.requestTag) ?: return Claim.NOT_A_REPLY
+        val id = requestId(sessionId, type, stamp.wire) ?: return Claim.NOT_A_REPLY
         pending[id] = Pending(stamp.micros, laneOf(sessionId), stamp.wire, issuedIndex.remove(id) ?: 0)
         leftSocket.incrementAndGet()
         val now = outstanding.incrementAndGet()
@@ -337,11 +382,8 @@ class StampMatcher(
         return Claim.MINE
     }
 
-    @Suppress("ReturnCount")
     private fun onReceive(type: String, stamp: SocketStamp): Claim {
-        if (WireTags.isAdmin(type)) return Claim.NOT_A_REPLY
-        if (match.replyType != null && type != match.replyType) return Claim.NOT_A_REPLY
-        val id = WireTags.tagValue(stamp.wire, match.replyTag) ?: return Claim.NOT_A_REPLY
+        val id = replyId(type, stamp.wire) ?: return Claim.NOT_A_REPLY
         val request = pending.remove(id)
         return when {
             request != null -> {

@@ -8,6 +8,7 @@ import com.knapsack.fixtool.service.SocketStamp
 import org.junit.Test
 import quickfix.SessionID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -243,6 +244,90 @@ class StampMatcherTest {
         m.countStray()
         assertEquals(1, m.snapshot().strays)
         assertEquals(1, m.snapshot().duplicates, "the duplicate was still this phase's own")
+    }
+
+    /**
+     * **A phase names its own stamps whether or not it captures anything.**
+     *
+     * The message index used to reach the matcher only when the phase had somewhere to put a captured
+     * value, so a capture-less phase of a set answered "not mine" to the sends it was making. Every phase
+     * needs the answer now, because routing a send by its issuer is the only thing stopping two phases
+     * issuing the same MsgType from taking each other's counts.
+     */
+    @Test
+    fun `a matcher that captures nothing owns the sends it issued, and the replies to them`() {
+        val m = matcher(replyType = "8")
+        val ours = send(laneA, "ORD-1", at = 1_000)
+
+        assertFalse(m.owns(ours), "nothing has been handed over yet")
+        m.issued("ORD-1", 1)
+        assertTrue(m.owns(ours), "handed over on the way to the socket, so the stamp behind it is this phase's")
+        assertFalse(m.owns(send(laneA, "ORD-2", at = 1_100)), "and a send this phase never made is not")
+        assertEquals(StampMatcher.Claim.MINE, m.offer(ours))
+
+        val reply = receive(laneA, "ORD-1", at = 2_000)
+        assertTrue(m.owns(reply), "the id is outstanding")
+        assertEquals(StampMatcher.Claim.MINE, m.offer(reply))
+        assertTrue(m.owns(reply), "and a second copy is this phase's duplicate rather than anybody's stray")
+        assertFalse(m.owns(receive(laneA, "ORD-9", at = 2_100)), "an id nothing here issued")
+        assertFalse(m.owns(receive(laneA, "ORD-1", at = 2_200, type = "S")), "and the wrong reply type never reads as its own")
+    }
+
+    /**
+     * **A phase that has ended still owns what it never got an answer to.**
+     *
+     * [StampMatcher.closeSettle] freezes the unmatched set and leaves `pending` where it is, which is what
+     * lets a reply arriving two phases later be counted as this phase's late one rather than as the
+     * running phase's stray.
+     */
+    @Test
+    fun `a request left unanswered is still owned after the settle window closes`() {
+        val m = matcher(replyType = "8")
+        m.issued("ORD-1", 1)
+        m.onStamp(send(laneA, "ORD-1", at = 1_000))
+        m.closeSettle()
+
+        val late = receive(laneA, "ORD-1", at = 60 * 60 * 1_000_000L)
+        assertTrue(m.owns(late))
+        assertEquals(StampMatcher.Claim.MINE, m.offer(late))
+        assertEquals(1L, m.snapshot().late)
+    }
+
+    /**
+     * **Why ownership takes the stamp and not an id.**
+     *
+     * Two phases of one set can wait on different tags of different message types. Nothing above these two
+     * could read "the id" off a stamp and hold it up to both: the quote phase's is tag 131 of a `35=S`,
+     * the order phase's is tag 11 of a `35=8`. Each matcher is asked with its own tags and its own
+     * filters, and answers only for its own.
+     */
+    @Test
+    fun `two phases matched on different tags each own only their own stamps`() {
+        val orders = matcher(replyType = "8")
+        val quotes =
+            StampMatcher(
+                match = LoadMatch(requestTag = 131, replyTag = 131, replyType = "S"),
+                requestType = "R",
+                issuing = setOf(laneA, laneB),
+            )
+        orders.issued("ORD-1", 1)
+        quotes.issued("Q-1", 1)
+        val orderSend = send(laneA, "ORD-1", at = 1_000)
+        val quoteSend = SocketStamp(laneA, WireDirection.SEND, "8=FIX.4.4|35=R|49=LOADGEN01|131=Q-1|55=EUR/USD|", 1_100)
+
+        assertTrue(orders.owns(orderSend))
+        assertFalse(quotes.owns(orderSend), "the wrong request type, and no 131 to read anyway")
+        assertTrue(quotes.owns(quoteSend))
+        assertFalse(orders.owns(quoteSend), "the quote request is not an order however it is read")
+        orders.offer(orderSend)
+        quotes.offer(quoteSend)
+
+        val fill = receive(laneA, "ORD-1", at = 2_000)
+        val quote = SocketStamp(laneA, WireDirection.RECEIVE, "8=FIX.4.4|35=S|49=VENUE|131=Q-1|117=QID-1|133=1.09010|", 2_100)
+        assertTrue(orders.owns(fill))
+        assertFalse(quotes.owns(fill))
+        assertTrue(quotes.owns(quote))
+        assertFalse(orders.owns(quote))
     }
 
     @Test

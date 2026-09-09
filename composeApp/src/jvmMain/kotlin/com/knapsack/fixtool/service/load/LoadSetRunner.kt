@@ -36,56 +36,62 @@ class LoadSetRunner(
     private val clock: Pacer.Clock = Pacer.Clock.SYSTEM,
 ) {
     /**
-     * **The reply router: one listener per session for the whole set.**
+     * **The reply router: one listener per session for the whole set, and every stamp to the phase that
+     * issued it.**
      *
-     * Every reply is offered to the live phase's matcher first. If it names something that phase issued, it
-     * is that phase's match or duplicate. If not, each finished phase's matcher is offered it in turn,
-     * newest first, so a reply to something phase 1 issued is phase 1's late reply or duplicate however
-     * long after phase 1 ended it arrives. A reply nobody issued is a stray of the phase that was running
-     * when it came, which is the count the "nothing matched" diagnosis reads, so it has to be honest.
+     * A phase owns a stamp when it can name it: a reply carrying an id it has outstanding or has already
+     * matched, a send carrying an id it handed over on its way to the socket. The router asks each
+     * registered phase in turn, newest first, and offers the stamp only to the one that says yes. Asking
+     * rather than reading is the point of it. Two phases of one set can wait on different tags of
+     * different message types, so there is no single id the router could pull off a stamp and hold up to
+     * everybody: only a matcher knows how a matcher reads an id. See [StampMatcher.owns].
      *
-     * A **send** goes only to the live phase. Two phases can legitimately issue the same MsgType on the
-     * same lanes, and a finished phase offered a send it never made would take it into its own `pending`
-     * and its own per-second buckets, quietly corrupting numbers it had already reported.
+     * A phase stays registered after its run ends, because a reply to something it issued is still its own
+     * however long after it ended it arrives. A fill drawn by one of phase 1's orders and landing while
+     * phase 2 cancels is phase 1's late reply, not a phase 2 stray.
+     *
+     * **A send goes to its issuer or nowhere.** Two phases can legitimately issue the same MsgType on the
+     * same lanes, and a phase offered a send it never made would take it into its own `pending` and its
+     * own per-second buckets, quietly corrupting numbers it had already reported.
+     *
+     * **A reply nobody issued is a stray**, charged once to the newest phase waiting for a reply of that
+     * shape, which is the phase whose "nothing matched" diagnosis has to explain it. Once and not once per
+     * phase: the offers stop at the first phase that recognises the shape.
      */
     private class Router {
-        @Volatile
-        var live: StampMatcher? = null
+        /** One phase's matcher and the number the whole set knows that phase by. */
+        private class Registered(
+            val phase: Int,
+            val matcher: StampMatcher,
+        )
 
-        /** Newest first, which is the order a late reply is most likely to belong to. */
-        private val finished = CopyOnWriteArrayList<StampMatcher>()
+        /**
+         * Newest phase first, which is the order a reply is most likely to belong to and the phase a stray
+         * belongs to. Ordered by phase number rather than by arrival, because a phase's place in the set is
+         * what "newest" means and phases will not always start in that order.
+         */
+        private val registered = CopyOnWriteArrayList<Registered>()
 
         fun onStamp(stamp: SocketStamp) {
-            val current = live
-            if (stamp.direction == WireDirection.SEND) {
-                current?.offer(stamp)
+            val owner = registered.firstOrNull { it.matcher.owns(stamp) }
+            if (owner != null) {
+                owner.matcher.offer(stamp)
                 return
             }
-            var recognised = false
-            if (current != null) {
-                when (current.offer(stamp)) {
-                    StampMatcher.Claim.MINE -> return
-                    StampMatcher.Claim.UNKNOWN -> recognised = true
-                    StampMatcher.Claim.NOT_A_REPLY -> Unit
-                }
-            }
-            for (matcher in finished) {
-                when (matcher.offer(stamp)) {
-                    StampMatcher.Claim.MINE -> return
-                    StampMatcher.Claim.UNKNOWN -> recognised = true
-                    StampMatcher.Claim.NOT_A_REPLY -> Unit
-                }
-            }
-            if (recognised) current?.countStray()
+            // Nobody issued it. A send stops here: only its issuer may count it. A reply is somebody's
+            // stray, and whose is decided by the first phase that recognises the shape it arrived in.
+            if (stamp.direction == WireDirection.SEND) return
+            registered.firstOrNull { it.matcher.offer(stamp) == StampMatcher.Claim.UNKNOWN }?.matcher?.countStray()
         }
 
-        /** Makes [matcher] the live phase, and on close moves it to the finished list rather than dropping it. */
-        fun register(matcher: StampMatcher): AutoCloseable {
-            live = matcher
-            return AutoCloseable {
-                finished.add(0, matcher)
-                if (live === matcher) live = null
-            }
+        /**
+         * Puts [matcher] in as phase [phase]. Closing stops nothing: the phase keeps its stamps for the
+         * length of the set, which is what a late reply needs and what the record re-reads for it.
+         */
+        fun register(phase: Int, matcher: StampMatcher): AutoCloseable {
+            val at = registered.indexOfFirst { it.phase < phase }
+            registered.add(if (at < 0) registered.size else at, Registered(phase, matcher))
+            return AutoCloseable { }
         }
     }
 
@@ -212,7 +218,7 @@ class LoadSetRunner(
                 val runner =
                     LoadRunner(held, store = null, clock = clock) { matcher, _ ->
                         matchers[index] = matcher
-                        router.register(matcher)
+                        router.register(n, matcher)
                     }
                 // Only what EARLIER LIVE phases captured: a phase reading its own capture, a later one's,
                 // or a muted one's has been refused by LoadSet.problems() before anything dialled.

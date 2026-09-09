@@ -273,11 +273,11 @@ class StampMatcher(
     /**
      * **Offer [stamp] to this matcher without deciding whose stray it is.**
      *
-     * What a set's reply router calls. Every reply is offered to the live phase first, then to each
-     * finished phase newest first, and only a reply nobody issued is counted as a stray, on the phase that
-     * was running when it came. Against a matching venue that is not a corner case: phase 1's orders keep
-     * drawing fills while phase 2 cancels them, and one matcher per run would have counted every one of
-     * those fills as a phase 2 stray.
+     * What a set's reply router calls, on the phase [owns] picked out and, for a reply nobody issued, on
+     * each phase in turn until one recognises the shape it arrived in. Only that phase is charged with the
+     * stray. Against a matching venue that is not a corner case: phase 1's orders keep drawing fills while
+     * phase 2 cancels them, and one matcher per run would have counted every one of those fills as a phase
+     * 2 stray.
      */
     fun offer(stamp: SocketStamp): Claim {
         val sessionId = stamp.sessionId ?: return Claim.NOT_A_REPLY

@@ -42,6 +42,10 @@ class LoadSetRunnerTest {
      * and that is the shape the router was built for.
      */
     private val order = LoadTemplate("Orders", listOf(35 to "D", 11 to "ORD-\${run}-\${messageIndex}", 55 to "EUR/USD"))
+
+    /** A second order: the same MsgType down the same lanes, so nothing but the id says which phase sent it. */
+    private val repeatOrder =
+        LoadTemplate("Repeats", listOf(35 to "D", 11 to "RPT-\${run}-\${messageIndex}", 55 to "EUR/USD"))
     private val cancel =
         LoadTemplate(
             "Cancels",
@@ -137,6 +141,7 @@ class LoadSetRunnerTest {
                 "Hits" -> hit
                 "Orders" -> order
                 "Cancels" -> cancel
+                "Repeats" -> repeatOrder
                 // No tag 35, which is the one thing CompiledTemplate refuses.
                 "Typeless" -> LoadTemplate("Typeless", listOf(11 to "T-\${messageIndex}"))
                 else -> null
@@ -326,6 +331,79 @@ class LoadSetRunnerTest {
         assertEquals(8L, record.phases[0].replies.matched)
         assertEquals(8L, record.phases[1].replies.matched, "a stray leaves the phase's own matches alone")
     }
+
+    /**
+     * **A phase counts the sends it made and no others**, whenever the stamps for them turn up.
+     *
+     * A SEND stamp follows the `send` call whenever the engine's writer thread gets its turn, and on a
+     * machine under load that can be after the phase that made it has settled and gone. The set used to
+     * hand every send to whichever phase was live, so phase 1's stamps landing during phase 2 became phase
+     * 2's own: its `leftSocket`, its pending set and its per-second buckets, all reported as its work.
+     *
+     * Both phases issue `35=D` down the same lanes and wait for a `35=8` on tag 11, which is the case
+     * where the stamp carries nothing at all that would tell the two apart. Only the phase that handed the
+     * id over on its way to the socket can claim it.
+     */
+    @Test
+    fun `two phases issuing the same MsgType each keep their own sends, whenever the stamps land`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, ordersThenCancels(), deferStamps = true) }
+        val host =
+            FakeHost(
+                clock,
+                lanes,
+                // The writer thread finally getting its turn, in phase 2's settle window: phase 1's eight
+                // sends and phase 2's own eight reach the router together, long after phase 1 closed.
+                onSleep = { if (lanes.any { lane -> lane.sent.any { it.contains("RPT-") } }) lanes.forEach { it.flush() } },
+            )
+        val phases =
+            listOf(
+                spec("Send the orders", "Orders", LoadMatch(11, 11, "8")),
+                spec("Send them again", "Repeats", LoadMatch(11, 11, "8")),
+            )
+
+        val record = LoadSetRunner(host, clock = clock).run(planned(OnFailure.CONTINUE, phases))
+
+        assertEquals(8L, record.phases[1].issue.leftSocket, "phase 2 counted its own eight sends and none of phase 1's")
+        assertEquals(8L, record.phases[1].replies.matched, "and matched the eight fills that answered them")
+        assertEquals(0L, record.phases[1].replies.strays, "phase 1's fills are not phase 2's business")
+        assertEquals(0L, record.phases[1].replies.late)
+        assertEquals(8L, record.phases[0].issue.handedToEngine, "phase 1 handed over eight")
+        assertEquals(0L, record.phases[0].issue.leftSocket, "none of which had left the socket by the time it reported")
+        assertEquals(8L, record.phases[0].replies.late, "and its own fills reached it late, rather than reaching phase 2 at all")
+    }
+
+    /**
+     * **A stray is charged once**, to the newest phase waiting for a reply of that shape, and not once to
+     * every phase that would recognise it.
+     *
+     * All three phases here wait for a `35=8` on tag 11, so all three would call the ghost fill a reply of
+     * their own shape carrying an id they never issued. The router offers it until one says so and stops.
+     */
+    @Test
+    fun `a fill nobody issued is one stray on one phase, not one on every phase that knows the shape`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, everyOrderFilled(ghost = "GHOST-1")) }
+        val host = FakeHost(clock, lanes)
+        val phases =
+            listOf(
+                spec("Send the orders", "Orders", LoadMatch(11, 11, "8")),
+                spec("Cancel them", "Cancels", LoadMatch(11, 11, "8")),
+                spec("Send them again", "Repeats", LoadMatch(11, 11, "8")),
+            )
+
+        val record = LoadSetRunner(host, clock = clock).run(planned(OnFailure.CONTINUE, phases))
+
+        assertEquals(listOf(0L, 0L, 1L), record.phases.map { it.replies.strays }, "one stray, on the phase that was running")
+        assertEquals(listOf(8L, 8L, 8L), record.phases.map { it.replies.matched }, "and none of the three lost a match to it")
+    }
+
+    /** Every order and cancel filled, with a fill for an id nobody sent slipped in beside phase 3's first. */
+    private fun everyOrderFilled(ghost: String): (String) -> List<String> =
+        { wire ->
+            val id = WireTags.tagValue(wire, 11) ?: "?"
+            listOf(fill(id)) + if (id == "RPT-t1-1") listOf(fill(ghost)) else emptyList()
+        }
 
     /** Two lanes that swallow one quote request and answer it beside the first hit of the next phase. */
     private fun lanesAnsweringLate(clock: FakeClock): List<FakeLane> =

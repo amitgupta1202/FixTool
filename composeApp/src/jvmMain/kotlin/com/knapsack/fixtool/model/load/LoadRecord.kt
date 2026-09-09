@@ -109,11 +109,20 @@ data class LoadRecord(
      * failures alone that reads as PASSED with nothing passed, which is the one verdict that could put a
      * green tick on a set that never sent a message. It is STOPPED when the skip note says the stop ended
      * it, and FAILED otherwise, because something else refused it before phase one.
+     *
+     * **A muted phase is looked past three times**: it is counted apart from the phases a failure or a
+     * stop skipped, it is not the phase a STOPPED or FAILED set names, and the note that says a stop ended
+     * the set is read off the first phase the set meant to run. A muted stub is written at set start, so
+     * without all three a set stopped before phase one dialled would name a phase it was never going to
+     * run and read its note.
      */
     val verdict: SetVerdict
         get() {
             val passed = phases.count { it.verdict.exitCode == LoadReport.EXIT_PASSED && it.status == LoadStatus.DONE }
-            val skipped = phases.count { it.status == LoadStatus.SKIPPED }
+            val muted = phases.count { it.isMuted }
+            // Counted apart, so a set that passed on the two phases that ran never reads "1 skipped": a
+            // skip is what a failure or a stop does to the phases after it, and a mute is neither.
+            val skipped = phases.count { it.status == LoadStatus.SKIPPED } - muted
             val failed = phases.count { it.status == LoadStatus.DONE && it.verdict.exitCode != LoadReport.EXIT_PASSED }
             val stopped = phases.count { it.status == LoadStatus.STOPPED }
             val stoppedAt = phases.indexOfFirst { it.status == LoadStatus.STOPPED }.takeIf { it >= 0 }?.plus(1)
@@ -122,14 +131,18 @@ data class LoadRecord(
                     .indexOfFirst { it.status == LoadStatus.DONE && it.verdict.exitCode != LoadReport.EXIT_PASSED }
                     .takeIf { it >= 0 }
                     ?.plus(1)
-            val firstSkipped = phases.indexOfFirst { it.status == LoadStatus.SKIPPED }.takeIf { it >= 0 }?.plus(1)
+            // Past the muted stubs, which are written at set start: the phase a STOPPED or FAILED set names
+            // has to be one the set was going to run, or a set stopped before phase one dialled would name
+            // whichever phase happened to be parked.
+            val firstSkipped =
+                phases.indexOfFirst { it.status == LoadStatus.SKIPPED && !it.isMuted }.takeIf { it >= 0 }?.plus(1)
             val nothingJudged = passed == 0 && failed == 0 && stopped == 0
             val outcome =
                 when {
                     stoppedAt != null -> SetOutcome.STOPPED
                     status == LoadStatus.RUNNING -> SetOutcome.RUNNING
                     firstBad != null -> SetOutcome.FAILED
-                    nothingJudged && phases.first().note == STOPPED_NOTE -> SetOutcome.STOPPED
+                    nothingJudged && phases.firstOrNull { !it.isMuted }?.note == STOPPED_NOTE -> SetOutcome.STOPPED
                     nothingJudged -> SetOutcome.FAILED
                     else -> SetOutcome.PASSED
                 }
@@ -140,7 +153,15 @@ data class LoadRecord(
                     SetOutcome.FAILED -> firstBad ?: firstSkipped
                     SetOutcome.PASSED -> null
                 }
-            return SetVerdict(outcome, phase, passed = passed, failed = failed, stopped = stopped, skipped = skipped)
+            return SetVerdict(
+                outcome,
+                phase,
+                passed = passed,
+                failed = failed,
+                stopped = stopped,
+                skipped = skipped,
+                muted = muted,
+            )
         }
 
     companion object {
@@ -151,6 +172,15 @@ data class LoadRecord(
          * phase to name, so the note is the only thing that says whether somebody ended it.
          */
         const val STOPPED_NOTE = "the set was stopped"
+
+        /**
+         * The note a phase carries when it was muted in the set, and so was never going to run.
+         *
+         * Here for the same reason [STOPPED_NOTE] is: the verdict reads it. A muted phase is SKIPPED, and
+         * the note is the only thing that tells it from the phases a failure or a stop took out, which the
+         * counts, the first-skipped phase and every door's one word all depend on. See [LoadReport.isMuted].
+         */
+        const val MUTED_NOTE = "muted in the set"
 
         /** The one-phase set a single run makes. */
         fun of(report: LoadReport): LoadRecord =
@@ -183,7 +213,10 @@ data class SetVerdict(
     val passed: Int,
     val failed: Int,
     val stopped: Int = 0,
+    /** The phases a failure or a stop took out. A phase muted in the file is [muted], not one of these. */
     val skipped: Int = 0,
+    /** The phases parked in the set. Last in [counts], so a clean set reads "2 passed, 1 muted". */
+    val muted: Int = 0,
 ) {
     /** "1 passed, 1 failed, 1 skipped". Only the non-zero counts, so a clean set reads "3 passed". */
     fun counts(): String =
@@ -192,5 +225,6 @@ data class SetVerdict(
             failed.takeIf { it > 0 }?.let { "$it failed" },
             stopped.takeIf { it > 0 }?.let { "$it stopped" },
             skipped.takeIf { it > 0 }?.let { "$it skipped" },
+            muted.takeIf { it > 0 }?.let { "$it muted" },
         ).joinToString(", ")
 }

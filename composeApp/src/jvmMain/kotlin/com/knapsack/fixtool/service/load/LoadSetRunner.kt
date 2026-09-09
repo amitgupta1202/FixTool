@@ -137,15 +137,18 @@ class LoadSetRunner(
         val startedAt = host.now()
         val compiled = planned.phases.map { plan -> compile(plan) }
         val byProfile = openEveryLane(planned)
+        // The phases that will actually run. A muted phase's lanes, captures and indices are none of the
+        // set's business, and it keeps its position in every list that is indexed by phase number.
+        val live = planned.phases.filterNot { it.muted }
 
         val router = Router()
         val held = HeldLanes(host, byProfile)
         // One table for the whole set, sized by the highest index any phase will reach, because a phase
         // that counts from 2,001 reads what phase 1 filled at 2,001. Absent when nothing is captured.
-        val names = planned.phases.flatMap { it.capture.keys }
+        val names = live.flatMap { it.capture.keys }
         val table =
             names.takeIf { it.isNotEmpty() }?.let {
-                StampMatcher.CaptureTable(it, (planned.phases.maxOf { p -> p.indexTo } + 1).toInt())
+                StampMatcher.CaptureTable(it, (live.maxOf { p -> p.indexTo } + 1).toInt())
             }
         val sessions = byProfile.values.flatten().distinct()
         val handles = sessions.map { it.addStampListener(router::onStamp) }
@@ -153,8 +156,22 @@ class LoadSetRunner(
         val reports =
             planned.phases
                 .mapIndexed { index, plan ->
-                    val lanes = byProfile[plan.profileId]?.size ?: 0
-                    LoadReport.stub(plan, LoadStatus.PENDING, lanes, compiled[index], startedAt)
+                    // A muted phase is skipped from the FIRST record rather than when the loop reaches it,
+                    // so the live document draws it as parked from the first tick instead of as queued.
+                    if (plan.muted) {
+                        LoadReport
+                            .stub(
+                                plan,
+                                LoadStatus.SKIPPED,
+                                lanes = 0,
+                                template = compiled[index],
+                                startedAt = startedAt,
+                                note = LoadRecord.MUTED_NOTE,
+                            ).copy(finishedAt = startedAt)
+                    } else {
+                        val lanes = byProfile[plan.profileId]?.size ?: 0
+                        LoadReport.stub(plan, LoadStatus.PENDING, lanes, compiled[index], startedAt)
+                    }
                 }.toMutableList()
         // Kept for the whole set: a finished phase's late count keeps growing while a later phase runs, and
         // the record has to say so rather than freezing the number the phase happened to end on.
@@ -182,6 +199,9 @@ class LoadSetRunner(
             var firstFailure: Int? = null
             planned.phases.forEachIndexed { index, plan ->
                 val n = index + 1
+                // Before the policy and before the stop, so neither overwrites the muted note: a set
+                // stopped by hand must still say a parked phase was parked and not that the stop got it.
+                if (plan.muted) return@forEachIndexed
                 val skip = skipNote(firstFailure, planned.onFailure, cancelled())
                 if (skip != null) {
                     reports[index] =
@@ -194,9 +214,13 @@ class LoadSetRunner(
                         matchers[index] = matcher
                         router.register(matcher)
                     }
-                // Only what EARLIER phases captured: a phase reading its own capture, or a later one's, has
-                // been refused by LoadSet.problems() before anything dialled.
-                val earlier = planned.phases.take(index).flatMap { it.capture.keys }
+                // Only what EARLIER LIVE phases captured: a phase reading its own capture, a later one's,
+                // or a muted one's has been refused by LoadSet.problems() before anything dialled.
+                val earlier =
+                    planned.phases
+                        .take(index)
+                        .filterNot { it.muted }
+                        .flatMap { it.capture.keys }
                 val captures =
                     LoadRunner.Captures(
                         lookups = table?.let { t -> earlier.associateWith { t.lookup(it) } }.orEmpty(),
@@ -241,20 +265,26 @@ class LoadSetRunner(
      * A phase whose issuing profile has no lane logged on is refused here, before phase 1 dials, with the
      * sentence a single run gives. Anything already open is released on the way out, so a set refused on
      * phase four does not leave phase one's lanes up.
+     *
+     * **A muted phase's profile is neither opened nor judged**, which is what "the venue leg this phase
+     * issues on is down" needs from muting it.
      */
     @Suppress("TooGenericExceptionCaught")
     private fun openEveryLane(planned: LoadSet.Planned): Map<String, List<LoadLane>> {
+        // Indexed, because the refusal names the phase by its place in the whole set and a muted phase
+        // keeps its number: phase 3 of a set whose phase 2 is parked is still phase 3.
+        val live = planned.phases.withIndex().filterNot { it.value.muted }
         val byProfile = linkedMapOf<String, List<LoadLane>>()
         try {
-            planned.phases.forEach { plan ->
+            live.forEach { (_, plan) ->
                 byProfile.getOrPut(plan.profileId) { host.openLanes(plan.profileId, planned.storeAndLog) }
             }
-            planned.phases.forEach { plan ->
+            live.forEach { (_, plan) ->
                 plan.listenProfileIds.forEach { id ->
                     byProfile.getOrPut(id) { host.openListeners(listOf(id), planned.storeAndLog) }
                 }
             }
-            planned.phases.forEachIndexed { index, plan ->
+            live.forEach { (index, plan) ->
                 if (byProfile[plan.profileId].isNullOrEmpty()) {
                     throw LoadRefused(
                         "phase ${index + 1}: no session of '${plan.profileName}' reached LOGGED_ON, " +
@@ -285,12 +315,28 @@ class LoadSetRunner(
             else -> null
         }
 
+    /**
+     * The template's shape for the record, or a refusal for the whole set when it will not compile.
+     *
+     * **Except for a muted phase**, whose template is never rendered: its stub carries the name and the
+     * MsgType and moves on, because a phase parked while its message is half written must not be the
+     * reason the two phases either side of it cannot run.
+     */
     @Suppress("SwallowedException")
     private fun compile(plan: LoadPlan): LoadReport.TemplateInfo {
         val compiled =
             try {
                 CompiledTemplate.compile(plan.template)
             } catch (e: IllegalArgumentException) {
+                if (plan.muted) {
+                    return LoadReport.TemplateInfo(
+                        plan.template.name,
+                        plan.template.msgType ?: "",
+                        emptyList(),
+                        emptyList(),
+                        emptyList(),
+                    )
+                }
                 throw LoadRefused(e.message ?: "the template '${plan.template.name}' cannot be compiled")
             }
         return LoadReport.TemplateInfo(

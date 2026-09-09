@@ -81,6 +81,14 @@ data class LoadReport(
     val note: String? = null,
     val verdict: Verdict,
 ) {
+    /**
+     * **This phase was parked in the set, so it was never going to run.**
+     *
+     * SKIPPED and the note, in one place, because eight surfaces ask the question and the note is the whole
+     * distinction: there is no MUTED status to read. See [LoadRecord.MUTED_NOTE].
+     */
+    val isMuted: Boolean get() = status == LoadStatus.SKIPPED && note == LoadRecord.MUTED_NOTE
+
     /** What the template was, and which of its tags were rendered per message. */
     data class TemplateInfo(
         val name: String,

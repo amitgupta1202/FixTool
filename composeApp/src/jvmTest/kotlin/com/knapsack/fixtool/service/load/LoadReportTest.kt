@@ -304,4 +304,68 @@ class LoadReportTest {
         val stopped = LoadReportCodec.toJUnitXml(burstReport(unmatched = 0, status = LoadStatus.STOPPED))
         assertEquals(1, failures(stopped), "exit 1 and the XML must say the same thing")
     }
+
+    /**
+     * **A muted phase is a SKIPPED phase with a note, and the verdict reads the note three times.**
+     *
+     * Counted apart from the phases the STOP policy took out, never named as the phase a FAILED set is
+     * about, and written into the verdict object only when there is one.
+     */
+    @Test
+    fun `a muted phase is counted apart from a skipped one, and never the phase a verdict names`() {
+        val plan = burstReport(unmatched = 0)
+
+        fun stub(note: String, label: String) =
+            plan.copy(label = label, status = LoadStatus.SKIPPED, note = note, verdict = plan.verdict.copy(exitCode = null))
+
+        val record =
+            LoadRecord(
+                plan.id,
+                "RFQ round trip",
+                0,
+                63_100,
+                listOf(
+                    stub(LoadRecord.MUTED_NOTE, "Ask for a quote"),
+                    burstReport(unmatched = 4).copy(label = "Hit the first 2,000"),
+                    stub("phase 2 did not pass and the set stops on failure", "Pass the other 2,000"),
+                ),
+                set = LoadRecord.SetInfo("rfq-round-trip", OnFailure.STOP),
+            )
+
+        assertEquals(SetOutcome.FAILED, record.verdict.outcome)
+        assertEquals(2, record.verdict.phase, "the phase that failed, not the one that was parked")
+        assertEquals("1 failed, 1 skipped, 1 muted", record.verdict.counts())
+        assertEquals(1, record.exitCode)
+
+        val verdict = LoadReportCodec.recordToJson(record)["verdict"]!!.jsonObject
+        assertEquals(1, verdict["muted"]!!.jsonPrimitive.int)
+        assertEquals(1, verdict["skipped"]!!.jsonPrimitive.int, "a mute is not a skip")
+
+        // A record with nothing muted is byte for byte what it was.
+        val clean = LoadRecord(plan.id, plan.label, 0, 1, listOf(plan, plan))
+        assertNull(LoadReportCodec.recordToJson(clean)["verdict"]!!.jsonObject["muted"])
+        assertEquals("2 passed", clean.verdict.counts())
+
+        // Exactly what a build server shows for a disabled test: three grey cases, and the message says why.
+        val xml = LoadReportCodec.toJUnitXml(record)
+        assertEquals(
+            3,
+            Regex("""<skipped message="${LoadRecord.MUTED_NOTE}"/>""").findAll(xml).count(),
+            xml,
+        )
+    }
+
+    /** A set that passed on the two phases that ran exits 0, and its one parked phase is not judged. */
+    @Test
+    fun `a set with a muted phase and the rest passed exits zero`() {
+        val plan = burstReport(unmatched = 0)
+        val muted =
+            plan.copy(status = LoadStatus.SKIPPED, note = LoadRecord.MUTED_NOTE, verdict = plan.verdict.copy(exitCode = null))
+        val record = LoadRecord(plan.id, plan.label, 0, 1, listOf(plan, plan, muted))
+
+        assertEquals(SetOutcome.PASSED, record.verdict.outcome)
+        assertEquals("2 passed, 1 muted", record.verdict.counts())
+        assertEquals(0, record.exitCode)
+        assertEquals(plan.label, record.lead.label, "the row leads on a phase that has numbers")
+    }
 }

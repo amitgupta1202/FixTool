@@ -32,7 +32,8 @@ import kotlinx.serialization.json.put
  *   "seed": { "run": "${uuid:4}", "desk": "LDN" },        // rendered once per run, then frozen
  *   "storeAndLog": { "store": "MEMORY", "log": "NONE" },  // once, for every lane the set opens
  *   "onFailure": "STOP",
- *   "phases": [ { "label", "template", "profile", "listen", "match", "shape", "indexFrom", "settleMs" } ] }
+ *   "phases": [ { "label", "template", "profile", "listen", "match", "shape", "indexFrom", "settleMs",
+ *                 "muted" } ] }                              // "muted": true only on a parked phase
  * ```
  */
 object LoadSetCodec {
@@ -78,6 +79,8 @@ object LoadSetCodec {
             if (spec.capture.isNotEmpty()) {
                 put("capture", buildJsonObject { spec.capture.forEach { (name, tag) -> put(name, tag) } })
             }
+            // Only a parked phase writes the key, so a set that never muted anything never grows it.
+            if (spec.muted) put("muted", true)
         }
 
     fun fromJson(o: JsonObject): LoadSet {
@@ -118,6 +121,7 @@ object LoadSetCodec {
                     ?.mapNotNull { (name, tag) -> (tag as? JsonPrimitive)?.intOrNull?.let { name to it } }
                     ?.toMap()
                     .orEmpty(),
+            muted = (o["muted"] as? JsonPrimitive)?.contentOrNull == "true",
         )
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =

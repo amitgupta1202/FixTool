@@ -10,7 +10,11 @@ import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -60,7 +64,15 @@ class LoadSetTest {
         private val resetOnLogon: Boolean = true,
     ) : LoadSet.Resolver {
         override fun profile(key: String): LoadSet.Profile? =
-            if (key == "RFQ Load Client") LoadSet.Profile("rfq-profile-RFQ_LOAD", "RFQ Load Client", config(resetOnLogon)) else null
+            when (key) {
+                "RFQ Load Client" ->
+                    LoadSet.Profile("rfq-profile-RFQ_LOAD", "RFQ Load Client", config(resetOnLogon))
+                // A second profile whose memory store cannot work, so a muted phase can be the only phase
+                // in the set that names it and the store sentence has somewhere to come from.
+                "RFQ Load Spare" ->
+                    LoadSet.Profile("rfq-profile-SPARE", "RFQ Load Spare", config(resetOnLogon = false))
+                else -> null
+            }
 
         override fun template(key: String, profileId: String?): LoadTemplate? = templates[key]
     }
@@ -331,7 +343,17 @@ class LoadSetTest {
                     ),
             ).problems(Fake(), LoadPlan.Surface.CLI) +
                 set(phases = emptyList()).problems(Fake(), LoadPlan.Surface.CLI) +
-                set(seed = emptyMap()).problems(Fake(), LoadPlan.Surface.DIALOG)
+                set(seed = emptyMap()).problems(Fake(), LoadPlan.Surface.DIALOG) +
+                set(twoPhases.map { it.copy(muted = true) }).problems(Fake(), LoadPlan.Surface.CLI) +
+                set(
+                    listOf(
+                        twoPhases[0].copy(capture = mapOf("quoteId" to 117, "offer" to 133), muted = true),
+                        twoPhases[1].copy(template = "hit"),
+                    ),
+                ).problems(
+                    Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "hit" to readsTwoCaptures)),
+                    LoadPlan.Surface.DIALOG,
+                )
 
         assertTrue(everyRefusal.size >= 4, "the fixture stopped producing refusals: $everyRefusal")
         everyRefusal.forEach { assertTrue('—' !in it.sentence, "em dash in: ${it.sentence}") }
@@ -342,5 +364,166 @@ class LoadSetTest {
         val spec = twoPhases[0].copy(capture = mapOf("quoteId" to 117, "offer" to 133))
 
         assertTrue(spec.describe().endsWith("keeps quoteId, offer"), spec.describe())
+    }
+
+    // -------------------------------------------------------------------------------------------------
+    // A muted phase
+    // -------------------------------------------------------------------------------------------------
+
+    /** Reads `${quoteId}`, which nothing seeds and no live phase keeps: the whole point of not judging it. */
+    private val readsACapture =
+        LoadTemplate("RFQ Load Pass", listOf(35 to "AJ", 11 to "P-\${run}-\${messageIndex}", 117 to "\${quoteId}"))
+    private val readsTwoCaptures =
+        LoadTemplate(
+            "RFQ Load QuoteResponse",
+            listOf(35 to "AJ", 11 to "H-\${run}-\${messageIndex}", 117 to "\${quoteId}", 44 to "\${offer}"),
+        )
+
+    /**
+     * **Resolve, do not judge.** The parked phase reads a name nothing seeds and issues on a profile whose
+     * store cannot work, and neither is the set's problem, because neither will happen.
+     */
+    @Test
+    fun `a muted phase is not judged, and does not block the set`() {
+        val phases =
+            listOf(
+                twoPhases[0],
+                twoPhases[1].copy(template = "pass", profile = "RFQ Load Spare", muted = true),
+            )
+        val resolve = Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "pass" to readsACapture))
+
+        assertEquals(emptyList(), set(phases, seed = mapOf("run" to "b7f2")).problems(resolve, LoadPlan.Surface.CLI))
+    }
+
+    /** It still has to be a phase, because the record carries its plan and `plan()` cannot build one. */
+    @Test
+    fun `a muted phase still has to name a template and a profile`() {
+        val noTemplate =
+            set(listOf(twoPhases[0], twoPhases[1].copy(template = "nowhere", muted = true)))
+                .problems(Fake(), LoadPlan.Surface.CLI)
+        assertEquals(listOf(2), noTemplate.map { it.phase }, noTemplate.toString())
+        assertTrue(noTemplate.single().sentence.startsWith("no template 'nowhere'"), noTemplate.toString())
+
+        val noProfile =
+            set(listOf(twoPhases[0], twoPhases[1].copy(profile = "NOPE", muted = true)))
+                .problems(Fake(), LoadPlan.Surface.CLI)
+        assertEquals("no saved connection profile named 'NOPE'.", noProfile.single().sentence)
+
+        val noMatch =
+            set(
+                listOf(
+                    twoPhases[0],
+                    twoPhases[1].copy(match = null, template = "flat", muted = true),
+                ),
+            ).problems(
+                Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "flat" to LoadTemplate("Flat", listOf(35 to "0")))),
+                LoadPlan.Surface.CLI,
+            )
+        assertTrue(
+            noMatch.single().sentence.contains("carries none of the tags a reply is matched on"),
+            noMatch.toString(),
+        )
+    }
+
+    /**
+     * **The one case the tool can prove is broken**: a later phase reading a name only a muted phase keeps.
+     *
+     * One sentence, in the reading phase's voice, naming the muted phase by number and label. The "nothing
+     * seeds it" sentence must not also fire: a name that IS kept, only by a parked phase, is not a name
+     * nothing seeds, and two sentences for one mistake read as two faults with two remedies.
+     */
+    @Test
+    fun `a phase reading a muted phase's captures is refused in one sentence naming the phase`() {
+        val phases =
+            listOf(
+                twoPhases[0].copy(capture = mapOf("quoteId" to 117, "offer" to 133), muted = true),
+                twoPhases[1].copy(template = "hit"),
+            )
+        val resolve = Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "hit" to readsTwoCaptures))
+
+        val problems = set(phases).problems(resolve, LoadPlan.Surface.CLI)
+
+        assertEquals(listOf(2), problems.map { it.phase }, problems.toString())
+        assertEquals(
+            "Phase 2 · Hit the first 2,000: the template reads \${quoteId} and \${offer}, and the phase " +
+                "that keeps them, phase 1 · Ask for a quote, is muted. Unmute it, or seed them with --seed.",
+            problems.single().describe("Hit the first 2,000"),
+        )
+        assertTrue(problems.none { it.sentence.contains("nothing seeds") }, problems.toString())
+    }
+
+    /** One name, and the dialog's own remedy, because only a dialog has a Seed band to point at. */
+    @Test
+    fun `one name kept by a muted phase reads in the singular, with the surface's own remedy`() {
+        val phases =
+            listOf(
+                twoPhases[0].copy(capture = mapOf("quoteId" to 117), muted = true),
+                twoPhases[1].copy(template = "pass"),
+            )
+        val resolve = Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "pass" to readsACapture))
+
+        assertEquals(
+            "the template reads \${quoteId}, and the phase that keeps it, phase 1 · Ask for a quote, " +
+                "is muted. Unmute it, or add it under Seed.",
+            set(phases).problems(resolve, LoadPlan.Surface.DIALOG).single().sentence,
+        )
+        assertEquals(
+            "the template reads \${quoteId}, and the phase that keeps it, phase 1 · Ask for a quote, " +
+                "is muted. Unmute it, or seed it.",
+            set(phases).problems(resolve, LoadPlan.Surface.API).single().sentence,
+        )
+    }
+
+    /** Seeded, or kept by an earlier **live** phase, means no refusal at all. */
+    @Test
+    fun `a name captured by a muted phase and by a later live phase is readable after the live one`() {
+        val phases =
+            listOf(
+                twoPhases[0].copy(capture = mapOf("quoteId" to 117), muted = true),
+                twoPhases[1].copy(label = "Ask again", capture = mapOf("quoteId" to 117)),
+                twoPhases[1].copy(label = "Pass them", template = "pass"),
+            )
+        val resolve = Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "RFQ Load QuoteResponse" to quoteResponse, "pass" to readsACapture))
+
+        assertEquals(emptyList(), set(phases).problems(resolve, LoadPlan.Surface.CLI))
+    }
+
+    /** A muted phase does not claim the name, so a live phase may keep the same one. */
+    @Test
+    fun `a muted phase's captures do not claim the name`() {
+        val phases =
+            listOf(
+                twoPhases[0].copy(capture = mapOf("quoteId" to 117), muted = true),
+                twoPhases[1].copy(capture = mapOf("quoteId" to 117)),
+            )
+
+        assertEquals(emptyList(), set(phases).problems(Fake(), LoadPlan.Surface.CLI))
+    }
+
+    /** "A set needs a phase" asked of a set that has them and parked every one. */
+    @Test
+    fun `a set with every phase muted is refused`() {
+        val problems = set(twoPhases.map { it.copy(muted = true) }).problems(Fake(), LoadPlan.Surface.CLI)
+
+        assertEquals(1, problems.size, problems.toString())
+        assertNull(problems.single().phase)
+        assertEquals("Every phase is muted. Unmute one, or the set has nothing to run.", problems.single().sentence)
+    }
+
+    /** Additive and default-omitting, the same bargain a scenario step's `muted` strikes. */
+    @Test
+    fun `muted is written only on the phase that is, and an absent key reads false`() {
+        val store = LoadSetStore(dir.absolutePath)
+        val original = set(twoPhases.mapIndexed { i, p -> if (i == 1) p.copy(muted = true) else p })
+
+        assertTrue(store.save(original))
+        assertEquals(original, store.load("rfq-round-trip"))
+        assertEquals(listOf(false, true), store.load("rfq-round-trip")!!.phases.map { it.muted })
+
+        val written = Json.parseToJsonElement(File(dir, "rfq-round-trip.json").readText()).jsonObject
+        val phases = written["phases"]!!.jsonArray
+        assertNull(phases[0].jsonObject["muted"], "a phase that is not parked never grows the key")
+        assertEquals(true, phases[1].jsonObject["muted"]!!.jsonPrimitive.boolean)
+        assertEquals(LoadSet.SCHEMA, written["schema"]!!.jsonPrimitive.int, "and the set file's schema stays 1")
     }
 }

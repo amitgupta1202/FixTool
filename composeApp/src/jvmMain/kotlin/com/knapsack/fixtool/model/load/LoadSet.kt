@@ -87,11 +87,24 @@ data class LoadSet(
      *
      * A set of six phases must never fail on phase five for something that could have been said before
      * phase one, which is why nothing dials until this is empty.
+     *
+     * **A muted phase has to resolve, and is not judged.** Its label, its profile, its template and the
+     * tag a reply is matched on are still refused, because the record carries its plan and [plan] cannot
+     * build one without them. Nothing about how it would have behaved is: not the names its template
+     * reads, not its store, not its own captures, and not whether a lane of its profile can log on. A
+     * muted phase whose venue is down blocks nothing, which is the point of parking it. What parking does
+     * cost is its captures: they leave the set of names a later phase may read, and
+     * [mutedCaptureSentence] says so in the reading phase's voice.
      */
-    @Suppress("CyclomaticComplexMethod")
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     fun problems(resolve: Resolver, surface: LoadPlan.Surface): List<Problem> {
         if (phases.isEmpty()) return listOf(Problem(null, "A set needs a phase. Add one under Phases."))
         val found = mutableListOf<Problem>()
+        // "A set needs a phase" asked of a set that has them and parked every one. Refused rather than run
+        // to a verdict on nothing.
+        if (phases.all { it.muted }) {
+            found += Problem(null, "Every phase is muted. Unmute one, or the set has nothing to run.")
+        }
         phases
             .groupBy { it.label.trim().lowercase() }
             .filterValues { it.size > 1 }
@@ -116,7 +129,9 @@ data class LoadSet(
                 found += Problem(n, "no saved connection profile named '${spec.profile}'.")
                 return@forEachIndexed
             }
-            if (judgedProfiles.add(profile.id)) {
+            // Not for a muted phase: the override is judged for the lanes the set will open, and a muted
+            // phase opens none, so its profile does not enter [judgedProfiles] either.
+            if (!spec.muted && judgedProfiles.add(profile.id)) {
                 LoadPlan.storeProblem(profile.name, profile.config, storeAndLog)?.let { found += Problem(null, it) }
             }
             val template = resolve.template(spec.template, profile.id)
@@ -125,26 +140,43 @@ data class LoadSet(
                     Problem(n, "no template '${spec.template}': not a file, and no saved message of that id or name.")
                 return@forEachIndexed
             }
-            captureProblems(spec, index, claimed).forEach { found += Problem(n, it) }
-            // A name is readable in this phase when the set seeds it, a lane hands it over, or an EARLIER
-            // phase captured it. A capture in this phase or a later one is a different mistake, and the
-            // sentence below says which rather than sending the author to the Seed band for it.
-            //
-            // Which is why [tooLate] is handed to templateProblems as though it were seeded: a name that
-            // IS captured, only in the wrong order, is not a name nothing seeds, and printing both
-            // sentences read as two faults with two remedies for one mistake.
-            val earlier = phases.take(index).flatMap { it.capture.keys }.toSet()
-            val tooLate = phases.drop(index).flatMap { it.capture.keys }.toSet()
-            LoadPlan.templateProblems(template, seed.keys + earlier + tooLate, surface).forEach { found += Problem(n, it) }
-            template.readsThatAreNotSeeded(seed.keys + earlier).filter { it in tooLate }.forEach { name ->
-                found +=
-                    Problem(
-                        n,
-                        "the template reads \${$name} and no earlier phase captures it. " +
-                            "Add a capture to a phase before it, or seed it.",
-                    )
+            if (!spec.muted) {
+                captureProblems(spec, index, claimed).forEach { found += Problem(n, it) }
+                // A name is readable in this phase when the set seeds it, a lane hands it over, or an
+                // EARLIER LIVE phase captured it. A capture in this phase or a later one is a different
+                // mistake, and so is one an earlier phase keeps and is muted, and each sentence below says
+                // which rather than sending the author to the Seed band for it.
+                //
+                // Which is why [tooLate] and the parked names are handed to templateProblems as though
+                // they were seeded: a name that IS captured, only in the wrong order or by a phase nothing
+                // will run, is not a name nothing seeds, and printing both sentences reads as two faults
+                // with two remedies for one mistake.
+                val earlier =
+                    phases
+                        .take(index)
+                        .filterNot { it.muted }
+                        .flatMap { it.capture.keys }
+                        .toSet()
+                val tooLate = phases.drop(index).flatMap { it.capture.keys }.toSet()
+                val unresolved = template.readsThatAreNotSeeded(seed.keys + earlier)
+                val parked = parkedCaptures(index, unresolved)
+                val spokenFor = parked.values.flatten().toSet()
+                LoadPlan
+                    .templateProblems(template, seed.keys + earlier + tooLate + spokenFor, surface)
+                    .forEach { found += Problem(n, it) }
+                unresolved.filter { it in tooLate && it !in spokenFor }.forEach { name ->
+                    found +=
+                        Problem(
+                            n,
+                            "the template reads \${$name} and no earlier phase captures it. " +
+                                "Add a capture to a phase before it, or seed it.",
+                        )
+                }
+                parked.forEach { (before, names) ->
+                    found += Problem(n, mutedCaptureSentence(names, before, phases[before - 1].label, surface))
+                }
+                spec.capture.keys.forEach { claimed[it] = n }
             }
-            spec.capture.keys.forEach { claimed[it] = n }
             if (spec.match == null && template.inferMatch() == null) {
                 found +=
                     Problem(
@@ -179,6 +211,48 @@ data class LoadSet(
                 else -> null
             }
         }
+
+    /**
+     * **What an earlier muted phase keeps that this phase reads**, by the number of that muted phase.
+     *
+     * One entry per muted phase, each name attributed to the **first** muted phase that keeps it, which is
+     * the attribution the editor's own capture hint already makes. Two muted phases each keeping a name
+     * this phase reads is two phases to unmute, so it is two sentences.
+     */
+    private fun parkedCaptures(index: Int, unresolved: Set<String>): Map<Int, List<String>> {
+        val parked = linkedMapOf<Int, List<String>>()
+        val spokenFor = mutableSetOf<String>()
+        phases.take(index).forEachIndexed { i, before ->
+            if (!before.muted) return@forEachIndexed
+            val kept = before.capture.keys.filter { it in unresolved && it !in spokenFor }
+            if (kept.isNotEmpty()) {
+                parked[i + 1] = kept
+                spokenFor += kept
+            }
+        }
+        return parked
+    }
+
+    /**
+     * "the template reads ${quoteId} and ${offer}, and the phase that keeps them, phase 1 · Ask for a
+     * quote, is muted. Unmute it, or add them under Seed."
+     *
+     * In the reading phase's voice, because that is the phase whose edit button is one line above the
+     * sentence, and naming the muted phase by number and label saves its reader going to look for it. The
+     * remedy follows the surface, as the seed sentence's does: only a dialog has a Seed band to point at.
+     */
+    private fun mutedCaptureSentence(
+        names: List<String>,
+        before: Int,
+        label: String,
+        surface: LoadPlan.Surface,
+    ): String {
+        val shown = names.map { "\${$it}" }
+        val many = shown.size > 1
+        val read = if (many) shown.dropLast(1).joinToString(", ") + " and " + shown.last() else shown.single()
+        return "the template reads $read, and the phase that keeps ${if (many) "them" else "it"}, " +
+            "phase $before · $label, is muted. Unmute it, or ${surface.scopeRemedy(many)}."
+    }
 
     /**
      * **One [LoadPlan] per phase, the seed rendered once and shared, every phase under one record id.**
@@ -219,6 +293,7 @@ data class LoadSet(
                     strictRate = spec.strictRate,
                     indexFrom = spec.indexFrom,
                     capture = spec.capture,
+                    muted = spec.muted,
                 )
             }
         return Planned(id, label.ifBlank { name }, name, onFailure, rendered, storeAndLog, plans)
@@ -288,6 +363,16 @@ data class LoadPhaseSpec(
     val capture: Map<String, Int> = emptyMap(),
     val settleMs: Long = LoadPlan.DEFAULT_SETTLE_MS,
     val strictRate: Boolean = false,
+    /**
+     * **Parked, not deleted.** The phase keeps its template, its profile, its shape and its place in the
+     * order, and the runner skips it entirely: no lane of its profile is opened and nothing is issued.
+     *
+     * The record still carries its plan, as a SKIPPED phase noted [LoadRecord.MUTED_NOTE], so a reader can
+     * say what would have run. Written to the file only when set and read back absent as false, which is
+     * the same bargain a scenario step's `muted` strikes: a set that never parked a phase never grows the
+     * key.
+     */
+    val muted: Boolean = false,
 ) {
     /** "RFQ Load Pass · 35=AJ → AI · 117 QuoteID · ×2,000 from 2,001 · settle 30s", for a row and a block. */
     fun describe(): String =

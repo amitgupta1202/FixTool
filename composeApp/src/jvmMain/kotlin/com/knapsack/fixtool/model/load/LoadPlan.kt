@@ -47,6 +47,13 @@ data class LoadPlan(
      * [LoadPhaseSpec.capture]: a single run captures nothing, because it has no later phase to read them.
      */
     val capture: Map<String, Int> = emptyMap(),
+    /**
+     * **This phase of a set is parked**, so the runner skips it and the record notes it as skipped.
+     *
+     * Set-only, as [indexFrom] and [capture] are: a single run has nothing to park it in. The plan is
+     * carried all the same, because the record has to say what would have run. See [LoadPhaseSpec.muted].
+     */
+    val muted: Boolean = false,
 ) {
     /** How many messages the plan asks for. */
     val requested: Long get() = shape.requested
@@ -79,10 +86,19 @@ data class LoadPlan(
      */
     enum class Surface(
         internal val seedRemedy: (String) -> String,
+        /**
+         * The other way to put a name in scope, as a clause rather than a sentence: the muted-capture
+         * refusal ends "Unmute it, or seed them with --seed." and names every name at once, so it cannot
+         * borrow [seedRemedy], which is a whole sentence about one of them.
+         */
+        internal val scopeRemedy: (Boolean) -> String,
     ) {
-        DIALOG({ "Add $it=… under Seed." }),
-        CLI({ "Pass --seed $it=… on the command line, or capture it in an earlier phase of a set." }),
-        API({ "Add \"$it\" to the request's seed object." }),
+        DIALOG({ "Add $it=… under Seed." }, { if (it) "add them under Seed" else "add it under Seed" }),
+        CLI(
+            { "Pass --seed $it=… on the command line, or capture it in an earlier phase of a set." },
+            { if (it) "seed them with --seed" else "seed it with --seed" },
+        ),
+        API({ "Add \"$it\" to the request's seed object." }, { if (it) "seed them" else "seed it" }),
     }
 
     companion object {

@@ -123,7 +123,13 @@ class LoadSetRunnerTest {
 
     private inner class Resolve : LoadSet.Resolver {
         override fun profile(key: String): LoadSet.Profile? =
-            if (key == "LOADGEN") LoadSet.Profile("p", "LOADGEN", FixConnectionConfig()) else null
+            when (key) {
+                "LOADGEN" -> LoadSet.Profile("p", "LOADGEN", FixConnectionConfig())
+                // A second profile, so a muted phase can be the only phase that names it and its lanes
+                // can be shown never to have been opened.
+                "QUIET" -> LoadSet.Profile("q", "QUIET", FixConnectionConfig())
+                else -> null
+            }
 
         override fun template(key: String, profileId: String?): LoadTemplate? =
             when (key) {
@@ -131,6 +137,8 @@ class LoadSetRunnerTest {
                 "Hits" -> hit
                 "Orders" -> order
                 "Cancels" -> cancel
+                // No tag 35, which is the one thing CompiledTemplate refuses.
+                "Typeless" -> LoadTemplate("Typeless", listOf(11 to "T-\${messageIndex}"))
                 else -> null
             }
     }
@@ -716,6 +724,123 @@ class LoadSetRunnerTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    // -------------------------------------------------------------------------------------------------
+    // A muted phase
+    // -------------------------------------------------------------------------------------------------
+
+    /**
+     * **Parked from the first record**, not when the loop reaches it, so the live document draws it as
+     * skipped rather than as queued for the length of the phases before it.
+     */
+    @Test
+    fun `a muted phase is skipped from the first record, its lanes never open, and the rest run`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, venue()) }
+        val host = FakeHost(clock, lanes)
+        val seen = mutableListOf<List<LoadStatus>>()
+        val phases =
+            listOf(
+                spec("Ask for a quote", "Quotes", LoadMatch(131, 131, "S")),
+                spec("Never runs", "Hits", LoadMatch(11, 11, "8")).copy(profile = "QUIET", muted = true),
+                spec("Hit them", "Hits", LoadMatch(11, 11, "8")),
+            )
+
+        val record =
+            LoadSetRunner(host, clock = clock).run(planned(phases = phases)) { seen += it.phases.map { p -> p.status } }
+
+        assertEquals(
+            listOf(LoadStatus.PENDING, LoadStatus.SKIPPED, LoadStatus.PENDING),
+            seen.first(),
+            "the parked phase is skipped in the record published before anything dialled",
+        )
+        assertEquals(listOf(LoadStatus.DONE, LoadStatus.SKIPPED, LoadStatus.DONE), record.phases.map { it.status })
+        assertEquals(LoadRecord.MUTED_NOTE, record.phases[1].note)
+        assertEquals(0, record.phases[1].lanes, "no lane was opened for it")
+        assertEquals(record.startedAt, record.phases[1].finishedAt, "and it was over before the set began")
+        assertEquals(listOf("p"), host.laneOpensByProfile, "QUIET's lanes were never asked for")
+        assertEquals(SetOutcome.PASSED, record.verdict.outcome)
+        assertNull(record.verdict.phase, "a passed set names no phase")
+        assertEquals("2 passed, 1 muted", record.verdict.counts())
+        assertEquals(0, record.exitCode)
+        assertEquals(8L, record.phases[2].replies.matched, "phase 3 kept its own number and ran")
+    }
+
+    /** A stop must not overwrite the muted note: the phase was parked before anybody pressed anything. */
+    @Test
+    fun `a muted phase stays muted when the set stops`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, venue()) }
+        val host = FakeHost(clock, lanes)
+        val phases =
+            listOf(
+                spec("Ask for a quote", "Quotes", LoadMatch(131, 131, "S"), count = 400),
+                spec("Never runs", "Hits", LoadMatch(11, 11, "8")).copy(muted = true),
+                spec("Hit them", "Hits", LoadMatch(11, 11, "8")),
+            )
+
+        val record =
+            LoadSetRunner(host, clock = clock).run(
+                planned(phases = phases),
+                cancelled = { lanes.sumOf { it.sent.size } >= 20 },
+            )
+
+        assertEquals(SetOutcome.STOPPED, record.verdict.outcome)
+        assertEquals(1, record.verdict.phase)
+        assertEquals(LoadRecord.MUTED_NOTE, record.phases[1].note)
+        assertEquals(LoadRecord.STOPPED_NOTE, record.phases[2].note)
+        assertEquals("1 stopped, 1 skipped, 1 muted", record.verdict.counts())
+    }
+
+    /**
+     * **Stopped in the moment between the 202 and phase 1's first send, with phase 1 parked.**
+     *
+     * The muted stub is written at set start, so the first skipped phase in the list is one the set was
+     * never going to run: reading its note would say "muted in the set", and a set somebody ended by hand
+     * would come back FAILED.
+     */
+    @Test
+    fun `a set stopped before phase one dialled, with phase one muted, is stopped and not failed`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, venue()) }
+        val host = FakeHost(clock, lanes)
+        val phases =
+            listOf(
+                spec("Ask for a quote", "Quotes", LoadMatch(131, 131, "S")).copy(muted = true),
+                spec("Hit them", "Hits", LoadMatch(11, 11, "8")),
+            )
+
+        val record = LoadSetRunner(host, clock = clock).run(planned(phases = phases), cancelled = { true })
+
+        assertEquals(listOf(LoadStatus.SKIPPED, LoadStatus.SKIPPED), record.phases.map { it.status })
+        assertEquals(LoadRecord.MUTED_NOTE, record.phases[0].note)
+        assertEquals(LoadRecord.STOPPED_NOTE, record.phases[1].note)
+        assertEquals(SetOutcome.STOPPED, record.verdict.outcome)
+        assertEquals(2, record.verdict.phase, "the phase the stop landed on, not the one that was parked")
+        assertEquals("1 skipped, 1 muted", record.verdict.counts())
+        assertEquals(1, record.exitCode)
+        assertEquals(0, lanes.sumOf { it.sent.size }, "and nothing dialled")
+    }
+
+    /** A phase parked while its message is half written must not stop the phase after it running. */
+    @Test
+    fun `a muted phase whose template will not compile does not refuse the set`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, venue()) }
+        val host = FakeHost(clock, lanes)
+        val phases =
+            listOf(
+                spec("Half written", "Typeless", LoadMatch(11, 11, "8")).copy(muted = true),
+                spec("Ask for a quote", "Quotes", LoadMatch(131, 131, "S")),
+            )
+
+        val record = LoadSetRunner(host, clock = clock).run(planned(phases = phases))
+
+        assertEquals(SetOutcome.PASSED, record.verdict.outcome)
+        assertEquals("1 passed, 1 muted", record.verdict.counts())
+        assertEquals("Typeless", record.phases[0].template.name, "the stub still names what would have run")
+        assertEquals("", record.phases[0].template.msgType, "and says it had no MsgType to name")
     }
 }
 

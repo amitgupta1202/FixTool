@@ -72,6 +72,9 @@ object LoadReportCodec {
                         put("failed", v.failed)
                         if (v.stopped > 0) put("stopped", v.stopped)
                         put("skipped", v.skipped)
+                        // Only when non-zero, as `stopped` is, so a record with nothing muted is byte for
+                        // byte what it was, and a reader of `.verdict.skipped` keeps its meaning.
+                        if (v.muted > 0) put("muted", v.muted)
                     }
                 },
             )

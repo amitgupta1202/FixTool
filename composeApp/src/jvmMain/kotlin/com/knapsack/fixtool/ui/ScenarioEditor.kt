@@ -98,6 +98,22 @@ enum class StepKind(val label: String) {
 }
 
 /**
+ * **Which of a scenario's three lists a step belongs to.** The editor holds all three in one list, so a
+ * row has to carry the one it came from: it is what Save partitions on, and what keeps a teardown step
+ * from being re-ordered into the middle of the flow.
+ *
+ * [label] is the word the row and the detail title are numbered with. The flow's is "Step" because that is
+ * what the run report and the failure deep-link call it, and those numbers must keep lining up.
+ */
+enum class StepPhase(
+    val label: String,
+) {
+    SETUP("Setup"),
+    FLOW("Step"),
+    TEARDOWN("Teardown"),
+}
+
+/**
  * A step under edit. Unlike the old builder draft, this round-trips **everything** the model holds —
  * the Expect/Wait `match` predicate, the expectation's `golden`, and the step's [ScenarioStep.stepId]
  * survive load → edit → save.
@@ -126,9 +142,18 @@ data class EditStep(
     val origin: StepOrigin = StepOrigin.LIVE,
     /** See [ScenarioStep.muted]. */
     val muted: Boolean = false,
+    /**
+     * Which of the scenario's three lists this step came from, and the one it goes back into. See
+     * [StepPhase]. Defaults to the flow, which is where a step the author inserts belongs.
+     */
+    val phase: StepPhase = StepPhase.FLOW,
 )
 
-fun ScenarioStep.toEditStep(): EditStep =
+/** A step as the editor holds it, in the phase it came from. See [StepPhase]. */
+fun ScenarioStep.toEditStep(phase: StepPhase = StepPhase.FLOW): EditStep = editStep().copy(phase = phase)
+
+/** The conversion itself, which knows every kind and no phase. */
+private fun ScenarioStep.editStep(): EditStep =
     when (this) {
         is ScenarioStep.Send ->
             EditStep(StepKind.SEND, session, fields = SendFields.parse(raw), stepId = stepId, origin = origin, muted = muted)
@@ -172,7 +197,14 @@ fun EditStep.toStep(): ScenarioStep =
  * exactly when the author has changed something. One function, so the editor and its host cannot come to
  * disagree about what "untouched" means.
  */
-fun Scenario.asEditorSeed(): Scenario = copy(steps = steps.map { it.toEditStep().toStep() })
+fun Scenario.asEditorSeed(): Scenario =
+    copy(
+        // Every phase, because the editor now holds every phase: a setup Send goes through the same
+        // re-write as a flow one, and a seed that ignored it would open the tab dirty.
+        setup = setup.map { it.toEditStep().toStep() },
+        steps = steps.map { it.toEditStep().toStep() },
+        teardown = teardown.map { it.toEditStep().toStep() },
+    )
 
 /**
  * The failing-run context handed from the session window by the failure → editor deep-link:
@@ -210,7 +242,10 @@ fun ScenarioEditor(
     dictionary: FixDictionary?,
     sessionOptions: List<String>,
     onSave: (Scenario) -> Unit,
-    /** Step index the deep-link landed on (the step a run failed at); null outside one. Not the selection. */
+    /**
+     * Step index the deep-link landed on (the step a run failed at); null outside one. Not the selection.
+     * A FLOW index, as a run report's step numbers are: the list may open with setup rows above it.
+     */
     focusStep: Int? = null,
     /**
      * Opens the diff for a step, by its id — the one surface that authors or repairs an assertion. The
@@ -225,7 +260,12 @@ fun ScenarioEditor(
      * this is how it gets it. See [ScenarioDoc].
      */
     onChange: (Scenario) -> Unit = {},
-    /** Where the cursor sits, hoisted for the same reason. Seeded from here; reported through [onSelectStep]. */
+    /**
+     * Where the cursor sits, hoisted for the same reason. Seeded from here, reported through [onSelectStep],
+     * and a FLOW index like [focusStep], which is the same value the host puts in this one after a failure.
+     * A setup row is therefore reported as a negative and a teardown row as past the flow's end, so the
+     * round trip lands the cursor back on the row it left.
+     */
     selectedStep: Int? = null,
     onSelectStep: (Int) -> Unit = {},
     /** The list/detail divider, hoisted for the same reason again. See [ScenarioDoc.Editor.split]. */
@@ -238,15 +278,40 @@ fun ScenarioEditor(
     var name by remember { mutableStateOf(initial.name) }
     var traffic by remember { mutableStateOf(initial.traffic) }
     var binding by remember { mutableStateOf(initial.binding) }
-    val steps = remember { mutableStateListOf<EditStep>().apply { addAll(initial.steps.map { it.toEditStep() }) } }
+    // One list, three phases, contiguous and in run order: setup, then the flow, then teardown. A setup
+    // step is a step, and while it lived only in the header's summary the one way to stop a captured
+    // scenario wiping the session log on every run was to edit the file by hand.
+    val steps =
+        remember {
+            mutableStateListOf<EditStep>().apply {
+                addAll(initial.setup.map { it.toEditStep(StepPhase.SETUP) })
+                addAll(initial.steps.map { it.toEditStep(StepPhase.FLOW) })
+                addAll(initial.teardown.map { it.toEditStep(StepPhase.TEARDOWN) })
+            }
+        }
     // A stable id per step. The detail editor seeds its drafts once per step and must not re-seed on
     // every keystroke, so it is keyed — but an index is not an identity: delete a step above the
     // selection and a *different* step slides under the same index, and the stale drafts would then
     // be written onto it, silently overwriting assertions the user never opened.
-    val stepIds = remember { mutableStateListOf<Long>().apply { addAll(initial.steps.indices.map { it.toLong() }) } }
-    var nextStepId by remember { mutableStateOf(initial.steps.size.toLong()) }
+    val stepIds = remember { mutableStateListOf<Long>().apply { addAll(steps.indices.map { it.toLong() }) } }
+    var nextStepId by remember { mutableStateOf(steps.size.toLong()) }
+    // The phase segments, as they now stand. Every translation below counts rather than searches, which
+    // the list's contiguity is what permits: a move stays inside one phase, an insert takes its
+    // neighbour's, so the three segments can never interleave.
+    val setupCount = steps.count { it.phase == StepPhase.SETUP }
+    val flowCount = steps.count { it.phase == StepPhase.FLOW }
+    // [focusStep] and [selectedStep] are FLOW indices, because the run report and the failure deep-link
+    // number the flow's steps and those numbers have to keep lining up with this list. Setup rows sit
+    // above the flow, so a flow index becomes a row position by adding the setup count.
     var selectedIdx by remember {
-        mutableStateOf(selectedStep ?: focusStep ?: if (initial.steps.isEmpty()) -1 else 0)
+        val flow = selectedStep ?: focusStep
+        mutableStateOf(
+            when {
+                flow != null -> flow + initial.setup.size
+                initial.steps.isEmpty() -> -1
+                else -> initial.setup.size
+            },
+        )
     }
     // The outline's table. Held here with the steps, and emitted through the same `built` — a column is a
     // variable name and a cell is the value a run will have, so this is scenario state, not view chrome.
@@ -258,12 +323,25 @@ fun ScenarioEditor(
 
     val builtSteps = steps.map { it.toStep() }
     val table = Examples(columns, rows).takeIf { it.columns.isNotEmpty() || it.rows.isNotEmpty() }
-    val built = initial.copy(name = name, steps = builtSteps, traffic = traffic, binding = binding, examples = table)
+    // Save hands each phase back its own list, in the order its rows stand in.
+    val built =
+        initial.copy(
+            name = name,
+            setup = builtSteps.filterIndexed { i, _ -> steps[i].phase == StepPhase.SETUP },
+            steps = builtSteps.filterIndexed { i, _ -> steps[i].phase == StepPhase.FLOW },
+            teardown = builtSteps.filterIndexed { i, _ -> steps[i].phase == StepPhase.TEARDOWN },
+            traffic = traffic,
+            binding = binding,
+            examples = table,
+        )
     // By value, not by every recomposition: an untouched editor emits its seed once and then stays quiet.
     LaunchedEffect(built) { onChange(built) }
 
-    val stepVars = ScenarioAnnotations.annotate(builtSteps)
-    val varSites = ScenarioAnnotations.sites(builtSteps, columns)
+    // The variables are the flow's: a name is minted and read by the steps a report is judged over, and
+    // every index in an annotation is an index into that list.
+    val flowSteps = built.steps
+    val stepVars = ScenarioAnnotations.annotate(flowSteps)
+    val varSites = ScenarioAnnotations.sites(flowSteps, columns)
     // Muted mints stay RESERVED even while they do not run: a fresh mint that took a parked step's name
     // would collide with it the moment the step is unmuted. Hoisted above the extract door, which has to
     // avoid every one of them when it names a column.
@@ -273,8 +351,15 @@ fun ScenarioEditor(
 
     fun select(index: Int) {
         selectedIdx = index
-        onSelectStep(index)
+        // Reported as the flow index the parameter takes back, so the cursor survives a tab switch onto
+        // the row it left: a setup row reports a negative, a teardown row one past the flow's end, and
+        // both translate back to themselves.
+        onSelectStep(index - setupCount)
     }
+
+    /** The number a row wears, counted inside its own phase, so "Step 2" is the flow's second step. */
+    fun numberInPhase(at: Int): Int =
+        steps.getOrNull(at)?.let { row -> steps.take(at).count { it.phase == row.phase } + 1 } ?: (at + 1)
 
     /**
      * **A literal becomes a column.** Capture bakes literals into a scenario's sends, so the first table is
@@ -299,9 +384,12 @@ fun ScenarioEditor(
     }
 
     fun insertStep(kind: StepKind) {
-        val newStep = if (kind == StepKind.SEND) EditStep(kind, fields = listOf(SendField(35, ""))) else EditStep(kind)
-        val at = if (selectedIdx in steps.indices) selectedIdx + 1 else steps.size
-        steps.add(at, newStep)
+        // A step joins the phase it is inserted into, under the selection as it always has. With nothing
+        // selected it joins the flow at the end of it, never below teardown, which runs after everything.
+        val phase = steps.getOrNull(selectedIdx)?.phase ?: StepPhase.FLOW
+        val fields = if (kind == StepKind.SEND) listOf(SendField(35, "")) else emptyList()
+        val at = if (selectedIdx in steps.indices) selectedIdx + 1 else setupCount + flowCount
+        steps.add(at, EditStep(kind, fields = fields, phase = phase))
         stepIds.add(at, nextStepId++)
         select(at)
     }
@@ -327,13 +415,15 @@ fun ScenarioEditor(
             // Setup used to stand on its own row below the header, spending a whole line on one quiet
             // sentence. It rides in the header's empty span now — a reclaimed line — beside Save, where
             // the wipe warning sits next to the button that launches the run it warns about.
-            if (initial.setup.isNotEmpty()) {
-                SetupSummary(initial.setup, dictionary, modifier = Modifier.padding(end = 12.dp))
+            // Read off the rows rather than off `initial`, because setup is edited in the list below now:
+            // a warning about a wipe the author has just muted away would be worse than no warning.
+            if (built.setup.isNotEmpty()) {
+                SetupSummary(built.setup, dictionary, modifier = Modifier.padding(end = 12.dp))
             }
             SlimButton(
                 text = "Save scenario",
                 onClick = { onSave(built) },
-                enabled = name.isNotBlank() && steps.isNotEmpty(),
+                enabled = name.isNotBlank() && flowCount > 0,
                 color = AppTheme.Colors.success,
                 modifier = Modifier.testTag("editor-save"),
             )
@@ -346,8 +436,13 @@ fun ScenarioEditor(
         // would leave literal on the wire. The per-step badges say who touches a name; this says what it IS.
         // Judged over the steps that will RUN: a muted Send's mint does not happen, so an active reference
         // to it is exactly the leaves-a-literal problem this strip warns about.
-        val activeSteps = builtSteps.filterNot { it.muted }
-        val mintedNames = builtSteps.zip(stepVars).filterNot { (s, _) -> s.muted }.flatMap { (_, v) -> v.minted }.distinct()
+        val activeSteps = flowSteps.filterNot { it.muted }
+        val mintedNames =
+            flowSteps
+                .zip(stepVars)
+                .filterNot { (s, _) -> s.muted }
+                .flatMap { (_, v) -> v.minted }
+                .distinct()
         // A column IS a mint — the row writes it before the first step runs — so an outline does not report
         // its own columns as typos.
         val unminted = ScenarioAnnotations.unminted(activeSteps, columns)
@@ -418,7 +513,8 @@ fun ScenarioEditor(
         }
         val stepListState =
             androidx.compose.foundation.lazy.rememberLazyListState(
-                initialFirstVisibleItemIndex = (focusStep ?: 0).coerceAtLeast(0),
+                // A row position, so the deep-link's flow index has to clear the setup rows above it.
+                initialFirstVisibleItemIndex = ((focusStep ?: 0) + initial.setup.size).coerceAtLeast(0),
             )
         // Draggable, seeded from the hoisted value so the author's drag survives a tab switch. 55/45 by
         // default: the step list is a column of sentences (labels, session badges, var chips) and earns the
@@ -431,16 +527,21 @@ fun ScenarioEditor(
                     itemsIndexed(steps) { i, step ->
                         StepRow(
                             index = i,
+                            number = numberInPhase(i),
                             step = step,
-                            built = builtSteps.getOrNull(i),
+                            built = step.toStep(),
                             dictionary = dictionary,
                             selected = i == selectedIdx,
                             sessionColor = sessionColors[step.session] ?: AppTheme.Colors.textDisabled,
-                            vars = stepVars.getOrNull(i),
+                            // The annotations are the flow's, so a setup or teardown row has none: the
+                            // names it mints or reads are not the ones a report is judged over.
+                            vars = if (step.phase == StepPhase.FLOW) stepVars.getOrNull(i - setupCount) else null,
                             varSites = varSites,
                             varColors = varColors,
-                            canMoveUp = i > 0,
-                            canMoveDown = i < steps.size - 1,
+                            // Re-ordering stays inside one phase. Across a boundary the move would not be a
+                            // move: it would change when the step runs, which is a different edit.
+                            canMoveUp = i > 0 && steps[i - 1].phase == step.phase,
+                            canMoveDown = i < steps.size - 1 && steps[i + 1].phase == step.phase,
                             onSelect = { select(i) },
                             onMove = { delta ->
                                 val to = i + delta
@@ -488,7 +589,7 @@ fun ScenarioEditor(
                     // a different step comes under the selection — and only then.
                     key(stepIds[selectedIdx]) {
                         StepDetail(
-                            index = selectedIdx,
+                            number = numberInPhase(selectedIdx),
                             step = steps[selectedIdx],
                             dictionary = dictionary,
                             sessionOptions = sessionOptions,
@@ -509,8 +610,8 @@ fun ScenarioEditor(
         ScenarioExamplesTable(
             columns = columns,
             rows = rows,
-            columnRole = { column -> columnRole(column, varSites[column]?.referencedAt.orEmpty(), builtSteps) },
-            unread = ScenarioAnnotations.unreadColumns(builtSteps, columns),
+            columnRole = { column -> columnRole(column, varSites[column]?.referencedAt.orEmpty(), flowSteps) },
+            unread = ScenarioAnnotations.unreadColumns(flowSteps, columns),
             expanded = tableOpen,
             onExpand = { tableOpen = it },
             onColumns = { columns = it },
@@ -541,10 +642,13 @@ private fun columnRole(column: String, referencedAt: List<Int>, steps: List<Scen
  * The setup's one-line summary, worn in the header row. What setup *does* is a lesson paid once, so the
  * step enumeration folds behind the ⓘ (the app's one idiom for that); the wipe warning is the load-bearing
  * part and stays on the line, at a whisper. Extracted so the header row reads as a row, not a paragraph.
+ *
+ * It is a summary of the *rows*, which are editable below it, so muting the Clear step takes the warning
+ * off the line in the same frame. A muted step wipes nothing.
  */
 @Composable
 private fun SetupSummary(setup: List<ScenarioStep>, dictionary: FixDictionary?, modifier: Modifier = Modifier) {
-    val clears = setup.any { it is ScenarioStep.ClearMessages }
+    val clears = setup.any { it is ScenarioStep.ClearMessages && !it.muted }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Text(
             "setup: ${setup.size} ${if (setup.size == 1) "step" else "steps"} before the flow" +
@@ -553,10 +657,21 @@ private fun SetupSummary(setup: List<ScenarioStep>, dictionary: FixDictionary?, 
             fontSize = 9.5.sp,
             modifier = Modifier.testTag("setup-summary"),
         )
+        val enumerated =
+            setup.joinToString("; ") { step ->
+                val on = step.sessionOrNull()?.let { " [$it]" }.orEmpty()
+                stepLabel(step, dictionary) + on + (if (step.muted) " (muted)" else "")
+            }
         HintIcon(
-            "Setup runs before the steps on every run: " +
-                setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") } +
-                (if (clears) ". Clearing gives each run a deterministic starting point — and erases the session's message log." else "."),
+            "Setup runs before the steps on every run: " + enumerated +
+                if (clears) {
+                    ". Clearing gives each run a deterministic starting point and erases the session's " +
+                        "message log. To keep the log between runs, mute or remove the Clear step in the " +
+                        "list below, and consider BINDING THIS RUN so a run cannot pass on an earlier " +
+                        "run's reply."
+                } else {
+                    "."
+                },
             modifier = Modifier.padding(start = 5.dp).testTag("setup-help"),
         )
     }
@@ -565,6 +680,8 @@ private fun SetupSummary(setup: List<ScenarioStep>, dictionary: FixDictionary?, 
 @Composable
 private fun StepRow(
     index: Int,
+    /** The row's number inside its own phase, 1-based. See [StepPhase]. */
+    number: Int,
     step: EditStep,
     built: ScenarioStep?,
     dictionary: FixDictionary?,
@@ -592,7 +709,9 @@ private fun StepRow(
                 .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
                 .testTag("step-row-$index"),
     ) {
-        RowIndex(index)
+        // Only the flow is numbered in the list. A setup row numbered "1" directly above the flow's "1" read
+        // as a duplicate, and the badge already says what the row is. RowIndex prints its argument plus one.
+        if (step.phase == StepPhase.FLOW) RowIndex(number - 1) else Box(modifier = Modifier.width(26.dp))
         SessionBadge(step.session, sessionColor, modifier = Modifier.width(120.dp))
         when (step.kind) {
             StepKind.SEND -> DirectionGlyph(outgoing = true, modifier = Modifier.padding(end = 6.dp))
@@ -606,6 +725,7 @@ private fun StepRow(
             fontSize = 11.sp,
             maxLines = 1,
         )
+        PhaseBadge(step.phase)
         if (step.muted) MutedChip()
         if (vars != null) VarBadges(vars, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
         Row(modifier = Modifier.weight(1f)) {}
@@ -630,6 +750,39 @@ private fun StepRow(
         IconButton(onClick = onRemove, modifier = Modifier.size(22.dp)) {
             Icon(Icons.Default.Delete, contentDescription = "Remove", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
         }
+    }
+}
+
+/**
+ * Which of the scenario's three lists a row belongs to, in the [ModeChipMini] register and a quiet colour.
+ * Only setup and teardown wear one: the flow is what the list is mostly made of, and a badge on every row
+ * would say nothing about any of them.
+ */
+@Composable
+private fun PhaseBadge(phase: StepPhase) {
+    if (phase == StepPhase.FLOW) return
+    val colour = AppTheme.Colors.textSecondary
+    AppTooltip(
+        if (phase == StepPhase.SETUP) {
+            "A setup step: the runner executes it before the flow's first step, on every run. Mute it, " +
+                "remove it or re-order it here like any other step."
+        } else {
+            "A teardown step: the runner executes it after the flow, even when a step failed."
+        },
+    ) {
+        Text(
+            phase.name,
+            color = colour,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            modifier =
+                Modifier
+                    .padding(start = 8.dp)
+                    .border(1.dp, colour.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("step-phase-badge"),
+        )
     }
 }
 
@@ -763,13 +916,15 @@ private fun BindingChip(scope: BindScope, onToggle: () -> Unit) {
     val colour = if (fresh) AppTheme.Colors.warning else AppTheme.Colors.info
     AppTooltip(
         if (fresh) {
-            "Binding is THIS RUN: a step may only bind a message that arrived after the run started. A " +
-                "reply to earlier traffic is invisible to it, so a step with nothing fresh times out " +
-                "instead of passing on an old message. Click for ANY."
+            "Binding is THIS RUN: an Expect step may only match a message that arrives after Run is " +
+                "pressed. Anything already in the session log is ignored, so a step with no new reply " +
+                "times out instead of passing on an old one. Use it on sessions that are always full of " +
+                "the expected type. It does not clear the log. Click for ANY."
         } else {
-            "Binding is ANY: a step may bind any message in the log, including one that arrived before " +
-                "the run started — on a session that is always full of the expected type that can pass on " +
-                "a reply to an earlier run. The run reports it when it happens. Click for THIS RUN."
+            "Binding is ANY: an Expect step may match any message in the session log, including one that " +
+                "was already there before Run was pressed. On a session that is always full of the " +
+                "expected type that can pass on a reply to an earlier run. The report flags it when that " +
+                "happens. Click for THIS RUN."
         },
     ) {
         Text(
@@ -847,7 +1002,8 @@ private fun secondsText(ms: Long): String =
 
 @Composable
 private fun StepDetail(
-    index: Int,
+    /** The step's number inside its own phase, which is what the title is numbered with. See [StepPhase]. */
+    number: Int,
     step: EditStep,
     dictionary: FixDictionary?,
     sessionOptions: List<String>,
@@ -865,9 +1021,9 @@ private fun StepDetail(
             // The Expect title says what the step expects, not merely that it is one — the same label the
             // step list shows, so the detail pane and the list cannot describe one step two ways.
             if (step.kind == StepKind.EXPECT) {
-                "Step ${index + 1} — ${stepLabel(step.toStep(), dictionary)}"
+                "${step.phase.label} $number — ${stepLabel(step.toStep(), dictionary)}"
             } else {
-                "Step ${index + 1} — ${step.kind.name.lowercase()}"
+                "${step.phase.label} $number — ${step.kind.name.lowercase()}"
             },
             color = AppTheme.Colors.text,
             fontWeight = FontWeight.SemiBold,

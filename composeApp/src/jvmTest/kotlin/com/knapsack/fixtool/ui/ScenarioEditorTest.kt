@@ -53,13 +53,18 @@ class ScenarioEditorTest {
         ),
     )
 
-    private fun render(dictionary: com.knapsack.fixtool.model.FixDictionary? = null, onSave: (Scenario) -> Unit) {
+    private fun render(
+        dictionary: com.knapsack.fixtool.model.FixDictionary? = null,
+        focusStep: Int? = null,
+        onSave: (Scenario) -> Unit,
+    ) {
         composeTestRule.setContent {
             Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
                 ScenarioEditor(
                     initial = scenario,
                     dictionary = dictionary,
                     sessionOptions = listOf("QUOTE", "TRADE"),
+                    focusStep = focusStep,
                     onSave = onSave,
                 )
             }
@@ -127,8 +132,9 @@ class ScenarioEditorTest {
     fun `bind predicate is editable from the step detail`() {
         var saved: Scenario? = null
         render { saved = it }
-        // Select the Expect step, then edit its bind predicate's message type.
-        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        // Select the Expect step, then edit its bind predicate's message type. Row 2: the fixture's setup
+        // Clear step is row 0, so the flow starts at row 1.
+        composeTestRule.onNodeWithTag("step-row-2").performClick()
         composeTestRule.onNodeWithTag("match-type").performTextClearance()
         composeTestRule.onNodeWithTag("match-type").performTextInput("S")
         composeTestRule.onNodeWithTag("editor-save").performClick()
@@ -166,8 +172,9 @@ class ScenarioEditorTest {
                 )
             }
         }
-        // Touch the form and leave it as empty as it started: type a message type, clear it again.
-        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        // Touch the form and leave it as empty as it started: type a message type, clear it again. Row 2 is
+        // the Expect, the setup Clear step being row 0.
+        composeTestRule.onNodeWithTag("step-row-2").performClick()
         composeTestRule.onNodeWithTag("match-type").performTextInput("8")
         composeTestRule.onNodeWithTag("match-type").performTextClearance()
         composeTestRule.onNodeWithTag("editor-save").performClick()
@@ -294,5 +301,105 @@ class ScenarioEditorTest {
             "35=\${tag35 = \"D\"}" in send.raw,
             "the value gained a name (no dictionary loaded, so the fallback name), same bytes on the wire: ${send.raw}",
         )
+    }
+
+    // ----- setup and teardown, in the step list ------------------------------------------------------
+
+    /**
+     * **A setup step is a step.** It used to appear only as the header's one-line summary, so the sole way
+     * to stop a captured scenario wiping the session log on every run was to edit the file by hand. It is a
+     * row now, above the flow, wearing the badge that says which list it belongs to.
+     */
+    @Test
+    fun `the setup step is a row above the flow, wearing its phase badge`() {
+        render {}
+
+        // Row 0 is the setup step, and its detail title numbers it inside its own phase.
+        composeTestRule.onNodeWithTag("step-row-0").performClick()
+        composeTestRule.onNodeWithText("Setup 1", substring = true).assertIsDisplayed()
+        // One badge, on that row alone: the flow is what the list is mostly made of and wears none.
+        composeTestRule.onAllNodesWithTag("step-phase-badge", useUnmergedTree = true).assertCountEquals(1)
+        composeTestRule.onAllNodesWithText("SETUP", useUnmergedTree = true).assertCountEquals(1)
+        // And the flow keeps its own numbering, which is what a run report and the deep-link count.
+        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        composeTestRule.onNodeWithText("Step 1", substring = true).assertIsDisplayed()
+        snapshot("workbench_editor_setup.png")
+    }
+
+    /** The row's controls are the step list's own: mute parks the setup step and Save keeps it parked. */
+    @Test
+    fun `muting the setup row parks the step in setup, and leaves the flow alone`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        composeTestRule.onNodeWithTag("mute-step-0").performClick()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(1, saved!!.setup.size)
+        assertTrue(saved!!.setup[0].muted, "the mute must reach the saved scenario's setup list")
+        assertEquals(
+            scenario.asEditorSeed().steps,
+            saved!!.steps,
+            "editing setup must not touch the flow",
+        )
+    }
+
+    /** And remove really removes it, from the list it came from. */
+    @Test
+    fun `removing the setup row empties setup`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        composeTestRule.onAllNodesWithContentDescription("Remove")[0].performClick()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue(saved!!.setup.isEmpty(), "the setup step is gone: ${saved!!.setup}")
+        assertEquals(2, saved!!.steps.size, "and the flow is untouched")
+    }
+
+    /** An insert joins the phase it was made in, so a second setup step is possible from the list. */
+    @Test
+    fun `an insert under the setup row joins setup`() {
+        var saved: Scenario? = null
+        render { saved = it }
+
+        composeTestRule.onNodeWithTag("step-row-0").performClick()
+        composeTestRule.onNodeWithTag("add-reset").performClick()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(2, saved!!.setup.size, "the new step joined setup: ${saved!!.setup}")
+        assertTrue(saved!!.setup[1] is ScenarioStep.ResetSeqNum, "and it is the kind that was inserted")
+        assertEquals(2, saved!!.steps.size, "the flow gained nothing")
+    }
+
+    /**
+     * The deep-link's step number counts the **flow**, because that is what the run report numbers. With a
+     * setup row above it, a focus of 1 has to land on the flow's second step and not on the flow's first.
+     */
+    @Test
+    fun `a deep-link's focus step counts the flow, not the rows above it`() {
+        render(focusStep = 1) {}
+
+        // The Expect's form, which only an Expect has, and its title numbered as the flow's second step.
+        composeTestRule.onNodeWithTag("match-type").assertExists()
+        composeTestRule.onNodeWithText("Step 2", substring = true).assertIsDisplayed()
+    }
+
+    /** The header's summary is read off the rows, so muting the Clear step retires its warning. */
+    @Test
+    fun `the summary drops the wipe warning once the clear step is muted`() {
+        render {}
+
+        composeTestRule.onNodeWithText("wipes the session log each run", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("mute-step-0").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule
+            .onAllNodesWithText("wipes the session log each run", substring = true)
+            .assertCountEquals(0)
+        // The line itself stays: the step is still there, and still runs when it is unmuted.
+        composeTestRule.onNodeWithTag("setup-summary").assertIsDisplayed()
     }
 }

@@ -2551,6 +2551,25 @@ ${incoming["D"].valueOfTag(38)}
     Each step can target a different <code>session</code>, so one scenario can drive an initiator and
     assert on an acceptor.</p>
 
+    <p>In the app they are rows of the editor's <strong>step list</strong> like any other, above and below
+    the flow and badged <strong>SETUP</strong> or <strong>TEARDOWN</strong>, so they take the same mute,
+    remove, re-order and session controls. That is where a captured scenario's <strong>Clear
+    messages</strong> step lives, and that step is what erases the session's message log on every run: mute
+    it or remove it there to keep the log between runs. Numbering counts the flow, so <em>Step 3</em> is
+    still the run report's step 3 however many setup rows sit above it.</p>
+
+    <p><strong>BINDING</strong> (the chip in the editor's header, <code>binding</code> in the file) says
+    which messages an <code>expect</code> step may match. <strong>ANY</strong>, the default, lets a step
+    match any message in the session log, including one that was already there before Run was pressed. On a
+    session that is always full of the expected type that can pass on a reply to an earlier run, and the
+    report flags it when it happens. <strong>THIS RUN</strong> (<code>"binding": "this_run"</code>) lets a
+    step match only a message that arrives after Run is pressed, so a step with no new reply times out
+    instead of passing on an old one. It does not clear the log, which is what a setup <strong>Clear
+    messages</strong> step is for. Its neighbour <strong>TRAFFIC</strong> is the other stream-level
+    question, and about the messages no step bound rather than the ones a step may:
+    <strong>OPEN</strong> ignores them, <strong>STRICT</strong> fails the run on them (session
+    administration exempt).</p>
+
     <p>Four tools manage them: <code>fixtool_save_scenario</code>, <code>fixtool_list_scenarios</code>,
     <code>fixtool_run_scenario</code>, and <code>fixtool_delete_scenario</code>. A run returns a
     per-step, per-tag pass/fail report; pass <code>format:"junit"</code> to get JUnit XML for CI.</p>

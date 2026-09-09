@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -167,6 +168,50 @@ class ScenarioEditorStepIdentityTest {
         val minted = persisted[1].stepId
         assertTrue(minted.isNotBlank(), "the new step reaches disk with an id")
         assertTrue(minted !in before, "and it is not one of theirs")
+    }
+
+    /**
+     * **A partition is not a re-numbering.** The editor holds setup, the flow and teardown as one list and
+     * hands each phase back its own on Save, and a setup step's id is its identity exactly as a flow step's
+     * is: the run report addresses it, and a re-mint would point a held report at a different step.
+     */
+    @Test
+    fun `a setup step keeps its id while the flow around it is re-ordered`() {
+        val loaded = scenario.copy(setup = listOf(ScenarioStep.ClearMessages("DEMO1"))).withIds()
+        val setupId = loaded.setup[0].stepId
+        val idA = loaded.steps[0].stepId
+        var saved: Scenario? = null
+        composeTestRule.setContent {
+            ScenarioEditor(
+                initial = loaded,
+                dictionary = null,
+                sessionOptions = emptyList(),
+                onSave = { saved = it },
+            )
+        }
+
+        // The setup row's own arrow is dead: across a phase boundary the move would not be a move, it
+        // would change when the step runs. Index 1 is the flow's first step, which does move.
+        composeTestRule.onAllNodesWithContentDescription("Down")[0].assertIsNotEnabled()
+        composeTestRule.onAllNodesWithContentDescription("Down")[1].performClick()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+
+        val out = saved!!
+        assertEquals(1, out.setup.size, "setup keeps its one step")
+        assertEquals(setupId, out.setup[0].stepId, "and that step's id")
+        val values =
+            out.steps.map { step ->
+                val fields = (step as ScenarioStep.Expect).expectation.fields
+                val matcher = fields.single().matcher
+                (matcher as Matcher.Exact).value
+            }
+        assertEquals(listOf("B", "A", "C", "D"), values, "the flow re-ordered under it")
+        assertEquals(idA, out.steps[1].stepId, "carrying its id down with it")
+        // Nothing for the service's own withIds() to mint, in any phase.
+        assertEquals(
+            out.setup.map { it.stepId } + out.steps.map { it.stepId },
+            out.withIds().let { done -> done.setup.map { it.stepId } + done.steps.map { it.stepId } },
+        )
     }
 
     @Test

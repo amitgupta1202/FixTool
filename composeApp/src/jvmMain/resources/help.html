@@ -623,8 +623,8 @@
         and click <strong>Connect</strong>: each session opens as its own tab, named
         <code>Profile Name [1]</code>, <code>Profile Name [2]</code>, and so on.</p>
 
-    <p>Each session needs its own identity. When Sessions is greater than 1, the identity fields
-        (SenderCompID, TargetCompID, Username, Password) accept three forms:</p>
+    <p>Each session needs its own identity. The identity fields (SenderCompID, TargetCompID, Username,
+        Password) accept three forms, and a numbering pattern resolves at Sessions 1 as well, to slot 1:</p>
 
     <table>
         <tr>
@@ -769,7 +769,8 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
         <li><strong>Per-message values.</strong> <code>11=ORD-${run}-${messageIndex}</code> gives every message
             its own ClOrdID, with <code>run</code> seeded by <code>--set run=b7f2</code> so a second run can
             address what the first created. <code>${uuid}</code> and <code>${utcnow}</code> render per message.
-            <code>${sessionIndex}</code> is the lane's slot, as in a fan-out. Anything else is evaluated once per
+            <code>${sessionIndex}</code> is the lane's slot, 1-based as in a fan-out, so a profile that opens
+            one session issues on lane 1 and it is never 0. Anything else is evaluated once per
             lane, and the report lists its tag under <em>fixed</em>.</li>
         <li><strong>Matching.</strong> A reply is matched wherever it lands, on the lane that sent or on a
             <code>--listen</code> session such as a drop-copy. The first reply carrying the request's id is the
@@ -798,6 +799,12 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             build passes its own number in.</li>
         <li><strong>The store and log</strong>, applied once to every lane the set opens, because applying them
             per phase would put a logon and a sequence reset in the middle of the set's clock.</li>
+        <li><strong>The lanes.</strong> Every profile a phase issues from is opened before phase 1 dials, with
+            all the sessions its profile declares and their 1-based slots, so <code>${sessionIndex}</code> on a
+            phase's lane is that lane's own slot and never 0. A profile named only in a phase's listen list gets
+            one session, because nothing is ever issued on it. A profile that issues in one phase and listens in
+            another, which is what a two-sided set is, listens on its issuing lanes and keeps every one of
+            them.</li>
         <li><strong>Where a phase starts counting.</strong> <code>${messageIndex}</code> restarts at 1 in every
             phase, so a phase that should address the second half says <em>from 2,001</em>. That is what makes a
             three-phase RFQ set possible: ask for 4,000 quotes, hit the first 2,000, pass the other 2,000.</li>
@@ -1330,8 +1337,9 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
             <strong><code>${sessionIndex}</code> means two different things, and only one of them is
             stable.</strong> On a <strong>Bulk Send</strong> it is the position among the sessions being
             sent to <em>right now</em>, so if slot 2 of five is down, the session in slot 3 is handed
-            <code>2</code>. In a <a href="#connections">fanned-out scenario</a> it is the profile
-            <strong>slot</strong> &mdash; lane 7 is slot 7 on every run, whatever is up.
+            <code>2</code>. In a <a href="#connections">fanned-out scenario</a>, a load run or a load
+            set, it is the profile <strong>slot</strong> &mdash; lane 7 is slot 7 on every run, whatever is up,
+            and a profile that opens one session is lane 1.
             <br><br>
             So do not use it as a durable client identity across runs: prefer
             <code>${sessionSenderCompID}</code>, which is that session's own resolved CompID either way.

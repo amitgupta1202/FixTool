@@ -100,6 +100,10 @@ class LoadSetRunner(
         override fun openLanes(profileId: String, override: StoreAndLogOverride?): List<LoadLane> =
             byProfile[profileId].orEmpty()
 
+        /**
+         * A phase listening on a profile that also issues somewhere gets that profile's whole lane list,
+         * because the set holds one set of sessions per profile and there is no second one to hand back.
+         */
         override fun openListeners(profileIds: List<String>, override: StoreAndLogOverride?): List<LoadLane> =
             profileIds.flatMap { byProfile[it].orEmpty() }
 
@@ -221,7 +225,18 @@ class LoadSetRunner(
     }
 
     /**
-     * Every profile any phase names, opened once, with the store override applied once.
+     * **Every lane the set will ever need, open before phase 1 dials, with the store override applied once.**
+     *
+     * **Issuers first.** A profile that issues in *any* phase is opened as lanes, so it gets **all** of
+     * them, with the 1-based slots every other door hands out. Walking the phases in order and opening
+     * whichever door that phase happened to name put a profile that listens in phase 1 and issues in phase
+     * 2 into the map as a listener, which is one session wrapped as slot 0. Phase 2 then issued from that
+     * single lane whatever `sessionCount` said, and `${sessionIndex}` rendered 0 on every message of it.
+     *
+     * **Listeners second, and only for a profile that never issues.** One session is all matching needs
+     * from a profile nothing is sent on. A profile that does both listens on its issuing lanes, which is
+     * right because [Router] puts a stamp listener on every session the set holds for the whole set,
+     * rather than on the lanes of the phase that happens to be live.
      *
      * A phase whose issuing profile has no lane logged on is refused here, before phase 1 dials, with the
      * sentence a single run gives. Anything already open is released on the way out, so a set refused on
@@ -233,6 +248,8 @@ class LoadSetRunner(
         try {
             planned.phases.forEach { plan ->
                 byProfile.getOrPut(plan.profileId) { host.openLanes(plan.profileId, planned.storeAndLog) }
+            }
+            planned.phases.forEach { plan ->
                 plan.listenProfileIds.forEach { id ->
                     byProfile.getOrPut(id) { host.openListeners(listOf(id), planned.storeAndLog) }
                 }

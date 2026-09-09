@@ -103,7 +103,10 @@ class LoadRunner(
         val lanes = host.openLanes(plan.profileId, plan.storeAndLog)
         if (lanes.isEmpty()) throw LoadRefused("no session of '${plan.profileName}' reached LOGGED_ON, so there is nothing to issue on")
         val listeners = host.openListeners(plan.listenProfileIds, plan.storeAndLog)
-        val all = lanes + listeners
+        // Distinct by identity, because in a set a phase can issue from a profile another phase listens on
+        // and the set hands the same lane instances back through both doors. Counting a lane twice would
+        // double `discardedBefore` and put two stamp listeners on the one session.
+        val all = (lanes + listeners).distinct()
         progress.lanes = lanes.size
         val discardedBefore = all.sumOf { it.discarded() }
 

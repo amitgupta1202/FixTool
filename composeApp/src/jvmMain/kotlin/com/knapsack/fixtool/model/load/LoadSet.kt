@@ -254,7 +254,15 @@ data class LoadPhaseSpec(
     val template: String,
     /** The initiator profile whose lanes issue, one lane per session it opens, by id or name. */
     val profile: String,
-    /** Profiles whose sessions take part in matching and never issue, by id or name. */
+    /**
+     * **Profiles whose sessions take part in matching**, by id or name.
+     *
+     * A profile named here may also be the issuing profile of another phase, a two-sided set being the
+     * ordinary case: the initiator issues in phase 1 while the responder listens, and the responder issues
+     * in phase 2 while the initiator listens. Its issuing lanes then do the listening, all of them, so
+     * naming a profile here never costs it the sessions it issues on. A profile no phase ever issues from
+     * gets one session, because matching is the only thing it is there for.
+     */
     val listen: List<String> = emptyList(),
     /** Null infers from the template, as a single run does. */
     val match: LoadMatch? = null,

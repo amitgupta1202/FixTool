@@ -195,8 +195,9 @@ collide.
 
 **What varies per message.** `${messageIndex}` (1-based), the `--seed` values, `${uuid}`, `${uuid:N}`,
 `${now}` and `${utcnow}` with their offsets and patterns are rendered per message by string substitution.
-`${sessionIndex}` and the other lane names are the lane's, as in a fan-out. Anything else, a `${out.D.11}`
-or a Kotlin expression, is evaluated **once per lane** and frozen, and the report lists its tag under
+`${sessionIndex}` and the other lane names are the lane's, as in a fan-out: it is the profile **slot**,
+1-based, so it reads 1 on a one-session profile and is never 0. Anything else, a `${out.D.11}` or a Kotlin
+expression, is evaluated **once per lane** and frozen, and the report lists its tag under
 `fixedTags` so nobody believes it was re-read per message. A `${name}` nothing seeds is refused before a
 lane dials, with the `--seed` that would fix it.
 
@@ -320,6 +321,12 @@ the phases after a failure are `SKIPPED`, carrying their plan and a note saying 
 Under `CONTINUE` they all run and the set verdict names the first that did not pass. Stopping by hand
 stops the running phase and skips the rest, and the set exits 1 because a build cannot pass on a run
 somebody ended.
+
+**The lanes are the set's.** Every profile a phase issues from is opened before phase 1 dials, with all
+the sessions its profile declares and their 1-based slots, so `${sessionIndex}` on a phase's lane is that
+lane's own slot and is never 0. A profile named only in a phase's `listen` gets one session, because
+nothing is ever issued on it. A profile that issues in one phase and listens in another, which is what a
+two-sided set is, listens on its issuing lanes and keeps every one of them.
 
 **Late replies go to the phase that asked.** The set owns one stamp listener per session. Every reply is
 offered to the live phase first, then to each finished phase newest first, and only a reply nobody issued

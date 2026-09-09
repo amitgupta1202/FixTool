@@ -86,11 +86,21 @@ class LoadSetRunnerTest {
             }
         }
 
-    private fun spec(label: String, template: String, match: LoadMatch, count: Int = 8, indexFrom: Int = 1) =
+    @Suppress("LongParameterList")
+    private fun spec(
+        label: String,
+        template: String,
+        match: LoadMatch,
+        count: Int = 8,
+        indexFrom: Int = 1,
+        profile: String = "LOADGEN",
+        listen: List<String> = emptyList(),
+    ) =
         LoadPhaseSpec(
             label = label,
             template = template,
-            profile = "LOADGEN",
+            profile = profile,
+            listen = listen,
             match = match,
             shape = LoadShape.Burst(count),
             indexFrom = indexFrom,
@@ -426,6 +436,125 @@ class LoadSetRunnerTest {
             hits.map { assertNotNull(WireTags.tagValue(it, 117)) }.toSet(),
         )
         assertEquals(5, record.phases[1].indexFrom)
+    }
+
+    // -------------------------------------------------------------------------------------------------
+    // Two-sided sets: the profile that listens in one phase is the profile that issues in the next
+    // -------------------------------------------------------------------------------------------------
+
+    /** A cancel that also names its lane, so a test can read `${sessionIndex}` back off the wire. */
+    private val cancelPerLane =
+        LoadTemplate(
+            "Cancels per lane",
+            listOf(
+                35 to "F",
+                11 to "CXL-\${run}-\${messageIndex}",
+                41 to "ORD-\${run}-\${messageIndex}",
+                55 to "EUR/USD",
+                58 to "L-\${sessionIndex}",
+            ),
+        )
+
+    /** Three profiles: A and B each issue in one phase and listen in the other, C only ever listens. */
+    private inner class ResolveTwoSided : LoadSet.Resolver {
+        override fun profile(key: String): LoadSet.Profile? =
+            when (key) {
+                "A" -> LoadSet.Profile("pA", "A", FixConnectionConfig())
+                "B" -> LoadSet.Profile("pB", "B", FixConnectionConfig())
+                "C" -> LoadSet.Profile("pC", "C", FixConnectionConfig())
+                else -> null
+            }
+
+        override fun template(key: String, profileId: String?): LoadTemplate? =
+            when (key) {
+                "Orders" -> order
+                "Cancels" -> cancel
+                "Cancels per lane" -> cancelPerLane
+                else -> null
+            }
+    }
+
+    private fun twoSided(phases: List<LoadPhaseSpec>) =
+        LoadSet(
+            name = "two-sided",
+            label = "Two sided",
+            seed = mapOf("run" to "t1"),
+            storeAndLog = StoreAndLogOverride.FOR_LOAD,
+            onFailure = OnFailure.STOP,
+            phases = phases,
+        ).plan(ResolveTwoSided(), seedOverride = emptyMap(), id = "set-2")
+
+    /**
+     * **The defect a two-sided set was built on.** B listens in phase 1 and issues in phase 2, and the
+     * set used to hold it as a listener, which is one session wrapped as slot 0: phase 2 then issued from
+     * that single lane whatever B's profile said, and every message it sent named lane 0.
+     *
+     * A's slots are 4 and 5 rather than 1 and 2 so its fake session ids cannot collide with B's.
+     */
+    @Test
+    fun `a profile that listens in one phase and issues in the next gets all its lanes, numbered from one`() {
+        val clock = FakeClock()
+        val aLanes = (4..5).map { FakeLane(it, clock, ordersThenCancels()) }
+        val bLanes = (1..3).map { FakeLane(it, clock, ordersThenCancels()) }
+        val host = FakeHost(clock, emptyList(), lanesByProfile = mapOf("pA" to aLanes, "pB" to bLanes))
+        val openedByFirstPublish = mutableListOf<List<String>>()
+
+        val record =
+            LoadSetRunner(host, clock = clock).run(
+                twoSided(
+                    listOf(
+                        spec("Send the orders", "Orders", LoadMatch(11, 11, "8"), count = 6, profile = "A", listen = listOf("B")),
+                        spec("Cancel them", "Cancels per lane", LoadMatch(11, 11, "8"), count = 6, profile = "B", listen = listOf("A")),
+                    ),
+                ),
+            ) { openedByFirstPublish += host.laneOpensByProfile.toList() }
+
+        assertEquals(SetOutcome.PASSED, record.verdict.outcome)
+        assertEquals(
+            listOf("pA", "pB"),
+            openedByFirstPublish.first(),
+            "every issuing profile is opened as lanes before phase 1 dials",
+        )
+        assertEquals(emptyList<String>(), host.listenerOpensByProfile, "and neither comes through the listener door, because both issue")
+        assertEquals(3, record.phases[1].lanes, "phase 2 issues from every lane B's profile opens")
+        assertTrue(bLanes.all { lane -> lane.sent.any { WireTags.msgType(it) == "F" } }, "every one of B's lanes issued")
+        assertTrue(aLanes.none { lane -> lane.sent.any { WireTags.msgType(it) == "F" } }, "and A issued none of them")
+        val cancels = bLanes.flatMap { lane -> lane.sent.filter { WireTags.msgType(it) == "F" } }
+        assertEquals(
+            setOf("L-1", "L-2", "L-3"),
+            cancels.map { assertNotNull(WireTags.tagValue(it, 58)) }.toSet(),
+            "the lane's own slot, 1-based, and never 0",
+        )
+    }
+
+    /** A profile nothing ever issues from still needs one session, and that is what the listener door is. */
+    @Test
+    fun `a profile that only ever listens is opened as a single listener`() {
+        val clock = FakeClock()
+        val aLanes = (4..5).map { FakeLane(it, clock, ordersThenCancels()) }
+        val dropCopy = FakeLane(9, clock, { emptyList() })
+        val host =
+            FakeHost(
+                clock,
+                emptyList(),
+                lanesByProfile = mapOf("pA" to aLanes),
+                listenersByProfile = mapOf("pC" to listOf(dropCopy)),
+            )
+
+        val record =
+            LoadSetRunner(host, clock = clock).run(
+                twoSided(
+                    listOf(
+                        spec("Send the orders", "Orders", LoadMatch(11, 11, "8"), count = 6, profile = "A", listen = listOf("C")),
+                        spec("Cancel them", "Cancels", LoadMatch(11, 11, "8"), count = 6, profile = "A"),
+                    ),
+                ),
+            )
+
+        assertEquals(SetOutcome.PASSED, record.verdict.outcome)
+        assertEquals(listOf("pA"), host.laneOpensByProfile, "the issuing profile, once for the whole set")
+        assertEquals(listOf("pC"), host.listenerOpensByProfile, "and C through the listener door, because no phase issues from it")
+        assertEquals(0, dropCopy.sent.size, "nothing is issued on a profile no phase names as its own")
     }
 
     // -------------------------------------------------------------------------------------------------

@@ -117,20 +117,40 @@ internal class FakeHost(
     private val listeners: List<FakeLane> = emptyList(),
     /** Called on every sleep, which is where a settling run spends its time. */
     private val onSleep: () -> Unit = {},
+    /**
+     * Lanes per profile id, for a set whose phases issue from different profiles: the initiator in phase 1
+     * and the responder in phase 2. A profile with no entry here gets [lanes], which is what every test
+     * that opens a single profile relies on.
+     */
+    private val lanesByProfile: Map<String, List<FakeLane>> = emptyMap(),
+    /** The same, for a profile nothing issues from. Empty means every listener open gets [listeners]. */
+    private val listenersByProfile: Map<String, List<FakeLane>> = emptyMap(),
 ) : LoadHost {
     var released = false
     var releases = 0
     var openedWith: StoreAndLogOverride? = null
     var laneOpens = 0
+
+    /**
+     * Which profile came through which door, in the order it was asked for, so a test can say that an
+     * issuing profile was opened as lanes and a listen-only one as a listener.
+     */
+    val laneOpensByProfile = mutableListOf<String>()
+    val listenerOpensByProfile = mutableListOf<String>()
     val onceCalls = mutableListOf<String>()
 
     override fun openLanes(profileId: String, override: StoreAndLogOverride?): List<LoadLane> {
         openedWith = override
         laneOpens++
-        return lanes
+        laneOpensByProfile += profileId
+        return lanesByProfile[profileId] ?: lanes
     }
 
-    override fun openListeners(profileIds: List<String>, override: StoreAndLogOverride?): List<LoadLane> = listeners
+    override fun openListeners(profileIds: List<String>, override: StoreAndLogOverride?): List<LoadLane> {
+        listenerOpensByProfile += profileIds
+        if (listenersByProfile.isEmpty()) return listeners
+        return profileIds.flatMap { listenersByProfile[it] ?: listeners }
+    }
 
     override fun resolveOnce(template: String, scope: Map<String, String>, lane: LoadLane): String {
         onceCalls += template

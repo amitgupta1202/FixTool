@@ -416,7 +416,9 @@ data class LoadPhaseSpec(
     fun describe(): String =
         listOfNotNull(
             template,
-            match?.let { "$it" },
+            // `describe()` and not the data class's own toString, which put "LoadMatch(requestTag=131,
+            // replyTag=131, replyType=S)" on the phase row where "131 → 131, reply 35=S" belongs.
+            match?.describe(),
             shape.describe() + if (countsFromHere) " from ${"%,d".format(indexFrom)}" else "",
             after?.let { "after phase $it" },
             "settle ${humanDuration(settleMs)}",

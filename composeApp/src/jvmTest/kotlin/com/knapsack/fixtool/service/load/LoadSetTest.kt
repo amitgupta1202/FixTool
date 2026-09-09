@@ -138,12 +138,12 @@ class LoadSetTest {
         assertEquals("reactive", LoadShape.Triggered().describe())
         assertEquals("reactive, capped 50/s", LoadShape.Triggered(cap = 50).describe())
         assertEquals(
-            "RFQ Load QuoteResponse · LoadMatch(requestTag=11, replyTag=11, replyType=8) · reactive, capped 50/s · after phase 2 · settle 30s",
+            "RFQ Load QuoteResponse · 11 → 11, reply 35=8 · reactive, capped 50/s · after phase 2 · settle 30s",
             reactiveChain[2].describe(),
             "the authored indexFrom of 7 is nowhere in it",
         )
         assertEquals(
-            "RFQ Load QuoteResponse · LoadMatch(requestTag=11, replyTag=11, replyType=8) · ×2,000 from 2,001 · settle 30s",
+            "RFQ Load QuoteResponse · 11 → 11, reply 35=8 · ×2,000 from 2,001 · settle 30s",
             twoPhases[1].describe(),
             "and a paced phase still says where it counts from",
         )

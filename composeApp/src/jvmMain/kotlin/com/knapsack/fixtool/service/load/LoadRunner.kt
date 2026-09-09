@@ -160,7 +160,14 @@ class LoadRunner(
                                     val id = requestId(rendered.message, plan.match.requestTag)
                                     if (id != null) matcher.issued(id, index)
                                     val ok = lanes[laneIndex].send(rendered.message)
-                                    if (ok) handed.incrementAndGet()
+                                    if (ok) {
+                                        handed.incrementAndGet()
+                                    } else if (id != null) {
+                                        // A refusal is the one path with no stamp behind it, so the index
+                                        // handed over a line ago has to be taken back by hand or nothing
+                                        // ever claims it.
+                                        matcher.refused(id)
+                                    }
                                     if (ok) Pacer.Issued.HANDED else Pacer.Issued.REFUSED
                                 }
                             }

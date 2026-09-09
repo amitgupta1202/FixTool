@@ -200,8 +200,9 @@ class StampMatcher(
     /**
      * Id to the message index it was issued for, filled by [issued] and taken out by the SEND stamp.
      *
-     * The stamp carries the wire and nothing else, so the index has to be handed over on the way past. The
-     * SEND stamp always follows the `send` call, so the map is filled before it is read.
+     * The stamp carries the wire and nothing else, so the index has to be handed over on the way past. A
+     * SEND stamp follows the `send` call for every message the engine accepted, and for no other, which is
+     * why [refused] exists: an entry the engine never took would otherwise sit here for the run's life.
      */
     private val issuedIndex = ConcurrentHashMap<String, Int>()
 
@@ -298,6 +299,20 @@ class StampMatcher(
     fun issued(id: String, messageIndex: Int) {
         if (captures.isNotEmpty()) issuedIndex[id] = messageIndex
     }
+
+    /**
+     * **The engine would not take that id, so no SEND stamp is coming.**
+     *
+     * [issued] hands the index over before the send, because the stamp is the only other place the id
+     * appears and it carries no index. A refused send is the one path where the stamp never arrives, so the
+     * entry has to be taken back by hand or it stays for the run's life, one per refusal.
+     */
+    fun refused(id: String) {
+        issuedIndex.remove(id)
+    }
+
+    /** Ids handed over by [issued] that no SEND stamp has claimed yet. `internal` because a test reads it. */
+    internal fun issuedNotStamped(): Int = issuedIndex.size
 
     private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp): Claim {
         if (sessionId !in issuing || type != requestType) return Claim.NOT_A_REPLY

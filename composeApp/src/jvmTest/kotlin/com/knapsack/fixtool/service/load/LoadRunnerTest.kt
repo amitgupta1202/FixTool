@@ -173,6 +173,35 @@ class LoadRunnerTest {
         assertEquals(1, r.verdict.exitCode)
     }
 
+    /**
+     * **A refused send takes its message index back.**
+     *
+     * The index reaches the matcher before the send, because the SEND stamp carries the wire and nothing
+     * else, and that stamp is what takes it out again. A send the engine will not take is the one path with
+     * no stamp behind it, so every refusal used to leave an entry the run never claimed again.
+     */
+    @Test
+    fun `a send the engine refuses leaves no index behind in the matcher`() {
+        val clock = FakeClock()
+        val refusing = FakeLane(1, clock, ::echo, accept = false)
+        val host = FakeHost(clock, listOf(refusing))
+        var matcher: StampMatcher? = null
+
+        val runner =
+            LoadRunner(
+                host,
+                clock = clock,
+                listen = { m, ls ->
+                    matcher = m
+                    LoadRunner.everySession(m, ls)
+                },
+            )
+        val r = runner.run(plan(shape = LoadShape.Burst(10)).copy(capture = mapOf("fillId" to 37))).report
+
+        assertEquals(10L, r.tool.issueFailures, "the engine took none of them")
+        assertEquals(0, assertNotNull(matcher).issuedNotStamped(), "and none of the ten is still waiting for a stamp that is not coming")
+    }
+
     @Test
     fun `cancellation mid-issue stops with the counts so far`() {
         val clock = FakeClock()

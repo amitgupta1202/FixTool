@@ -817,6 +817,15 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             phase should have kept it. If the venue answers without the tag, the later phase cannot address that
             message: it is <strong>not sent</strong>, counted by index and name, and the phase fails, because the
             bar is every requested message answered and a message nobody asked is a hole in the proof.</li>
+        <li><strong>A phase can be muted.</strong> The <em>mute</em> chip on a phase row parks it: it keeps its
+            template, its profile, its shape and its place in the order, and the set skips it on every run, opening
+            no lane of its profile and judging nothing about it. Any phase, not only the last, because the set knows
+            the real dependency graph: the one case it can prove is broken, a later phase reading a name only a muted
+            phase keeps, is refused before a lane dials, in the reading phase's voice and naming the muted phase. The
+            report shows it as a <strong>skipped</strong> phase noted <code>muted in the set</code>, at its own
+            number, with <code>⊘</code> in the rail and <code>MUTED</code> on its badge, and the set's verdict counts
+            it apart, so a clean set reads <em>2 passed, 1 muted</em> rather than <em>1 skipped</em>. The flag is in
+            the file, so <code>fixtool load --set</code> in a build honours it.</li>
         <li><strong>If a phase fails.</strong> By default the set stops and reports the rest as skipped, each
             carrying its plan and a note saying why. Carry on runs every phase and the set verdict names the
             first that did not pass. Either way the set exits 1.</li>

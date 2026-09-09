@@ -1,0 +1,2025 @@
+<meta charset="utf-8">
+<title>Muting a Phase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    /* The page: an editorial note, the same tokens as load-run.html so the two read as one series. */
+    --ground: #eef0f3;
+    --card: #ffffff;
+    --ink: #191c21;
+    --muted: #5b6570;
+    --faint: #8a939e;
+    --rule: #d7dce3;
+    --accent: #2f6fb0;
+    --accent-soft: #e3ecf6;
+    --good: #3f7d33;
+    --bad: #b8342f;
+    --warn: #9a6a1c;
+    --warn-soft: #f6edd9;
+
+    /* The app's own chrome, fixed in both page themes, because FixTool ships one dark palette
+       (Theme.kt has no light set). These panels are the tool, not the page. */
+    --app-bg: #1e1e1e;
+    --app-surface: #2b2b2b;
+    --app-variant: #252525;
+    --app-header: #202020;
+    --app-text: #e0e0e0;
+    --app-text2: #b0b0b0;
+    --app-dim: #6a6a6a;
+    --app-rule: #3a3a3a;
+    --app-border2: #555555;
+    --app-good: #98c379;
+    --app-warn: #ce9178;
+    --app-bad: #e06c75;
+    --app-info: #61afef;
+    --app-teal: #4ec9b0;
+    --app-field: #9cdcfe;
+    --app-tag: #dcdcaa;
+
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --col: 40rem;
+    --wide: 64rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14171a;
+      --card: #1b1f23;
+      --ink: #e3e7eb;
+      --muted: #98a2ad;
+      --faint: #737d88;
+      --rule: #2a3138;
+      --accent: #61afef;
+      --accent-soft: #1d2a36;
+      --good: #98c379;
+      --bad: #e06c75;
+      --warn: #d9a75a;
+      --warn-soft: #2b2518;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14171a;
+    --card: #1b1f23;
+    --ink: #e3e7eb;
+    --muted: #98a2ad;
+    --faint: #737d88;
+    --rule: #2a3138;
+    --accent: #61afef;
+    --accent-soft: #1d2a36;
+    --good: #98c379;
+    --bad: #e06c75;
+    --warn: #d9a75a;
+    --warn-soft: #2b2518;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+  }
+
+  .col { max-width: var(--col); }
+
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.75rem; margin-bottom: 2.25rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+    font-size: clamp(2rem, 5.5vw, 2.9rem);
+    line-height: 1.05;
+    margin: 0 0 0.9rem;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: 1.14rem;
+    color: var(--muted);
+    margin: 0;
+    max-width: 34rem;
+  }
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    margin: 3.25rem 0 0.9rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.09rem;
+    letter-spacing: -0.012em;
+    margin: 2.25rem 0 0.6rem;
+  }
+
+  p { margin: 0 0 1rem; max-width: var(--col); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  code, .m { font-family: var(--mono); font-size: 0.86em; }
+
+  p code, li code, figcaption code, td code {
+    background: var(--accent-soft);
+    padding: 0.06em 0.32em;
+    border-radius: 2px;
+  }
+
+  ul.prose, ol.prose { max-width: var(--col); padding-left: 1.2rem; margin: 0 0 1.2rem; }
+  ul.prose li, ol.prose li { margin-bottom: 0.45rem; }
+
+  .lede-mark {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+  }
+
+  /* ---------- figures and the app panel ---------- */
+
+  figure { margin: 1.5rem 0 2.25rem; }
+
+  figcaption {
+    font-size: 0.93rem;
+    color: var(--muted);
+    max-width: 46rem;
+    margin-top: 0.7rem;
+    line-height: 1.55;
+  }
+
+  .figtabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .figtabs button {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.26rem 0.7rem;
+    cursor: pointer;
+  }
+
+  .figtabs button:hover { color: var(--ink); border-color: var(--faint); }
+
+  .figtabs button[aria-selected="true"] {
+    color: var(--card);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .figtabs .hint {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--faint);
+    margin-left: 0.35rem;
+  }
+
+  button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* The tool. Dark in both page themes, on purpose. */
+  .screen {
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: var(--sans);
+    color: var(--app-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  }
+
+  .screen-bar {
+    background: var(--app-header);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 5px 9px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .screen-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--app-rule); }
+
+  .screen-bar .ttl { font-weight: 500; color: var(--app-text); }
+
+  .screen.narrow { max-width: 620px; }
+
+  .scrollhint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--app-dim);
+    border-top: 1px dashed var(--app-rule);
+    padding: 3px 9px;
+    text-align: center;
+  }
+
+  /* ---------- today's dialog: everything at one weight ---------- */
+
+  .dlg { padding: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
+
+  .dlg .intro { color: var(--app-text2); font-size: 11px; line-height: 1.45; }
+
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .row > .rl { width: 96px; flex: none; color: var(--app-text2); font-size: 11.5px; }
+
+  .sub { color: var(--app-dim); font-size: 10.5px; }
+
+  .box {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 2px;
+    padding: 2px 5px;
+    min-height: 20px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .box.n44 { width: 44px; }
+  .box.n36 { width: 36px; }
+  .box.n52 { width: 52px; }
+  .box.n64 { width: 64px; }
+  .box.n200 { width: 200px; }
+
+  .glyph { font-size: 11.5px; color: var(--app-text2); cursor: default; }
+  .glyph.on { color: var(--app-text); }
+
+  .refusal { color: var(--app-bad); font-size: 10.5px; line-height: 1.45; }
+  .farend { color: var(--app-warn); font-size: 10.5px; line-height: 1.45; }
+  .quiet { color: var(--app-dim); font-size: 10.5px; line-height: 1.45; }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 2px;
+    padding: 3px 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .btn.go { color: var(--app-good); border-color: #47603a; }
+  .btn.off { color: var(--app-dim); border-color: var(--app-rule); }
+  .btn.stop { color: var(--app-bad); border-color: #6d3a3e; }
+  .btn.primary { background: #2f4a2c; color: #d6ecc6; border-color: #4d7043; font-weight: 500; }
+
+  /* ---------- the proposed dialog ---------- */
+
+  .dlg2 { display: flex; flex-direction: column; font-size: 12px; }
+
+  .dlg2 .body { padding: 11px 12px 14px; display: flex; flex-direction: column; gap: 11px; }
+
+  .dlg2 .intro { color: var(--app-text2); font-size: 11px; line-height: 1.45; max-width: 74ch; }
+
+  .grp { display: flex; flex-direction: column; gap: 7px; }
+
+  .ghead {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ghead::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--app-rule);
+  }
+
+  .r2 { display: flex; align-items: flex-start; gap: 9px; flex-wrap: nowrap; }
+
+  .r2 > .rl2 {
+    width: 84px;
+    flex: none;
+    color: var(--app-text2);
+    font-size: 11px;
+    text-align: right;
+    padding-top: 2px;
+  }
+
+  .r2 .stack { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
+
+  .val { font-size: 12.5px; color: var(--app-text); }
+
+  .pick {
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 6px 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .pick .chev { color: var(--app-dim); font-size: 9px; }
+
+  .fld {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--app-text);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 6px;
+    text-align: right;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fld.w64 { width: 64px; }
+  .fld.w52 { width: 52px; }
+  .fld.w44 { width: 44px; }
+  .fld.w88 { width: 88px; }
+  .fld.left { text-align: left; justify-content: flex-start; }
+  .fld.focus { border-color: var(--app-teal); }
+
+  .seg { display: inline-flex; border: 1px solid var(--app-border2); border-radius: 3px; overflow: hidden; }
+
+  .seg span {
+    font-size: 11.5px;
+    padding: 3px 11px;
+    color: var(--app-text2);
+    background: var(--app-surface);
+    cursor: default;
+  }
+
+  .seg span + span { border-left: 1px solid var(--app-border2); }
+  .seg span.on { background: #35443f; color: var(--app-teal); font-weight: 500; }
+
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--app-text2);
+    background: transparent;
+    border: 1px solid var(--app-rule);
+    border-radius: 999px;
+    padding: 2px 8px;
+    cursor: default;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chip.on { color: var(--app-teal); border-color: #3d6b60; background: #26332f; }
+  .chip.add { color: var(--app-dim); border-style: dashed; }
+
+  .linky { font-size: 11px; color: var(--app-info); border-bottom: 1px solid #35506e; cursor: pointer; }
+
+  .cbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .cbox i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--app-border2);
+    border-radius: 2px;
+    display: inline-block;
+    flex: none;
+    position: relative;
+    background: var(--app-surface);
+  }
+
+  .cbox.on { color: var(--app-text); }
+  .cbox.on i { background: #35443f; border-color: #3d6b60; }
+
+  .cbox.on i::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 5px;
+    width: 6px;
+    height: 3px;
+    border-left: 1.5px solid var(--app-teal);
+    border-bottom: 1.5px solid var(--app-teal);
+    transform: rotate(-45deg);
+  }
+
+  .radio { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--app-text2); }
+
+  .radio i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--app-border2);
+    border-radius: 50%;
+    display: inline-block;
+    flex: none;
+    position: relative;
+    background: var(--app-surface);
+  }
+
+  .radio.on { color: var(--app-text); }
+  .radio.on i { border-color: #3d6b60; }
+
+  .radio.on i::after {
+    content: "";
+    position: absolute;
+    inset: 2.5px;
+    border-radius: 50%;
+    background: var(--app-teal);
+  }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    border-radius: 999px;
+    padding: 1px 7px;
+    border: 1px solid transparent;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .pill.ok { color: var(--app-good); background: #26331f; border-color: #47603a; }
+  .pill.no { color: var(--app-bad); background: #33201f; border-color: #6d3a3e; }
+  .pill.info { color: var(--app-info); background: #1e2a3a; border-color: #35506e; }
+  .pill.dim { color: var(--app-dim); border-color: var(--app-rule); }
+
+  /* A stripe carries the message class. No card, no radius, no shadow: those say "object". */
+  .inset {
+    border-left: 2px solid var(--app-rule);
+    padding: 4px 0 4px 9px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--app-text2);
+    display: flex;
+    gap: 7px;
+    align-items: flex-start;
+  }
+
+  .inset.bad { border-left-color: var(--app-bad); color: #f0b6ba; }
+  .inset.warn { border-left-color: var(--app-warn); color: #e6bfa6; }
+  .inset .fix { flex: none; }
+  .inset b { font-weight: 600; color: inherit; }
+
+  .disclose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--app-text2);
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    padding: 5px 8px;
+    background: var(--app-variant);
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font-family: var(--sans);
+  }
+
+  .disclose:hover { border-color: var(--app-border2); }
+  .disclose .car { color: var(--app-dim); font-size: 9px; width: 8px; flex: none; }
+  .disclose .summ {
+    color: var(--app-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chg { color: var(--app-info); font-size: 10.5px; flex: none; }
+
+  .advbody {
+    border-left: 1px solid var(--app-rule);
+    margin-left: 4px;
+    padding: 8px 0 4px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .foot {
+    border-top: 1px solid var(--app-rule);
+    background: var(--app-header);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .foot .why { font-size: 10.5px; color: var(--app-bad); flex: 1; min-width: 0; line-height: 1.35; }
+  .foot .ready { font-size: 10.5px; color: var(--app-dim); flex: 1; min-width: 0; }
+  .foot .kbd { font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); }
+
+  /* ---------- the document ---------- */
+
+  .tabs { display: flex; background: var(--app-header); border-bottom: 1px solid var(--app-rule); }
+
+  .tabs .tab {
+    font-size: 11px;
+    color: var(--app-dim);
+    padding: 5px 11px;
+    border-right: 1px solid var(--app-rule);
+    white-space: nowrap;
+  }
+
+  .tabs .tab.on { color: var(--app-text); background: var(--app-bg); }
+
+  .dhead {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--app-surface);
+    padding: 5px 9px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+
+  .dhead .label { color: var(--app-text); font-weight: 500; }
+  .dhead .meta { color: var(--app-dim); font-size: 10px; flex: 1; min-width: 120px; }
+  .dhead .state { font-size: 10px; }
+
+  /* Proposed header: the verdict is the headline. */
+  .dhead2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--app-surface);
+    padding: 7px 10px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  .badge {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-radius: 3px;
+    padding: 3px 9px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  .badge.ok { color: #d6ecc6; background: #2f4a2c; border-color: #4d7043; }
+  .badge.no { color: #f6cdd0; background: #47292c; border-color: #7d454a; }
+  .badge.run { color: #cfe6fb; background: #23374b; border-color: #3d5f80; }
+  .badge.stop { color: var(--app-text2); background: #333333; border-color: var(--app-border2); }
+  .badge.dimb { color: var(--app-dim); background: #2a2a2a; border-color: var(--app-rule); }
+
+  .dhead2 .who { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 160px; }
+  .dhead2 .who .t { font-size: 12px; color: var(--app-text); font-weight: 500; }
+  .dhead2 .who .m { font-family: var(--mono); font-size: 10px; color: var(--app-dim); }
+  .dhead2 .acts { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+
+  .bar { display: flex; height: 3px; background: var(--app-variant); }
+  .bar i { display: block; height: 100%; }
+  .bar i.ok { background: var(--app-good); }
+  .bar i.go { background: var(--app-info); }
+  .bar i.no { background: var(--app-bad); }
+
+  .bar2 { display: flex; height: 8px; background: var(--app-variant); }
+  .bar2 i { display: block; height: 100%; }
+  .bar2 i.ok { background: var(--app-good); }
+  .bar2 i.go { background: var(--app-info); }
+  .bar2 i.no { background: var(--app-bad); }
+  .bar2 i.stopmark { background: var(--app-text); }
+
+  .barline {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 10px 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--app-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Today: five tiles at one weight. */
+  .tiles { display: flex; background: var(--app-variant); }
+  .tiles > div { flex: 1; padding: 6px 9px; min-width: 0; }
+  .tiles .k { font-size: 10px; color: var(--app-dim); }
+
+  .tiles .v {
+    font-family: var(--mono);
+    font-size: 17px;
+    color: var(--app-text);
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tiles .v.no { color: var(--app-bad); }
+  .tiles .v.dim { color: var(--app-dim); }
+  .tiles .s { font-size: 10px; color: var(--app-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Proposed: two leads, then a quiet strip. */
+  .lead { display: flex; gap: 1px; background: var(--app-rule); }
+
+  .lead > div {
+    flex: 1;
+    background: var(--app-variant);
+    padding: 9px 12px 10px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .lead .k {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+  }
+
+  .lead .v {
+    font-family: var(--mono);
+    font-size: 26px;
+    line-height: 1.1;
+    color: var(--app-text);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .lead .v.ok { color: var(--app-good); }
+  .lead .v.no { color: var(--app-bad); }
+  .lead .v.go { color: var(--app-info); }
+  .lead .s { font-size: 10.5px; color: var(--app-dim); }
+
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 0;
+    padding: 6px 12px;
+    border-top: 1px solid var(--app-rule);
+    font-size: 10.5px;
+    color: var(--app-dim);
+  }
+
+  .strip span { white-space: nowrap; padding: 0 11px; border-right: 1px solid var(--app-rule); }
+  .strip span:first-child { padding-left: 0; }
+  .strip span:last-child { border-right: none; }
+
+  .strip b {
+    font-family: var(--mono);
+    font-weight: 500;
+    color: var(--app-text2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Today: the key/value sentence dump. */
+  .lines { padding: 6px 9px; display: flex; flex-direction: column; gap: 2px; }
+  .lines .ln { display: flex; gap: 0; font-size: 11px; }
+  .lines .ln .k { width: 72px; flex: none; color: var(--app-dim); }
+  .lines .ln .v { color: var(--app-text2); }
+  .lines .ln .v b { font-weight: 400; color: var(--app-text); font-family: var(--mono); }
+  .lines .ln .v .ok { color: var(--app-good); }
+  .lines .ln .v .no { color: var(--app-bad); }
+  .lines .ln.warn .v { color: var(--app-warn); }
+
+  /* Proposed: sections with a real head. */
+  .sect { padding: 10px 12px; border-top: 1px solid var(--app-rule); }
+
+  .shead {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--app-text);
+    margin-bottom: 7px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .shead .note { font-weight: 400; font-size: 10.5px; color: var(--app-dim); }
+
+  .statcard {
+    border: 1px solid var(--app-rule);
+    border-radius: 4px;
+    background: var(--app-variant);
+    padding: 9px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .statrow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .statrow.narrow3 { grid-template-columns: repeat(3, 1fr); row-gap: 8px; }
+
+  .statrow .sk {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+  }
+
+  .statrow .sv {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--app-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .statrow .sv.warn { color: var(--app-warn); }
+  .statrow .sv.no { color: var(--app-bad); }
+  .statrow .sv.ok { color: var(--app-good); }
+
+  .hist {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 10px;
+    height: 68px;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  .hist .b { flex: 1; max-width: 86px; display: flex; align-items: flex-end; height: 100%; }
+  .hist .b i { display: block; width: 100%; min-height: 2px; background: #4a7ba7; border-radius: 1px 1px 0 0; }
+  .hist .b.hi i { background: var(--app-info); }
+  .hist .b.tail i { background: var(--app-warn); }
+
+  .histx {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 3px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--app-dim);
+  }
+
+  .histx span { flex: 1; max-width: 86px; text-align: center; line-height: 1.3; }
+  .histx b { display: block; color: var(--app-text2); font-weight: 500; }
+
+  .chartwrap { overflow-x: auto; }
+  .chartwrap svg { display: block; width: 100%; min-width: 520px; height: auto; }
+
+  .legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 10.5px;
+    color: var(--app-dim);
+    margin-top: 5px;
+    align-items: center;
+  }
+
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .legend i.bars { background: #4a7ba7; }
+  .legend i.stall { background: var(--app-bad); }
+  .legend i.line { background: transparent; border-top: 2px solid var(--app-text2); height: 0; border-radius: 0; }
+  .legend i.p95 { background: transparent; border-top: 2px solid var(--app-warn); height: 0; border-radius: 0; }
+
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+
+  table.tbl th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--app-dim);
+    font-weight: 400;
+    padding: 0 8px 4px 0;
+    border-bottom: 1px solid var(--app-rule);
+  }
+
+  table.tbl td {
+    padding: 4px 8px 4px 0;
+    color: var(--app-text2);
+    border-bottom: 1px solid rgba(58, 58, 58, 0.5);
+    vertical-align: top;
+  }
+
+  table.tbl td.id { font-family: var(--mono); color: var(--app-text); white-space: nowrap; }
+  table.tbl td.w { font-family: var(--mono); color: var(--app-dim); font-size: 10px; }
+  table.tbl td.go { color: var(--app-info); white-space: nowrap; }
+  table.tbl td.better { color: var(--app-good); white-space: nowrap; font-family: var(--mono); }
+  table.tbl tr:hover td { background: #26303a; }
+
+  .vfoot {
+    background: var(--app-variant);
+    border-top: 1px solid var(--app-rule);
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .vfoot .v { font-size: 12px; font-weight: 600; }
+  .vfoot .v.ok { color: var(--app-good); }
+  .vfoot .v.no { color: var(--app-bad); }
+  .vfoot .l { font-size: 11px; color: var(--app-text2); }
+  .vfoot .l.dim { color: var(--app-dim); font-size: 10px; }
+  .vfoot .l .ok { color: var(--app-good); }
+  .vfoot .l .no { color: var(--app-bad); }
+  .vfoot .l .mu { color: var(--app-dim); }
+
+  .judge { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 2px; }
+
+  .strip.pss { border-top: none; }
+
+  /* today's per-second strip */
+  .pstrip { padding: 0 9px 6px; }
+  .pstrip .bars { display: flex; align-items: flex-end; gap: 2px; height: 36px; }
+  .pstrip .bars i { flex: 1; background: var(--app-info); display: block; }
+  .pstrip .cap { font-size: 10px; color: var(--app-dim); margin-top: 3px; }
+
+
+  /* ---------- set-level band, phase rows, phase rail, phase timeline ---------- */
+
+  /* Set-level, not phase-level: one seed serves every phase, so it cannot live inside one. */
+  .setband {
+    background: var(--app-variant);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .setband .r2 > .rl2 { padding-top: 4px; }
+
+  .phaserow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    background: var(--app-variant);
+    padding: 6px 9px;
+    font-size: 11.5px;
+  }
+
+  .phaserow .n {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--app-dim);
+    width: 14px;
+    flex: none;
+  }
+
+  .phaserow .t { color: var(--app-text); flex: none; }
+  .phaserow .d { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .phaserow .grip { color: var(--app-dim); font-size: 11px; flex: none; cursor: grab; }
+  .phaserow.add { border-style: dashed; color: var(--app-dim); justify-content: center; }
+
+  .split { display: flex; align-items: stretch; }
+  .split .rail { width: 216px; flex: none; border-right: 1px solid var(--app-rule); background: var(--app-variant); }
+  .split .detail { flex: 1; min-width: 0; }
+
+  .railrow {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 6px 9px;
+    border-bottom: 1px solid var(--app-rule);
+    font-size: 11px;
+    cursor: default;
+  }
+
+  .railrow.on { background: var(--app-bg); box-shadow: inset 2px 0 0 var(--app-info); }
+  .railrow .mk { font-size: 11px; flex: none; width: 11px; }
+  .railrow .mk.ok { color: var(--app-good); }
+  .railrow .mk.no { color: var(--app-bad); }
+  .railrow .mk.skip { color: var(--app-dim); }
+  .railrow .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .railrow.dim .nm { color: var(--app-dim); }
+  .railrow .num { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+
+  .gantt { display: flex; flex-direction: column; gap: 4px; }
+  .grow { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+  .grow .gl { width: 116px; flex: none; color: var(--app-text2); }
+  .grow .track { flex: 1; height: 13px; background: var(--app-variant); border-radius: 2px; display: flex; overflow: hidden; }
+  .grow .track i { display: block; height: 100%; }
+  .grow .track i.iss { background: var(--app-info); }
+  .grow .track i.set { background: repeating-linear-gradient(135deg, #3a4a5a 0 3px, #26303a 3px 6px); }
+  .grow .track i.pad { background: transparent; }
+  .grow .gt { width: 82px; flex: none; text-align: right; font-family: var(--mono); color: var(--app-dim); font-variant-numeric: tabular-nums; }
+  .grow.skipped .gl, .grow.skipped .gt { color: var(--app-dim); }
+  .grow.skipped .track { background: repeating-linear-gradient(135deg, #2a2a2a 0 4px, #232323 4px 8px); }
+
+  /* ---------- how-it-works lists ---------- */
+
+  dl.mech { max-width: 46rem; margin: 1rem 0 1.5rem; display: grid; gap: 0.85rem; }
+  dl.mech > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  dl.mech dt { font-family: var(--sans); font-weight: 600; font-size: 0.96rem; margin-bottom: 0.1rem; }
+  dl.mech dd { margin: 0; font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  dl.mech dd code { background: var(--accent-soft); padding: 0.06em 0.32em; border-radius: 2px; }
+
+
+  /* ---------- entry points and edge states ---------- */
+
+  .menu {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 0;
+    width: 268px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+
+  .menu .mi { padding: 4px 10px; font-size: 11.5px; color: var(--app-text); display: flex; gap: 8px; align-items: baseline; }
+  .menu .mi .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); margin-left: auto; }
+  .menu .mi.off { color: var(--app-dim); }
+  .menu .mi.on { background: #2d5a8c; }
+  .menu .sep { height: 1px; background: var(--app-rule); margin: 3px 0; }
+  .menu .grp { padding: 4px 10px 2px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .recent { display: flex; flex-direction: column; }
+  .recent .rr { display: flex; align-items: baseline; gap: 7px; padding: 3px 10px; font-size: 11.5px; }
+  .recent .rr .mk { width: 11px; flex: none; text-align: center; }
+  .recent .rr .mk.ok { color: var(--app-good); }
+  .recent .rr .mk.no { color: var(--app-bad); }
+  .recent .rr .kd { width: 13px; flex: none; text-align: center; color: var(--app-dim); font-size: 10px; }
+  .recent .rr .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent .rr .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+
+  .edge { display: flex; flex-direction: column; gap: 16px; }
+  .edge > .one { display: flex; flex-direction: column; gap: 5px; }
+
+  .edge .cap {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .empty {
+    border: 1px dashed var(--app-rule);
+    border-radius: 3px;
+    padding: 14px 12px;
+    color: var(--app-text2);
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .empty b { color: var(--app-text); font-weight: 500; }
+  .empty .hint { display: block; margin-top: 4px; color: var(--app-dim); font-size: 10.5px; }
+
+  /* ---------- change lists under a figure ---------- */
+
+  ol.changes {
+    counter-reset: ch;
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 0;
+    max-width: 46rem;
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  /* Inline flow, not grid: a grid li would make every text run and every <code> its own cell. */
+  ol.changes li {
+    counter-increment: ch;
+    position: relative;
+    padding-left: 2.2rem;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  ol.changes li::before {
+    content: counter(ch, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 0.24rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  ol.changes b {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  ol.changes .where {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+    margin-top: 0.1rem;
+  }
+
+  table.scale { border-collapse: collapse; font-family: var(--sans); font-size: 0.9rem; margin: 1rem 0 1.5rem; width: 100%; max-width: 46rem; }
+  table.scale th { text-align: left; font-size: 0.72rem; font-family: var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); font-weight: 400; padding: 0 0.8rem 0.35rem 0; border-bottom: 1px solid var(--rule); }
+  table.scale td { padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--rule); color: var(--muted); vertical-align: baseline; }
+  table.scale td.tok { font-family: var(--mono); font-size: 0.8rem; color: var(--ink); white-space: nowrap; }
+  table.scale td.ex { color: var(--ink); }
+
+  .qa { max-width: 46rem; display: grid; gap: 1.1rem; margin: 1rem 0 1.5rem; }
+  .qa > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  .qa .q { font-family: var(--sans); font-weight: 600; font-size: 0.98rem; margin-bottom: 0.15rem; }
+
+  .qa .q .tag {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 0.62rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 1px 6px;
+    border: 1px solid;
+    margin-right: 0.45rem;
+    vertical-align: 1.5px;
+    white-space: nowrap;
+  }
+
+  .qa .q .tag.dec { color: var(--good); border-color: var(--good); }
+  .qa .q .tag.asm { color: var(--faint); border-color: var(--rule); }
+  .qa .q .tag.sup { color: var(--warn); border-color: var(--warn); }
+  .qa .a { font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  .qa .a strong { color: var(--good); font-weight: 600; }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.4rem;
+  }
+
+  [hidden] { display: none !important; }
+
+  @media (max-width: 640px) {
+    .r2 { flex-wrap: wrap; }
+    .r2 > .rl2 { width: auto; text-align: left; }
+    .row > .rl { width: auto; }
+  }
+</style>
+<style>
+  /* ---------- additions for the load-sets note ---------- */
+
+  .screen.mid { max-width: 800px; }
+
+  .side { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .side > div { min-width: 260px; }
+
+  /* A terminal. Dark in both themes like the app panels: it is the tool's output, not the page's prose. */
+  pre.term {
+    margin: 0;
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 6px;
+    color: var(--app-text2);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.55;
+    padding: 12px 14px;
+    overflow-x: auto;
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+  }
+
+  pre.term .ph { color: var(--app-text); font-weight: 600; }
+  pre.term .ok { color: var(--app-good); font-weight: 600; }
+  pre.term .no { color: var(--app-bad); font-weight: 600; }
+  pre.term .sk { color: var(--app-dim); font-weight: 600; }
+  pre.term .dim { color: var(--app-dim); }
+  pre.term .cmd { color: var(--app-field); }
+  pre.term .ln { color: var(--app-text); }
+
+  /* A document in the page's own palette: JSON, XML, a Kotlin sketch. */
+  pre.code {
+    margin: 0 0 1rem;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+    white-space: pre;
+    max-width: var(--wide);
+  }
+
+  pre.code .c { color: var(--faint); }
+  pre.code .k { color: var(--accent); }
+  pre.code .s { color: var(--good); }
+  pre.code .n { color: var(--warn); }
+
+  /* The run-configurations idiom: a list on the left, the editor on the right. */
+  .rc { display: flex; align-items: stretch; min-height: 420px; }
+
+  .rc .rclist {
+    width: 188px;
+    flex: none;
+    border-right: 1px solid var(--app-rule);
+    background: var(--app-variant);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rc .rctools {
+    display: flex;
+    gap: 2px;
+    padding: 5px 7px;
+    border-bottom: 1px solid var(--app-rule);
+    align-items: center;
+  }
+
+  .rc .rctools span {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--app-text2);
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 2px;
+  }
+
+  .rc .rctools span.off { color: var(--app-dim); }
+  .rc .rctools .lbl { width: auto; margin-left: auto; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .rc .rcrow {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 5px 9px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+    cursor: default;
+  }
+
+  .rc .rcrow .kd { color: var(--app-dim); font-size: 10px; width: 12px; flex: none; text-align: center; }
+  .rc .rcrow .nm { color: var(--app-text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rc .rcrow .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); flex: none; }
+  .rc .rcrow.on { background: var(--app-bg); box-shadow: inset 2px 0 0 var(--app-info); }
+  .rc .rcrow.new { color: var(--app-dim); border-top: 1px dashed var(--app-rule); margin-top: auto; }
+
+  .rc .rced { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .crumb {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--app-rule);
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .crumb .back { color: var(--app-info); }
+  .crumb .sepc { color: var(--app-dim); }
+  .crumb .here { color: var(--app-text); font-weight: 500; }
+  .crumb .kbd { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); }
+
+  .phaserow .acts2 { display: flex; gap: 6px; flex: none; }
+  .phaserow .acts2 span { font-size: 10px; color: var(--app-info); }
+  .phaserow .acts2 span.dimr { color: var(--app-dim); }
+
+  .namerow { display: flex; align-items: center; gap: 9px; padding: 9px 12px 0; }
+  .namerow .rl2 { width: 84px; flex: none; color: var(--app-text2); font-size: 11px; text-align: right; }
+
+  /* The mechanism drawing: boxes in the app palette, arrows as text so it needs no SVG. */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; row-gap: 10px; }
+
+  .flow .box {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 7px 10px;
+    font-size: 10.5px;
+    color: var(--app-text2);
+    min-width: 120px;
+    max-width: 176px;
+    line-height: 1.4;
+  }
+
+  .flow .box b { display: block; color: var(--app-text); font-weight: 500; font-size: 11px; margin-bottom: 2px; }
+  .flow .box.set { border-color: #3d6b60; }
+  .flow .box.phase { border-color: #3d5f80; }
+  .flow .box .m { font-family: var(--mono); font-size: 10px; color: var(--app-dim); display: block; margin-top: 3px; }
+  .flow .arr { display: flex; align-items: center; padding: 0 6px; color: var(--app-dim); font-size: 12px; }
+
+  .flowwrap { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .flowwrap .fl { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .router { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 10.5px; align-items: center; }
+  .router .who { color: var(--app-text); font-weight: 500; }
+  .router .who small { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); font-weight: 400; }
+  .router .what { color: var(--app-text2); }
+  .router .what b { color: var(--app-text); font-weight: 500; }
+
+  .pairchip {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    border-radius: 999px;
+    padding: 0 6px;
+    border: 1px solid var(--app-rule);
+    color: var(--app-dim);
+    flex: none;
+  }
+
+  .pairchip.better { color: var(--app-good); border-color: #47603a; }
+  .pairchip.worse { color: var(--app-bad); border-color: #6d3a3e; }
+  .pairchip.differs { color: var(--app-warn); border-color: #6d4a3a; }
+
+  table.tbl td.worse { color: var(--app-bad); white-space: nowrap; font-family: var(--mono); }
+  table.tbl td.same { color: var(--app-dim); white-space: nowrap; font-family: var(--mono); }
+  table.tbl td.k { color: var(--app-text2); }
+
+  .callout {
+    max-width: var(--col);
+    border-left: 2px solid var(--warn);
+    background: var(--warn-soft);
+    padding: 0.7rem 0.95rem;
+    margin: 0 0 1.2rem;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    color: var(--ink);
+    border-radius: 0 3px 3px 0;
+  }
+
+  .callout b { font-family: var(--sans); font-weight: 600; }
+
+  table.cmp { border-collapse: collapse; font-family: var(--sans); font-size: 0.9rem; margin: 0.6rem 0 1.5rem; width: 100%; max-width: 46rem; }
+  table.cmp th { text-align: left; font-size: 0.72rem; font-family: var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); font-weight: 400; padding: 0 0.8rem 0.35rem 0; border-bottom: 1px solid var(--rule); }
+  table.cmp td { padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--rule); color: var(--muted); vertical-align: top; line-height: 1.45; }
+  table.cmp td:first-child { color: var(--ink); font-family: var(--sans); font-weight: 600; white-space: nowrap; }
+  table.cmp code { font-size: 0.8em; }
+
+  .steps { counter-reset: st; list-style: none; padding: 0; margin: 1rem 0 1.5rem; max-width: 46rem; display: grid; gap: 0.7rem; }
+  .steps li { counter-increment: st; position: relative; padding-left: 2.2rem; font-size: 0.95rem; line-height: 1.5; }
+  .steps li::before { content: counter(st); position: absolute; left: 0; top: 0.05rem; font-family: var(--mono); font-size: 0.8rem; color: var(--accent); width: 1.5rem; height: 1.5rem; border: 1px solid var(--rule); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .steps b { font-family: var(--sans); font-weight: 600; }
+  .steps .where { display: block; font-family: var(--mono); font-size: 0.74rem; color: var(--faint); margin-top: 0.1rem; }
+
+  @media (max-width: 720px) {
+    .rc { flex-direction: column; }
+    .rc .rclist { width: auto; border-right: none; border-bottom: 1px solid var(--app-rule); }
+    .router { grid-template-columns: 1fr; }
+  }
+</style>
+<style>
+  /* ---------- additions for the mute note ---------- */
+
+  .phaserow.muted .t { color: var(--app-dim); }
+  .phaserow.muted .d { opacity: 0.6; }
+  .phaserow .glyph-mute { color: var(--app-dim); font-size: 11px; flex: none; }
+
+  .tagm {
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: var(--app-warn);
+    border: 1px solid #6b4a2a;
+    border-radius: 2px;
+    padding: 0 4px;
+    line-height: 14px;
+    flex: none;
+  }
+
+  .phaserow .acts2 span.on-mute { color: var(--app-warn); font-weight: 600; }
+
+  .mk.mute { color: var(--app-dim); }
+  .grow.muted .gl, .grow.muted .gt { color: var(--app-dim); }
+  .grow.muted .track { background: repeating-linear-gradient(135deg, #2a2a2a 0 4px, #232323 4px 8px); }
+
+  /* three cases of the same set, side by side */
+  .cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; padding: 12px; }
+
+  .case {
+    background: var(--app-surface);
+    border: 1px solid var(--app-rule);
+    border-radius: 4px;
+    padding: 10px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .case .ch { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--app-dim); margin-bottom: 2px; }
+
+  .case .ph {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 7px;
+    border: 1px solid var(--app-rule);
+    border-radius: 3px;
+    background: var(--app-bg);
+  }
+
+  .case .ph .k { font-family: var(--mono); font-size: 10px; color: var(--app-dim); width: 10px; flex: none; }
+  .case .ph .nm { flex: 1; color: var(--app-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .case .ph .cap { font-family: var(--mono); font-size: 9.5px; color: var(--app-teal); flex: none; }
+  .case .ph .rd { font-family: var(--mono); font-size: 9.5px; color: var(--app-field); flex: none; }
+  .case .ph.off { border-style: dashed; }
+  .case .ph.off .nm, .case .ph.off .cap, .case .ph.off .rd { color: var(--app-dim); }
+  .case .ph.off .k { color: var(--app-warn); }
+
+  .case .out { font-family: var(--mono); font-size: 10px; line-height: 1.5; padding-top: 5px; border-top: 1px dashed var(--app-rule); color: var(--app-text2); }
+  .case .out b { font-weight: 600; }
+  .case .out .ok { color: var(--app-good); }
+  .case .out .bad { color: var(--app-bad); }
+  .case .out .dim { color: var(--app-dim); }
+
+  /* checked and not checked, side by side */
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.4rem; max-width: 54rem; margin: 1rem 0 1.5rem; }
+  .two h4 { font-family: var(--sans); font-size: 0.9rem; margin: 0 0 0.45rem; letter-spacing: 0.01em; }
+  .two ul { margin: 0; padding-left: 1.1rem; font-size: 0.94rem; color: var(--muted); line-height: 1.5; }
+  .two li { margin-bottom: 0.4rem; }
+  .two .yes h4 { color: var(--good); }
+  .two .no h4 { color: var(--faint); }
+</style>
+<div class="page">
+
+  <header class="mast">
+    <p class="eyebrow">FixTool · design note · 2026-09-09 · follows #45</p>
+    <h1>Muting a Phase</h1>
+    <p class="standfirst">A phase of a load set can be parked: it keeps its template, its profile, its shape
+      and its place in the order, and the set skips it on every run. Any phase, not only the last, with one
+      refusal for the one case the tool can prove is broken.</p>
+  </header>
+
+  <p>A three-phase set is authored once and then run for weeks, and for stretches of that time one of its
+    phases is in the way. The venue leg it issues on is down. The failure being chased is in phase 2, and
+    phase 3's sixty-second settle window is noise. The set has to be run without the phase and then with it
+    again, and today the only way is to delete the phase and author it back, or to keep a second copy of the
+    set that drifts from the first.</p>
+
+  <p><span class="lede-mark">The word already exists.</span> A scenario step is <b>muted</b>
+    (<code>ScenarioStep.muted</code>, <code>Scenario.kt:171</code>: "parked, not deleted"), and so is an example
+    row. The runner skips a muted step entirely, the editor dims it and marks it <span class="m">MUTED</span>,
+    the rail draws ⊘ where the verdict glyph would go, and the file carries <code>"muted": true</code> only on
+    the step that is. A phase is the third thing that can be parked, and it takes the word, the glyph and the
+    file key as they are.</p>
+
+  <p><span class="lede-mark">One worked example throughout.</span> The bundled RFQ round trip, as it ships in
+    <code>load-sets/rfq-round-trip.json</code>. Phase 1 asks for 4,000 quotes and <b>keeps</b> two values off
+    each one, <span class="m">quoteId</span> (117) and <span class="m">offer</span> (133). Phase 2 hits the first
+    2,000 at <span class="m">117=${quoteId} 44=${offer}</span>. Phase 3 passes the other 2,000, counting from
+    2,001, at <span class="m">117=${quoteId}</span>. Phases 2 and 3 both read what phase 1 kept, and neither
+    reads the other.</p>
+
+  <h2>Any phase, not only the last</h2>
+
+  <p>The obvious rule is "only the last phase can be muted, because nothing depends on it". It is safe and it
+    is wrong twice. It forbids muting phase 2 of the RFQ set to bisect a failure, which is harmless because
+    phase 3 reads phase 1 and not phase 2. And it does not make muting phase 1 safe in a set that addresses
+    by derived id (<span class="m">${run}-${messageIndex}</span>), because the tool cannot see that dependency
+    at all, position or no position.</p>
+
+  <p>Position is a proxy for dependency, and the set already knows the real dependency graph: <b>captures</b>.
+    A phase that reads <span class="m">${quoteId}</span> depends on whichever earlier phase keeps it, and
+    <code>LoadSet.problems()</code> already walks that graph to refuse a read before its capture. So the rule
+    is the set's existing rule, applied once more. Nothing dials until every phase is fine, and a set of six
+    must never fail on phase five for something that could have been said before phase one.</p>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">RFQ round trip, three ways</span></div>
+      <div class="cases">
+        <div class="case">
+          <div class="ch">phase 3 muted · the ordinary case</div>
+          <div class="ph"><span class="k">1</span><span class="nm">Ask for a quote</span><span class="cap">keeps quoteId, offer</span></div>
+          <div class="ph"><span class="k">2</span><span class="nm">Hit the first 2,000</span><span class="rd">reads quoteId, offer</span></div>
+          <div class="ph off"><span class="k">⊘</span><span class="nm">Pass the other 2,000</span><span class="rd">reads quoteId</span></div>
+          <div class="out"><b class="ok">PASSED</b> · 2 passed, 1 muted · exit 0<br><span class="dim">phases 1 and 2 run on the held lanes, phase 3 is skipped from the first record</span></div>
+        </div>
+        <div class="case">
+          <div class="ch">phase 2 muted · bisecting</div>
+          <div class="ph"><span class="k">1</span><span class="nm">Ask for a quote</span><span class="cap">keeps quoteId, offer</span></div>
+          <div class="ph off"><span class="k">⊘</span><span class="nm">Hit the first 2,000</span><span class="rd">reads quoteId, offer</span></div>
+          <div class="ph"><span class="k">3</span><span class="nm">Pass the other 2,000</span><span class="rd">reads quoteId</span></div>
+          <div class="out"><b class="ok">PASSED</b> · 2 passed, 1 muted · exit 0<br><span class="dim">phase 3 still counts from 2,001 and reads phase 1's table, which is all it ever did</span></div>
+        </div>
+        <div class="case">
+          <div class="ch">phase 1 muted · refused before a lane dials</div>
+          <div class="ph off"><span class="k">⊘</span><span class="nm">Ask for a quote</span><span class="cap">keeps quoteId, offer</span></div>
+          <div class="ph"><span class="k">2</span><span class="nm">Hit the first 2,000</span><span class="rd">reads quoteId, offer</span></div>
+          <div class="ph"><span class="k">3</span><span class="nm">Pass the other 2,000</span><span class="rd">reads quoteId</span></div>
+          <div class="out"><b class="bad">REFUSED</b> · exit 2<br><span class="dim">phase 2 and phase 3 each read a name that only the muted phase keeps, and each says so</span></div>
+        </div>
+      </div>
+    </div>
+    <figcaption>Three mutes of the same file. The first two run, the third is refused, and position decides none
+      of it: the second case is an earlier phase muted with a later one running, and it is fine because the
+      later one never read it. Where a dependency runs through the derived seed rather than a capture, the tool
+      cannot see it and does not pretend to. Muting the NOS phase of "NOS then cancel" turns the cancel storm into
+      a negative test, and the report says what the venue did with it.</figcaption>
+  </figure>
+
+  <h2>The editor</h2>
+
+  <p>A phase row in the Load sets dialog is a row of text chips: ↑ ↓ edit duplicate. It gains one more,
+    <span class="m">mute</span>, which reads <span class="m">muted</span> and turns amber while it is on. That is
+    the toggle the examples table already uses on a row (<code>ScenarioExamplesTable.kt:224</code>). A muted
+    row keeps its number, its plan line and every other chip, dims its label, and carries the
+    <span class="m">MUTED</span> tag the step editor carries. The footer sentence counts it.</p>
+
+  <figure>
+    <div class="figtabs" role="tablist">
+      <button role="tab" aria-selected="true" data-for="ed-last">phase 3 muted</button>
+      <button role="tab" aria-selected="false" data-for="ed-first">phase 1 muted</button>
+      <span class="hint">click a state</span>
+    </div>
+
+    <div id="ed-last" class="pane">
+    <div class="screen mid">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Load sets</span></div>
+      <div class="rc">
+        <div class="rclist">
+          <div class="rctools"><span>+</span><span>⧉</span><span class="off">−</span><span class="lbl">saved</span></div>
+          <div class="rcrow on"><span class="kd">⚡</span><span class="nm">RFQ round trip</span><span class="ct">3</span></div>
+          <div class="rcrow"><span class="kd">⚡</span><span class="nm">NOS then cancel</span><span class="ct">2</span></div>
+          <div class="rcrow new"><span class="kd">+</span><span class="nm">new set</span></div>
+        </div>
+        <div class="rced">
+          <div class="namerow">
+            <span class="rl2">Name</span>
+            <span class="fld w88 left" style="width:180px">RFQ round trip</span>
+            <span class="sub">load-sets/rfq-round-trip.json</span>
+          </div>
+          <div class="dlg2">
+            <div class="setband">
+              <div class="r2">
+                <span class="rl2">Seed</span>
+                <span class="stack">
+                  <span class="chips">
+                    <span class="fld w88 left">run</span><span class="sub">=</span><span class="fld left" style="width:96px">${uuid:4}</span>
+                    <span class="chip on">minted once per run</span>
+                  </span>
+                </span>
+              </div>
+              <div class="r2">
+                <span class="rl2">Store and log</span>
+                <span class="stack">
+                  <span class="chips">
+                    <span class="pick">Memory store, no log <span class="chev">▾</span></span>
+                    <span class="pill dim">once, for the whole set</span>
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div class="body">
+              <div class="ghead">Phases, in order</div>
+              <div class="phaserow">
+                <span class="n">1</span>
+                <span class="t">Ask for a quote</span>
+                <span class="d">RFQ Load QuoteRequest · 35=R → S · 131 QuoteReqID · ×4,000 burst · settle 1m · keeps quoteId, offer</span>
+                <span class="acts2"><span>↑</span><span>↓</span><span>edit</span><span class="dimr">duplicate</span><span class="dimr">mute</span></span>
+              </div>
+              <div class="phaserow">
+                <span class="n">2</span>
+                <span class="t">Hit the first 2,000</span>
+                <span class="d">RFQ Load QuoteResponse · 35=AJ → 8 · 11 ClOrdID · ×2,000 burst · settle 1m</span>
+                <span class="acts2"><span>↑</span><span>↓</span><span>edit</span><span class="dimr">duplicate</span><span class="dimr">mute</span></span>
+              </div>
+              <div class="phaserow muted">
+                <span class="n">3</span>
+                <span class="t">Pass the other 2,000</span>
+                <span class="tagm">MUTED</span>
+                <span class="d">RFQ Load Pass · 35=AJ → AI · 117 QuoteID · ×2,000 from 2,001 · settle 30s</span>
+                <span class="acts2"><span>↑</span><span>↓</span><span>edit</span><span class="dimr">duplicate</span><span class="on-mute">muted</span></span>
+              </div>
+              <div class="phaserow add">+ add a phase</div>
+              <div class="ghead">Between phases</div>
+              <div class="r2">
+                <span class="rl2">If a phase fails</span>
+                <span class="stack">
+                  <span class="radio on"><i></i>Stop, and report the rest as skipped</span>
+                  <span class="radio"><i></i>Carry on, and report every phase</span>
+                </span>
+              </div>
+            </div>
+            <div class="foot">
+              <span class="ready">3 phases, 1 muted · run = ${uuid:4} · memory store, no log</span>
+              <span class="btn">Copy as <span class="m">fixtool load --set</span></span>
+              <span class="btn">Save</span>
+              <span class="btn">Cancel</span>
+              <span class="btn primary">Run set <span class="kbd">⌘↵</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>Phase 3 is parked. It has no "fix" count even if its template read a name nothing seeds, because
+      a muted phase is not judged (below). Run set is on, and the footer says what will happen: three phases in
+      the file, one of them skipped. Run set saves the draft first, as it does today (<code>LoadSetsDialog.kt:154</code>),
+      so the mute is in the file the moment the set runs. "Temporarily" means you unmute it later, the same
+      as a muted step.</figcaption>
+    </div>
+
+    <div id="ed-first" class="pane" hidden>
+    <div class="screen mid">
+      <div class="screen-bar"><span class="dot"></span><span class="ttl">Load sets</span></div>
+      <div class="rc">
+        <div class="rclist">
+          <div class="rctools"><span>+</span><span>⧉</span><span class="off">−</span><span class="lbl">saved</span></div>
+          <div class="rcrow on"><span class="kd">⚡</span><span class="nm">RFQ round trip</span><span class="ct">3</span></div>
+          <div class="rcrow"><span class="kd">⚡</span><span class="nm">NOS then cancel</span><span class="ct">2</span></div>
+          <div class="rcrow new"><span class="kd">+</span><span class="nm">new set</span></div>
+        </div>
+        <div class="rced">
+          <div class="namerow">
+            <span class="rl2">Name</span>
+            <span class="fld w88 left" style="width:180px">RFQ round trip</span>
+            <span class="sub">load-sets/rfq-round-trip.json</span>
+          </div>
+          <div class="dlg2">
+            <div class="setband">
+              <div class="r2">
+                <span class="rl2">Seed</span>
+                <span class="stack">
+                  <span class="chips">
+                    <span class="fld w88 left">run</span><span class="sub">=</span><span class="fld left" style="width:96px">${uuid:4}</span>
+                    <span class="chip on">minted once per run</span>
+                  </span>
+                </span>
+              </div>
+              <div class="r2">
+                <span class="rl2">Store and log</span>
+                <span class="stack">
+                  <span class="chips">
+                    <span class="pick">Memory store, no log <span class="chev">▾</span></span>
+                    <span class="pill dim">once, for the whole set</span>
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div class="body">
+              <div class="ghead">Phases, in order</div>
+              <div class="phaserow muted">
+                <span class="n">1</span>
+                <span class="t">Ask for a quote</span>
+                <span class="tagm">MUTED</span>
+                <span class="d">RFQ Load QuoteRequest · 35=R → S · 131 QuoteReqID · ×4,000 burst · settle 1m · keeps quoteId, offer</span>
+                <span class="acts2"><span>↑</span><span>↓</span><span>edit</span><span class="dimr">duplicate</span><span class="on-mute">muted</span></span>
+              </div>
+              <div class="phaserow" style="border-left:2px solid var(--app-bad)">
+                <span class="n">2</span>
+                <span class="t">Hit the first 2,000</span>
+                <span class="d">RFQ Load QuoteResponse · 35=AJ → 8 · 11 ClOrdID · ×2,000 burst · settle 1m</span>
+                <span class="pill no">1 fix</span>
+                <span class="acts2"><span>↑</span><span>↓</span><span>edit</span><span class="dimr">duplicate</span><span class="dimr">mute</span></span>
+              </div>
+              <div class="inset bad" style="margin:-2px 0 0 26px">
+                <span class="fix"><span class="pill no">fix</span></span>
+                <span>The template reads <span class="m">${quoteId}</span> and <span class="m">${offer}</span>, and the
+                  phase that keeps them, <b>phase 1 · Ask for a quote</b>, is muted. Unmute it, or add them under Seed.</span>
+              </div>
+              <div class="phaserow" style="border-left:2px solid var(--app-bad)">
+                <span class="n">3</span>
+                <span class="t">Pass the other 2,000</span>
+                <span class="d">RFQ Load Pass · 35=AJ → AI · 117 QuoteID · ×2,000 from 2,001 · settle 30s</span>
+                <span class="pill no">1 fix</span>
+                <span class="acts2"><span>↑</span><span>↓</span><span>edit</span><span class="dimr">duplicate</span><span class="dimr">mute</span></span>
+              </div>
+              <div class="inset bad" style="margin:-2px 0 0 26px">
+                <span class="fix"><span class="pill no">fix</span></span>
+                <span>The template reads <span class="m">${quoteId}</span>, and the phase that keeps it,
+                  <b>phase 1 · Ask for a quote</b>, is muted. Unmute it, or add it under Seed.</span>
+              </div>
+              <div class="phaserow add">+ add a phase</div>
+            </div>
+            <div class="foot">
+              <span class="why">Run set is off: phases 2 and 3 read what the muted phase 1 keeps.</span>
+              <span class="btn">Copy as <span class="m">fixtool load --set</span></span>
+              <span class="btn">Save</span>
+              <span class="btn">Cancel</span>
+              <span class="btn off">Run set <span class="kbd">⌘↵</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>The same dialog with phase 1 muted. The refusal sits under the phase that reads, not the phase
+      that is muted, because the reading phase is the one whose edit button is one line above the sentence,
+      and the sentence names the muted phase by number and label so nobody has to look for it. One sentence per
+      muted phase, listing every name it keeps that this phase reads. The "nothing seeds it" sentence does not
+      also fire: a name that is kept, only by a parked phase, is not a name nothing seeds, and two sentences
+      for one mistake read as two faults with two remedies. Save still works, so the file can be left in this
+      state on purpose while phase 1's venue is down.</figcaption>
+    </div>
+  </figure>
+
+  <h2>What is checked on a muted phase</h2>
+
+  <p>The line is <b>resolve, do not judge</b>. The record has to carry the muted phase's plan so a reader can
+    say what would have run, which means the phase has to be a phase. Nothing about how it would have behaved
+    is judged, because it will not behave.</p>
+
+  <div class="two">
+    <div class="yes">
+      <h4>Still refused</h4>
+      <ul>
+        <li>a label used twice in the set, because the report names phases by label</li>
+        <li>a profile nothing answers to, a template that is not a file and not a saved message</li>
+        <li>a template with no MsgType, or with no tag a reply is matched on, because a plan cannot be built without a match</li>
+        <li>every phase muted: <span class="m">Every phase is muted. Unmute one, or the set has nothing to run.</span></li>
+      </ul>
+    </div>
+    <div class="no">
+      <h4>Not judged</h4>
+      <ul>
+        <li>the names its template reads, so a muted phase may read a name nothing seeds and block nothing</li>
+        <li>the store sentence for its profile, and its profile does not count toward "every phase already runs a memory store"</li>
+        <li>its own capture claims: a live phase may keep the same name without the duplicate-claim sentence</li>
+        <li>whether its profile has a lane logged on: <b>its lanes are never opened</b>, which is what "the venue leg is down" needs</li>
+        <li>whether its template compiles: the runner stubs it with the template's name and MsgType and moves on</li>
+      </ul>
+    </div>
+  </div>
+
+  <p>Captures of a muted phase leave the set of names a later phase may read, and they do not claim the name.
+    The precedence is what a reader would guess: seeded, or kept by an earlier <em>live</em> phase, means no
+    refusal at all. Only when neither holds and an earlier <em>muted</em> phase keeps the name does the sentence
+    above fire. A name kept by muted phase 1 and again by live phase 2, read by phase 3, is fine.</p>
+
+  <h2>The report, at every door</h2>
+
+  <p>A muted phase is a <code>SKIPPED</code> phase whose note says <span class="m">muted in the set</span>. No
+    new <code>LoadStatus</code>, no schema bump: the note is the distinction, the way <code>STOPPED_NOTE</code>
+    already tells a stopped set from a failed one. Every door already draws a skipped phase, so each one learns
+    one word. The phase keeps its number, so phase 3 is phase 3 in the heading, in the evidence file names and
+    in Compare, which pairs phases by position.</p>
+
+  <figure>
+    <div class="figtabs" role="tablist">
+      <button role="tab" aria-selected="true" data-for="rp-doc">the document</button>
+      <button role="tab" aria-selected="false" data-for="rp-term">fixtool load</button>
+      <button role="tab" aria-selected="false" data-for="rp-json">load.json</button>
+      <button role="tab" aria-selected="false" data-for="rp-junit">JUnit</button>
+      <button role="tab" aria-selected="false" data-for="rp-api">GET /load-sets</button>
+      <span class="hint">the RFQ set with phase 3 muted, passed</span>
+    </div>
+
+    <div id="rp-doc" class="pane">
+    <div class="screen">
+      <div class="tabs"><span class="tab">book-a-trade</span><span class="tab on">⚡ RFQ round trip (3) · RFQ Load Client</span></div>
+      <div class="dhead2">
+        <span class="badge ok">PASSED</span>
+        <span class="who">
+          <span class="t">RFQ round trip · 3 phases · RFQ Load Client</span>
+          <span class="m">run=b4412 · 5 lanes · memory store, no log · 2 passed, 1 muted · 1.6s · exit 0</span>
+        </span>
+        <span class="acts">
+          <span class="btn">Compare…</span>
+          <span class="btn">Run set again</span>
+          <span class="btn">Copy JSON</span>
+          <span class="btn">Reveal records</span>
+        </span>
+      </div>
+      <div class="sect" style="border-top:none">
+        <div class="shead">Where the set's time went
+          <span class="note">issuing solid, settle window hatched · 1.6s wall clock</span>
+        </div>
+        <div class="gantt">
+          <div class="grow">
+            <span class="gl">1 · Ask for a quote</span>
+            <span class="track"><i class="iss" style="width:38%"></i><i class="set" style="width:18%"></i></span>
+            <span class="gt">0.9s</span>
+          </div>
+          <div class="grow">
+            <span class="gl">2 · Hit the first 2,000</span>
+            <span class="track"><i class="pad" style="width:56%"></i><i class="iss" style="width:22%"></i><i class="set" style="width:22%"></i></span>
+            <span class="gt">0.7s</span>
+          </div>
+          <div class="grow muted">
+            <span class="gl">3 · Pass the other 2,000</span>
+            <span class="track"></span>
+            <span class="gt">muted</span>
+          </div>
+        </div>
+      </div>
+      <div class="split">
+        <div class="rail">
+          <div class="railrow"><span class="mk ok">✓</span><span class="nm">Ask for a quote</span><span class="num">4,000</span></div>
+          <div class="railrow"><span class="mk ok">✓</span><span class="nm">Hit the first 2,000</span><span class="num">2,000</span></div>
+          <div class="railrow on dim"><span class="mk mute">⊘</span><span class="nm">Pass the other 2,000</span><span class="num">muted</span></div>
+        </div>
+        <div class="detail">
+          <div class="dhead2" style="background:var(--app-variant)">
+            <span class="badge dimb">MUTED</span>
+            <span class="who">
+              <span class="t">3 · Pass the other 2,000</span>
+              <span class="m">RFQ Load Pass ×2,000 from 2,001 · 117 QuoteID → 117 · reply 35=AI · settle 30s</span>
+            </span>
+          </div>
+          <div class="vfoot">
+            <div class="judge">
+              <span class="pill dim">not run · muted in the set</span>
+            </div>
+            <div class="l dim">the plan is what would have run · no measurements, no verdict · unmute it under Run ▾ › Load sets…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>The set passed on the two phases that ran, and says so: <span class="m">2 passed, 1 muted</span>
+      rather than <span class="m">2 passed, 1 skipped</span>, because "skipped" on a passed set would read as a
+      policy skip, and there was no failure to skip after. The rail's third row is ⊘ and "muted", the glyph the
+      scenario rail draws for a muted step (<code>ScenariosRail.kt:1950</code>), and the timeline row is the empty
+      hatched track a skipped phase already draws. The focused pane carries the phase's plan and one pill.</figcaption>
+    </div>
+
+    <div id="rp-term" class="pane" hidden>
+<pre class="term"><span class="cmd">$ fixtool load --set rfq-round-trip --seed run=$BUILD_NUMBER --junit reports/rfq.xml</span>
+<span class="ln">set</span>          RFQ round trip · 3 phases · RFQ Load Client · 5 lanes · memory store, no log
+<span class="ln">seed</span>         run=b4412
+<span class="ln">policy</span>       stop when a phase does not pass
+
+<span class="ph">1 · Ask for a quote</span>       RFQ Load QuoteRequest ×4,000 · 35=R → S · 131 QuoteReqID · keeps quoteId, offer · settle 1m
+issued       4,000 · 4,000 left the socket · 0.34s
+matched      4,000
+round trip   min 412µs · p50 1.9ms · p95 6.3ms · p99 11ms · max 48ms · mean 2.4ms  (4,000)
+captured     4,000 quoteId · 4,000 offer
+tool         clean · 0 discarded on 5 sessions · 0 never left the socket
+<span class="ok">COMPLETE</span>     4,000 of 4,000 answered · exit 0
+
+<span class="ph">2 · Hit the first 2,000</span>   RFQ Load QuoteResponse ×2,000 · 35=AJ → 8 · 11 ClOrdID · settle 1m
+issued       2,000 · 2,000 left the socket · 0.21s
+matched      2,000
+round trip   min 388µs · p50 1.7ms · p95 5.9ms · p99 9ms · max 31ms · mean 2.1ms  (2,000)
+tool         clean · 0 discarded on 5 sessions · 0 never left the socket
+<span class="ok">COMPLETE</span>     2,000 of 2,000 answered · exit 0
+
+<span class="ph">3 · Pass the other 2,000</span>  RFQ Load Pass ×2,000 from 2,001 · 35=AJ → AI · 117 QuoteID · settle 30s
+<span class="sk">MUTED</span>        muted in the set
+
+<span class="ok">PASSED</span>       2 passed, 1 muted · 1.6s · exit 0
+             records: ~/.fixtool/loads/2026-09-09T09-40-12-rfq-round-trip
+<span class="dim">fixtool: wrote reports/rfq.xml</span>
+
+<span class="cmd">$ fixtool load --set rfq-round-trip        <span class="dim"># the same file with phase 1 muted instead</span></span>
+<span class="no">fixtool:</span> Phase 2 · Hit the first 2,000: the template reads ${quoteId} and ${offer}, and the phase that keeps them,
+         phase 1 · Ask for a quote, is muted. Unmute it, or seed them with --seed.
+<span class="no">fixtool:</span> Phase 3 · Pass the other 2,000: the template reads ${quoteId}, and the phase that keeps it,
+         phase 1 · Ask for a quote, is muted. Unmute it, or seed it with --seed.
+<span class="dim">exit 2</span></pre>
+    <figcaption>The phase block a skipped phase prints today, with <span class="m">MUTED</span> in the status
+      column instead of <span class="m">SKIPPED</span>, and the set line's counts from the same
+      <code>SetVerdict.counts()</code> the badge reads. The second command shows the refusal at the command
+      line: every sentence, each naming its phase, before anything dials, and exit 2 as for any refusal. The
+      remedy names <code>--seed</code> because that is this door's way to put a name in scope, as the seed
+      sentence already does.</figcaption>
+    </div>
+
+    <div id="rp-json" class="pane" hidden>
+<pre class="code">{
+  <span class="k">"schema"</span>: 3,
+  <span class="k">"id"</span>: <span class="s">"2026-09-09T09-40-12-rfq-round-trip"</span>,
+  <span class="k">"label"</span>: <span class="s">"RFQ round trip"</span>,
+  <span class="k">"set"</span>: { <span class="k">"name"</span>: <span class="s">"rfq-round-trip"</span>, <span class="k">"onFailure"</span>: <span class="s">"STOP"</span> },
+  <span class="k">"seed"</span>: { <span class="k">"run"</span>: <span class="s">"b4412"</span> },
+  <span class="k">"status"</span>: <span class="s">"DONE"</span>, <span class="k">"exitCode"</span>: 0,
+  <span class="k">"verdict"</span>: { <span class="k">"outcome"</span>: <span class="s">"PASSED"</span>, <span class="k">"phase"</span>: <span class="k">null</span>, <span class="k">"passed"</span>: 2, <span class="k">"failed"</span>: 0, <span class="k">"skipped"</span>: 0, <span class="k">"muted"</span>: 1 },   <span class="c">// muted only when non-zero, as stopped is</span>
+  <span class="k">"phases"</span>: [
+    { <span class="k">"n"</span>: 1, <span class="k">"label"</span>: <span class="s">"Ask for a quote"</span>, <span class="k">"status"</span>: <span class="s">"DONE"</span>, …, <span class="k">"capture"</span>: { <span class="k">"quoteId"</span>: 117, <span class="k">"offer"</span>: 133 },
+      <span class="k">"verdict"</span>: { <span class="k">"completeness"</span>: <span class="s">"COMPLETE"</span>, <span class="k">"rate"</span>: <span class="s">"NOT_APPLICABLE"</span>, <span class="k">"tool"</span>: <span class="s">"CLEAN"</span>, <span class="k">"exitCode"</span>: 0 } },
+    { <span class="k">"n"</span>: 2, <span class="k">"label"</span>: <span class="s">"Hit the first 2,000"</span>, <span class="k">"status"</span>: <span class="s">"DONE"</span>, …,
+      <span class="k">"verdict"</span>: { <span class="k">"completeness"</span>: <span class="s">"COMPLETE"</span>, <span class="k">"rate"</span>: <span class="s">"NOT_APPLICABLE"</span>, <span class="k">"tool"</span>: <span class="s">"CLEAN"</span>, <span class="k">"exitCode"</span>: 0 } },
+    { <span class="k">"n"</span>: 3, <span class="k">"label"</span>: <span class="s">"Pass the other 2,000"</span>, <span class="k">"status"</span>: <span class="s">"SKIPPED"</span>,
+      <span class="k">"note"</span>: <span class="s">"muted in the set"</span>,                                          <span class="c">// the whole distinction</span>
+      <span class="k">"template"</span>: {…}, <span class="k">"profile"</span>: <span class="s">"RFQ Load Client"</span>, <span class="k">"lanes"</span>: 0, <span class="k">"shape"</span>: {…}, <span class="k">"indexFrom"</span>: 2001, <span class="k">"match"</span>: {…}, <span class="k">"settleMs"</span>: 30000,
+      <span class="k">"verdict"</span>: <span class="k">null</span> }
+  ]
+}</pre>
+    <figcaption>The phase object needs nothing new. It is the skipped stub the record already writes, with the
+      note that says why, and <span class="m">lanes: 0</span> because none were opened for it. The set verdict
+      gains <span class="m">muted</span>, written only when non-zero so a record with nothing muted is byte for
+      byte what it was. A 1.18 reader of <span class="m">.verdict.skipped</span> keeps its meaning: skipped is
+      still the phases a failure or a stop took out.</figcaption>
+    </div>
+
+    <div id="rp-junit" class="pane" hidden>
+<pre class="code">&lt;<span class="k">testsuites</span> name=<span class="s">"load set: RFQ round trip"</span> tests=<span class="s">"9"</span> failures=<span class="s">"0"</span> skipped=<span class="s">"5"</span> time=<span class="s">"1.600"</span>&gt;
+  &lt;<span class="k">testsuite</span> name=<span class="s">"load: 1 · Ask for a quote"</span> tests=<span class="s">"3"</span> failures=<span class="s">"0"</span> skipped=<span class="s">"1"</span> time=<span class="s">"0.900"</span>&gt;
+    &lt;<span class="k">testcase</span> name=<span class="s">"completeness"</span> classname=<span class="s">"load.rfq-round-trip.1"</span> time=<span class="s">"0.900"</span>/&gt;
+    &lt;<span class="k">testcase</span> name=<span class="s">"rate"</span> classname=<span class="s">"load.rfq-round-trip.1"</span>&gt;&lt;<span class="k">skipped</span> message=<span class="s">"not applicable to a burst"</span>/&gt;&lt;/<span class="k">testcase</span>&gt;
+    &lt;<span class="k">testcase</span> name=<span class="s">"tool"</span> classname=<span class="s">"load.rfq-round-trip.1"</span> time=<span class="s">"0.900"</span>/&gt;
+  &lt;/<span class="k">testsuite</span>&gt;
+  &lt;<span class="k">testsuite</span> name=<span class="s">"load: 2 · Hit the first 2,000"</span> tests=<span class="s">"3"</span> failures=<span class="s">"0"</span> skipped=<span class="s">"1"</span> time=<span class="s">"0.700"</span>&gt;
+    …
+  &lt;/<span class="k">testsuite</span>&gt;
+  &lt;<span class="k">testsuite</span> name=<span class="s">"load: 3 · Pass the other 2,000"</span> tests=<span class="s">"3"</span> failures=<span class="s">"0"</span> skipped=<span class="s">"3"</span> time=<span class="s">"0.000"</span>&gt;
+    &lt;<span class="k">testcase</span> name=<span class="s">"completeness"</span> classname=<span class="s">"load.rfq-round-trip.3"</span>&gt;&lt;<span class="k">skipped</span> message=<span class="s">"muted in the set"</span>/&gt;&lt;/<span class="k">testcase</span>&gt;
+    &lt;<span class="k">testcase</span> name=<span class="s">"rate"</span> classname=<span class="s">"load.rfq-round-trip.3"</span>&gt;&lt;<span class="k">skipped</span> message=<span class="s">"muted in the set"</span>/&gt;&lt;/<span class="k">testcase</span>&gt;
+    &lt;<span class="k">testcase</span> name=<span class="s">"tool"</span> classname=<span class="s">"load.rfq-round-trip.3"</span>&gt;&lt;<span class="k">skipped</span> message=<span class="s">"muted in the set"</span>/&gt;&lt;/<span class="k">testcase</span>&gt;
+  &lt;/<span class="k">testsuite</span>&gt;
+&lt;/<span class="k">testsuites</span>&gt;</pre>
+    <figcaption>Exactly what a build server shows for a <code>@Disabled</code> test: the suite is listed, its
+      three cases are grey, and the message says why. Nothing in the JUnit writer changes, because a skipped
+      phase already becomes three <code>&lt;skipped/&gt;</code> cases carrying its note. A dashboard that counts
+      skipped cases sees five here, two of them the rate cases a burst never has.</figcaption>
+    </div>
+
+    <div id="rp-api" class="pane" hidden>
+<pre class="code"><span class="c">GET /load-sets</span>
+{ <span class="k">"count"</span>: 2, <span class="k">"sets"</span>: [
+  { <span class="k">"name"</span>: <span class="s">"rfq-round-trip"</span>, <span class="k">"label"</span>: <span class="s">"RFQ round trip"</span>, <span class="k">"phases"</span>: 3, <span class="k">"muted"</span>: 1, <span class="k">"profiles"</span>: [<span class="s">"RFQ Load Client"</span>] },
+  { <span class="k">"name"</span>: <span class="s">"nos-then-cancel"</span>, <span class="k">"label"</span>: <span class="s">"NOS then cancel"</span>, <span class="k">"phases"</span>: 2, <span class="k">"profiles"</span>: [<span class="s">"LOADGEN"</span>] }
+] }
+
+<span class="c">POST /load  {"set": "rfq-round-trip", "seed": {"run": "b4412"}}</span>
+<span class="c">202</span> { <span class="k">"load"</span>: <span class="s">"2026-09-09T09-40-12-rfq-round-trip"</span>, <span class="k">"status"</span>: <span class="s">"running"</span>, <span class="k">"label"</span>: <span class="s">"RFQ round trip"</span>, <span class="k">"phases"</span>: 3 }
+
+<span class="c">POST /load  {"phases": [ {…, "muted": true}, {…}, {…} ]}      the same codec, so an inline set can carry it too</span>
+<span class="c">400</span> { <span class="k">"error"</span>: <span class="s">"Phase 2 · Hit the first 2,000: the template reads ${quoteId} and ${offer}, and the phase that keeps them, phase 1 · Ask for a quote, is muted. Unmute it, or seed them."</span>,
+      <span class="k">"problems"</span>: [ <span class="s">"Phase 2 · …"</span>, <span class="s">"Phase 3 · …"</span> ] }</pre>
+    <figcaption>The list row says how many phases are parked, so an agent reading <code>fixtool_load_sets</code>
+      knows the set will run two of its three before it starts one. The 202 is unchanged. An inline set goes
+      through the same codec and the same refusals, first as <span class="m">error</span> and all of them as
+      <span class="m">problems</span>, as today.</figcaption>
+    </div>
+  </figure>
+
+  <h2>The file</h2>
+
+<pre class="code"><span class="c">// &lt;home&gt;/load-sets/rfq-round-trip.json, phase 3 parked</span>
+{
+  <span class="k">"schema"</span>: 1,
+  <span class="k">"name"</span>: <span class="s">"rfq-round-trip"</span>,
+  <span class="k">"label"</span>: <span class="s">"RFQ round trip"</span>,
+  <span class="k">"seed"</span>: { <span class="k">"run"</span>: <span class="s">"${uuid:4}"</span> },
+  <span class="k">"storeAndLog"</span>: { <span class="k">"store"</span>: <span class="s">"MEMORY"</span>, <span class="k">"log"</span>: <span class="s">"NONE"</span> },
+  <span class="k">"onFailure"</span>: <span class="s">"STOP"</span>,
+  <span class="k">"phases"</span>: [
+    { <span class="k">"label"</span>: <span class="s">"Ask for a quote"</span>, <span class="k">"template"</span>: <span class="s">"RFQ Load QuoteRequest"</span>, <span class="k">"profile"</span>: <span class="s">"RFQ Load Client"</span>,
+      <span class="k">"shape"</span>: { <span class="k">"kind"</span>: <span class="s">"burst"</span>, <span class="k">"count"</span>: 4000 }, <span class="k">"settleMs"</span>: 60000, <span class="k">"capture"</span>: { <span class="k">"quoteId"</span>: 117, <span class="k">"offer"</span>: 133 } },
+    { <span class="k">"label"</span>: <span class="s">"Hit the first 2,000"</span>, <span class="k">"template"</span>: <span class="s">"RFQ Load QuoteResponse"</span>, <span class="k">"profile"</span>: <span class="s">"RFQ Load Client"</span>,
+      <span class="k">"shape"</span>: { <span class="k">"kind"</span>: <span class="s">"burst"</span>, <span class="k">"count"</span>: 2000 }, <span class="k">"settleMs"</span>: 60000 },
+    { <span class="k">"label"</span>: <span class="s">"Pass the other 2,000"</span>, <span class="k">"template"</span>: <span class="s">"RFQ Load Pass"</span>, <span class="k">"profile"</span>: <span class="s">"RFQ Load Client"</span>,
+      <span class="k">"shape"</span>: { <span class="k">"kind"</span>: <span class="s">"burst"</span>, <span class="k">"count"</span>: 2000 }, <span class="k">"indexFrom"</span>: 2001, <span class="k">"settleMs"</span>: 30000,
+      <span class="k">"muted"</span>: true }                                                        <span class="c">// only a parked phase writes the key</span>
+  ]
+}</pre>
+
+  <p>Additive and default-omitting, the same bargain as a step's <code>muted</code>
+    (<code>ScenarioCodec.kt:172</code>): a file that never parked anything never grows the key, absent reads as
+    false, and the set file's schema stays 1. Because the flag is in the file, <code>fixtool load --set</code> in
+    a build honours it, and a set checked in beside the code says on its face which of its phases is parked and
+    since which commit.</p>
+
+  <h2>Not in this work</h2>
+
+  <ul class="prose">
+    <li><b>A per-run override.</b> <code>fixtool load --set rfq-round-trip --mute 3</code>, or
+      <code>{"set": "rfq-round-trip", "mute": ["Pass the other 2,000"]}</code>. About thirty lines at the planning
+      door with the same refusals, but it multiplies across the CLI, the API and the Run menu, and nothing asks
+      for it yet. The editor covers the interactive case, and a build that wants a different shape saves a
+      different set.</li>
+    <li><b>"Run only phase 3 against last night's quotes."</b> Captures live in memory for one run, so a phase
+      alone can never address what an earlier run kept. That is a replay feature, not a mute.</li>
+    <li><b>A <code>MUTED</code> status.</b> Schema 4 across every reader for a distinction the note already
+      carries. If a reader ever needs it as a field, <code>"muted": true</code> on the phase object is one line
+      in the codec.</li>
+  </ul>
+
+  <h2>Order of work</h2>
+
+  <ol class="prose">
+    <li><b>The flag.</b> <code>LoadPhaseSpec.muted</code>, <code>LoadPlan.muted</code>, the codec's one key each
+      way.</li>
+    <li><b>The refusals.</b> <code>LoadSet.problems()</code>: resolve a muted phase, judge nothing about it, drop its
+      captures from the readable set, the two new sentences.</li>
+    <li><b>The runner.</b> Open lanes for live phases only, stub a muted phase as skipped with its note at set
+      start, size the capture table over live phases, skip it in the loop before the policy does.</li>
+    <li><b>The verdict.</b> <code>MUTED_NOTE</code>, a <code>muted</code> count, and the three places the verdict
+      must look past a muted stub: the first skipped phase, the "nothing judged" test, the phase a STOPPED or
+      FAILED outcome names.</li>
+    <li><b>The doors.</b> One word each: terminal, document rail and badge, the list row on
+      <code>GET /load-sets</code>. JUnit and the phase JSON need nothing.</li>
+    <li><b>The editor.</b> The chip, the tag, the dimmed row, the footer count, and the refusal under the reading
+      phase.</li>
+    <li><b>Words.</b> Help, changelog, a row in the load sets note's Decisions.</li>
+  </ol>
+
+  <h2>Decisions</h2>
+
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Which phases can be muted?</div>
+      <div class="a"><strong>Any of them.</strong> Position is a proxy for dependency and the set knows the real
+        dependency graph. The one case the tool can prove is broken, a later phase reading a name only a muted
+        phase keeps, is refused before a lane dials, in the reading phase's voice, naming the muted phase. A
+        dependency through the derived seed is invisible to the tool and the run's report is the answer.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>What is it called?</div>
+      <div class="a"><strong>Muted, as a step and an example row are.</strong> Same word, same
+        <span class="m">MUTED</span> tag, same ⊘ in the rail, same <code>"muted": true</code> written only when set.
+        "Disabled" and "skipped" were both considered: disabled is the acceptor rule's word for a different
+        thing, and skipped is what a failure does to the phases after it.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>How much of a muted phase is validated?</div>
+      <div class="a"><strong>It has to resolve, and it is not judged.</strong> Profile, template, MsgType and
+        match tag, because the record carries its plan. Not its template's reads, its store, its captures or its
+        logon, because it will not run. A muted phase whose venue is down blocks nothing, which is the point.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>How does the record carry it?</div>
+      <div class="a"><strong>SKIPPED with the note <span class="m">muted in the set</span>, at its own position.</strong>
+        The same stub a policy skip writes, made at set start rather than when reached, so the live document shows
+        it from the first tick. No new status, no schema bump. The verdict counts it apart from skipped so a passed
+        set never reads "1 skipped".</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Is the mute in the file or on the run?</div>
+      <div class="a"><strong>In the file.</strong> The editor's Run set saves first, so a mute made there is a mute
+        saved. A set checked in beside the code carries it, and a build honours it, the way a disabled test lives in
+        source. A per-run override is cheap to add later and is not added now.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>One refusal sentence per muted phase a template reads, not one per name.</div>
+      <div class="a">"Reads <span class="m">${quoteId}</span> and <span class="m">${offer}</span>, and the phase that
+        keeps them, phase 1, is muted" is one mistake with one remedy. If the existing seed sentence turns out to
+        be one per name, this one follows it, and the mockups above change by a line.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  (function () {
+    var groups = document.querySelectorAll('.figtabs[role="tablist"]');
+    groups.forEach(function (group) {
+      var buttons = group.querySelectorAll('button[data-for]');
+      buttons.forEach(function (button) {
+        button.addEventListener('click', function () {
+          buttons.forEach(function (other) {
+            other.setAttribute('aria-selected', other === button ? 'true' : 'false');
+            var pane = document.getElementById(other.getAttribute('data-for'));
+            if (pane) pane.hidden = other !== button;
+          });
+        });
+      });
+    });
+  })();
+</script>

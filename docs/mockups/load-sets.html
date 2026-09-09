@@ -2643,6 +2643,15 @@ fixtool: wrote reports/rfq.json</span></pre>
         <code>&lt;testsuites&gt;</code>, mirroring <code>fixtool run</code> for one scenario and for a set. A 1.17
         pipeline keeps its shape.</div>
     </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Can a phase be parked without deleting it?</div>
+      <div class="a"><strong>Yes, any phase, and it is called muted.</strong> It keeps its template, its profile, its
+        shape and its place in the order, and the set skips it on every run. Position decides nothing, because the set
+        already knows the real dependency graph: the one case the tool can prove is broken, a later phase reading a name
+        only a muted phase keeps, is refused before a lane dials. Same word, same <code>MUTED</code> tag and same
+        <code>"muted": true</code> written only when set as a scenario step's. See
+        <a href="load-sets-mute.html">Muting a Phase</a>.</div>
+    </div>
   </div>
 
   <p class="kicker">Assumed, cheap to change</p>

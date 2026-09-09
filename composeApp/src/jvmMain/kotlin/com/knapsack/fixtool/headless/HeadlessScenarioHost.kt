@@ -240,7 +240,9 @@ class HeadlessScenarioHost(
             it.reconnect()
             return it
         }
-        val config = configure(if (slots > 1) SessionIdentityResolver.resolve(profile.config, slot, slots) else profile.config)
+        // Resolved at every count: a one-session profile numbers as slot 1, and openSingle's slot of 0
+        // means the same thing to the resolver. Only the identity is per-slot, the title above is not.
+        val config = configure(SessionIdentityResolver.resolve(profile.config, slot, slots))
         val sess =
             FixMessageSession(
                 title = title,

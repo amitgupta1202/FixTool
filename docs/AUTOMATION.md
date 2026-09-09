@@ -562,7 +562,8 @@ lets a value sent on one session be asserted in a response on another. An unknow
 as literal text rather than raising an error.
 
 `{n}`/`{nn}` is *not* one of these — it is the profile CompID numbering pattern (a `senderCompID` of
-`LOADGEN{nn}` with `sessionCount: 4`), and it is not resolved in a message body.
+`LOADGEN{nn}` with `sessionCount: 4`, and `LOADGEN01` at `sessionCount: 1`, because a profile's slots are
+1-based whether it opens one session or forty), and it is not resolved in a message body.
 
 ### Asserting responses
 

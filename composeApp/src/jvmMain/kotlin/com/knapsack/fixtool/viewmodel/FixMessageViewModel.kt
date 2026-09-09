@@ -5036,11 +5036,13 @@ class FixMessageViewModel(
                 logger.info("Session already connecting/connected: {}", session.title)
             } else {
                 logger.info("Reconnecting session: {}", session.title)
+                // A single-session profile carries slot 0, and it still has its numbering pattern resolved:
+                // without this a reconnect would put the literal "{n}" back into the CompID it logged on with.
                 val config =
                     if (session.profileSlot > 0) {
                         SessionIdentityResolver.resolve(profile.config, session.profileSlot, targetCount.coerceAtLeast(session.profileSlot))
                     } else {
-                        profile.config
+                        SessionIdentityResolver.resolve(profile.config, 1, targetCount)
                     }
                 enableLatencyTrackingIfConfigured(session)
                 if (profile.config.acceptsAnyClient()) listenForVenueClients(session, profile.id, profile)
@@ -5068,8 +5070,9 @@ class FixMessageViewModel(
 
         freeSlots.take(targetCount - existingIndices.size).forEach { slot ->
             val isMultiSession = targetCount > 1
-            val config =
-                if (isMultiSession) SessionIdentityResolver.resolve(profile.config, slot, targetCount) else profile.config
+            // The identity is resolved at every count, so a one-session profile logs on as slot 1 rather than
+            // as the literal "{n}". The title and the slot number stay a multi-session idea.
+            val config = SessionIdentityResolver.resolve(profile.config, slot, targetCount)
             val title = if (isMultiSession) "${profile.name} [$slot]" else profile.name
 
             logger.info(

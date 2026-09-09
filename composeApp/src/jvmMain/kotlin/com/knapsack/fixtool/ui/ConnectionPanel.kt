@@ -676,6 +676,24 @@ fun ConnectionPanel(
                             fontSize = 8.sp,
                         )
                     }
+                } else if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                    // One session resolves {n} as slot 1 too, so show the identity that will really go out,
+                    // and stay quiet when resolving changes nothing.
+                    val resolved = SessionIdentityResolver.resolve(identityPreviewConfig(), 1, 1)
+                    val resolvedDiffers =
+                        resolved.senderCompID != senderCompID ||
+                            resolved.targetCompID != targetCompID ||
+                            resolved.username != username
+                    if (resolvedDiffers) {
+                        val previewText =
+                            "Connect opens 1 session as ${resolved.senderCompID} → ${resolved.targetCompID}" +
+                                if (resolved.username != username) ", username ${resolved.username}" else ""
+                        Text(
+                            text = previewText,
+                            color = AppTheme.Colors.info,
+                            fontSize = 8.sp,
+                        )
+                    }
                 }
 
                 // Username and Password on same row

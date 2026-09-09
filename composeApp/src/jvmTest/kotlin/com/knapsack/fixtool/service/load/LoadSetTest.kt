@@ -151,6 +151,47 @@ class LoadSetTest {
         )
     }
 
+    /**
+     * **A trigger is an ordinal, so every edit that moves a phase moves what a trigger points at.**
+     *
+     * A three-link chain, because the two-link case passes for a remapping that only ever looks one place
+     * back. Phase 1 is paced, phase 2 reacts to 1 and phase 3 reacts to 2.
+     */
+    @Test
+    fun `moving a phase carries every trigger with it`() {
+        val moved = set(reactiveChain).movePhase(from = 0, to = 2)
+
+        assertEquals(listOf("Answer every quote", "Hit every answer", "Ask for a quote"), moved.phases.map { it.label })
+        assertEquals(listOf(3, 1, null), moved.phases.map { it.after }, "each one still names the phase it named")
+        assertEquals(set(reactiveChain), set(reactiveChain).movePhase(from = 1, to = 1), "a move to where it already is")
+        assertEquals(set(reactiveChain), set(reactiveChain).movePhase(from = 9, to = 0), "and one that is not a phase")
+    }
+
+    /** Repointing a dependant at whatever moved into the gap is the one outcome nobody asked for. */
+    @Test
+    fun `removing a phase leaves its dependants with no trigger, and shifts the rest down`() {
+        val gone = set(reactiveChain).removePhase(0)
+
+        assertEquals(listOf("Answer every quote", "Hit every answer"), gone.phases.map { it.label })
+        assertEquals(listOf(null, 1), gone.phases.map { it.after }, "phase 2 lost its trigger, phase 3 followed its own down")
+        assertEquals(listOf(null, 1), set(reactiveChain).removePhase(2).phases.map { it.after }, "and removing the last disturbs nothing")
+    }
+
+    /** The copy sits one place later, so a dependant goes on reacting to the original and not to its twin. */
+    @Test
+    fun `duplicating a phase leaves every trigger on the original`() {
+        val copied = set(reactiveChain).duplicatePhase(0)
+
+        assertEquals(
+            listOf("Ask for a quote", "Ask for a quote copy", "Answer every quote", "Hit every answer"),
+            copied.phases.map { it.label },
+        )
+        assertEquals(listOf(null, null, 1, 3), copied.phases.map { it.after }, "phase 3 still reacts to the original")
+
+        val twin = set(reactiveChain).duplicatePhase(1)
+        assertEquals(listOf(null, 1, 1, 2), twin.phases.map { it.after }, "and a copy of a reactive phase shares its trigger")
+    }
+
     @Test
     fun `a set written is the set read back, and the file is named by its slug`() {
         val store = LoadSetStore(dir.absolutePath)

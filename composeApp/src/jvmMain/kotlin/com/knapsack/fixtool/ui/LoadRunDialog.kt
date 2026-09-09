@@ -349,7 +349,7 @@ fun LoadRunDialogContent(
             listen = listen.mapNotNull { id -> profiles.firstOrNull { it.id == id }?.name },
             match = match,
             shape = sh,
-            indexFrom = indexFrom.trim().toIntOrNull()?.coerceAtLeast(1) ?: 1,
+            indexFrom = if (sh is LoadShape.Triggered) 1 else indexFrom.trim().toIntOrNull()?.coerceAtLeast(1) ?: 1,
             settleMs = HeadlessRun.parseDuration(settle) ?: LoadPlan.DEFAULT_SETTLE_MS,
             capture = captureMap(captureRows),
             strictRate = opened?.strictRate ?: false,
@@ -505,8 +505,9 @@ fun LoadRunDialogContent(
                         }
                         // Beside the count *and* beside the rate: `${messageIndex}` restarts at 1 in every
                         // phase whatever its shape, so a rate phase has the same reason to count from where
-                        // another stopped and had no field to say it.
-                        if (phase != null) {
+                        // another stopped and had no field to say it. Never beside a reactive phase, whose
+                        // indices are its trigger's: a field for a derived number is a field that lies.
+                        if (phase != null && carriedShape == null) {
                             Sub("from")
                             SlimField(
                                 indexFrom,

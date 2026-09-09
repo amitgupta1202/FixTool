@@ -183,7 +183,7 @@ fun LoadSetsDialogContent(
                             editing = null
                         },
                         onRemove = {
-                            draft = draft.copy(phases = draft.phases.filterIndexed { i, _ -> i != index })
+                            draft = draft.removePhase(index)
                             dirty = true
                             editing = null
                         },
@@ -482,19 +482,10 @@ private fun SetEditor(
                     spec = spec,
                     problems = problems.filter { it.phase == index + 1 },
                     onEdit = { onEditPhase(index) },
-                    onDuplicate = {
-                        val copied = draft.phases.toMutableList()
-                        copied.add(index + 1, spec.copy(label = spec.label + " copy"))
-                        onChange(draft.copy(phases = copied))
-                    },
-                    onMove = { by ->
-                        val to = (index + by).coerceIn(0, draft.phases.lastIndex)
-                        if (to != index) {
-                            val moved = draft.phases.toMutableList()
-                            moved.add(to, moved.removeAt(index))
-                            onChange(draft.copy(phases = moved))
-                        }
-                    },
+                    // The set owns the arithmetic, because a phase's trigger is an ordinal and every one of
+                    // these moves what an ordinal points at. See LoadSet.movePhase.
+                    onDuplicate = { onChange(draft.duplicatePhase(index)) },
+                    onMove = { by -> onChange(draft.movePhase(index, index + by)) },
                     onToggleMute = {
                         val parked = draft.phases.toMutableList()
                         parked[index] = spec.copy(muted = !spec.muted)

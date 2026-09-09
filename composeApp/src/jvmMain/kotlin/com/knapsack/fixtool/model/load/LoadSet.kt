@@ -255,6 +255,65 @@ data class LoadSet(
     }
 
     /**
+     * **[from] takes the place of [to], and every trigger still names the phase it named.**
+     *
+     * A trigger is an ordinal, so any edit that moves a phase moves what a later phase's `after` points
+     * at. Three editing paths had their own copy of the arithmetic for the list and none for the trigger,
+     * which is how a reorder would have quietly repointed a reactive phase at whatever took its place.
+     * One owner, pinned by tests rather than by three copies of the sum. Both indices are 0-based, as the
+     * dialog's rows are, and one out of range is no change at all.
+     */
+    fun movePhase(from: Int, to: Int): LoadSet {
+        if (from !in phases.indices) return this
+        val target = to.coerceIn(0, phases.lastIndex)
+        if (target == from) return this
+        val order = phases.indices.toMutableList().also { it.add(target, it.removeAt(from)) }
+        return reordered(order, order.map { phases[it] })
+    }
+
+    /**
+     * **The phase at [index] is gone, and so is any trigger that named it.**
+     *
+     * A phase whose trigger has been removed keeps its reactive shape and loses its `after`, so
+     * [problems] says it is reactive and names no phase to react to. Silently repointing it at whatever
+     * moved into that position would be the one outcome nobody asked for.
+     */
+    fun removePhase(index: Int): LoadSet {
+        if (index !in phases.indices) return this
+        val order = phases.indices.filter { it != index }
+        return reordered(order, order.map { phases[it] })
+    }
+
+    /**
+     * **A copy of the phase at [index], right after it, and every trigger still names the original.**
+     *
+     * The copy sits one place later, so a phase reacting to the duplicated one goes on reacting to the
+     * one that was already there rather than to its new twin, and a copy of a reactive phase reacts to
+     * the same trigger its original does.
+     */
+    fun duplicatePhase(index: Int): LoadSet {
+        if (index !in phases.indices) return this
+        val spec = phases[index]
+        val order = phases.indices.toMutableList().also { it.add(index + 1, index) }
+        val built = phases.toMutableList().also { it.add(index + 1, spec.copy(label = spec.label + " copy")) }
+        return reordered(order, built)
+    }
+
+    /**
+     * The set with [built] as its phases, every `after` following the phase it names.
+     *
+     * [order] is the new list of **old** positions, so a phase that was third and is now first appears at
+     * position 0 as 2, and it lines up with [built] one for one. The first entry for an old position wins,
+     * which is what makes a duplicate's trigger the original and not the copy, and a name [order] leaves
+     * out loses its trigger rather than inheriting a stranger's.
+     */
+    private fun reordered(order: List<Int>, built: List<LoadPhaseSpec>): LoadSet {
+        val moved = mutableMapOf<Int, Int>()
+        order.forEachIndexed { position, old -> moved.putIfAbsent(old, position + 1) }
+        return copy(phases = built.map { spec -> spec.after?.let { spec.copy(after = moved[it - 1]) } ?: spec })
+    }
+
+    /**
      * **One [LoadPlan] per phase, the seed rendered once and shared, every phase under one record id.**
      *
      * [seedOverride] wins over the file, which is how a build passes its own number in: `--seed

@@ -203,6 +203,10 @@ class StampMatcher(
      * The stamp carries the wire and nothing else, so the index has to be handed over on the way past. A
      * SEND stamp follows the `send` call for every message the engine accepted, and for no other, which is
      * why [refused] exists: an entry the engine never took would otherwise sit here for the run's life.
+     *
+     * **Every phase fills it, whether or not it captures anything**, because it is also the record of what
+     * this matcher is about to send, which is what lets a set tell a phase's own SEND stamp from the one
+     * the phase beside it made.
      */
     private val issuedIndex = ConcurrentHashMap<String, Int>()
 
@@ -295,9 +299,13 @@ class StampMatcher(
      * Without it the matcher would know a request's id and its lane and not which message it was, and a
      * captured value would have nowhere to land: a later phase looks its captures up by the index its own
      * ids are built from.
+     *
+     * Recorded whatever this phase captures. It used to be kept only when something was, which left a
+     * capture-less phase unable to say which of a set's sends were its own and every one of its requests
+     * pending at index 0.
      */
     fun issued(id: String, messageIndex: Int) {
-        if (captures.isNotEmpty()) issuedIndex[id] = messageIndex
+        issuedIndex[id] = messageIndex
     }
 
     /**

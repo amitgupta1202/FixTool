@@ -3,6 +3,7 @@ package com.knapsack.fixtool.perf
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.joran.JoranConfigurator
+import ch.qos.logback.core.ConsoleAppender
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -107,6 +108,35 @@ class LoggingPolicyTest {
             1,
             errorAppender.copyOfAttachedFiltersList.size,
             "ERROR_FILE must keep its ThresholdFilter — without it every INFO line is encoded three times",
+        )
+        context.stop()
+    }
+
+    /**
+     * The console appender's stream is part of the headless contract, not a formatting preference.
+     * `fixtool load` and `fixtool run` promise that stdout carries the report and stderr the progress, so
+     * a build can redirect one and keep it (main.kt, and the `--help` text in HeadlessLoad). A
+     * `ConsoleAppender` with no `<target>` defaults to `System.out`, and that put about forty INFO lines of
+     * settings, dictionary and QuickFIX/J startup ahead of the report in `fixtool load ... > report.txt`.
+     *
+     * Pinned because it is invisible from inside the GUI, which reads neither stream: the appender keeps
+     * working, the log file keeps its lines, and the only thing that breaks is a redirect nobody runs in a
+     * window.
+     */
+    @Test
+    fun `the console appender writes to stderr so a redirected report stays clean`() {
+        val context = shippedContext()
+        val root = context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME)
+        val console =
+            requireNotNull(root.getAppender("CONSOLE") as? ConsoleAppender<*>) {
+                "CONSOLE must exist and be a ConsoleAppender"
+            }
+
+        assertEquals(
+            "System.err",
+            console.target,
+            "CONSOLE must name System.err. On the default System.out every log line lands in the middle of " +
+                "`fixtool load ... > report.txt`, which the headless commands promise carries the report alone.",
         )
         context.stop()
     }

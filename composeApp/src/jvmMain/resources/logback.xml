@@ -4,8 +4,20 @@
     <property name="LOG_DIR" value="${user.home}/.fixtool/logs"/>
     <property name="LOG_FILE" value="fixtool"/>
 
-    <!-- Console appender for development -->
+    <!--
+      Console appender for development, on System.err rather than the default System.out.
+
+      `fixtool load` and `fixtool run` are headless entrypoints, and their contract (main.kt, and the
+      help text in HeadlessLoad) is that stdout carries the report and stderr the progress, so
+      `fixtool load ... > report.txt` leaves a report with nothing else in it. A ConsoleAppender with
+      no <target> writes to System.out, which put about forty INFO lines of settings, dictionary and
+      QuickFIX/J startup ahead of the header in that file. Naming the target is the whole fix.
+
+      The GUI reads neither stream (it has the FILE appenders below, and those are unchanged), so this
+      costs it nothing but the stream a developer's console output arrives on.
+    -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>

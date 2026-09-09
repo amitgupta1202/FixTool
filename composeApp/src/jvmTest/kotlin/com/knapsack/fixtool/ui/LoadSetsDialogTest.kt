@@ -518,6 +518,38 @@ class LoadSetsDialogTest {
     }
 
     /**
+     * **A phase keeps what the editor has no field for.**
+     *
+     * The phase editor writes the whole spec back over the one in the set, so anything it does not rebuild
+     * is dropped. Two things are not on that screen: `muted`, which the set band owns, and `strictRate`,
+     * which the command line sets. Opening a parked phase to read it therefore un-parked it, and a set run
+     * with `--strict-rate` lost the flag the moment anybody touched a phase.
+     */
+    @Test
+    fun `a phase edited through the breadcrumb stays muted, and keeps its strict rate`() {
+        viewModel.saveLoadSet(
+            roundTrip.copy(phases = roundTrip.phases.mapIndexed { i, p -> if (i == 1) p.copy(muted = true, strictRate = true) else p }),
+        )
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-label").performTextClearance()
+        composeTestRule.onNodeWithTag("phase-label").performTextInput("Hit them again")
+        composeTestRule.onNodeWithTag("phase-done").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-set-phase-muted-2").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val saved = assertNotNull(viewModel.loadSet("round-trip"))
+        assertEquals("Hit them again", saved.phases[1].label, "the edit itself lands")
+        assertTrue(saved.phases[1].muted, "and the phase is still parked")
+        assertTrue(saved.phases[1].strictRate, "and still judges its own rate")
+    }
+
+    /**
      * The refusal sits under the phase that **reads**, because that is the phase whose edit button is one
      * line above the sentence, and it names the muted phase so nobody has to go looking for it. The parked
      * phase itself shows no fix count: it is not judged.

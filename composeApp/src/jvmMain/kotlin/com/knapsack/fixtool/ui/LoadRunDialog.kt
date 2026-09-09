@@ -322,11 +322,20 @@ fun LoadRunDialogContent(
         )
     }
 
+    /**
+     * **The phase as the set will store it.**
+     *
+     * Done writes this over the phase it opened, so anything not rebuilt here is dropped. Everything the
+     * editor owns comes off the fields on the screen; everything it does not is carried over from the phase
+     * that was opened. `muted` belongs to the set band and `strictRate` to the command line, so neither has
+     * a field in this dialog, and rebuilding without them wrote a parked phase back un-parked.
+     */
     @Suppress("ReturnCount")
     fun spec(): LoadPhaseSpec? {
         val t = template ?: return null
         val p = profile ?: return null
         val sh = shape ?: return null
+        val opened = phase?.spec
         return LoadPhaseSpec(
             label = phaseLabel.trim().ifBlank { t.name },
             template = t.name,
@@ -337,6 +346,8 @@ fun LoadRunDialogContent(
             indexFrom = indexFrom.trim().toIntOrNull()?.coerceAtLeast(1) ?: 1,
             settleMs = HeadlessRun.parseDuration(settle) ?: LoadPlan.DEFAULT_SETTLE_MS,
             capture = captureMap(captureRows),
+            strictRate = opened?.strictRate ?: false,
+            muted = opened?.muted ?: false,
         )
     }
 

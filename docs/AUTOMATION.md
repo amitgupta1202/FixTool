@@ -172,8 +172,9 @@ fixtool load --set <name> [--seed <k>=<v>]… [--on-failure stop|continue] [opti
   --listen <profile>     also match replies landing on this profile's sessions (repeatable)
   --match <req>=<rep>    request tag to reply tag (default: the template's first correlation tag, both sides)
   --reply-type <35>      count only replies of this MsgType as answers
-  --set <name>           run a saved load set (<home>/load-sets/<name>.json): several phases in order,
-                         under one seed, with one record
+  --set <name>           run a saved load set (<home>/load-sets/<name>.json): several phases in
+                         order, under one seed, with one report. A muted phase never dials and is
+                         reported as skipped, noted "muted in the set"
   --on-failure stop|continue   after a phase that did not pass (default: the file's, then stop)
   --seed <k>=<v>         seed a value into every message's scope as ${k} (repeatable). With --set it
                          overrides the file's value, so a build can pass its own run id

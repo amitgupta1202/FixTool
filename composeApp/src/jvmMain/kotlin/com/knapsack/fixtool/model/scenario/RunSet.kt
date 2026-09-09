@@ -111,9 +111,10 @@ data class Lane(
      * scenario written for one works in the other without ceremony: `11=ORD-${sessionIndex}` gives every
      * lane its own ClOrdID, and `262=MD-${sessionIndex}` its own MDReqID.
      *
-     * `sessionIndex` is the **profile slot**, where Bulk Send uses the target's position in the logged-on
-     * list. Bulk Send is a one-shot over whoever is up; a lane is an identity that has to mean the same
-     * thing on every run and in every record.
+     * `sessionIndex` is the **profile slot**, counting from 1 even for a profile that opens a single
+     * session, where Bulk Send uses the target's position in the logged-on list. Bulk Send is a one-shot
+     * over whoever is up; a lane is an identity that has to mean the same thing on every run and in every
+     * record.
      */
     fun seed(): Map<String, String> =
         mapOf(

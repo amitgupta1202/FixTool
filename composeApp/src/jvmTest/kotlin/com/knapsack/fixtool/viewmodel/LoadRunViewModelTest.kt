@@ -1,13 +1,17 @@
 package com.knapsack.fixtool.viewmodel
 
+import com.knapsack.fixtool.integration.TestFixServer
+import com.knapsack.fixtool.integration.settled
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.ScenarioDoc
@@ -105,6 +109,61 @@ class LoadRunViewModelTest {
         assertEquals(emptyList(), viewModel.loadRecordStore.list())
     }
 
+    /**
+     * **A group of one is lane 1, not lane 0.** A lane's slot is the lane's identity, and it is what a
+     * template reads as `${sessionIndex}`, so it has to be a number the far end can tell the lanes apart
+     * by. A single-session profile's session carries `profileSlot` 0 as a convention of its own, and taken
+     * literally it made the window issue `58=LANE-0` from a session that had logged on as `SOLO1`, while
+     * the same set run headless numbered that lane 1. Both paths answer 1 now.
+     */
+    @Test
+    fun `a one-session profile's lane is slot 1, so sessionIndex is never 0`() {
+        val venue = TestFixServer()
+        venue.start()
+        val runId = System.nanoTime().toString().takeLast(6)
+        try {
+            val profile =
+                FixConnectionProfile(
+                    name = "SOLO",
+                    config =
+                        FixConnectionConfig(
+                            connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                            senderCompID = "SOLO{n}$runId",
+                            targetCompID = "VENUE$runId",
+                            sessionCount = 1,
+                            host = "localhost",
+                            port = venue.port.toString(),
+                            socketConnectHost = "localhost",
+                            beginString = "FIX.4.4",
+                            autoReconnect = false,
+                            resetOnLogon = true,
+                            fileStorePath = File(testDir, "solostore").absolutePath,
+                            fileLogPath = File(testDir, "sololog").absolutePath,
+                        ),
+                )
+            viewModel.saveConnectionProfile(profile)
+            viewModel.connectProfile(profile.id, profile)
+            assertTrue(
+                awaitCondition(25_000) {
+                    viewModel.getProfileSessions(profile.id).any { it.connectionState.value == FixConnectionState.LOGGED_ON }
+                },
+                "the profile's one session should log on: " +
+                    viewModel.sessions.joinToString { "${it.title}=${it.connectionState.value}" },
+            )
+
+            val available = assertNotNull(viewModel.loadLanes(profile.id) as? FixMessageViewModel.FanOutLanes.Available)
+            val lane = assertNotNull(available.lanes.singleOrNull(), "one session is one lane: ${available.lanes}")
+            assertEquals(1, lane.slot, "the group of one is lane 1, whatever slot the session itself carries")
+
+            // The seed is what reaches a template, so this is the assertion that would have caught LANE-0.
+            assertEquals("1", lane.seed()[Lane.SESSION_INDEX])
+            assertEquals("SOLO1$runId", lane.senderCompID, "and it is the identity that same session logged on with")
+        } finally {
+            viewModel.disconnectAllSessions()
+            venue.stop()
+        }
+    }
+
     @Test
     fun `Recent's load row opens the document over the record`() {
         val report = LoadFixtures.burstReport()
@@ -187,5 +246,15 @@ class LoadRunViewModelTest {
     fun `a stop aimed at a run that is not running is harmless`() {
         viewModel.stopLoadRun("nothing")
         assertTrue(!viewModel.isLoadRunning("nothing"))
+    }
+
+    /** Polled against a snapshot, because the sessions list is written on the view model's own dispatcher. */
+    private fun awaitCondition(timeoutMs: Long, predicate: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            if (settled(predicate)) return true
+            if (System.currentTimeMillis() >= deadline) return false
+            Thread.sleep(100)
+        }
     }
 }

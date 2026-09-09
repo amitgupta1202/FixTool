@@ -3518,7 +3518,12 @@ class FixMessageViewModel(
         val lanes =
             up.map { session ->
                 Lane(
-                    slot = session.profileSlot,
+                    // **A group of one is lane 1.** The slot is the lane's identity, and a single-session
+                    // profile's session carries `profileSlot` 0 as its own convention, not as a lane number.
+                    // One is what `SessionIdentityResolver` renders `{n}` as for that same session, so the
+                    // window and the headless path answer the same number and the record's `perLane` rows
+                    // agree with what the messages actually carry.
+                    slot = session.profileSlot.coerceAtLeast(1),
                     sessionTitle = session.title,
                     senderCompID = session.currentConfig?.senderCompID.orEmpty(),
                     qualifier = session.sessionQualifier,

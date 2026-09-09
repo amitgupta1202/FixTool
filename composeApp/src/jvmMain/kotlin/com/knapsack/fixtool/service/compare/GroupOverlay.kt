@@ -120,8 +120,57 @@ data class GroupOverlay(
             messageType: String?,
             dictionary: FixDictionaryAdapter?,
         ): GroupOverlay = Builder(fields, messageType, dictionary).build()
+
+        /**
+         * **The groups a parse has to rescue, and the cheapest honest way to find there are none.**
+         *
+         * `FixMessageHelper.toQuickFixMessageManual` runs on every message the app parses, which on a load
+         * run is every reply, on QuickFIX/J's own callback thread. It asks this one question: which
+         * repeating groups does the dictionary *not* define, so that a flat parse would collapse them. It
+         * used to ask by building a whole [GroupOverlay] and throwing away everything but the answer, on
+         * messages where the answer is always "none". Asking directly took the whole re-parse of a
+         * 14-field ExecutionReport from 5,552 B and 38.5µs to 3,824 B and 23.9µs, and of a 25-entry market
+         * data snapshot from 107,940 B and 172.9µs to 60,408 B and 89.5µs. `SalvageGateBenchmarkTest` holds
+         * the measurements and the procedure that produced them.
+         *
+         * So the question is answered directly, and the guess is only made when it could say yes:
+         *
+         * - A salvageable group **needs a count row**. [guessed] assigns one only where
+         *   [FixDictionaryAdapter.isGroupTag] holds for the row immediately above the run, and a group
+         *   with no count row is dropped by the caller anyway, because `addGroup` files a group under its
+         *   count tag and there is no other tag to file it under.
+         * - A region is offered as a guess only if **no dictionary-defined group already covers it**. So a
+         *   count row whose group the dictionary defines, and whose very next row is that group's
+         *   delimiter, cannot start a guess: [known] is certain to build an entry there and put the row in
+         *   `covered`.
+         *
+         * When every count row on the message is one of those, there is provably nothing to rescue and
+         * neither walk is made. When any row fails the test (a venue's own `9005`, or a defined group whose
+         * delimiter did not follow its count), the full walk runs exactly as it always did. The gate only
+         * ever skips work it has proved empty, which is why `ManualParseGroupSalvageTest` is untouched by
+         * it.
+         *
+         * The narrow return type is deliberate. This door computes no labels and no nesting, because its
+         * caller reads neither, and a [GroupNode] handed back from here would carry an empty label that
+         * some later surface could believe.
+         */
+        fun salvageable(
+            fields: List<Pair<Int, String?>>,
+            messageType: String?,
+            dictionary: FixDictionaryAdapter?,
+        ): List<Salvaged> = Builder(fields, messageType, dictionary).salvageable()
     }
 }
+
+/**
+ * One repeating group the dictionary does not define, as a parse needs it: the count tag to file the
+ * entries under, the row that carries the count, and one row range per entry.
+ */
+data class Salvaged(
+    val groupTag: Int,
+    val countRow: Int,
+    val entries: List<IntRange>,
+)
 
 /** Which of the two answers this group's boundaries came from. The UI badges the guess. */
 enum class EntrySource {
@@ -199,6 +248,55 @@ private class Builder(
     private val covered = mutableSetOf<Int>()
 
     fun build(): GroupOverlay = GroupOverlay(known() + guessed())
+
+    /** See `GroupOverlay.salvageable`, which holds the reasoning this implements. */
+    fun salvageable(): List<Salvaged> {
+        if (nothingToSalvage()) return emptyList()
+        // Called for `covered`, not for its nodes: a region a dictionary-defined group already owns is not
+        // a guess, and `guessed()` reads exactly that set to exclude them. The nodes are the UI's business.
+        known()
+        // The caller's old filter was `source == HEURISTIC && countRow != null`. Only the count row is
+        // tested here because every node `guessed()` builds is HEURISTIC by construction, so the other
+        // half of that filter never excluded anything.
+        return guessed().mapNotNull { group ->
+            group.countRow?.let { Salvaged(group.groupTag, it, group.entries.map { entry -> entry.rows }) }
+        }
+    }
+
+    /**
+     * **True when no guess could produce a group with a count row**, decided by a pass over the fields
+     * rather than by making the guess.
+     *
+     * Conservative in one direction only: a row it cannot prove harmless sends the whole walk down the
+     * path it always took.
+     */
+    private fun nothingToSalvage(): Boolean {
+        val adapter = dictionary ?: return true
+        for (row in fields.indices) {
+            if (!adapter.isGroupTag(fields[row].first)) continue
+            // The last row of the message counts nothing: an entry would have to sit below it.
+            if (row + 1 >= fields.size) continue
+            if (startsDefinedGroup(row)) continue
+            return false
+        }
+        return true
+    }
+
+    /**
+     * True when [known] is **certain** to build an entry beginning at [row] + 1, which is what puts that
+     * row in `covered` and so out of reach of a guess.
+     *
+     * The condition is `entriesOf`'s own loop condition for its first iteration, and it is checked here
+     * rather than trusted: a count row whose delimiter did not follow it builds no entries, leaves its
+     * rows uncovered, and is exactly the malformed wire a guess is still allowed to bracket.
+     */
+    private fun startsDefinedGroup(row: Int): Boolean {
+        val tag = fields[row].first
+        val info = dd?.takeIf { isGroup(it, tag) }?.let { group(it, tag) }
+        return info != null &&
+            fields[row + 1].first == info.delimiterField &&
+            belongsTo(info.dataDictionary, info.delimiterField)
+    }
 
     /** The groups the dictionary defines, at the top level of the message. */
     private fun known(): List<GroupNode> {

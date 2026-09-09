@@ -4,9 +4,8 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixFields
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
-import com.knapsack.fixtool.service.compare.EntrySource
-import com.knapsack.fixtool.service.compare.GroupNode
 import com.knapsack.fixtool.service.compare.GroupOverlay
+import com.knapsack.fixtool.service.compare.Salvaged
 import quickfix.DataDictionary
 import quickfix.FieldMap
 import quickfix.Group
@@ -83,37 +82,62 @@ object FixMessageHelper {
         // processFields they set the same tags over and over on one FieldMap, and an N-instance
         // group collapses to its last instance with no diagnostic.
         val bodyFields = fields.filter { !isHeader(it.first) && !isTrailer(it.first) }
-        val salvaged = salvageableGroups(bodyFields, msgTypeValue, adapter).associateBy { it.countRow!! }
-        var i = 0
-        while (i < bodyFields.size) {
-            val group = salvaged[i]
-            if (group == null) {
-                val end = salvaged.keys.filter { it > i }.minOrNull() ?: bodyFields.size
-                processFields(bodyFields.subList(i, end), 0, message, dataDictionary, msgTypeValue)
-                i = end
-            } else {
-                val delimiter =
-                    bodyFields[
-                        group.entries
-                            .first()
-                            .rows.first,
-                    ].first
-                group.entries.forEach { entry ->
-                    val instance = Group(group.groupTag, delimiter)
-                    processFields(bodyFields.subList(entry.rows.first, entry.rows.last + 1), 0, instance, dataDictionary, msgTypeValue)
-                    message.addGroup(instance)
-                }
-                // addGroup normalised the count to the number of entries found; the wire's own
-                // claim wins, mismatch included — rendering a count the venue never sent would
-                // hide exactly the defect this tool exists to show.
-                message.setString(group.groupTag, bodyFields[group.countRow!!].second)
-                i = group.entries
-                    .last()
-                    .rows.last + 1
-            }
-        }
+        val salvaged = salvageableGroups(bodyFields, msgTypeValue, adapter)
+        buildBody(bodyFields, salvaged, message, dataDictionary, msgTypeValue)
 
         return message
+    }
+
+    /**
+     * The body, built as runs of ordinary fields with the rescued groups carved out between them.
+     *
+     * [salvaged] is walked with a cursor rather than searched. It used to be a map keyed by count row,
+     * asked `salvaged.keys.filter { it > i }.minOrNull()` on every iteration of the loop: a scan of
+     * every group per row of the message, and an allocation per row even when there were no groups at
+     * all, which is the common case.
+     */
+    private fun buildBody(
+        bodyFields: List<Pair<Int, String>>,
+        salvaged: List<Salvaged>,
+        message: Message,
+        dataDictionary: DataDictionary,
+        msgType: String,
+    ) {
+        val groups = salvaged.sortedBy { it.countRow }
+        var next = 0
+        var i = 0
+        while (i < bodyFields.size) {
+            while (next < groups.size && groups[next].countRow < i) next++
+            val group = groups.getOrNull(next)?.takeIf { it.countRow == i }
+            if (group == null) {
+                val end = groups.getOrNull(next)?.countRow ?: bodyFields.size
+                processFields(bodyFields.subList(i, end), 0, message, dataDictionary, msgType)
+                i = end
+            } else {
+                i = addSalvagedGroup(group, bodyFields, message, dataDictionary, msgType)
+            }
+        }
+    }
+
+    /** One rescued group's entries onto [message], returning the row after it ends. */
+    private fun addSalvagedGroup(
+        group: Salvaged,
+        bodyFields: List<Pair<Int, String>>,
+        message: Message,
+        dataDictionary: DataDictionary,
+        msgType: String,
+    ): Int {
+        val delimiter = bodyFields[group.entries.first().first].first
+        group.entries.forEach { entry ->
+            val instance = Group(group.groupTag, delimiter)
+            processFields(bodyFields.subList(entry.first, entry.last + 1), 0, instance, dataDictionary, msgType)
+            message.addGroup(instance)
+        }
+        // addGroup normalised the count to the number of entries found; the wire's own claim wins,
+        // mismatch included — rendering a count the venue never sent would hide exactly the defect
+        // this tool exists to show.
+        message.setString(group.groupTag, bodyFields[group.countRow].second)
+        return group.entries.last().last + 1
     }
 
     /**
@@ -130,17 +154,18 @@ object FixMessageHelper {
      *
      * Dictionary-defined groups are absent deliberately: `processFields` already builds those, with
      * delimiter tracking the overlay does not need to duplicate.
+     *
+     * Asked through [GroupOverlay.salvageable] rather than by building a whole overlay and filtering it:
+     * the answer is the same, and on the messages where it is "none" (which is every conformant one) it
+     * is reached without the walk. See that function for the argument that the two cannot disagree.
      */
     private fun salvageableGroups(
         bodyFields: List<Pair<Int, String>>,
         messageType: String,
         adapter: FixDictionaryAdapter?,
-    ): List<GroupNode> {
+    ): List<Salvaged> {
         if (adapter == null) return emptyList()
-        return GroupOverlay
-            .build(bodyFields, messageType, adapter)
-            .groups
-            .filter { it.source == EntrySource.HEURISTIC && it.countRow != null }
+        return GroupOverlay.salvageable(bodyFields, messageType, adapter)
     }
 
     /**

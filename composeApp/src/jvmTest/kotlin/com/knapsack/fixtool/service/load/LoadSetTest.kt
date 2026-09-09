@@ -110,6 +110,45 @@ class LoadSetTest {
             ),
         )
 
+    /**
+     * Two links of trigger: a burst that counts from 2,001, a phase reacting to it, and a capped phase
+     * reacting to that. The authored `indexFrom` on the two reactive phases is deliberately wrong, so a
+     * test that says the trigger's wins cannot pass by accident.
+     */
+    private val reactiveChain =
+        listOf(
+            twoPhases[0].copy(shape = LoadShape.Burst(2_000), indexFrom = 2_001),
+            twoPhases[1].copy(label = "Answer every quote", shape = LoadShape.Triggered(), after = 1, indexFrom = 1),
+            twoPhases[1].copy(label = "Hit every answer", shape = LoadShape.Triggered(cap = 50), after = 2, indexFrom = 7),
+        )
+
+    @Test
+    fun `a reactive phase takes its count and its index range from the phase it reacts to`() {
+        val planned = set(reactiveChain).plan(Fake(), seedOverride = mapOf("run" to "b7f2"), id = "id")
+
+        assertEquals(listOf(2_000L, 2_000L, 2_000L), planned.phases.map { it.requested }, "two links of trigger, one count")
+        assertEquals(listOf(2_001, 2_001, 2_001), planned.phases.map { it.indexFrom }, "and the authored 1 and 7 never reach a plan")
+        assertEquals(listOf(4_000L, 4_000L, 4_000L), planned.phases.map { it.indexTo })
+        assertEquals(listOf(null, 1, 2), planned.phases.map { it.after }, "the trigger reaches the plan, not only the spec")
+    }
+
+    /** A spec has no trigger plan, so the one honest thing it can print for a derived index is nothing. */
+    @Test
+    fun `a reactive phase's row names its trigger and never prints an index it cannot know`() {
+        assertEquals("reactive", LoadShape.Triggered().describe())
+        assertEquals("reactive, capped 50/s", LoadShape.Triggered(cap = 50).describe())
+        assertEquals(
+            "RFQ Load QuoteResponse · LoadMatch(requestTag=11, replyTag=11, replyType=8) · reactive, capped 50/s · after phase 2 · settle 30s",
+            reactiveChain[2].describe(),
+            "the authored indexFrom of 7 is nowhere in it",
+        )
+        assertEquals(
+            "RFQ Load QuoteResponse · LoadMatch(requestTag=11, replyTag=11, replyType=8) · ×2,000 from 2,001 · settle 30s",
+            twoPhases[1].describe(),
+            "and a paced phase still says where it counts from",
+        )
+    }
+
     @Test
     fun `a set written is the set read back, and the file is named by its slug`() {
         val store = LoadSetStore(dir.absolutePath)

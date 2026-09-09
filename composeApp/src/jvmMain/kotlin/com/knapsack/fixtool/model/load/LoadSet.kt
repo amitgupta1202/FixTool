@@ -263,12 +263,16 @@ data class LoadSet(
      *
      * Throws [IllegalArgumentException] when a name does not resolve, so a caller that skipped
      * [problems] finds out rather than running four of six phases.
+     *
+     * **A fold and not a map**, because a reactive phase's count and index range are its trigger's and it
+     * has to have that phase's plan in hand to take them. Every trigger is an earlier phase, so the plan
+     * it needs is always one this fold has already built.
      */
     fun plan(resolve: Resolver, seedOverride: Map<String, String>, id: String): Planned {
         require(phases.isNotEmpty()) { "a load set needs a phase" }
         val rendered = seed.mapValues { (_, v) -> CompiledTemplate.renderGenerators(v) } + seedOverride
         val plans =
-            phases.mapIndexed { index, spec ->
+            phases.foldIndexed(mutableListOf<LoadPlan>()) { index, built, spec ->
                 val n = index + 1
                 val profile =
                     requireNotNull(resolve.profile(spec.profile)) { "phase $n names no saved profile '${spec.profile}'" }
@@ -278,23 +282,37 @@ data class LoadSet(
                     requireNotNull(spec.match ?: template.inferMatch()) {
                         "phase $n's template '${template.name}' carries no tag a reply is matched on"
                     }
-                LoadPlan(
-                    id = id,
-                    label = spec.label,
-                    template = template,
-                    profileId = profile.id,
-                    profileName = profile.name,
-                    listenProfileIds = spec.listen.mapNotNull { resolve.profile(it)?.id },
-                    shape = spec.shape,
-                    match = match,
-                    settleMs = spec.settleMs,
-                    seed = rendered,
-                    storeAndLog = storeAndLog,
-                    strictRate = spec.strictRate,
-                    indexFrom = spec.indexFrom,
-                    capture = spec.capture,
-                    muted = spec.muted,
-                )
+                val trigger =
+                    if (spec.shape is LoadShape.Triggered) {
+                        val after = requireNotNull(spec.after) { "phase $n is reactive and names no phase to react to" }
+                        require(after in 1 until n) { "phase $n reacts to phase $after, which does not run before it" }
+                        built[after - 1]
+                    } else {
+                        null
+                    }
+                built +=
+                    LoadPlan(
+                        id = id,
+                        label = spec.label,
+                        template = template,
+                        profileId = profile.id,
+                        profileName = profile.name,
+                        listenProfileIds = spec.listen.mapNotNull { resolve.profile(it)?.id },
+                        shape = spec.shape,
+                        match = match,
+                        settleMs = spec.settleMs,
+                        seed = rendered,
+                        storeAndLog = storeAndLog,
+                        strictRate = spec.strictRate,
+                        // A reactive phase answers one message per message its trigger issued, at that
+                        // message's own index, so both numbers are the trigger's and neither is authored.
+                        indexFrom = trigger?.indexFrom ?: spec.indexFrom,
+                        capture = spec.capture,
+                        muted = spec.muted,
+                        requested = trigger?.requested ?: spec.shape.ownCount ?: 0L,
+                        after = spec.after,
+                    )
+                built
             }
         return Planned(id, label.ifBlank { name }, name, onFailure, rendered, storeAndLog, plans)
     }
@@ -373,13 +391,34 @@ data class LoadPhaseSpec(
      * key.
      */
     val muted: Boolean = false,
+    /**
+     * **The earlier phase this one reacts to**, 1-based, for a [LoadShape.Triggered] phase and nothing else.
+     *
+     * Named by ordinal rather than by label, because every sentence the set prints already says "phase N"
+     * and a label in the JSON reads worse than the number beside it. A label would survive a reorder for
+     * free, which the ordinal does not: [LoadSet.movePhase], [LoadSet.removePhase] and
+     * [LoadSet.duplicatePhase] own that arithmetic so no editing path has to know it.
+     *
+     * A phase with a burst or a rate that names one is refused rather than quietly ignored, because a
+     * setting a surface accepted and then dropped is worse than one it never took.
+     */
+    val after: Int? = null,
 ) {
+    /**
+     * Whether the row says where this phase's indices start.
+     *
+     * No " from N" for a reactive phase: its indices are its trigger's, and a spec has no trigger plan to
+     * read them off, so the only honest thing a spec can print for a derived number is nothing.
+     */
+    private val countsFromHere: Boolean get() = indexFrom > 1 && shape !is LoadShape.Triggered
+
     /** "RFQ Load Pass · 35=AJ → AI · 117 QuoteID · ×2,000 from 2,001 · settle 30s", for a row and a block. */
     fun describe(): String =
         listOfNotNull(
             template,
             match?.let { "$it" },
-            shape.describe() + (if (indexFrom > 1) " from ${"%,d".format(indexFrom)}" else ""),
+            shape.describe() + if (countsFromHere) " from ${"%,d".format(indexFrom)}" else "",
+            after?.let { "after phase $it" },
             "settle ${humanDuration(settleMs)}",
             capture.keys.takeIf { it.isNotEmpty() }?.let { "keeps ${it.joinToString(", ")}" },
         ).joinToString(" · ")

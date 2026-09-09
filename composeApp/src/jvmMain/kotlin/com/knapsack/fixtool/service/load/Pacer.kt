@@ -95,6 +95,10 @@ class Pacer(
         when (shape) {
             is LoadShape.Burst -> burst(shape.count, issue, cancelled)
             is LoadShape.Rate -> rate(shape, issue, cancelled)
+            // A reactive phase is released by its trigger's replies and not by a schedule, so it has no
+            // pacer yet. Nothing reaches this: LoadSet.problems() refuses a reactive phase before a lane
+            // is opened, and a throw here would land after logon, which is not a refusal.
+            is LoadShape.Triggered -> error("a reactive phase has no pacer yet")
         }
 
     private fun burst(count: Int, issue: (Int, Int) -> Issued, cancelled: () -> Boolean): IssueStats {

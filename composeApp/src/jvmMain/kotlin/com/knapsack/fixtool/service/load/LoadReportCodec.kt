@@ -297,6 +297,11 @@ object LoadReportCodec {
                     put("perSecond", shape.perSecond)
                     put("forMs", shape.forMs)
                 }
+                is LoadShape.Triggered -> {
+                    put("kind", "triggered")
+                    // An uncapped phase never grows the key, the same bargain a phase's `muted` strikes.
+                    shape.cap?.let { put("cap", it) }
+                }
             }
         }
 

@@ -249,6 +249,12 @@ fun LoadRunDialogContent(
         }
     val override = if (forLoad) StoreAndLogOverride.FOR_LOAD else null
     val listenNames = listen.mapNotNull { id -> profiles.firstOrNull { it.id == id }?.name }
+    // **A shape this screen cannot author is carried, not rebuilt.** The Shape segment is Burst or Rate
+    // until #46 gives it a third option, so a reactive phase opened here keeps the shape it arrived with
+    // and the Burst and Rate fields are neither shown as its own nor written back over it. Done stays
+    // reachable for the same reason `muted` and `strictRate` do not disable it: an editor with no field
+    // for something must not make its absence the reason the phase cannot be saved.
+    val carriedShape = phase?.spec?.shape as? LoadShape.Triggered
 
     // Two kinds of refusal, both placed under the row that caused them. The plan's own are LoadPlan.problems,
     // shared with the CLI and the API. The rest are about the *form* — a plan with no template and no shape
@@ -271,7 +277,7 @@ fun LoadRunDialogContent(
             if (template != null && match == null) {
                 add(Refusal(Where.MATCH, "The template carries no tag a reply can be matched on. Name the request and reply tags."))
             }
-            if (shape == null) {
+            if (shape == null && carriedShape == null) {
                 add(
                     Refusal(
                         Where.SHAPE,
@@ -334,8 +340,8 @@ fun LoadRunDialogContent(
     fun spec(): LoadPhaseSpec? {
         val t = template ?: return null
         val p = profile ?: return null
-        val sh = shape ?: return null
         val opened = phase?.spec
+        val sh = carriedShape ?: shape ?: return null
         return LoadPhaseSpec(
             label = phaseLabel.trim().ifBlank { t.name },
             template = t.name,
@@ -348,6 +354,7 @@ fun LoadRunDialogContent(
             capture = captureMap(captureRows),
             strictRate = opened?.strictRate ?: false,
             muted = opened?.muted ?: false,
+            after = opened?.after,
         )
     }
 
@@ -737,7 +744,7 @@ fun LoadRunDialogContent(
         if (phase != null) {
             PhaseFooter(
                 why = why,
-                summary = phaseSummary(shape, indexFrom, settle, lanes),
+                summary = phaseSummary(carriedShape ?: shape, indexFrom, settle, lanes),
                 done = blocking.isEmpty(),
                 onRemove = phase.onRemove,
                 onDone = ::start,
@@ -946,6 +953,16 @@ private fun defaultsOf(spec: LoadPhaseSpec): LoadRunDefaults =
                 burst = false,
                 rate = shape.perSecond.toString(),
                 forText = compact(shape.forMs),
+                settle = compact(spec.settleMs),
+                seed = emptyList(),
+            )
+        // A reactive phase has no control on this screen until the Shape segment grows a third option, so
+        // the count field opens empty rather than showing a number this phase never asked for. Nothing is
+        // read back over it either: `spec()` carries the shape the phase arrived with.
+        is LoadShape.Triggered ->
+            LoadRunDefaults(
+                burst = true,
+                count = "",
                 settle = compact(spec.settleMs),
                 seed = emptyList(),
             )
@@ -1269,13 +1286,18 @@ private fun msgTypeName(dictionary: FixDictionary?, msgType: String?): String {
  * **The dialog as the line that gates a build.** `fixtool load` already takes every field collected here,
  * so this is a transcription and not a second grammar — see [com.knapsack.fixtool.headless.HeadlessLoad].
  */
-internal fun cliLine(plan: LoadPlan): String =
-    buildString {
+internal fun cliLine(plan: LoadPlan): String {
+    // A reactive phase has no line of its own. It reacts to another phase, so it exists only inside a set,
+    // and a set is run by name whatever its phases are. Spelling it as `--count` or `--rate` would hand
+    // somebody a command that runs something else.
+    if (plan.shape is LoadShape.Triggered) return "fixtool load --set <name>"
+    return buildString {
         append("fixtool load ").append(quoted(plan.template.name))
         append(" --profile ").append(quoted(plan.profileName))
         when (val shape = plan.shape) {
             is LoadShape.Burst -> append(" --count ").append(shape.count)
             is LoadShape.Rate -> append(" --rate ").append(shape.perSecond).append("/s --for ").append(compact(shape.forMs))
+            is LoadShape.Triggered -> Unit
         }
         append(" --settle ").append(compact(plan.settleMs))
         append(" --match ").append(plan.match.requestTag).append("=").append(plan.match.replyTag)
@@ -1284,6 +1306,7 @@ internal fun cliLine(plan: LoadPlan): String =
         plan.listenProfileIds.forEach { append(" --listen ").append(quoted(it)) }
         plan.storeAndLog?.let { append(" --store ").append(it.store.name.lowercase()).append(" --log ").append(it.log.name.lowercase()) }
     }
+}
 
 /** `1h 5m` reads well in a sentence and is two arguments on a command line. */
 private fun compact(ms: Long): String = humanDuration(ms).replace(" ", "")

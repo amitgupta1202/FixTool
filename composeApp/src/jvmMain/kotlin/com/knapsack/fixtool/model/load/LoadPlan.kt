@@ -54,10 +54,23 @@ data class LoadPlan(
      * carried all the same, because the record has to say what would have run. See [LoadPhaseSpec.muted].
      */
     val muted: Boolean = false,
+    /**
+     * **How many messages the plan asks for**, stored rather than read off the shape.
+     *
+     * A burst and a rate both count their own messages, so for those this is [LoadShape.ownCount] and the
+     * default is the whole answer. A reactive phase issues one message for each message the phase it reacts
+     * to issued, so its count belongs to that phase and only [LoadSet.plan] has it: the field is what lets
+     * the report, the render-ahead and `indexTo` ask one question and get one answer whatever the shape.
+     */
+    val requested: Long = shape.ownCount ?: 0L,
+    /**
+     * **The earlier phase this one reacts to**, 1-based, or null when it runs on its own schedule.
+     *
+     * Carried on the plan and not only on [LoadPhaseSpec] because the runner is handed plans and never
+     * sees a spec, so a spec-only trigger would be invisible to the thing that has to honour it.
+     */
+    val after: Int? = null,
 ) {
-    /** How many messages the plan asks for. */
-    val requested: Long get() = shape.requested
-
     /**
      * **Every reason this plan cannot run, in the sentences its surfaces print.**
      *
@@ -156,9 +169,17 @@ data class LoadPlan(
     }
 }
 
-/** Burst or sustained rate: the two parameters of one feature. */
+/** Burst, sustained rate, or reacting to an earlier phase: the three parameters of one feature. */
 sealed interface LoadShape {
-    val requested: Long
+    /**
+     * **How many messages this shape asks for on its own, or null when only its trigger knows.**
+     *
+     * A burst counts its own messages and a rate multiplies two numbers it is holding, so both can answer
+     * before a lane is open. A reactive phase issues one message for each message the phase it reacts to
+     * issued, and a shape has no way to reach that phase: [LoadPlan.requested] is a stored field for this
+     * reason, and [LoadSet.plan] is a fold so it has the trigger's plan in hand when it fills it in.
+     */
+    val ownCount: Long?
 
     fun describe(): String
 
@@ -166,7 +187,7 @@ sealed interface LoadShape {
     data class Burst(
         val count: Int,
     ) : LoadShape {
-        override val requested: Long get() = count.toLong()
+        override val ownCount: Long get() = count.toLong()
 
         override fun describe(): String = "×${"%,d".format(count)}"
     }
@@ -176,13 +197,35 @@ sealed interface LoadShape {
         val perSecond: Int,
         val forMs: Long,
     ) : LoadShape {
-        override val requested: Long get() = perSecond.toLong() * forMs / MILLIS_PER_SECOND
+        /** Kept as its own property, not only as [ownCount], because the pacer needs it off a [Rate]. */
+        val requested: Long get() = perSecond.toLong() * forMs / MILLIS_PER_SECOND
+
+        override val ownCount: Long get() = requested
 
         override fun describe(): String = "$perSecond/s for ${humanDuration(forMs)}"
 
         private companion object {
             const val MILLIS_PER_SECOND = 1_000L
         }
+    }
+
+    /**
+     * **Issue one message for each message an earlier phase issued, as that phase's replies land.**
+     *
+     * The phase it reacts to is [LoadPhaseSpec.after], and the count and the index range are that phase's:
+     * a reactive phase never asks for a number of its own. That is what turns a three-phase RFQ set from
+     * three blocks into 196 chains that finish in the first 200ms, with the four that never answered still
+     * costing the trigger's whole settle window.
+     *
+     * [cap] is a ceiling in messages a second and never a schedule, so a second nothing was released in is
+     * a second nothing was ready, not a shortfall. Null issues each message the moment its trigger lands.
+     */
+    data class Triggered(
+        val cap: Int? = null,
+    ) : LoadShape {
+        override val ownCount: Long? get() = null
+
+        override fun describe(): String = "reactive" + (cap?.let { ", capped $it/s" } ?: "")
     }
 }
 

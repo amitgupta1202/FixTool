@@ -12,6 +12,7 @@ import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.VariableSource
+import com.knapsack.fixtool.ui.Lanes
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
 import org.junit.Before
@@ -164,6 +165,28 @@ class FanOutIntegrationTest {
         val why = assertNotNull(lanes as? FixMessageViewModel.FanOutLanes.Unavailable).why
         assertTrue("opens 1" in why, why)
         assertTrue("Sessions" in why && "{nn}" in why, "it names the field and the pattern that fix it: $why")
+    }
+
+    /**
+     * **The same profile, up, is a load run's lane and still not a fan-out's.**
+     *
+     * A venue's load accounts are one session each, because the venue fans every reply out to every
+     * session of the organisation, so a second lane buys duplicates rather than throughput. The command
+     * line has always issued from that profile and the window refused it, with a sentence about the
+     * Sessions field that would have made the run worse.
+     */
+    @Test
+    fun `a one-session profile that is logged on supplies a load run's lane`() {
+        val client = connectLanes(count = 1)
+
+        val forLoad = assertNotNull(viewModel.loadLanes(client.id) as? FixMessageViewModel.FanOutLanes.Available)
+        assertEquals(1, forLoad.lanes.size, "the profile's one session is the run's one lane")
+        assertEquals(null, forLoad.shortfall, "one of one is not a shortfall")
+        assertEquals(1, Lanes.forLoad(viewModel).profiles, "so the Run menu's load rows are live")
+
+        val why = assertNotNull(viewModel.fanOutLanes(client.id) as? FixMessageViewModel.FanOutLanes.Unavailable).why
+        assertTrue("opens 1" in why, "fan-out still asks for more than one lane: $why")
+        assertEquals(0, Lanes.of(viewModel).profiles, "and its own count is unchanged")
     }
 
     // ----------------------------------------------------------------- fixtures

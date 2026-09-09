@@ -252,7 +252,7 @@ data class LoadPhaseSpec(
     val label: String,
     /** As `LoadTemplates.resolve` reads it: a path, then a saved message by id or name. */
     val template: String,
-    /** The multi-session initiator profile whose lanes issue, by id or name. */
+    /** The initiator profile whose lanes issue, one lane per session it opens, by id or name. */
     val profile: String,
     /** Profiles whose sessions take part in matching and never issue, by id or name. */
     val listen: List<String> = emptyList(),

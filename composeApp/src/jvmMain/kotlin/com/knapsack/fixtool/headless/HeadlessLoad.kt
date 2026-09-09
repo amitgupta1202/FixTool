@@ -589,7 +589,7 @@ object HeadlessLoad {
         fixtool load --set <name> [--seed <k>=<v>]… [--on-failure stop|continue] [options]
 
           <template>             a saved message's name or id, or a path to a .fix file holding one message
-          --profile <name>       the multi-session initiator profile whose lanes issue
+          --profile <name>       the initiator profile whose lanes issue, one lane per session it opens
           --count <n>            burst: issue n messages as fast as the lanes carry them
           --rate <r>/s --for <d>  sustained: issue r per second for d (90s, 10m, 1h)
           --settle <d>           wait this long for replies after the last send (default 60s); the window

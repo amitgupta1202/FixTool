@@ -3481,7 +3481,16 @@ class FixMessageViewModel(
      * An author cannot tell "this cannot be done, and here is why" from "this feature does not exist" if
      * the item is withheld — so the menu keeps the entry and wears the reason.
      */
-    fun fanOutLanes(profileId: String): FanOutLanes {
+    fun fanOutLanes(profileId: String): FanOutLanes = lanesOf(profileId, manyLanesRequired = true)
+
+    /**
+     * **The one body behind [fanOutLanes] and [loadLanes]**, so the two questions cannot drift apart.
+     *
+     * [manyLanesRequired] decides two sentences and nothing else: whether a profile that opens a single
+     * session is refused, which is fan-out's own requirement, and the voice of the line said when none of
+     * the profile's sessions is logged on.
+     */
+    private fun lanesOf(profileId: String, manyLanesRequired: Boolean): FanOutLanes {
         val profile =
             _connectionProfiles.find { it.id == profileId }
                 ?: return FanOutLanes.Unavailable("no saved profile with that id")
@@ -3491,7 +3500,7 @@ class FixMessageViewModel(
                     "the far end of lanes, never their source. Fan out from the client profile instead.",
             )
         }
-        if (profile.config.sessionCount <= 1) {
+        if (manyLanesRequired && profile.config.sessionCount <= 1) {
             return FanOutLanes.Unavailable(
                 "Fan-out needs a profile that opens more than one session, and '${profile.name}' opens " +
                     "${profile.config.sessionCount}. Set Sessions on the profile to the number of lanes you " +
@@ -3516,7 +3525,13 @@ class FixMessageViewModel(
                 )
             }
         if (lanes.isEmpty()) {
-            return FanOutLanes.Unavailable("no session of '${profile.name}' is logged on — connect it, then fan out")
+            return FanOutLanes.Unavailable(
+                if (manyLanesRequired) {
+                    "no session of '${profile.name}' is logged on — connect it, then fan out"
+                } else {
+                    "no session of '${profile.name}' is logged on. Connect it, then run the load."
+                },
+            )
         }
         // A shortfall is REPORTED, not refused: if the venue let 38 of 50 on, the set runs 38 and says so.
         val short =
@@ -3661,8 +3676,16 @@ class FixMessageViewModel(
             .filter { it.msgType != null }
     }
 
-    /** Whether a profile can supply lanes for a load run: the same question, and the same sentences, as fan-out. */
-    fun loadLanes(profileId: String): FanOutLanes = fanOutLanes(profileId)
+    /**
+     * **Whether a profile can supply lanes for a load run**: fan-out's gathering, without the one refusal
+     * that belongs to fan-out alone.
+     *
+     * A load run issues from the profile's sessions and one of them is a number: `fixtool load` has always
+     * run that way, and a real venue's load profiles are one session each, because the venue fans every
+     * reply out to every session of the organisation, so a second lane buys duplicates rather than
+     * throughput. Fan-out exists to spread a flow over many identities, so it still asks for more than one.
+     */
+    fun loadLanes(profileId: String): FanOutLanes = lanesOf(profileId, manyLanesRequired = false)
 
     /**
      * **The plan a record describes, ready to fire again — or the sentence saying what no longer exists.**
@@ -3741,7 +3764,7 @@ class FixMessageViewModel(
      */
     fun startLoadRun(plan: LoadPlan): LoadPlan? {
         val lanes =
-            when (val available = fanOutLanes(plan.profileId)) {
+            when (val available = loadLanes(plan.profileId)) {
                 is FanOutLanes.Unavailable -> {
                     showNotification(available.why, NotificationType.ERROR)
                     return null
@@ -3898,7 +3921,7 @@ class FixMessageViewModel(
     fun startLoadSet(planned: LoadSet.Planned): LoadSet.Planned? {
         val lanesByProfile = linkedMapOf<String, List<Pair<Lane, FixMessageSession>>>()
         for (profileId in planned.phases.map { it.profileId }.distinct()) {
-            when (val available = fanOutLanes(profileId)) {
+            when (val available = loadLanes(profileId)) {
                 is FanOutLanes.Unavailable -> {
                     showNotification(available.why, NotificationType.ERROR)
                     return null

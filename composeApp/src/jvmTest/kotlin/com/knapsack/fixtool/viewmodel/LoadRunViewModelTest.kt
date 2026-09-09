@@ -4,8 +4,10 @@ import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
+import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.ScenarioDoc
@@ -47,6 +49,17 @@ class LoadRunViewModelTest {
             match = LoadMatch(11),
         )
 
+    private fun set(vararg phases: LoadPlan) =
+        LoadSet.Planned(
+            id = "s",
+            label = "one phase on LOADGEN",
+            name = "solo-set",
+            onFailure = OnFailure.STOP,
+            seed = emptyMap(),
+            storeAndLog = null,
+            phases = phases.toList(),
+        )
+
     @Test
     fun `a profile with no lane logged on refuses to start, and nothing is recorded`() {
         val profile = FixConnectionProfile(id = "lg", name = "LOADGEN", config = FixConnectionConfig(senderCompID = "LG{n}", targetCompID = "V", sessionCount = 3))
@@ -55,6 +68,41 @@ class LoadRunViewModelTest {
         assertNull(viewModel.startLoadRun(plan("lg")))
         assertEquals(emptyList(), viewModel.loadRecordStore.list())
         assertTrue(viewModel.openDocuments.value.none { it is ScenarioDoc.LoadRunView })
+    }
+
+    /**
+     * **A load run is not a fan-out, and a profile that opens one session is not its problem.**
+     *
+     * `fixtool load` has always issued from `sessionCount` lanes, one included, and a venue's load
+     * accounts are one session each: the venue fans every reply out to every session of the organisation,
+     * so a second lane buys duplicates. The window used to hand that profile fan-out's sentence and send
+     * the author to the Sessions field, which fixes nothing. What is missing is a connection, and both
+     * start paths now say so.
+     */
+    @Test
+    fun `a one-session profile is refused for its lanes, never for its session count`() {
+        val profile =
+            FixConnectionProfile(id = "solo", name = "SOLO", config = FixConnectionConfig(senderCompID = "SOLO", targetCompID = "V"))
+        viewModel.saveConnectionProfile(profile)
+
+        val forLoad = assertNotNull(viewModel.loadLanes("solo") as? FixMessageViewModel.FanOutLanes.Unavailable).why
+        assertTrue("no session of 'SOLO' is logged on" in forLoad, forLoad)
+        assertTrue("run the load" in forLoad, "it asks for a connection, not a session count: $forLoad")
+
+        // Fan-out is untouched: its whole point is many identities, so one session is the wrong profile.
+        val forFanOut = assertNotNull(viewModel.fanOutLanes("solo") as? FixMessageViewModel.FanOutLanes.Unavailable).why
+        assertTrue("opens 1" in forFanOut, forFanOut)
+        assertTrue("Sessions" in forFanOut && "{nn}" in forFanOut, forFanOut)
+
+        assertNull(viewModel.startLoadRun(plan("solo")))
+        assertNull(viewModel.startLoadSet(set(plan("solo"))))
+        assertTrue(
+            viewModel.notifications.none { "Fan-out needs" in it.message },
+            "neither start path sends a load down the fan-out path: ${viewModel.notifications.map { it.message }}",
+        )
+        // One balloon, not two: showNotification re-surfaces a repeat rather than stacking it.
+        assertTrue(viewModel.notifications.any { "run the load" in it.message }, "the refusal is said, not silent")
+        assertEquals(emptyList(), viewModel.loadRecordStore.list())
     }
 
     @Test

@@ -553,7 +553,7 @@ object McpTools {
                 props(
                     "set" to string("run this saved load set by name, instead of one template"),
                     "onFailure" to enumStr("stop", "continue"),
-                    "profile" to string("the multi-session initiator profile whose lanes issue (name or id)"),
+                    "profile" to string("the initiator profile whose lanes issue, one lane per session (name or id)"),
                     "template" to string("a saved message's name"),
                     "fields" to arraySchema(objectSchema("{tag, value}"), "the message as tag-value pairs (alternative to template)"),
                     "raw" to string("the message as one wire line, | or SOH delimited (alternative to template)"),

@@ -891,7 +891,9 @@ fun ToolbarRunControls(viewModel: FixMessageViewModel, modifier: Modifier = Modi
                 .merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.listRecords())
                 .take(RECENT_RUNS)
         }
-    val lanes = remember(menuOpen, sessionStates, viewModel.connectionProfiles.size) { Lanes.of(viewModel) }
+    // Counted for a load run, not for a fan-out: every row this menu gates on it is a load, and a load
+    // issues from one lane as happily as from fifty.
+    val lanes = remember(menuOpen, sessionStates, viewModel.connectionProfiles.size) { Lanes.forLoad(viewModel) }
 
     if (loading) {
         LoadRunDialog(

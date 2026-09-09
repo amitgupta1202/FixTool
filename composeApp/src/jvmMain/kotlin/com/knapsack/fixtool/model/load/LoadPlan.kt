@@ -20,7 +20,7 @@ data class LoadPlan(
     /** "NOS EUR/USD 1M ×4,000 on LOADGEN". What the document, the summary and Recent call it. */
     val label: String,
     val template: LoadTemplate,
-    /** The multi-session initiator profile whose lanes issue. */
+    /** The initiator profile whose lanes issue, one lane per session it opens. */
     val profileId: String,
     val profileName: String,
     /** Profiles whose sessions take part in matching but never issue: a drop-copy, a dealer side. */

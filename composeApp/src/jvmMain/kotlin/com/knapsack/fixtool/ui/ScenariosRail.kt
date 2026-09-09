@@ -1010,11 +1010,15 @@ private data class RunMenu(
  * **How many lanes the workspace can supply, and how many profiles they come from.**
  *
  * One value carrying both numbers, and one place that counts them, because the rail's "Fan out over
- * sessions…" and the toolbar's "Load run…" ask exactly the same question of exactly the same profiles.
- * Two counters would be two chances to disagree about it.
+ * sessions…" and the toolbar's "Load run…" read the same two numbers off the same profiles. Two counters
+ * would be two chances to disagree about them.
+ *
+ * They differ on one profile only, and [of] against [forLoad] is where that lives: fan-out is about many
+ * identities, so a profile opening a single session supplies it nothing, while a load run issues from
+ * whatever sessions are up and one of them is a number.
  */
 internal data class Lanes(
-    /** Saved profiles that could supply lanes — a multi-session initiator with sessions logged on. */
+    /** Saved profiles that could supply lanes: an initiator with sessions logged on. */
     val profiles: Int,
     /** How many lanes those profiles add up to, which is the number the count reads as. */
     val lanes: Int,
@@ -1029,10 +1033,23 @@ internal data class Lanes(
         get() = if (profiles == 0) "0" else "$lanes lane${if (lanes == 1) "" else "s"} on $profiles profile${if (profiles == 1) "" else "s"}"
 
     companion object {
-        fun of(viewModel: FixMessageViewModel): Lanes {
+        /** What fan-out can spread over: the profiles that open more than one session. */
+        fun of(viewModel: FixMessageViewModel): Lanes = counted(viewModel) { viewModel.fanOutLanes(it) }
+
+        /**
+         * What a load run can issue from, which includes the one-session profile a venue's load accounts
+         * usually are. The Run menu enables its load rows off this, so the window offers the set that
+         * `fixtool load --set` would run rather than greying it out.
+         */
+        fun forLoad(viewModel: FixMessageViewModel): Lanes = counted(viewModel) { viewModel.loadLanes(it) }
+
+        private fun counted(
+            viewModel: FixMessageViewModel,
+            lanesOf: (String) -> FixMessageViewModel.FanOutLanes,
+        ): Lanes {
             val available =
                 viewModel.connectionProfiles.mapNotNull {
-                    viewModel.fanOutLanes(it.id) as? FixMessageViewModel.FanOutLanes.Available
+                    lanesOf(it.id) as? FixMessageViewModel.FanOutLanes.Available
                 }
             return Lanes(profiles = available.size, lanes = available.sumOf { it.lanes.size })
         }

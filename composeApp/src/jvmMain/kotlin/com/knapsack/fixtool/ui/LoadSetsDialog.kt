@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
@@ -37,8 +39,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.rememberDialogState
 import com.knapsack.fixtool.model.load.LoadPhaseSpec
@@ -491,12 +495,18 @@ private fun SetEditor(
                             onChange(draft.copy(phases = moved))
                         }
                     },
+                    onToggleMute = {
+                        val parked = draft.phases.toMutableList()
+                        parked[index] = spec.copy(muted = !spec.muted)
+                        onChange(draft.copy(phases = parked))
+                    },
                 )
             }
             Chip("+ add a phase", on = false, tag = "load-set-add-phase") {
                 onChange(draft.copy(phases = draft.phases + newPhase(draft)))
             }
             SetRefusals(problems.filter { it.phase == null && it.sentence.startsWith("A set needs") }, draft)
+            SetRefusals(problems.filter { it.phase == null && it.sentence.startsWith("Every phase is muted") }, draft)
             SetRefusals(problems.filter { it.phase == null && it.sentence.startsWith("Two phases") }, draft)
         }
 
@@ -530,7 +540,13 @@ private fun SetEditor(
     }
 }
 
-/** One phase, as the row the dialog's own footer composes: everything it will do, on one line. */
+/**
+ * One phase, as the row the dialog's own footer composes: everything it will do, on one line.
+ *
+ * A **muted** row keeps its number, its plan line and every chip, dims its label and wears the step
+ * editor's own MUTED tag. It shows no "N fix" count, because a muted phase is not judged: the count would
+ * be a promise that unmuting it is all that stands between the set and a clean run.
+ */
 @Composable
 @Suppress("LongParameterList")
 private fun PhaseRow(
@@ -540,6 +556,7 @@ private fun PhaseRow(
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onMove: (Int) -> Unit,
+    onToggleMute: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().testTag("load-set-phase-row-$n")) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -550,17 +567,20 @@ private fun PhaseRow(
                 modifier = Modifier.width(14.dp),
             )
             Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
-                Text(
-                    spec.label,
-                    color = AppTheme.Colors.text,
-                    style = AppTheme.Type.body,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("load-set-phase-label-$n"),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        spec.label,
+                        color = if (spec.muted) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
+                        style = AppTheme.Type.body,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("load-set-phase-label-$n"),
+                    )
+                    if (spec.muted) MutedTag(n)
+                }
                 Hint(spec.describe(), tag = "load-set-phase-plan-$n")
             }
-            if (problems.isNotEmpty()) {
+            if (problems.isNotEmpty() && !spec.muted) {
                 Text(
                     "${problems.size} fix",
                     color = AppTheme.Colors.error,
@@ -572,10 +592,36 @@ private fun PhaseRow(
             Chip("↓", on = false, tag = "load-set-phase-down-$n") { onMove(1) }
             Chip("edit", on = false, tag = "load-set-phase-edit-$n", onClick = onEdit)
             Chip("duplicate", on = false, tag = "load-set-phase-duplicate-$n", onClick = onDuplicate)
+            Chip(
+                if (spec.muted) "muted" else "mute",
+                on = spec.muted,
+                tag = "load-set-phase-mute-$n",
+                onClick = onToggleMute,
+            )
         }
         // Under the row that caused it, which is the whole placement rule: the phase this names is the one
         // whose edit button is one line above the sentence.
         problems.forEach { RefusalNotice(it.describe(spec.label), "load-set-refusal") }
+    }
+}
+
+/** The MUTED tag the step editor wears, on the phase that is: same warning colour, same small caps. */
+@Composable
+private fun MutedTag(n: Int) {
+    AppTooltip("The set skips this phase. Its template, profile, shape and place in the order are kept.") {
+        Text(
+            "MUTED",
+            color = AppTheme.Colors.warning,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            modifier =
+                Modifier
+                    .padding(start = 8.dp)
+                    .border(1.dp, AppTheme.Colors.warning.copy(alpha = MUTED_TAG_ALPHA), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("load-set-phase-muted-$n"),
+        )
     }
 }
 
@@ -634,7 +680,12 @@ private fun labelOf(draft: LoadSet, phase: Int?): String? = phase?.let { draft.p
  * question asked of a set rather than of one burst.
  */
 private fun readySentence(draft: LoadSet): String {
-    val phases = if (draft.phases.size == 1) "1 phase" else "${draft.phases.size} phases"
+    val muted = draft.phases.count { it.muted }
+    // Three phases in the file, one of them skipped: the count of parked phases belongs where the footer
+    // says what Run set will do, because "3 phases" alone would promise three runs.
+    val phases =
+        (if (draft.phases.size == 1) "1 phase" else "${draft.phases.size} phases") +
+            if (muted > 0) ", $muted muted" else ""
     val named = draft.seed.entries.joinToString(", ") { (name, value) -> "$name = $value" }
     val seeded = named.ifEmpty { "nothing seeded" }
     val store = draft.storeAndLog?.describe() ?: "each profile's own store"
@@ -647,11 +698,16 @@ private fun readySentence(draft: LoadSet): String {
  * The radios then say the same thing twice, so the row is one sentence instead, as the run dialog's Store
  * row is. A phase whose profile does not resolve counts as unknown rather than as agreeing: a set half
  * written cannot be told what its lanes will do.
+ *
+ * Live phases only, because the override is applied to the lanes the set opens and a muted phase opens
+ * none. A parked phase on a file-store profile would otherwise keep the radios on screen for a set every
+ * one of whose lanes already runs a memory store.
  */
 private fun alreadyMemoryStores(draft: LoadSet, resolve: LoadSet.Resolver): Boolean {
-    if (draft.phases.isEmpty()) return false
-    val resolved = draft.phases.mapNotNull { resolve.profile(it.profile) }
-    if (resolved.size != draft.phases.size) return false
+    val live = draft.phases.filterNot { it.muted }
+    if (live.isEmpty()) return false
+    val resolved = live.mapNotNull { resolve.profile(it.profile) }
+    if (resolved.size != live.size) return false
     return resolved.all { storeOf(it.config) == StoreAndLogOverride.FOR_LOAD }
 }
 
@@ -733,3 +789,6 @@ private val RAIL_STRIPE = 2.dp
 
 /** A one-character glyph is not a hit target, so the three list verbs get one. */
 private val ACTION_TARGET = 22.dp
+
+/** The MUTED tag's border, at the weight the step editor's own draws it. */
+private const val MUTED_TAG_ALPHA = 0.45f

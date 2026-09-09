@@ -459,7 +459,10 @@ object HeadlessLoad {
                 appendLine()
                 appendLine(phaseHeading(index + 1, phase, dictionary))
                 if (phase.status == LoadStatus.SKIPPED || phase.status == LoadStatus.PENDING) {
-                    appendLine("SKIPPED".padEnd(COL) + (phase.note ?: "this phase did not run"))
+                    // MUTED rather than SKIPPED: "skipped" is what a failure or a stop does to the phases
+                    // after it, and this phase was parked in the file before the set started.
+                    val word = if (phase.isMuted) "MUTED" else "SKIPPED"
+                    appendLine(word.padEnd(COL) + (phase.note ?: "this phase did not run"))
                 } else {
                     append(phaseBlock(phase))
                 }
@@ -598,7 +601,8 @@ object HeadlessLoad {
           --match <req>=<rep>    request tag to reply tag (default: the template's first correlation tag, both sides)
           --reply-type <35>      count only replies of this MsgType as answers
           --set <name>           run a saved load set (<home>/load-sets/<name>.json): several phases in
-                                 order, under one seed, with one report
+                                 order, under one seed, with one report. A muted phase never dials and is
+                                 reported as skipped, noted "muted in the set"
           --on-failure stop|continue   after a phase that did not pass (default: the file's, then stop)
           --seed <k>=<v>         seed a value into every message's scope as ${'$'}{k} (repeatable); with
                                  --set it overrides the file's value, so a build can pass its own run id

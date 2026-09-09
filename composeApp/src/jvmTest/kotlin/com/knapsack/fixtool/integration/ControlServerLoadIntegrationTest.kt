@@ -34,6 +34,7 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -233,11 +234,45 @@ class ControlServerLoadIntegrationTest {
         assertEquals(2, row["phases"]!!.jsonPrimitive.int)
         assertEquals(listOf("LOADGEN"), row["profiles"]!!.jsonArray.map { it.jsonPrimitive.content })
 
+        assertNull(row["muted"], "a set with nothing parked reads exactly as it did")
+
         val whole = obj(get("/load-sets/round-trip"))
         assertEquals("Round trip", whole["label"]!!.jsonPrimitive.content)
         assertEquals(2, whole["phases"]!!.jsonArray.size)
 
         assertEquals(404, get("/load-sets/nowhere").statusCode())
+    }
+
+    /** So an agent reading the list knows the set will run two of its three before it starts one. */
+    @Test
+    fun `a load set row says how many of its phases are muted`() {
+        viewModel.loadSetStore.save(
+            LoadSet(
+                name = "round-trip",
+                label = "Round trip",
+                storeAndLog = StoreAndLogOverride.FOR_LOAD,
+                phases =
+                    listOf(
+                        LoadPhaseSpec("Ask for a quote", "Quotes", "LOADGEN", match = LoadMatch(131, 131, "S"), shape = LoadShape.Burst(10)),
+                        LoadPhaseSpec(
+                            "Hit them",
+                            "Hits",
+                            "LOADGEN",
+                            match = LoadMatch(11, 11, "8"),
+                            shape = LoadShape.Burst(10),
+                            muted = true,
+                        ),
+                    ),
+            ),
+        )
+
+        val row = obj(get("/load-sets"))["sets"]!!.jsonArray.single().jsonObject
+
+        assertEquals(2, row["phases"]!!.jsonPrimitive.int)
+        assertEquals(1, row["muted"]!!.jsonPrimitive.int)
+        val phases = obj(get("/load-sets/round-trip"))["phases"]!!.jsonArray
+        assertNull(phases[0].jsonObject["muted"], "and the file keeps the key off the phase that is not")
+        assertEquals("true", phases[1].jsonObject["muted"]!!.jsonPrimitive.content)
     }
 
     @Test

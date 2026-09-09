@@ -1923,6 +1923,10 @@ class ControlServer(
             put("name", set.name)
             put("label", set.label)
             put("phases", set.phases.size)
+            // How many are parked, and only when any is, so an agent knows the set will run two of its
+            // three before it starts one and a set with nothing muted reads exactly as it did.
+            val muted = set.phases.count { it.muted }
+            if (muted > 0) put("muted", muted)
             val profiles = set.phases.map { it.profile }.distinct()
             put("profiles", buildJsonArray { profiles.forEach { add(it) } })
         }

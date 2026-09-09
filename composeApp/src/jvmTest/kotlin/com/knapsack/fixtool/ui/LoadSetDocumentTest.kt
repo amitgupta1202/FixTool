@@ -136,6 +136,34 @@ class LoadSetDocumentTest {
         composeTestRule.onNodeWithText("not run", substring = true).assertDoesNotExist()
     }
 
+    /**
+     * **A parked phase, in the rail and in the pane**: ⊘ where the verdict glyph would go, the glyph the
+     * scenarios rail draws for a muted step, and MUTED on the badge rather than SKIPPED.
+     */
+    @Test
+    fun `a muted phase's rail row shows the parked glyph, and its badge says MUTED`() {
+        val phases =
+            listOf(
+                phase("Ask for a quote"),
+                phase("Hit the first 2,000"),
+                skipped("Pass the other 2,000", LoadRecord.MUTED_NOTE),
+            )
+
+        show(record(phases, id = "set-muted"))
+
+        composeTestRule.onNodeWithTag("load-set-verdict").assertTextContains("PASSED", substring = true)
+        composeTestRule.onNodeWithTag("load-set-meta").assertTextContains("2 passed, 1 muted", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-3").assertTextContains("⊘", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-3").assertTextContains("muted", substring = true)
+
+        composeTestRule.onNodeWithTag("load-set-phase-3").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-set-phase-verdict").assertTextContains("MUTED", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-title").assertTextContains("3 · Pass the other 2,000")
+        composeTestRule.onNodeWithText("not run · muted in the set", substring = true).assertExists()
+    }
+
     /** A stopped set opens on the phase it stopped in, for the same reason a failed one does. */
     @Test
     fun `a stopped set opens on the phase it stopped in`() {

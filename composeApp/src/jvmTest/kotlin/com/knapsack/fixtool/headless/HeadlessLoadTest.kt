@@ -297,4 +297,61 @@ class HeadlessLoadTest {
         )
         assertEquals(LoadReportCodec.toJUnitXml(one), single)
     }
+
+    /**
+     * **MUTED in the status column, and the set line counts it apart from a skip.**
+     *
+     * "2 passed, 1 skipped" on a set that passed would read as a policy skip, and there was no failure to
+     * skip after.
+     */
+    @Test
+    fun `a muted phase prints MUTED, and the verdict line counts it apart`() {
+        val parked = roundTrip.copy(phases = roundTrip.phases.mapIndexed { i, p -> if (i == 2) p.copy(muted = true) else p })
+        val planned =
+            parked.plan(
+                object : LoadSet.Resolver {
+                    override fun profile(key: String) = LoadSet.Profile("p", "RFQ Load Client", FixConnectionConfig())
+
+                    override fun template(key: String, profileId: String?) =
+                        LoadTemplate("RFQ Load QuoteRequest", listOf(35 to "R", 131 to "x"))
+                },
+                seedOverride = emptyMap(),
+                id = "set-1",
+            )
+        val one =
+            LoadFixtures
+                .burstReport(unmatched = 0)
+                .copy(label = "Ask for a quote", profileName = "RFQ Load Client", lanes = 5, startedAt = 0, finishedAt = 2_700)
+        val two =
+            LoadFixtures
+                .burstReport(unmatched = 0)
+                .copy(label = "Hit the first 2,000", profileName = "RFQ Load Client", lanes = 5, startedAt = 0, finishedAt = 2_700)
+        val three =
+            LoadReport
+                .stub(
+                    planned.phases[2],
+                    LoadStatus.SKIPPED,
+                    lanes = 0,
+                    template = LoadReport.TemplateInfo("RFQ Load Pass", "AJ", listOf(117), listOf(35), emptyList()),
+                    startedAt = 0,
+                    note = LoadRecord.MUTED_NOTE,
+                ).copy(label = "Pass the other 2,000", finishedAt = 0)
+        val record =
+            LoadRecord(
+                id = "set-1",
+                label = "RFQ round trip",
+                startedAt = 0,
+                finishedAt = 63_100,
+                phases = listOf(one, two, three),
+                set = LoadRecord.SetInfo("rfq-round-trip", OnFailure.STOP),
+                seed = mapOf("run" to "b7f2"),
+            )
+
+        val text = HeadlessLoad.setSummary(record, planned, File("/tmp/loads/set-1"), null)
+
+        assertTrue(text.contains("3 · Pass the other 2,000  RFQ Load Pass ×2,000 from 2,001"), text)
+        assertTrue(text.contains("MUTED        muted in the set"), text)
+        assertTrue(!text.contains("SKIPPED"), "a parked phase is not a skipped one: $text")
+        assertTrue(text.contains("PASSED       2 passed, 1 muted · 63.1s · exit 0"), text)
+    }
 }

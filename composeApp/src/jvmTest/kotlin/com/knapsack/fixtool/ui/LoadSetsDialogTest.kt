@@ -494,6 +494,71 @@ class LoadSetsDialogTest {
         )
     }
 
+    /** The chip parks the phase, the footer counts it, and Save puts the key in the file. */
+    @Test
+    fun `the mute chip parks a phase, the footer says so, and Save writes the key`() {
+        viewModel.saveLoadSet(roundTrip)
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-mute-2").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-set-phase-muted-2").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-set-phase-mute-2").assertTextContains("muted")
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val saved = assertNotNull(viewModel.loadSet("round-trip"))
+        assertEquals(listOf(false, true), saved.phases.map { it.muted })
+        // Only the parked phase grows the key, so a set that never muted anything is byte for byte itself.
+        val written = viewModel.loadSetStore.fileFor("round-trip").readText()
+        assertEquals(1, written.split("\"muted\"").size - 1, written)
+        // Saved, so the footer says what Run set will do rather than "unsaved".
+        composeTestRule.onNodeWithTag("load-set-why").assertTextContains("2 phases, 1 muted", substring = true)
+    }
+
+    /**
+     * The refusal sits under the phase that **reads**, because that is the phase whose edit button is one
+     * line above the sentence, and it names the muted phase so nobody has to go looking for it. The parked
+     * phase itself shows no fix count: it is not judged.
+     */
+    @Test
+    fun `a phase reading a muted phase's captures shows the refusal under the reading phase`() {
+        viewModel.saveLoadSet(
+            LoadSet(
+                name = "captures",
+                label = "Captures",
+                seed = mapOf("run" to "b7f2"),
+                phases =
+                    listOf(
+                        LoadPhaseSpec(
+                            "Ask for a quote",
+                            "Quotes",
+                            "LOADGEN",
+                            match = LoadMatch(131, 131, "S"),
+                            shape = LoadShape.Burst(10),
+                            capture = mapOf("quoteId" to 117),
+                            muted = true,
+                        ),
+                        LoadPhaseSpec("Pass them", "Passes", "LOADGEN", match = LoadMatch(117, 117, "AI"), shape = LoadShape.Burst(10)),
+                    ),
+            ),
+        )
+        show()
+
+        // On the refusal notice inside the reading phase's own row, not only in the footer.
+        composeTestRule
+            .onNodeWithTag("load-set-refusal")
+            .assertTextContains(
+                "Phase 2 · Pass them: the template reads \${quoteId}, and the phase that keeps it, " +
+                    "phase 1 · Ask for a quote, is muted. Unmute it, or add it under Seed.",
+            )
+        composeTestRule.onNodeWithTag("load-set-phase-fixes-2").assertTextContains("1 fix", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-fixes-1").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("load-set-run").assertHasNoClickAction()
+        composeTestRule.onNodeWithTag("load-set-why").assertTextContains("Phase 2", substring = true)
+    }
+
     @Test
     fun `Run set saves first, then hands over a planned set`() {
         viewModel.saveLoadSet(roundTrip)

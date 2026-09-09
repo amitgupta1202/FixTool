@@ -303,9 +303,10 @@ private fun TimelineRow(n: Int, phase: LoadReport, span: Span, total: Long) {
             }
         }
         Text(
-            when (phase.status) {
-                LoadStatus.SKIPPED -> "skipped"
-                LoadStatus.PENDING -> "queued"
+            when {
+                phase.isMuted -> "muted"
+                phase.status == LoadStatus.SKIPPED -> "skipped"
+                phase.status == LoadStatus.PENDING -> "queued"
                 else -> RunSetStats.humanMs(span.totalMs)
             },
             color = AppTheme.Colors.textDisabled,
@@ -372,9 +373,12 @@ private fun PhaseRail(record: LoadRecord, focused: Int, onFocus: (Int) -> Unit, 
     }
 }
 
-/** The three marks a scenario set's rail uses, plus the two a set's phases add. */
+/** The three marks a scenario set's rail uses, plus the three a set's phases add. */
 private fun phaseMark(phase: LoadReport): Pair<String, Color> =
     when {
+        // ⊘, the glyph the scenarios rail draws for a muted step, because a muted phase has no verdict and
+        // never will. That is what muted means.
+        phase.isMuted -> "⊘" to AppTheme.Colors.textDisabled
         phase.status == LoadStatus.PENDING -> "○" to AppTheme.Colors.textDisabled
         phase.status == LoadStatus.SKIPPED -> "⏭" to AppTheme.Colors.textDisabled
         phase.status == LoadStatus.RUNNING -> "●" to AppTheme.Colors.info
@@ -384,10 +388,11 @@ private fun phaseMark(phase: LoadReport): Pair<String, Color> =
     }
 
 private fun phaseCount(phase: LoadReport): String =
-    when (phase.status) {
-        LoadStatus.PENDING -> "queued"
-        LoadStatus.SKIPPED -> "skipped"
-        LoadStatus.RUNNING -> LoadReportCodec.fmt(phase.issue.leftSocket)
+    when {
+        phase.isMuted -> "muted"
+        phase.status == LoadStatus.PENDING -> "queued"
+        phase.status == LoadStatus.SKIPPED -> "skipped"
+        phase.status == LoadStatus.RUNNING -> LoadReportCodec.fmt(phase.issue.leftSocket)
         else -> LoadReportCodec.fmt(phase.replies.matched)
     }
 
@@ -433,6 +438,7 @@ private fun PhaseHeader(n: Int, phase: LoadReport, narrow: Boolean) {
 /** The phase's state in a word, for its badge. */
 private fun phaseWord(phase: LoadReport): String =
     when {
+        phase.isMuted -> "MUTED"
         phase.status == LoadStatus.PENDING -> "QUEUED"
         phase.status == LoadStatus.SKIPPED -> "SKIPPED"
         phase.status == LoadStatus.STOPPED -> "STOPPED"

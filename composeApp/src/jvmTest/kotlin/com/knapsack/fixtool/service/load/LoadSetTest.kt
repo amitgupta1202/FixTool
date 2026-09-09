@@ -10,6 +10,8 @@ import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -164,6 +166,74 @@ class LoadSetTest {
         assertEquals(LoadSet.SCHEMA, json["schema"]!!.toString().toInt())
         assertTrue(store.delete("rfq-round-trip"))
         assertNull(store.load("rfq-round-trip"))
+    }
+
+    /** Uncapped and capped, and the trigger with them, because the ordinal is the whole of the feature. */
+    @Test
+    fun `a reactive set is the set read back, and only a capped phase carries a cap`() {
+        val store = LoadSetStore(dir.absolutePath)
+        val original = set(reactiveChain.map { if (it.shape is LoadShape.Triggered) it.copy(indexFrom = 1) else it })
+
+        assertTrue(store.save(original))
+
+        assertEquals(original, store.load("rfq-round-trip"))
+        val phases = writtenPhases()
+        val shapes = phases.map { it.jsonObject["shape"]!!.jsonObject }
+        assertEquals("triggered", shapes[1]["kind"]!!.jsonPrimitive.content)
+        assertNull(shapes[1]["cap"], "an uncapped phase never grows the key")
+        assertEquals(50, shapes[2]["cap"]!!.jsonPrimitive.int)
+        assertEquals(listOf(1, 2), phases.drop(1).map { it.jsonObject["after"]!!.jsonPrimitive.int })
+        assertNull(phases[0].jsonObject["after"], "a paced phase never grows the key either")
+    }
+
+    /** The saved file's phase array, which is what "never grows the key" is asserted against. */
+    private fun writtenPhases(): List<JsonElement> {
+        val written = Json.parseToJsonElement(File(dir, "rfq-round-trip.json").readText())
+        return written.jsonObject["phases"]!!.jsonArray
+    }
+
+    /** The number on disk could only ever be one to disbelieve, so it is not written. */
+    @Test
+    fun `a reactive phase's index range is never written, whatever a hand-edited file says`() {
+        val store = LoadSetStore(dir.absolutePath)
+
+        assertTrue(store.save(set(reactiveChain)))
+
+        val phases = writtenPhases()
+        assertEquals(2_001, phases[0].jsonObject["indexFrom"]!!.jsonPrimitive.int, "the burst's own is still written")
+        assertNull(phases[2].jsonObject["indexFrom"], "and the reactive phase's authored 7 is not")
+        assertEquals(listOf(2_001, 1, 1), store.load("rfq-round-trip")!!.phases.map { it.indexFrom })
+    }
+
+    /**
+     * **An unknown kind is a file that cannot be read, not a burst of nothing.**
+     *
+     * `int()` answers 0 for a key that is not there, so the old `else -> Burst(count)` turned any shape
+     * this version did not know into a run of zero messages that issued nothing and passed COMPLETE.
+     */
+    @Test
+    fun `a shape whose kind this version does not know is refused rather than read as a burst`() {
+        val store = LoadSetStore(dir.absolutePath)
+        store.save(set())
+        val file = File(dir, "rfq-round-trip.json")
+        file.writeText(file.readText().replace("\"kind\": \"burst\"", "\"kind\": \"cascade\""))
+
+        assertNull(store.load("rfq-round-trip"), "the whole file, not the half of it this version understands")
+        assertEquals(emptyList(), store.list())
+    }
+
+    /** Written since the first set and read by nothing, which made it a decoration rather than a schema. */
+    @Test
+    fun `a set from a later FixTool is refused rather than read as far as this version understands it`() {
+        val store = LoadSetStore(dir.absolutePath)
+        store.save(set())
+        val file = File(dir, "rfq-round-trip.json")
+        file.writeText(file.readText().replace("\"schema\": ${LoadSet.SCHEMA}", "\"schema\": ${LoadSet.SCHEMA + 1}"))
+
+        assertNull(store.load("rfq-round-trip"))
+        // A file written before the key was read at all has to keep reading, so its absence is this version.
+        val noSchema = JsonObject(LoadSetCodec.toJson(set()).filterKeys { it != "schema" })
+        assertEquals(set(), LoadSetCodec.fromJson(noSchema))
     }
 
     @Test
@@ -563,6 +633,6 @@ class LoadSetTest {
         val phases = written["phases"]!!.jsonArray
         assertNull(phases[0].jsonObject["muted"], "a phase that is not parked never grows the key")
         assertEquals(true, phases[1].jsonObject["muted"]!!.jsonPrimitive.boolean)
-        assertEquals(LoadSet.SCHEMA, written["schema"]!!.jsonPrimitive.int, "and the set file's schema stays 1")
+        assertEquals(LoadSet.SCHEMA, written["schema"]!!.jsonPrimitive.int, "and the set file says which schema wrote it")
     }
 }

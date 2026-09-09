@@ -461,11 +461,24 @@ object LoadReportCodec {
         )
     }
 
+    /**
+     * **A shape is read by its `kind` or not at all.**
+     *
+     * This was `if (kind == "rate") Rate else Burst(count)`, and `int()` answers 0 for a key that is not
+     * there, so any kind this version did not know read back as a burst of nothing, ran an empty loop and
+     * passed COMPLETE. A load set written by a later FixTool and an inline set posted to `POST /load` both
+     * arrive here, so the quiet answer was reachable from a build box. Every caller already treats a throw
+     * as "this file cannot be read", which is the true answer.
+     */
     fun shapeFrom(s: JsonObject): LoadShape =
-        if (s.strOrNull("kind") == "rate") {
-            LoadShape.Rate(s.int("perSecond"), s.long("forMs"))
-        } else {
-            LoadShape.Burst(s.int("count"))
+        when (val kind = s.strOrNull("kind")) {
+            "burst" -> LoadShape.Burst(s.int("count"))
+            "rate" -> LoadShape.Rate(s.int("perSecond"), s.long("forMs"))
+            "triggered" -> LoadShape.Triggered(s.intOrNull("cap"))
+            else ->
+                throw IllegalArgumentException(
+                    "a shape says kind '${kind ?: ""}', and this version knows burst, rate and triggered.",
+                )
         }
 
     private fun rateFrom(r: JsonObject): LoadReport.RateReport =

@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service.load
 
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.OnFailure
@@ -23,6 +24,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -76,6 +78,34 @@ class LoadReportTest {
         assertEquals(record, back)
         assertEquals(record.only, back.only)
         assertEquals(1, LoadReportCodec.recordToJson(record)["phases"]!!.jsonArray.size)
+    }
+
+    /**
+     * **A shape is read by its `kind` or not at all.**
+     *
+     * The reader was `if (kind == "rate") Rate else Burst(count)`, and `int()` answers 0 for a key that is
+     * not there, so a shape this version did not know read back as a burst of nothing, issued nothing and
+     * passed COMPLETE. The same reader takes a load set and an inline set posted to `POST /load`.
+     */
+    @Test
+    fun `every shape round-trips through its kind, and one this version does not know is refused`() {
+        val shapes =
+            listOf(
+                LoadShape.Burst(4_000),
+                LoadShape.Rate(500, 600_000),
+                LoadShape.Triggered(),
+                LoadShape.Triggered(cap = 50),
+            )
+
+        shapes.forEach { assertEquals(it, LoadReportCodec.shapeFrom(LoadReportCodec.shapeJson(it)), "$it") }
+
+        val unknown =
+            buildJsonObject {
+                put("kind", "cascade")
+                put("count", 40)
+            }
+        assertFailsWith<IllegalArgumentException> { LoadReportCodec.shapeFrom(unknown) }
+        assertFailsWith<IllegalArgumentException> { LoadReportCodec.shapeFrom(JsonObject(emptyMap())) }
     }
 
     /** Every record already in ~/.fixtool/loads is a bare report, and none of them needs rewriting. */

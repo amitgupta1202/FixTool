@@ -318,7 +318,15 @@ data class LoadSet(
     }
 
     companion object {
-        const val SCHEMA = 1
+        /**
+         * **2 since a phase could be reactive**, which added `after` and the `triggered` shape.
+         *
+         * Read on the way in as well as written on the way out, which it never was: a set from a later
+         * FixTool is refused whole rather than read with the half of itself this version understands.
+         * Forward hygiene and nothing more, because no shipped FixTool reads a load set at all: this file
+         * and its codec both postdate `v1.17.0` and load sets are still unreleased.
+         */
+        const val SCHEMA = 2
 
         /** A file name from a set's name, the same shape a scenario run set uses. Never carries an `=`. */
         fun slug(name: String): String {

@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPhaseSpec
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import kotlinx.serialization.json.JsonArray
@@ -27,13 +28,13 @@ import kotlinx.serialization.json.put
  * design note shows and a field added later reads back as its absence rather than as an unreadable file.
  *
  * ```jsonc
- * { "schema": 1,
+ * { "schema": 2,
  *   "name": "rfq-round-trip", "label": "RFQ round trip",
  *   "seed": { "run": "${uuid:4}", "desk": "LDN" },        // rendered once per run, then frozen
  *   "storeAndLog": { "store": "MEMORY", "log": "NONE" },  // once, for every lane the set opens
  *   "onFailure": "STOP",
  *   "phases": [ { "label", "template", "profile", "listen", "match", "shape", "indexFrom", "settleMs",
- *                 "muted" } ] }                              // "muted": true only on a parked phase
+ *                 "muted", "after" } ] }                     // "muted": true only on a parked phase
  * ```
  */
 object LoadSetCodec {
@@ -73,7 +74,10 @@ object LoadSetCodec {
                 )
             }
             put("shape", LoadReportCodec.shapeJson(spec.shape))
-            if (spec.indexFrom != 1) put("indexFrom", spec.indexFrom)
+            // Never for a reactive phase: its index range is its trigger's, derived by LoadSet.plan every
+            // time the set runs, so a number on disk here could only ever be one to disbelieve.
+            if (spec.indexFrom != 1 && spec.shape !is LoadShape.Triggered) put("indexFrom", spec.indexFrom)
+            spec.after?.let { put("after", it) }
             put("settleMs", spec.settleMs)
             if (spec.strictRate) put("strictRate", true)
             if (spec.capture.isNotEmpty()) {
@@ -84,6 +88,12 @@ object LoadSetCodec {
         }
 
     fun fromJson(o: JsonObject): LoadSet {
+        // The schema was written and never read, so a set from a later FixTool was read as far as this
+        // version happened to understand it and run. A file that says it is newer is refused whole.
+        val schema = o.intOrNull("schema") ?: LoadSet.SCHEMA
+        require(schema <= LoadSet.SCHEMA) {
+            "the set says schema $schema, and this version of FixTool reads ${LoadSet.SCHEMA}."
+        }
         val name = o.str("name")
         return LoadSet(
             name = name,
@@ -114,6 +124,7 @@ object LoadSetCodec {
                 },
             shape = LoadReportCodec.shapeFrom(o.obj("shape")),
             indexFrom = (o.intOrNull("indexFrom") ?: 1).coerceAtLeast(1),
+            after = o.intOrNull("after"),
             settleMs = o.longOrNull("settleMs") ?: LoadPlan.DEFAULT_SETTLE_MS,
             strictRate = (o["strictRate"] as? JsonPrimitive)?.contentOrNull == "true",
             capture =

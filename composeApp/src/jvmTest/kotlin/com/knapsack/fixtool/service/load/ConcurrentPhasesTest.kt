@@ -118,6 +118,43 @@ class ConcurrentPhasesTest {
         assertEquals(1_500, lanes.sumOf { lane -> lane.sent.count { it.contains("35=R") } })
     }
 
+    /**
+     * **A phase that never waits for a mark still stops being a party when it ends.**
+     *
+     * Virtual time moves only when every party still running is waiting for a mark, and a set makes its
+     * own threads inside the call the test is sitting in, so all a test can say is how many there will
+     * be. A party that has ended stops being counted, and what put it on the list to be counted was
+     * reaching a mark. A burst phase whose replies are immediate never reaches one: its settle window
+     * closes before the first sleep and its pacer holds no schedule to wait for. The clock then waits
+     * for a phase that ended long ago, the phase still running stalls for ten seconds, and the rig fails
+     * the test in its own voice, which reads exactly like a product failure.
+     *
+     * So a thread takes part by doing anything with this clock at all. Every set that uses two parties
+     * today is two rate phases, which is the only reason this has not bitten yet.
+     */
+    @Test
+    fun `a phase that never waits for a mark stops being a party when it ends`() {
+        val clock = FakeClock()
+        val lanes = lanes(clock)
+        val host = FakeHost(clock, lanes)
+
+        val record =
+            clock.withParties(2) {
+                LoadSetRunner(host, clock = clock).run(
+                    setOf(
+                        burst("ask", orders, LoadMatch(11, 11, "8")),
+                        plan("quotes", quoteRequests, LoadMatch(131, 131, "S"), perSecond = 500).copy(after = 1),
+                    ),
+                )
+            }
+
+        assertEquals(listOf(LoadStatus.DONE, LoadStatus.DONE), record.phases.map { it.status })
+        assertEquals(4, lanes.sumOf { lane -> lane.sent.count { it.contains("35=D") } }, "the burst went in one go")
+        assertEquals(1_500, lanes.sumOf { lane -> lane.sent.count { it.contains("35=R") } })
+        assertHeldItsSchedule(record.phases[1])
+        assertEquals(0, record.exitCode)
+    }
+
     // -------------------------------------------------------------------------------------------------
     // The same, under the set runner
     // -------------------------------------------------------------------------------------------------

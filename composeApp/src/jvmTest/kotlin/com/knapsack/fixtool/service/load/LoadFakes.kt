@@ -157,19 +157,33 @@ internal class FakeClock(
     /** How many threads may still reach a mark. [withParties] and [concurrently] are what change it. */
     private var expected = 1
 
-    /** The threads that have reached one and could reach another, so an ended one stops being counted. */
+    /**
+     * **The threads this clock has seen taking part**, so one that ends stops being counted.
+     *
+     * A thread joins by doing anything with the clock at all, and not by reaching a mark. A burst phase
+     * whose replies are immediate never reaches one: its pacer holds no schedule to wait for and its
+     * settle window closes before the first sleep. Counted only by their marks, that phase would never
+     * be on this list, its death would never take it off, and the phase beside it would wait the full
+     * stall for a thread that ended long ago and fail on this rig's own check, which reads like a
+     * product failure rather than like the rig it is.
+     */
     private val parties = HashSet<Thread>()
 
     /** What each waiting thread is waiting for, so the clock can move to the soonest of them. */
     private val marks = HashMap<Thread, Long>()
 
-    override fun nanoTime(): Long = lock.withLock { nanos }
+    override fun nanoTime(): Long =
+        lock.withLock {
+            takingPartLocked()
+            nanos
+        }
 
     override fun awaitUntil(deadlineNanos: Long) = lock.withLock { awaitLocked(deadlineNanos) }
 
     /** Time spent working rather than waiting: a socket write, and whatever else costs a run its clock. */
     fun advance(byNanos: Long) =
         lock.withLock {
+            takingPartLocked()
             nanos += byNanos
             moved.signalAll()
         }
@@ -249,7 +263,7 @@ internal class FakeClock(
     private fun awaitLocked(deadlineNanos: Long) {
         val me = Thread.currentThread()
         marks[me] = deadlineNanos
-        parties += me
+        takingPartLocked()
         try {
             var stalledMs = 0L
             while (true) {
@@ -274,6 +288,11 @@ internal class FakeClock(
             marks.remove(me)
             moved.signalAll()
         }
+    }
+
+    /** This thread is taking part, whatever it came here to do. Caller holds [lock]. See [parties]. */
+    private fun takingPartLocked() {
+        parties += Thread.currentThread()
     }
 
     /**

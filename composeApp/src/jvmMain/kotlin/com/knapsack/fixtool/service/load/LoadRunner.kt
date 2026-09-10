@@ -191,7 +191,7 @@ class LoadRunner(
 
             // The tail every shape shares: give the engine one rendered message, count what became of it,
             // and emit a progress tick when one is due. A paced phase reaches it with a message it took
-            // off its own lane's look-ahead a line ago; a reactive one with a message a lane finished
+            // off its own lane's look-ahead a line ago, and a reactive one with a message a lane finished
             // with while its trigger's reply was still landing. Both on this one issuing thread, which is
             // what lets Pacer.Tally, `handed` and `lastEmit` stay unsynchronised.
             fun handOver(laneIndex: Int, rendered: CompiledTemplate.Rendered): Pacer.Issued {
@@ -471,7 +471,7 @@ class LoadRunner(
          *
          * The same arithmetic a schedule gets and a different meaning for every number in it. The count
          * of full seconds that reached the floor is, under a ceiling, "the cap was the binding
-         * constraint"; its complement over the same seconds is the phase sitting under the cap because
+         * constraint". Its complement over the same seconds is the phase sitting under the cap because
          * its trigger had less for it than the cap allowed, which is waiting rather than failing. So
          * there are no shortfalls, which the pacer gives free by finishing a reactive phase with no
          * requested rate at all, and the flag is what stops the verdict scoring a ceiling as a schedule.

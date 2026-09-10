@@ -117,7 +117,7 @@ class ReactivePhaseTest {
         )
 
         // The point of the whole feature. Phase 1 spends its sixty seconds on four requests that never came
-        // back; the chains behind it are finished in the first seconds. The floor is the last phase's own
+        // back, and the chains behind it are finished in the first seconds. The floor is the last phase's own
         // ceiling and not the waiting: 196 messages under a 200/s cap is nine hundred and eighty
         // milliseconds however fast its triggers arrive.
         val started = assertNotNull(asked.issue.firstSendAt)

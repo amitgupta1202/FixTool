@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertWidthIsAtLeast
@@ -76,6 +79,77 @@ class LoadRunDocumentTest {
         composeTestRule.onNodeWithTag("load-stop").assertDoesNotExist()
     }
 
+    /**
+     * **Every figure carries its meaning, where the figure is.**
+     *
+     * The document had no tooltips at all, so `peak outstanding` and `strays` were defined nowhere in the
+     * product and a reader of a finished report had to go and find the guide. The definition is in the
+     * semantics as well as the hover bubble, because a Compose tooltip exists only while the pointer is
+     * over it — which is the only reason this can be asserted at all.
+     */
+    @Test
+    fun `each figure carries what it means, on its label`() {
+        val report = LoadFixtures.burstReport(unmatched = 4)
+        viewModel.loadRecordStore.write(report)
+
+        composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
+
+        composeTestRule
+            .onNodeWithTag("load-duplicates-label", useUnmergedTree = true)
+            .assertContentDescriptionContains("had already been matched", substring = true)
+        composeTestRule
+            .onNodeWithTag("load-unmatched-label", useUnmergedTree = true)
+            .assertContentDescriptionContains("anything above zero fails the run", substring = true)
+        composeTestRule
+            .onNodeWithTag("load-peak-label", useUnmergedTree = true)
+            .assertContentDescriptionContains("at any one moment", substring = true)
+    }
+
+    /**
+     * **The cost of explaining the figures does not grow with the run.**
+     *
+     * This is the whole performance argument, and it is a property rather than a promise: definitions go
+     * on labels and column headers, never on cells. A lane table is one header row and up to fifty rows
+     * of six, so tooltips on the cells would be three hundred hover targets on a fifty-lane run and six
+     * on a two-lane one. Rendering the same report at two lanes and at fifty must produce the *same*
+     * number of explained nodes, or somebody has put one on a cell.
+     */
+    @Test
+    fun `a fifty-lane report explains no more nodes than a two-lane one`() {
+        fun explainedNodes(lanes: Int): Int {
+            val base = LoadFixtures.burstReport(unmatched = 4)
+            val report =
+                base.copy(
+                    id = "explained-$lanes",
+                    perLane =
+                        (1..lanes).map {
+                            LoadReport.LaneCounts(
+                                it,
+                                matched = 80,
+                                unanswered = 0,
+                                duplicates = 1,
+                                p50Us = 12_000,
+                                p95Us = 99_000,
+                            )
+                        },
+                )
+            viewModel.loadRecordStore.write(report)
+            composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
+            composeTestRule.waitForIdle()
+            return composeTestRule
+                .onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ContentDescription), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .size
+        }
+
+        val few = explainedNodes(2)
+        assertTrue(few > 0, "the figures should be explained at all")
+
+        // A second composition in one test needs its own rule, so the count is taken from a fresh one.
+        val many = explainedNodes(50)
+        assertEquals(few, many, "explaining the report must not scale with the lane count")
+    }
+
     /** Three separate judgements, as pills, and the exit code on the header's meta line. */
     @Test
     fun `the three judgements are named in the footer`() {
@@ -145,7 +219,7 @@ class LoadRunDocumentTest {
 
         composeTestRule.onNodeWithTag("load-stop").assertIsDisplayed().performClick()
         assertTrue(stopped)
-        composeTestRule.onNodeWithTag("load-unmatched-label").assertTextContains("outstanding")
+        composeTestRule.onNodeWithTag("load-unmatched-label", useUnmergedTree = true).assertTextContains("outstanding")
         composeTestRule.onNodeWithTag("load-verdict").assertTextContains("ISSUING")
     }
 
@@ -222,7 +296,12 @@ class LoadRunDocumentTest {
             LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.width(900.dp).fillMaxHeight())
         }
 
-        val row = composeTestRule.onNodeWithTag("load-unmatched-0").performScrollTo().getUnclippedBoundsInRoot().height
+        val row =
+            composeTestRule
+                .onNodeWithTag("load-unmatched-0")
+                .performScrollTo()
+                .getUnclippedBoundsInRoot()
+                .height
         assertTrue(row < 24.dp, "the row is one line of wire, not two or the five the wrapped link made it ($row)")
         composeTestRule.onAllNodesWithText(" open ›")[0].assertIsDisplayed().assertWidthIsAtLeast(20.dp)
     }

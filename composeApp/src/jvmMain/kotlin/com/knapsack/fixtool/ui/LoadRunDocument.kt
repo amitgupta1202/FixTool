@@ -46,6 +46,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -429,7 +431,9 @@ private fun Leads(r: LoadReport, narrow: Boolean) {
 @Composable
 private fun RowScope.Lead(label: String, value: String, sub: String, tag: String, tint: Color, narrow: Boolean) {
     Column(modifier = Modifier.weight(1f)) {
-        Text(label, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta, modifier = Modifier.testTag("$tag-label"))
+        Defined(tag) { m ->
+            Text(label, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta, modifier = m.testTag("$tag-label"))
+        }
         Text(
             value,
             color = tint,
@@ -476,7 +480,9 @@ private fun issuedSentence(r: LoadReport): String =
 private fun StripItem(label: String, value: String, tag: String, first: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (!first) Text("·", color = AppTheme.Colors.border, style = AppTheme.Type.meta, modifier = Modifier.padding(horizontal = 6.dp))
-        Text(label, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta, modifier = Modifier.testTag("$tag-label"))
+        Defined(tag) { m ->
+            Text(label, color = AppTheme.Colors.textDisabled, style = AppTheme.Type.meta, modifier = m.testTag("$tag-label"))
+        }
         Text(" $value", color = AppTheme.Colors.textSecondary, style = AppTheme.Type.meta, modifier = Modifier.testTag(tag))
     }
 }
@@ -800,6 +806,50 @@ private fun UnmatchedTable(r: LoadReport, wire: List<String>, narrow: Boolean, o
     }
 }
 
+/**
+ * **A figure with its meaning attached**, when [LoadGlossary] has one for it.
+ *
+ * On the label rather than the number, because the label is the thing being asked about and the number
+ * changes every 250ms while a run is live. The definition is in the semantics as well as the hover
+ * bubble, for the reason every other tooltip in this app is: a Compose tooltip exists only while the
+ * pointer is over it, so that is the only place a test — or a screen reader — can read it.
+ *
+ * A tag with no definition composes its content and nothing else, so this costs exactly nothing where
+ * a label already says all it means.
+ */
+@Composable
+private fun Defined(tag: String, content: @Composable (Modifier) -> Unit) {
+    val meaning = LoadGlossary.of(tag)
+    if (meaning == null) {
+        content(Modifier)
+    } else {
+        // The description goes on the label's **own** node rather than on a wrapper, so the node a test
+        // already knows by its tag is the node that says what it means, and the semantics tree keeps the
+        // shape every other test here reads.
+        AppTooltip(meaning) { content(Modifier.semantics { contentDescription = meaning }) }
+    }
+}
+
+/**
+ * A per-lane column header, with what the column counts.
+ *
+ * The width goes on the tooltip area rather than on the text, because the area is what sits in the row
+ * and a header that measured itself would leave its column out of line with the cells under it.
+ */
+@Composable
+private fun RowScope.LaneHead(text: String, width: Dp) {
+    val meaning = LoadGlossary.ofLaneHeader(text) ?: return Head(text, width)
+    AppTooltip(meaning, modifier = column(width, fill = false)) {
+        Text(
+            text,
+            color = AppTheme.Colors.textDisabled,
+            style = AppTheme.Type.meta,
+            maxLines = 1,
+            modifier = Modifier.semantics { contentDescription = meaning },
+        )
+    }
+}
+
 @Composable
 private fun RowScope.Head(text: String, width: Dp, fill: Boolean = false) {
     Text(
@@ -857,13 +907,15 @@ private fun Lanes(r: LoadReport, narrow: Boolean) {
     val rows = if (all) sorted else worstOf(sorted, LANE_ROWS)
     Section("Per lane", laneSentence(sorted)) {
         Column(modifier = Modifier.fillMaxWidth().let { if (narrow) it.horizontalScroll(rememberScrollState()) else it }) {
+            // **The headers carry the definitions and the cells carry none.** Six hover targets that stay
+            // six, against three hundred that grow with the lane count — see [LoadGlossary].
             Row {
                 Head("lane", LANE_NAME_COL)
-                Head("answered", LANE_COUNT_COL)
-                Head("unanswered", LANE_COUNT_COL)
-                Head("duplicates", LANE_COUNT_COL)
-                Head("p50", LANE_COUNT_COL)
-                Head("p95", LANE_COUNT_COL)
+                LaneHead("answered", LANE_COUNT_COL)
+                LaneHead("unanswered", LANE_COUNT_COL)
+                LaneHead("duplicates", LANE_COUNT_COL)
+                LaneHead("p50", LANE_COUNT_COL)
+                LaneHead("p95", LANE_COUNT_COL)
             }
             rows.forEach { l ->
                 Row(modifier = Modifier.testTag("load-lane-${l.slot}")) {

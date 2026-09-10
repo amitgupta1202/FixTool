@@ -310,6 +310,26 @@ class HelpDocTest {
     }
 
     /**
+     * **A figure is explained on the report and in the guide, or in neither.**
+     *
+     * The two exist for different readers: the tooltip is for somebody looking at a number now, the guide
+     * for somebody deciding what to measure or reading a record months later. A figure that has one and
+     * not the other leaves one of them stranded — which is exactly the state the report was in, with a
+     * chapter of prose and not a single tooltip.
+     */
+    @Test
+    fun `every figure the report explains on hover is explained in the guide too`() {
+        val chapter = html.substringAfter("""id="load-report"""").substringBefore("""id="load-sets"""").lowercase()
+
+        val missing = LoadGlossary.terms.filterNot { it.lowercase() in chapter }
+
+        assertTrue(
+            missing.isEmpty(),
+            "the report defines $missing on hover, and the guide's report chapter never names them",
+        )
+    }
+
+    /**
      * **Every field the run dialog asks for is written down, with the flag that answers it headless.**
      *
      * A parameter a reader cannot look up is one they leave at its default for ever. The two that decide

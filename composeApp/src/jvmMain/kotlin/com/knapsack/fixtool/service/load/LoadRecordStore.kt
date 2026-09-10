@@ -11,6 +11,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * **What a load run leaves behind**: `loads/<id>/load.json`, the wire of every request that went unanswered,
@@ -62,13 +65,39 @@ class LoadRecordStore(
     @Suppress("TooGenericExceptionCaught")
     fun write(record: LoadRecord): Boolean =
         try {
-            directoryFor(record.id).mkdirs()
-            File(directoryFor(record.id), REPORT_FILE).writeText(json.encodeToString(JsonObject.serializer(), LoadReportCodec.recordToJson(record)))
+            val dir = directoryFor(record.id).also { it.mkdirs() }
+            replace(File(dir, REPORT_FILE), json.encodeToString(JsonObject.serializer(), LoadReportCodec.recordToJson(record)))
             true
         } catch (e: Exception) {
             logger.error("Could not write load record '${record.id}': ${e.message}", e)
             false
         }
+
+    /**
+     * **[text] into [file] whole, or not at all.**
+     *
+     * `writeText` empties the file and then fills it, and every reader of a load record is in this process
+     * beside the writer: the poll behind `awaitLoad`, `GET /loads`, a document being reopened, and `prune`.
+     * A read landing inside that window parses half a file and puts a notification in front of somebody
+     * about a record nothing is wrong with. A set writes this file on every progress tick of every phase
+     * it is running, so the window is as common as the phase count makes it.
+     *
+     * The bytes go to a temp file beside it and one rename puts them in place, which is a single step on
+     * every filesystem this runs on. A reader either sees the record it saw before or the whole new one.
+     */
+    private fun replace(file: File, text: String) {
+        val temp = File(file.parentFile, file.name + TEMP_SUFFIX)
+        temp.writeText(text)
+        val replace = StandardCopyOption.REPLACE_EXISTING
+        try {
+            Files.move(temp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, replace)
+        } catch (e: AtomicMoveNotSupportedException) {
+            // Nothing this runs on refuses two paths in one directory, but a filesystem that did would
+            // still have to end up with the record in place rather than with the temp file beside it.
+            logger.debug("Atomic replace of $file is not supported here, so it is replaced in two steps: ${e.message}")
+            Files.move(temp.toPath(), file.toPath(), replace)
+        }
+    }
 
     /**
      * The evidence files: one unanswered request per line, and specimen pairs as request then reply.
@@ -197,5 +226,13 @@ class LoadRecordStore(
         const val REPORT_FILE = "load.json"
         const val UNMATCHED_FILE = "unmatched.fix"
         const val SPECIMENS_FILE = "specimens.fix"
+
+        /**
+         * What the record is written as before it is moved into place.
+         *
+         * Beside the record rather than in the system temp directory, because a rename is only one step
+         * when both paths are on the same filesystem, which is the whole point of writing it here.
+         */
+        const val TEMP_SUFFIX = ".writing"
     }
 }

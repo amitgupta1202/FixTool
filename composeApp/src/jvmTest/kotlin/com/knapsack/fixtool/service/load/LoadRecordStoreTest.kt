@@ -11,6 +11,9 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -135,5 +138,65 @@ class LoadRecordStoreTest {
             LoadRecordStore(dir.absolutePath, isLive = { true }).readRecord("set-interrupted"),
             "healed on disk, not only in the answer",
         )
+    }
+
+    /**
+     * **A reader never catches the record half written**, because every reader of it is in this process
+     * beside the writer.
+     *
+     * `writeText` empties the file and then fills it, and a `GET /loads`, the poll behind `awaitLoad` or a
+     * document reopening inside that window parses a truncated JSON object and puts a notification in
+     * front of somebody about a record nothing is wrong with. A set writes this file on every progress
+     * tick of every phase it has running, so the window is as common as the phase count makes it.
+     *
+     * Written whole to a temp file and renamed, a reader sees the record it saw before or the whole new
+     * one. Against the plain write this fails inside the first few reads.
+     */
+    @Test
+    fun `a record read while it is being written is never half of one`() {
+        val store = LoadRecordStore(dir.absolutePath)
+        val phases = (1..12).map { burstReport(unmatched = 0).copy(label = "Phase $it") }
+        val record =
+            LoadRecord(
+                id = store.reserve("busy"),
+                label = "Round trip",
+                startedAt = 1_000,
+                finishedAt = null,
+                phases = phases,
+                set = LoadRecord.SetInfo("round-trip", OnFailure.CONTINUE),
+            )
+        store.write(record)
+        val torn = AtomicReference<Throwable?>()
+        val reads = AtomicInteger()
+        val writing = AtomicBoolean(true)
+        val reader =
+            Thread({
+                while (writing.get()) {
+                    try {
+                        assertEquals(12, assertNotNull(store.readRecord(record.id)).phases.size)
+                        reads.incrementAndGet()
+                    } catch (t: Throwable) {
+                        torn.compareAndSet(null, t)
+                        return@Thread
+                    }
+                }
+            }, "load-record-reader")
+
+        reader.start()
+        repeat(WRITES) { n -> store.write(record.copy(startedAt = 1_000L + n)) }
+        writing.set(false)
+        reader.join()
+
+        assertNull(torn.get(), "a reader parsed a record that was only half on disk: ${torn.get()}")
+        assertTrue(reads.get() > 0, "the reader never got a turn, so this proved nothing")
+        assertTrue(
+            dir.walkTopDown().none { it.name.endsWith(LoadRecordStore.TEMP_SUFFIX) },
+            "the temp file is moved into place, never left beside the record",
+        )
+    }
+
+    private companion object {
+        /** Enough turns that a reader lands inside a write, which against the plain write it does at once. */
+        const val WRITES = 300
     }
 }

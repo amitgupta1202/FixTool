@@ -3534,8 +3534,11 @@ class FixMessageViewModel(
                 if (manyLanesRequired) {
                     "no session of '${profile.name}' is logged on — connect it, then fan out"
                 } else {
-                    "no session of '${profile.name}' is logged on. Connect it, then run the load."
+                    "no session of '${profile.name}' is logged on. Run will connect it."
                 },
+                // The one refusal here a connect would answer, which is why a load run treats it as work to
+                // do rather than as a reason to stop. Fan-out reads the same value and keeps refusing on it.
+                couldConnect = profile,
             )
         }
         // A shortfall is REPORTED, not refused: if the venue let 38 of 50 on, the set runs 38 and says so.
@@ -3638,6 +3641,15 @@ class FixMessageViewModel(
 
         data class Unavailable(
             val why: String,
+            /**
+             * **The profile a connect would fix this with**, or null when nothing would.
+             *
+             * "No session of 'LoadGen' is logged on" and "'RFQVenue' is an acceptor, and an acceptor has one
+             * session by construction" are both refusals to a fan-out, and only one of them is a refusal to
+             * a load run: a load run brings up what it names. The two read the same off [why], so the
+             * profile is carried rather than parsed back out of the sentence.
+             */
+            val couldConnect: FixConnectionProfile? = null,
         ) : FanOutLanes
     }
 
@@ -3760,44 +3772,267 @@ class FixMessageViewModel(
     }
 
     /**
-     * **Starts a load run over this window's live sessions.** Null when it cannot, with the reason shown.
+     * **What a load run will issue on, and what it has to bring up first.**
      *
-     * The lanes are the profile's logged-on sessions, gathered here on the caller's thread and claimed the
-     * way a fan-out claims its lanes, so a scenario on those sessions is refused while the run holds them
-     * and the refusal names the run. The document opens the moment the run starts, and is what Recent
-     * reopens later.
+     * `lanesByProfile` empty for a profile is not "this profile has nothing" — it is "this profile is in
+     * [bringUp], and its lanes are the run's own to open". The distinction is the whole of auto-connect:
+     * the window used to refuse there, and the profile is now dialled instead.
      */
-    fun startLoadRun(plan: LoadPlan): LoadPlan? {
-        val lanes =
-            when (val available = loadLanes(plan.profileId)) {
+    internal class LoadPreflight(
+        val lanesByProfile: Map<String, List<Pair<Lane, FixMessageSession>>>,
+        val listenersByProfile: Map<String, List<FixMessageSession>>,
+        /**
+         * Profiles the run named that the window has nothing up for, **acceptors first**: an acceptor binds
+         * a port and an initiator dials one, so a two-sided set that opens them the other way round dials a
+         * port nothing is listening on yet.
+         */
+        val bringUp: List<FixConnectionProfile> = emptyList(),
+        /**
+         * Every pane the run will hold, named whether or not it exists yet — what the claim is taken over.
+         *
+         * Panes a *profile* opens, which is what the claim can name in advance. A wildcard venue's client
+         * panes are minted by the venue as each lane logs on, one per counterparty, and are not predicted
+         * here: a scenario naming one of those by title is not refused for the length of the run, though
+         * one naming the venue itself, or any lane, still is.
+         */
+        val titles: Set<String> = emptySet(),
+        /** Said before anything dials, and fatal: nothing a connect could fix. */
+        val refusal: String? = null,
+        /** Said and not fatal: 38 lanes of 50 is still a load test, and zero is not. */
+        val shortfalls: List<String> = emptyList(),
+    )
+
+    /**
+     * **The profiles a load run names, resolved — and where they are not up, dialled rather than refused.**
+     *
+     * Every profile a live phase issues from, and every profile any of them listens on, had to be logged on
+     * before the run would start. Which ones a saved set needs is the one thing its name does not say, so
+     * running one meant opening the file, connecting them by hand, and learning one refusal at a time which
+     * one had been missed.
+     *
+     * `fixtool load --set` never had that problem: its host opens every lane the set names, waits for logon
+     * and reports whatever did not arrive. This is the window's half of that contract, and it is preflight
+     * auto-connect in the scenario runner's sense — **it fires only where the run would have been refused**.
+     * A profile with a session already logged on is left exactly as it is; one nothing could fix — a name no
+     * saved profile answers to, an acceptor asked to issue — is still refused, before anything dials.
+     *
+     * **A muted phase's profile is neither opened nor waited for**, which is what "the venue leg this phase
+     * issues on is down" needs from parking it. `LoadSetRunner.openEveryLane` has always skipped them; this
+     * gathered them all the same, so a set with a parked phase on a dead profile was refused by the window
+     * for a phase it was never going to run.
+     *
+     * **The far end counts too, when the far end is one of ours.** A set names the profile that issues and
+     * never the venue it dials, because ordinarily that venue is somebody else's server. The bundled
+     * examples are the other case — the lanes dial a FixTool acceptor on loopback — and bringing up the
+     * client alone left five lanes dialling a port nothing had bound.
+     *
+     * `internal` because the order of [LoadPreflight.bringUp] is the half a test cannot see from outside:
+     * whether the acceptor was bound before the initiator dialled it is not a fact the finished record
+     * carries, and staging it end to end means a venue with reply rules to prove a thing about ordering.
+     */
+    @Suppress("ReturnCount")
+    internal fun loadPreflight(issuing: List<String>, listening: List<String>): LoadPreflight {
+        val lanesByProfile = linkedMapOf<String, List<Pair<Lane, FixMessageSession>>>()
+        val listenersByProfile = linkedMapOf<String, List<FixMessageSession>>()
+        val bringUp = linkedMapOf<String, FixConnectionProfile>()
+        val titles = linkedSetOf<String>()
+        val shortfalls = mutableListOf<String>()
+        for (profileId in issuing.distinct()) {
+            when (val available = loadLanes(profileId)) {
                 is FanOutLanes.Unavailable -> {
-                    showNotification(available.why, NotificationType.ERROR)
-                    return null
+                    val profile =
+                        available.couldConnect
+                            ?: return LoadPreflight(emptyMap(), emptyMap(), refusal = available.why)
+                    lanesByProfile[profileId] = emptyList()
+                    bringUp[profile.id] = profile
+                    titles += sessionTitlesOf(profile)
+                    // **And the far end, when the far end is one of ours.** A set names the profile that
+                    // issues, never the venue it dials, because ordinarily the venue is somebody else's
+                    // server and there is nothing here to connect. The bundled examples are the other case:
+                    // the lanes dial a FixTool acceptor on loopback, and bringing up the client alone left
+                    // five lanes dialling a port nothing was listening on. Only when it is down — a venue
+                    // already bound is left exactly as it is, like any other profile that is up, which is
+                    // [anyUp]'s whole reason for being a wider question than "is a lane logged on".
+                    farEndProfile(profileId)?.takeIf { !anyUp(it.id) }?.let { venue ->
+                        bringUp[venue.id] = venue
+                        titles += sessionTitlesOf(venue)
+                    }
                 }
                 is FanOutLanes.Available -> {
-                    available.shortfall?.let { showNotification(it, NotificationType.WARNING) }
-                    available.lanes.mapNotNull { lane -> _sessions.firstOrNull { it.title == lane.sessionTitle }?.let { lane to it } }
+                    available.shortfall?.let { shortfalls += it }
+                    val lanes = laneSessions(available)
+                    lanesByProfile[profileId] = lanes
+                    titles += lanes.map { it.second.title }
                 }
             }
-        val listeners =
-            plan.listenProfileIds.flatMap { pid ->
-                getProfileSessions(pid).filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
+        }
+        for (key in listening.distinct()) {
+            val live = getProfileSessions(key).filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
+            listenersByProfile[key] = live
+            if (live.isNotEmpty()) {
+                titles += live.map { it.title }
+                continue
             }
-        val touched = RunSessions.Touched(sessions = (lanes.map { it.second.title } + listeners.map { it.title }).toSet())
+            // Listening is the one place an acceptor belongs in a load run: it is the far end of the lanes,
+            // and the far end of a two-sided set is ordinarily one of ours. So the kind is not judged here —
+            // only whether anything answers to the name.
+            val profile =
+                _connectionProfiles.firstOrNull { it.id == key || it.name == key }
+                    ?: return LoadPreflight(
+                        emptyMap(),
+                        emptyMap(),
+                        refusal = "no saved connection profile named '$key' to listen on",
+                    )
+            titles += sessionTitlesOf(profile)
+            // Nothing is logged on to listen with — but a venue bound and waiting for its first client is
+            // in exactly that state and needs no dial, so what decides is whether a connect would do
+            // anything, not whether a session has logged on.
+            if (!anyUp(profile.id)) bringUp[profile.id] = profile
+        }
+        return LoadPreflight(
+            lanesByProfile = lanesByProfile,
+            listenersByProfile = listenersByProfile,
+            // False sorts first, so this is "acceptors, then the rest".
+            bringUp = bringUp.values.sortedBy { !it.config.isAcceptor() },
+            titles = titles,
+            shortfalls = shortfalls,
+        )
+    }
+
+    /** The lanes as (lane, pane) pairs: what the host issues on, and what the claim is taken over. */
+    private fun laneSessions(available: FanOutLanes.Available): List<Pair<Lane, FixMessageSession>> =
+        available.lanes.mapNotNull { lane ->
+            _sessions.firstOrNull { it.title == lane.sessionTitle }?.let { lane to it }
+        }
+
+    /**
+     * **The pane titles a profile's sessions take**, whether or not any of them exists yet.
+     *
+     * Worked out rather than read off `_sessions`, because a load run claims the sessions it is about to
+     * create: a scenario must not be able to start on a lane between the moment the run dials it and the
+     * moment it logs on. The rule is `createMissingSessions`'s own — a group of more than one is titled
+     * "Name [slot]" and a single session is titled after its profile — and an acceptor is one session
+     * however its Sessions field reads, because it binds one port.
+     */
+    fun sessionTitlesOf(profile: FixConnectionProfile): List<String> {
+        val count =
+            if (profile.config.connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                profile.config.sessionCount.coerceAtLeast(1)
+            } else {
+                1
+            }
+        return if (count > 1) (1..count).map { "${profile.name} [$it]" } else listOf(profile.name)
+    }
+
+    /**
+     * **Dials what the run named and the window had nothing up for**, and says so.
+     *
+     * Non-blocking, and called on the thread that pressed Run: `connectProfile` starts the logons and
+     * returns. The waiting belongs to the run's own thread, where ten seconds of logon costs the window
+     * nothing — see [awaitLoadLanes].
+     */
+    private fun bringUpForLoad(profiles: List<FixConnectionProfile>) {
+        if (profiles.isEmpty()) return
+        showNotification(
+            "Connecting ${profiles.joinToString { it.name }} for this run",
+            NotificationType.INFO,
+        )
+        profiles.forEach { connectProfile(it.id, it) }
+    }
+
+    /**
+     * **Waits for a profile the run brought up, then answers with its lanes.** Called on the runner's
+     * thread, never on the one that pressed Run.
+     *
+     * Bounded by the same ten seconds `fixtool load` waits for a lane and the scenario runner waits for an
+     * auto-connected session, and it waits for **all** of the profile's sessions rather than the first:
+     * a run that started the moment lane 1 logged on would issue over one lane and report the other
+     * forty-nine as a shortfall. Empty when none arrived, which is the sentence the runner already has for
+     * it — "no session of 'X' reached LOGGED_ON, so there is nothing to issue on".
+     */
+    internal fun awaitLoadLanes(profileId: String): List<Pair<Lane, FixMessageSession>> {
+        // All of them, or — when the deadline passes first — whatever did arrive.
+        val available =
+            awaitLoggedOn(loadLogonWaitMs) {
+                (loadLanes(profileId) as? FanOutLanes.Available)?.takeIf { it.shortfall == null }
+            }
+                ?: loadLanes(profileId) as? FanOutLanes.Available
+                ?: return emptyList()
+        available.shortfall?.let { showNotification(it, NotificationType.WARNING) }
+        return laneSessions(available)
+    }
+
+    /**
+     * The same wait, for a profile a phase only listens on. Empty when it never came up, which leaves the
+     * run matching on the sessions it does have — a listener that never logged on has always been reported
+     * rather than fatal.
+     *
+     * An acceptor listener reaches LOGGED_ON only once its counterparty logs in, and here its counterparty
+     * is this very run: `openEveryLane` opens the issuing lanes first, so by the time this is asked the
+     * dial that will complete the logon has already been made.
+     */
+    internal fun awaitLoadListeners(key: String): List<FixMessageSession> =
+        awaitLoggedOn(loadLogonWaitMs) {
+            getProfileSessions(key)
+                .filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
+                .takeIf { it.isNotEmpty() }
+        }.orEmpty()
+
+    /**
+     * **How long a run waits for a session it brought up itself**, and the seam a test moves.
+     *
+     * A test that stages a profile pointed at nothing would otherwise sit through the whole of it to watch
+     * a logon that was never going to arrive — the same reason `LoadSetRunner.newThread` is a var.
+     */
+    internal var loadLogonWaitMs: Long = LOGON_WAIT_MS
+
+    /**
+     * Polls [ready] until it answers, or until [timeoutMs] is up. The one shape both waits above share.
+     *
+     * Snapshot state read from a runner thread, which is what `ViewModelScenarioHost` does for the same
+     * reason: `_sessions` is a `SnapshotStateList` and the snapshot system serves a consistent read from
+     * any thread, so the poll costs the caller's thread and never the window's.
+     */
+    private fun <T : Any> awaitLoggedOn(timeoutMs: Long, ready: () -> T?): T? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            ready()?.let { return it }
+            Thread.sleep(LOGON_POLL_MS)
+        }
+        return ready()
+    }
+
+    /**
+     * **Starts a load run over this window's sessions, bringing up whatever it names and has not got.**
+     * Null when it cannot, with the reason shown.
+     *
+     * The lanes are gathered here on the caller's thread and claimed the way a fan-out claims its lanes, so
+     * a scenario on those sessions is refused while the run holds them and the refusal names the run. The
+     * claim covers the panes the run is **about to open** as well as the ones already up — see
+     * [loadPreflight]. The document opens the moment the run starts, and is what Recent reopens later.
+     */
+    fun startLoadRun(plan: LoadPlan): LoadPlan? {
+        val pre = loadPreflight(issuing = listOf(plan.profileId), listening = plan.listenProfileIds)
+        pre.refusal?.let {
+            showNotification(it, NotificationType.ERROR)
+            return null
+        }
+        pre.shortfalls.forEach { showNotification(it, NotificationType.WARNING) }
+        val touched = RunSessions.Touched(sessions = pre.titles)
         val reserved = plan.copy(id = loadRecordStore.reserve(plan.id))
         val claim =
             claimSessions(touched, reserved.label, reserved.id) ?: run {
                 showNotification(runBusyReason(), NotificationType.ERROR)
                 return null
             }
+        // After the claim, so nothing dials for a run that a run already in flight is about to refuse.
+        bringUpForLoad(pre.bringUp)
         val host =
             ViewModelLoadHost(
-                lanesByProfile = mapOf(plan.profileId to lanes),
-                listenersByProfile =
-                    plan.listenProfileIds.associateWith { pid ->
-                        val ofProfile = getProfileSessions(pid)
-                        listeners.filter { it in ofProfile }
-                    },
+                lanesByProfile = pre.lanesByProfile,
+                listenersByProfile = pre.listenersByProfile,
+                awaitLanes = ::awaitLoadLanes,
+                awaitListeners = ::awaitLoadListeners,
                 resolve = { template, scope, sessionTitle -> ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle) },
                 dictionaryProvider = { _dictionary.value },
                 settingsProvider = { _appSettings.value },
@@ -3830,6 +4065,120 @@ class FixMessageViewModel(
     /** One field's once-per-lane expression, through the evaluator a scenario step uses. */
     private fun loadResolve(template: String, scope: Map<String, String>, sessionTitle: String): String =
         ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle)
+
+    /**
+     * **Which sessions a saved set runs on, and which of them Run will have to bring up.**
+     *
+     * The one thing a set's name does not say. A set is two or three phases against two profiles, and
+     * whoever wrote it knew which; a week later, running it meant opening the file to find out, or pressing
+     * Run and reading the refusal, connecting that one, and pressing Run again for the next.
+     *
+     * Live phases only, and issuing profiles before listeners, which is the order [loadPreflight] opens
+     * them in and the order they are worth reading in. A name no saved profile answers to is listed as
+     * needed all the same and is **not** counted as something Run will connect: the set's own refusal names
+     * it, and the row that says "Run connects X" must never say it of a name nothing answers to.
+     */
+    data class LoadSetSessions(
+        val needed: List<String>,
+        val toConnect: List<String>,
+    ) {
+        private companion object {
+            /**
+             * How wide the row's sentence may draw before it counts profiles rather than naming them.
+             *
+             * A width and not a count, because what makes the line unreadable is how far it reaches: two
+             * profiles called LoadGen and RFQVenue name themselves comfortably, and two called RFQ Load
+             * Client and RFQ Demo Venue run off the end of the menu at the same length. Found on screen,
+             * in the example workspace.
+             *
+             * The sub-line has 300dp of room — a 320dp menu less its padding — and renders at 9sp, where
+             * mixed-case text measures about 4.7dp per character and the uppercase `OMS_UAT_WEST` house
+             * style about 5.5. Both were measured against the real menu. Ten dp is left as the margin an
+             * estimate deserves, and the ellipsis on the line itself is the backstop for whatever it
+             * still gets wrong.
+             */
+            const val ROOM_DP = 290.0
+            const val WIDE = 5.5
+            const val NARROW = 4.7
+        }
+
+        /**
+         * "on LoadGen, RFQVenue · Run connects RFQVenue", under the row that runs it.
+         *
+         * Named while there are few enough to name. Past that the names are what makes the line too long
+         * to read rather than what makes it useful, and a count of them is the fact — a set that opens
+         * eight profiles is a set nobody was going to check name by name off a menu row.
+         */
+        val sentence: String
+            get() {
+                if (needed.isEmpty()) return "every phase is parked"
+                // Three ways to say it, longest first, and the **whole** sentence is what is measured
+                // against the room each time. Shortening only the tail left the clause the shortening
+                // exists to produce — "Run connects 2 profiles" — as the half that got ellipsised away,
+                // and a list of profiles that are all up was never measured at all.
+                val ways =
+                    listOf(
+                        say(needed.joinToString(", "), toConnect.joinToString(", ")),
+                        say(needed.joinToString(", "), count(toConnect)),
+                        say(count(needed), count(toConnect)),
+                    )
+                return ways.firstOrNull { fits(it) } ?: ways.last()
+            }
+
+        /**
+         * **Roughly how wide this will draw, rather than how many characters it has.**
+         *
+         * A character count cannot tell `LoadGen, RFQVenue` from `OMS_UAT_WEST, OMS_UAT_EAST`: same
+         * length, and the second is sixty percent wider, because a CompID is capitals and underscores.
+         * A budget set from one passes sentences that overflow, and a budget set from the other throws
+         * away names that would have fitted comfortably. So each character is counted as the kind it is.
+         */
+        private fun fits(sentence: String): Boolean =
+            sentence.sumOf { if (it.isUpperCase() || it.isDigit() || it == '_') WIDE else NARROW } <= ROOM_DP
+
+        private fun say(on: String, connects: String): String =
+            "on $on" + if (toConnect.isEmpty()) "" else " · Run connects $connects"
+
+        private fun count(profiles: List<String>): String =
+            "${profiles.size} profile${if (profiles.size == 1) "" else "s"}"
+    }
+
+    /**
+     * **Would a connect do anything to this profile?** — which is not the same question as "can it issue".
+     *
+     * A lane must be LOGGED_ON to carry a message, and [loadLanes] asks that. Whether a *dial* is owed is
+     * a different and wider state: `connectProfile` leaves a session alone the moment it is CONNECTING,
+     * CONNECTED or LOGGED_ON, so those three are what "up" means here.
+     *
+     * The case that forced the distinction is a wildcard venue: its own pane sits at CONNECTED and never
+     * reaches LOGGED_ON, because its clients' panes are the ones that log on. Asked the narrower question,
+     * a venue bound and waiting for its first client read as down — so a run announced "Connecting VENUE"
+     * for a venue it was not going to touch, and the Run menu's row promised to connect one already up.
+     */
+    private fun anyUp(profileId: String): Boolean =
+        getProfileSessions(profileId).any { it.connectionState.value in UP }
+
+    fun loadSetSessions(set: LoadSet): LoadSetSessions {
+        val live = set.phases.filterNot { it.muted }
+        val issuing = live.map { it.profile }.distinct()
+        val needed = mutableListOf<String>()
+        val toConnect = mutableListOf<String>()
+        (issuing + live.flatMap { it.listen }).distinct().forEach { key ->
+            val profile = _connectionProfiles.firstOrNull { it.id == key || it.name == key }
+            // Named as the set names it when nothing answers, so the row and the set's own refusal agree
+            // about what is missing.
+            needed += profile?.name ?: key
+            if (profile == null || anyUp(profile.id)) return@forEach
+            toConnect += profile.name
+            // The venue the lanes dial, when it is one of ours and it is down. Not in [needed], because
+            // the set does not name it — but very much in what pressing this row will connect, and a row
+            // that promised less than it does would be the same surprise in the other direction.
+            farEndProfile(profile.id)?.takeIf { !anyUp(it.id) && it.name !in toConnect }?.let {
+                toConnect += it.name
+            }
+        }
+        return LoadSetSessions(needed, toConnect)
+    }
 
     /** Every saved load set, by name. What the Run menu lists and the editor's left column holds. */
     fun loadSets(): List<LoadSet> = loadSetStore.list()
@@ -3916,50 +4265,43 @@ class FixMessageViewModel(
     }
 
     /**
-     * **Starts a load set over this window's live sessions.** Null when it cannot, with the reason shown.
+     * **Starts a load set over this window's sessions, bringing up whatever it names and has not got.**
+     * Null when it cannot, with the reason shown.
      *
-     * The lanes are gathered for every profile any phase names, before phase 1, and claimed together, so a
-     * scenario on any of those sessions is refused for the length of the set rather than between its
-     * phases. The document opens the moment the set starts.
+     * The lanes are gathered for every profile a live phase names, before phase 1, and claimed together, so
+     * a scenario on any of those sessions is refused for the length of the set rather than between its
+     * phases — including the sessions the set is about to open for itself. The document opens the moment
+     * the set starts.
      */
-    @Suppress("ReturnCount", "LongMethod", "TooGenericExceptionCaught")
+    @Suppress("ReturnCount", "TooGenericExceptionCaught")
     fun startLoadSet(planned: LoadSet.Planned): LoadSet.Planned? {
-        val lanesByProfile = linkedMapOf<String, List<Pair<Lane, FixMessageSession>>>()
-        for (profileId in planned.phases.map { it.profileId }.distinct()) {
-            when (val available = loadLanes(profileId)) {
-                is FanOutLanes.Unavailable -> {
-                    showNotification(available.why, NotificationType.ERROR)
-                    return null
-                }
-                is FanOutLanes.Available -> {
-                    available.shortfall?.let { showNotification(it, NotificationType.WARNING) }
-                    lanesByProfile[profileId] =
-                        available.lanes.mapNotNull { lane ->
-                            _sessions.firstOrNull { it.title == lane.sessionTitle }?.let { lane to it }
-                        }
-                }
-            }
+        // Live phases only, which is what `LoadSetRunner.openEveryLane` opens: a muted phase's profile is
+        // neither opened nor waited for, and gathering it here refused sets over a phase nobody would run.
+        val live = planned.phases.filterNot { it.muted }
+        val pre =
+            loadPreflight(
+                issuing = live.map { it.profileId },
+                listening = live.flatMap { it.listenProfileIds },
+            )
+        pre.refusal?.let {
+            showNotification(it, NotificationType.ERROR)
+            return null
         }
-        val listenersByProfile =
-            planned.phases
-                .flatMap { it.listenProfileIds }
-                .distinct()
-                .associateWith { pid ->
-                    getProfileSessions(pid).filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
-                }
-        val titles =
-            lanesByProfile.values.flatten().map { it.second.title } +
-                listenersByProfile.values.flatten().map { it.title }
+        pre.shortfalls.forEach { showNotification(it, NotificationType.WARNING) }
         val reserved = planned.copy(id = loadRecordStore.reserve(planned.id))
         val claim =
-            claimSessions(RunSessions.Touched(sessions = titles.toSet()), reserved.label, reserved.id) ?: run {
+            claimSessions(RunSessions.Touched(sessions = pre.titles), reserved.label, reserved.id) ?: run {
                 showNotification(runBusyReason(), NotificationType.ERROR)
                 return null
             }
+        // After the claim, so nothing dials for a set that a run already in flight is about to refuse.
+        bringUpForLoad(pre.bringUp)
         val host =
             ViewModelLoadHost(
-                lanesByProfile = lanesByProfile,
-                listenersByProfile = listenersByProfile,
+                lanesByProfile = pre.lanesByProfile,
+                listenersByProfile = pre.listenersByProfile,
+                awaitLanes = ::awaitLoadLanes,
+                awaitListeners = ::awaitLoadListeners,
                 resolve = { template, scope, title -> loadResolve(template, scope, title) },
                 dictionaryProvider = { _dictionary.value },
                 settingsProvider = { _appSettings.value },
@@ -4018,6 +4360,20 @@ class FixMessageViewModel(
 
     private companion object Loopback {
         val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1", "0.0.0.0")
+
+        /**
+         * How long a load run waits for a session it brought up itself.
+         *
+         * The same ten seconds `fixtool load` gives a lane and `ScenarioRunner` gives an auto-connected
+         * session, on purpose: one number for "a logon that is going to happen has happened by now", so a
+         * venue slow enough to need more of it is slow enough for every door to say so.
+         */
+        const val LOGON_WAIT_MS = 10_000L
+        const val LOGON_POLL_MS = 100L
+
+        /** The three states `connectProfile` leaves a session in rather than dialling it again. */
+        val UP =
+            setOf(FixConnectionState.CONNECTING, FixConnectionState.CONNECTED, FixConnectionState.LOGGED_ON)
     }
 
     /** Puts the set report down. The records stay on disk; this is a view, not a delete. */
@@ -4699,7 +5055,7 @@ class FixMessageViewModel(
             return Result.success(WorkspacePaths.home.root)
         }
         logger.info("Opening workspace {}", directory.absolutePath)
-        closeEverySession()
+        closeAllSessions()
         WorkspacePaths.open(directory.absolutePath)
         rereadWorkspace()
         val path = directory.absolutePath
@@ -4727,7 +5083,7 @@ class FixMessageViewModel(
     fun closeWorkspace() {
         if (openWorkspaceIsHome) return
         logger.info("Closing workspace, back to {}", WorkspacePaths.home.root.absolutePath)
-        closeEverySession()
+        closeAllSessions()
         WorkspacePaths.open(null)
         rereadWorkspace()
         updateLayout { it.copy(openWorkspace = "") }
@@ -4788,7 +5144,19 @@ class FixMessageViewModel(
         return opened
     }
 
-    private fun closeEverySession() {
+    /**
+     * **Every pane gone, and every session with it** — what Close all does, and what closing a workspace
+     * has always done on its way out.
+     *
+     * Disconnected first and then closed, in that order, because a pane closed on a live session drops it
+     * without a logout: the far end learns of it from a socket that stopped answering rather than from a
+     * Logout, and a venue that counts unclean disconnects counts one.
+     *
+     * Backwards, because closing a pane shifts the index of every pane after it — and a venue takes its
+     * clients' panes with it, which is a second reason the same index is not there afterwards.
+     */
+    fun closeAllSessions() {
+        logger.info("Closing all sessions (${_sessions.size})")
         disconnectAllSessions()
         while (_sessions.isNotEmpty()) closeSession(_sessions.lastIndex)
     }
@@ -5143,6 +5511,7 @@ class FixMessageViewModel(
      * A client that logs out and returns finds its history where it left it — which is the reason the
      * pane outlives the session, since what usually explains a drop is the traffic just before it.
      */
+    @Suppress("ReturnCount")
     private fun attachVenueClient(
         listener: FixMessageSession,
         profileId: String,
@@ -5156,6 +5525,14 @@ class FixMessageViewModel(
         // the panes that used to survive Stop.
         if (_connectionProfiles.none { it.id == profileId }) {
             logger.info("Not opening a pane for {} — venue profile '{}' is no longer present", sessionId, profile.name)
+            return
+        }
+        // **A venue whose own pane has been closed is the same orphan by another route.** Arrivals are
+        // hopped onto this scope, so a handful of them can be queued behind the close that took the venue
+        // and its clients away together — and they land afterwards, minting a pane per client for a venue
+        // that has none. Close all found this: eleven panes went, and five came back a moment later.
+        if (_sessions.none { it === listener }) {
+            logger.info("Not opening a pane for {} — venue '{}' has been closed", sessionId, listener.title)
             return
         }
         val existing = _sessions.firstOrNull { it.clientSessionId == sessionId }
@@ -5192,13 +5569,16 @@ class FixMessageViewModel(
     }
 
     /**
-     * **What Disconnect all is about to drop, or why it is refused** — the tooltip and the enabled state
-     * in one value, the way the rail's selection bar carries its `blocked`.
+     * **What a whole-window session action is about to do, or why it is refused** — the tooltip and the
+     * enabled state in one value, the way the rail's selection bar carries its `blocked`.
      *
      * The count is in the sentence rather than on the button because it is the number that decides whether
      * you meant to press it: "10 sessions on 3 profiles" is a different act from "1 session on 1 profile".
+     *
+     * Shared by Disconnect all and Close all, which are the same shape of question asked of the same
+     * sessions and must never disagree about whether now is the moment.
      */
-    data class DisconnectAllOffer(val enabled: Boolean, val tooltip: String)
+    data class SessionsOffer(val enabled: Boolean, val tooltip: String)
 
     /** Connected or logged on: the two states a disconnect would actually change. */
     private fun FixMessageSession.isLive(): Boolean =
@@ -5214,26 +5594,59 @@ class FixMessageViewModel(
     fun disconnectAllOffer(
         activeLoad: LoadRecord? = _activeLoadRun.value,
         runningSetIds: Set<String> = _runningSetIds.value,
-    ): DisconnectAllOffer {
+    ): SessionsOffer {
         // A live load run is the one case a disconnect would lose something, so it is refused by name.
         // Anything else survives: books, records and panes are all still there afterwards.
-        val live = activeLoad?.takeIf { it.id in runningSetIds }
-        if (live != null) {
-            // Word for word what `POST /disconnect` refuses with, so the button and the API cannot give
-            // two accounts of the same state. A set is a record with a set name, or with more than one
-            // phase in it.
-            val kind = if (live.set != null || live.phases.size > 1) "A load set" else "A load run"
-            return DisconnectAllOffer(enabled = false, tooltip = "$kind is running. Stop it first.")
-        }
+        liveRunRefusal(activeLoad, runningSetIds)?.let { return SessionsOffer(enabled = false, tooltip = it) }
         val connected = _sessions.count { it.isLive() }
-        if (connected == 0) return DisconnectAllOffer(enabled = false, tooltip = "Nothing is connected")
+        if (connected == 0) return SessionsOffer(enabled = false, tooltip = "Nothing is connected")
         val profiles = _connectionProfiles.count { p -> getProfileSessions(p.id).any { it.isLive() } }
-        return DisconnectAllOffer(
+        return SessionsOffer(
             enabled = true,
             tooltip =
                 "Disconnect all · $connected session${if (connected == 1) "" else "s"} on " +
                     "$profiles profile${if (profiles == 1) "" else "s"}",
         )
+    }
+
+    /**
+     * **What Close all is about to take away, or why it is refused.**
+     *
+     * The second half of Disconnect all, and the half a load run needs: fifty lanes leave fifty panes, and
+     * putting a box back to nothing meant closing them one at a time. Disconnect all leaves them there on
+     * purpose — the logs are still readable and Quick Connect puts the sessions back — so this is the
+     * separate act of saying you are finished with them.
+     *
+     * It counts **panes**, not connected sessions: a pane left over from a run that has already been
+     * disconnected is exactly what this is for, and "Nothing is connected" would refuse to clear it. The
+     * sentence names what goes with them, because nothing puts a pane's messages back.
+     */
+    fun closeAllOffer(
+        activeLoad: LoadRecord? = _activeLoadRun.value,
+        runningSetIds: Set<String> = _runningSetIds.value,
+    ): SessionsOffer {
+        liveRunRefusal(activeLoad, runningSetIds)?.let { return SessionsOffer(enabled = false, tooltip = it) }
+        val panes = _sessions.size
+        if (panes == 0) return SessionsOffer(enabled = false, tooltip = "No session is open")
+        val profiles = _connectionProfiles.count { p -> getProfileSessions(p.id).isNotEmpty() }
+        return SessionsOffer(
+            enabled = true,
+            tooltip =
+                "Close all · $panes pane${if (panes == 1) "" else "s"} on " +
+                    "$profiles profile${if (profiles == 1) "" else "s"}. Their messages go with them.",
+        )
+    }
+
+    /**
+     * Why a whole-window session action is refused, or null when nothing is running.
+     *
+     * Word for word what `POST /disconnect` refuses with, so the buttons and the API cannot give two
+     * accounts of the same state. A set is a record with a set name, or with more than one phase in it.
+     */
+    private fun liveRunRefusal(activeLoad: LoadRecord?, runningSetIds: Set<String>): String? {
+        val live = activeLoad?.takeIf { it.id in runningSetIds } ?: return null
+        val kind = if (live.set != null || live.phases.size > 1) "A load set" else "A load run"
+        return "$kind is running. Stop it first."
     }
 
     /**

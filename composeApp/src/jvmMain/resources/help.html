@@ -872,6 +872,27 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             run is the same record with one phase, so the document, Compare and Recent read a run and a set out
             of the same file rather than out of two shapes.</li>
     </ul>
+    <p><strong>A run brings up the sessions it names.</strong> Which profiles a saved set needs is the one
+        thing its name does not say, so running one used to mean opening the file, connecting them by hand, and
+        finding out one refusal at a time which one you had missed. Every profile a live phase issues from or
+        listens on that has no session logged on is now connected before phase 1 dials &mdash; acceptors first,
+        so a port is bound before anything dials it &mdash; and the run waits up to ten seconds for the lanes to
+        log on. It fires <strong>only where the run would have been refused</strong>: a profile already up is
+        left exactly as it is, and a parked phase's profile is neither opened nor waited for. A profile that
+        never arrives is the refusal it always was, <em>no session of &#39;X&#39; reached LOGGED_ON, so there is
+        nothing to issue on</em>, said after the wait rather than before it. This is what
+        <code>fixtool load --set</code> has always done, and the window does it now too.</p>
+    <p><strong>And the venue, when the venue is one of ours.</strong> A set names the profile that issues and
+        never the endpoint it dials, because ordinarily that endpoint is somebody else's server and there is
+        nothing here to connect. The bundled examples are the other case: the lanes dial a FixTool acceptor on
+        loopback, so bringing up the client alone would leave them dialling a port nothing had bound. That
+        acceptor is brought up too, and first. An acceptor already bound is left exactly as it is.</p>
+    <p>The
+        <strong>Run &#9662;</strong> row for a set says which profiles it runs on and which of them pressing it
+        will connect, so you can read it before you press it.</p>
+    <p>The lanes are <strong>left up afterwards</strong>: the run borrowed them, it did not own them, and the
+        next set that names them finds them there. <strong>&#10005; Close all</strong> in the toolbar is how a box
+        goes back to nothing &mdash; see <a href="#quick-connect">Quick Connect</a>.</p>
     <p>Sets live in <code>&lt;workspace&gt;/load-sets/&lt;name&gt;.json</code>, beside the records they produce,
         so a set checked in next to the code survives a fresh <code>--home</code>. From a build:</p>
     <pre><code>fixtool load --set rfq-round-trip --seed run=$BUILD_NUMBER --junit reports/rfq.xml
@@ -907,6 +928,20 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     case that would lose something is a live load run or set, and there the button is disabled with the
     reason in its tooltip: stop the run first. On the control surface the same action is
     <code>POST /disconnect {"all": true}</code>, which reports what it dropped and is refused the same way.</p>
+
+    <p><strong>&#10005; Close all</strong> is beside it, and is the half Disconnect all deliberately leaves
+    undone: it <strong>closes every session pane</strong>, disconnecting them on the way so the far end gets a
+    Logout rather than a socket that stopped answering. A load set that opens fifty lanes leaves fifty panes, and
+    putting the box back to nothing meant closing them one at a time. It counts panes rather than connections,
+    because a pane left over from a run you have already disconnected is exactly what it is for.</p>
+    <p><strong>This one does ask</strong>, and it asks in the button rather than in a dialog: the first click
+    arms it &mdash; <em>Close 50 panes? Click again</em> &mdash; the second closes them, and it disarms itself
+    after a few seconds so an armed button never sits waiting for somebody who has forgotten what it is armed
+    for. It asks because the difference between the two buttons is exactly what cannot be put back: Quick
+    Connect returns the sessions, and nothing returns a pane's messages. Your profiles, workspace, scenarios,
+    run records and load reports are untouched. A live load run or set refuses it in the same words. On the
+    control surface it is <code>POST /sessions/close</code>, and the MCP tool is
+    <code>fixtool_close_sessions</code>.</p>
 
     <h3 id="workspaces">Workspaces</h3>
     <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run

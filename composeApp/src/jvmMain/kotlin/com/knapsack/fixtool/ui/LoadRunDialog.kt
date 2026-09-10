@@ -319,8 +319,14 @@ fun LoadRunDialogContent(
             }
             // A phase is authored as often with the lanes down as up: a set is written before it is run,
             // and the set runner refuses a phase with no lane before phase 1 dials, with this same sentence.
+            //
+            // **A profile that is merely down is not a refusal any more**: Run brings up what it names, so
+            // the only refusals left here are the ones a connect could not answer — a name nothing saved
+            // answers to, or an acceptor asked to issue.
             if (phase == null) {
-                (lanes as? FixMessageViewModel.FanOutLanes.Unavailable)?.let { add(Refusal(Where.PROFILE, it.why)) }
+                (lanes as? FixMessageViewModel.FanOutLanes.Unavailable)
+                    ?.takeIf { it.couldConnect == null }
+                    ?.let { add(Refusal(Where.PROFILE, it.why)) }
             }
         }
     // **What may hold the button.** In a phase the seed and the store are the set's, and this screen has no
@@ -337,7 +343,15 @@ fun LoadRunDialogContent(
     LaunchedEffect(hiddenInReplies != null) { if (hiddenInReplies != null) repliesOpen = true }
     LaunchedEffect(hiddenInIdentity != null) { if (hiddenInIdentity != null) identityOpen = true }
 
-    val runnable = blocking.isEmpty() && (phase != null || lanes is FixMessageViewModel.FanOutLanes.Available)
+    // Runnable with the lanes down, because Run dials them: what a lane cannot be is *unknown*, so a
+    // profile nothing answers to still holds the button.
+    val runnable =
+        blocking.isEmpty() &&
+            (
+                phase != null ||
+                    lanes is FixMessageViewModel.FanOutLanes.Available ||
+                    (lanes as? FixMessageViewModel.FanOutLanes.Unavailable)?.couldConnect != null
+            )
 
     fun plan(): LoadPlan? {
         val t = template ?: return null
@@ -513,10 +527,11 @@ fun LoadRunDialogContent(
                         Hint(lanesHint(a))
                         a.shortfall?.let { Hint(it, AppTheme.Colors.warning) }
                     }
-                    if (phase != null) {
-                        val down = lanes as? FixMessageViewModel.FanOutLanes.Unavailable
-                        down?.let { Hint(it.why, AppTheme.Colors.warning) }
-                    }
+                    // Said for a single run as well as for a phase, now that the sentence is "Run will
+                    // connect it" rather than a refusal: what the reader wants to know before pressing Run
+                    // is that pressing it will dial.
+                    (lanes as? FixMessageViewModel.FanOutLanes.Unavailable)
+                        ?.let { Hint(it.why, AppTheme.Colors.warning) }
                     Refusals(blocking, Where.PROFILE)
                 }
             }
@@ -809,9 +824,10 @@ fun LoadRunDialogContent(
             when {
                 blocking.isNotEmpty() -> blocking.first().text
                 // A phase is edited with the lanes down as often as up: a set is authored before it is run,
-                // and the set's own footer is what refuses to run it.
-                phase == null && lanes !is FixMessageViewModel.FanOutLanes.Available ->
-                    "No lane is logged on, so there is nothing to issue on."
+                // and the set's own footer is what refuses to run it. A run whose profile is merely down
+                // has nothing to say here either: Run dials it, and the "Issue on" hint says so.
+                phase == null && lanes == null ->
+                    if (profiles.isEmpty()) "There is no saved profile to issue on." else "Pick a profile to issue on."
                 else -> null
             }
         if (phase != null) {

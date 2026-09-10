@@ -230,6 +230,45 @@ class MultiClientAcceptorIntegrationTest {
     }
 
     /**
+     * **Close all leaves nothing behind, including the panes the venue was about to open.**
+     *
+     * A venue's arrivals are hopped onto the view model's scope before they become panes, so a handful of
+     * them can be queued behind the close that takes the venue and its clients away together. They land
+     * afterwards and mint a pane per client for a venue that has none — panes showing a conversation on
+     * an engine that has stopped, which is the orphan `attachVenueClient` already declines to open for a
+     * venue whose profile has gone.
+     *
+     * Found by pressing the button: eleven panes went, and five came back a moment later.
+     */
+    @Test
+    fun `close all leaves nothing behind, not even a pane the venue was about to open`() {
+        connectVenue()
+        connectClient("ALPHA")
+        connectClient("BETA")
+        awaitPane("ALPHA")
+        awaitPane("BETA")
+        assertEquals(5, viewModel.sessions.size, "venue, two clients and their two panes: ${viewModel.sessions.map { it.title }}")
+
+        viewModel.closeAllSessions()
+
+        assertEquals(0, viewModel.sessions.size, "everything closes: ${viewModel.sessions.map { it.title }}")
+
+        // **Watched rather than slept through.** The arrivals the disconnect set off land about a second
+        // later, and a single sleep long enough to cover that on this machine is a test that goes green on
+        // a loaded one by finishing before the bug happens. This fails on the first pane to appear, at
+        // whatever moment in the window it appears.
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            assertEquals(
+                0,
+                viewModel.sessions.size,
+                "a pane came back after the close: ${viewModel.sessions.map { it.title }}",
+            )
+            Thread.sleep(50)
+        }
+    }
+
+    /**
      * **A rule saved while a venue is up reaches every client, not just the busy one.**
      *
      * Saving applies to live sessions, and a venue's rules are compiled once on the service that all

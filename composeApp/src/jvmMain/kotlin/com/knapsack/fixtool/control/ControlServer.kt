@@ -199,6 +199,7 @@ class ControlServer(
         httpServer.createContext("/workspace") { ex -> handle(ex) { workspace(ex) } }
         httpServer.createContext("/connect") { ex -> handle(ex) { connect(ex) } }
         httpServer.createContext("/disconnect") { ex -> handleCoded(ex) { disconnect(ex) } }
+        httpServer.createContext("/sessions/close") { ex -> handleCoded(ex) { closeSessions(ex) } }
         httpServer.createContext("/send/all") { ex -> handle(ex) { sendAll(ex) } }
         httpServer.createContext("/send") { ex -> handle(ex) { send(ex) } }
         httpServer.createContext("/templates/send") { ex -> handle(ex) { sendTemplate(ex) } }
@@ -2736,6 +2737,38 @@ class ControlServer(
         }
 
     /**
+     * **Every pane gone**, the control surface's half of the toolbar's Close all.
+     *
+     * The other half of `POST /disconnect {"all": true}`, and the one a load script wants: fifty lanes
+     * leave fifty panes, and a box put back to nothing is where the next run starts. It disconnects on the
+     * way, so the far end gets a Logout rather than a socket that stopped answering.
+     *
+     * Refused by a live run in the same sentence Disconnect all uses, because it would lose the same
+     * measurements and more. Nothing open is a 200 with `sessions: 0`, for the reason `disconnectAll` says.
+     *
+     * The count is taken before anything closes, because it is what the call did.
+     */
+    private fun closeSessions(ex: HttpExchange): Coded {
+        // POST only, and said rather than assumed: every other door that takes something away reads a
+        // body, and this one has nothing to read — so a GET would be a whole window closed by a link.
+        if (ex.requestMethod.uppercase() != "POST") return Coded(HTTP_METHOD_NOT_ALLOWED, errorObject("use POST"))
+        return onEdt {
+            liveLoadRefusal()?.let { return@onEdt Coded(HTTP_CONFLICT, busyError(it)) }
+            val panes = viewModel.sessions.size
+            val profiles = viewModel.connectionProfiles.count { viewModel.getProfileSessions(it.id).isNotEmpty() }
+            viewModel.closeAllSessions()
+            Coded(
+                HTTP_OK,
+                buildJsonObject {
+                    put("status", "closed")
+                    put("sessions", panes)
+                    put("profiles", profiles)
+                },
+            )
+        }
+    }
+
+    /**
      * Why Disconnect all is refused, or null when nothing is running.
      *
      * The live record names which of the two words to use, and the claim on the sessions is what says it
@@ -4156,6 +4189,7 @@ class ControlServer(
             "fixtool_connect" to { a -> connect(mcpExchange(a)) },
             // MCP has no status codes, so the 409 for a live load run is the body, as fixtool_load does.
             "fixtool_disconnect" to { a -> disconnect(mcpExchange(a)).body },
+            "fixtool_close_sessions" to { a -> closeSessions(mcpExchange(a)).body },
             "fixtool_send" to { a -> send(mcpExchange(a)) },
             "fixtool_send_all" to { a -> sendAll(mcpExchange(a)) },
             "fixtool_send_template" to { a -> sendTemplate(mcpExchange(a)) },

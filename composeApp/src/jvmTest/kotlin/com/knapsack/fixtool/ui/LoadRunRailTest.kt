@@ -57,8 +57,13 @@ class LoadRunRailTest {
         testDir.deleteRecursively()
     }
 
+    /**
+     * **With no saved profile there is nowhere to issue from at all**, which is the one thing a load run
+     * cannot dial its way out of — so the row stays visible and disabled, and says what it is short of
+     * rather than a bare count of lanes that would read as a number of them.
+     */
     @Test
-    fun `Load run sits in the toolbar's Run menu, disabled with its count when nothing can supply lanes`() {
+    fun `Load run sits in the toolbar's Run menu, disabled when there is nowhere at all to issue from`() {
         composeTestRule.setContent { ToolbarRunControls(viewModel) }
 
         composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
@@ -68,7 +73,7 @@ class LoadRunRailTest {
             .onNodeWithTag("rail-run-load")
             .assertIsDisplayed()
             .assertIsNotEnabled()
-            .assertTextContains("Load run…  0")
+            .assertTextContains("Load run…  nothing up yet")
     }
 
     /**

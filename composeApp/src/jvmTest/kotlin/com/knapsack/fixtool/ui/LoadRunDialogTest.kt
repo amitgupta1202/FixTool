@@ -117,8 +117,13 @@ class LoadRunDialogTest {
         composeTestRule.waitForIdle()
     }
 
+    /**
+     * The refusal that used to be here — "no session of 'LOADGEN' is logged on" — is not one any more:
+     * Run dials the profile it is pointed at. What still holds the button is the seed the template reads
+     * and nothing supplies, which is a value only the author has.
+     */
     @Test
-    fun `the match is prefilled, the template is described, and no lanes means Run refuses with the fan-out sentence`() {
+    fun `the match is prefilled, the template is described, and an unseeded name is what holds Run`() {
         viewModel.saveConnectionProfile(profile(resetOnLogon = true))
 
         composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
@@ -133,7 +138,7 @@ class LoadRunDialogTest {
         composeTestRule.onNodeWithTag("load-reply-tag").assertTextContains("11")
         composeTestRule.onNodeWithTag("load-run").assertHasNoClickAction()
         val refusals = composeTestRule.onAllNodesWithTag("load-refusal").fetchSemanticsNodes()
-        assertEquals(2, refusals.size, "a missing seed and no lane logged on")
+        assertEquals(1, refusals.size, "the missing seed, and only that: a down profile is dialled, not refused")
     }
 
     /**

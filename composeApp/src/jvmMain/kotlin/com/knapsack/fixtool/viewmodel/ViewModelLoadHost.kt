@@ -20,7 +20,13 @@ import org.slf4j.LoggerFactory
  * differs from what the run asked for is reconnected with the run's config before it issues, and
  * reconnected back on release, so a profile borrowed for one load run goes back exactly as it was.
  * Reconnecting means a logout and a fresh logon, which the dialog says.
+ *
+ * **And it opens what the run named and the window had not got.** `LoadHost.openLanes` is documented as
+ * bringing the profile up and waiting for logon — which is what the headless host does, and what this one
+ * could not, because a window's sessions were somebody else's to open. A profile the run dialled for itself
+ * arrives here as an empty entry, and [awaitLanes] is the wait for it, on the runner's thread.
  */
+@Suppress("LongParameterList")
 class ViewModelLoadHost(
     /**
      * The issuing lanes, by the profile they belong to.
@@ -31,6 +37,15 @@ class ViewModelLoadHost(
     private val lanesByProfile: Map<String, List<Pair<Lane, FixMessageSession>>>,
     /** The listen-only sessions, by the profile they belong to, for the same reason. */
     private val listenersByProfile: Map<String, List<FixMessageSession>>,
+    /**
+     * **The wait for a profile the run brought up itself**, asked once, on the runner's thread.
+     *
+     * Asked for a profile the run named and had no lane of — an entry that is present and empty. A profile
+     * that is absent from the map is not this run's to open, and answers with nothing as it always did.
+     */
+    private val awaitLanes: (String) -> List<Pair<Lane, FixMessageSession>> = { emptyList() },
+    /** The same wait, for a profile a phase only listens on. */
+    private val awaitListeners: (String) -> List<FixMessageSession> = { emptyList() },
     private val resolve: (template: String, scope: Map<String, String>, sessionTitle: String) -> String,
     /**
      * Named for what they are, not what they return. A constructor property called `dictionary` beside
@@ -47,13 +62,15 @@ class ViewModelLoadHost(
 
     override fun openLanes(profileId: String, override: StoreAndLogOverride?): List<LoadLane> =
         lanesByProfile[profileId]
+            // Present and empty is "the run dialled this one; wait for it". Absent is "not this run's".
+            ?.ifEmpty { awaitLanes(profileId) }
             .orEmpty()
             .filter { (_, session) -> applyOverride(session, override) }
             .map { (lane, session) -> SessionLoadLane(lane, session) }
 
     override fun openListeners(profileIds: List<String>, override: StoreAndLogOverride?): List<LoadLane> =
         profileIds
-            .flatMap { listenersByProfile[it].orEmpty() }
+            .flatMap { listenersByProfile[it]?.ifEmpty { awaitListeners(it) }.orEmpty() }
             .distinct()
             .filter { applyOverride(it, override) }
             .map { SessionLoadLane(Lane(0, it.title, it.currentConfig?.senderCompID.orEmpty(), it.sessionQualifier), it) }

@@ -79,14 +79,50 @@ class ControlServerLoadIntegrationTest {
             config = FixConnectionConfig(senderCompID = "LG{n}", targetCompID = "VENUE", host = "localhost", port = "9", sessionCount = 3, resetOnLogon = resetOnLogon),
         )
 
+    /**
+     * **A profile that is merely down is work to do, not a refusal.** The route used to answer 409 with
+     * "no session of 'LOADGEN' is logged on", which made every caller connect first and, for a set, know
+     * which profiles to connect. The run dials them itself now, exactly as `fixtool load --set` does, and
+     * the 202 is the same 202 a run over live lanes gets.
+     */
     @Test
-    fun `a plan with no lane logged on is a 409 that names the reason`() {
+    fun `a plan whose profile is down is accepted, and the run brings it up`() {
         viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+        viewModel.loadLogonWaitMs = 300
 
         val resp = post("/load", """{"profile":"LOADGEN","raw":"35=D|11=ORD-${'$'}{messageIndex}|55=EUR/USD|","count":100}""")
 
+        assertEquals(202, resp.statusCode(), resp.body())
+        assertTrue(
+            awaitTrue { settled { viewModel.getProfileSessions("lg").size == 3 } },
+            "the run opens every lane of the profile it names: ${viewModel.sessions.map { it.title }}",
+        )
+    }
+
+    /**
+     * **The refusals a connect could not answer are still refusals**, and still 409: an acceptor is the
+     * far end of lanes, never their source, and no amount of dialling makes it one.
+     */
+    @Test
+    fun `a plan on a profile that could never issue is still a 409 that names the reason`() {
+        viewModel.saveConnectionProfile(
+            FixConnectionProfile(
+                id = "acc",
+                name = "VENUE",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "VENUE$runId",
+                        targetCompID = "LG$runId",
+                        socketAcceptPort = "9",
+                    ),
+            ),
+        )
+
+        val resp = post("/load", """{"profile":"VENUE","raw":"35=D|11=ORD-${'$'}{messageIndex}|","count":10}""")
+
         assertEquals(409, resp.statusCode(), resp.body())
-        assertTrue(resp.body().contains("logged on"), resp.body())
+        assertTrue(resp.body().contains("acceptor"), resp.body())
     }
 
     @Test
@@ -452,6 +488,52 @@ class ControlServerLoadIntegrationTest {
     }
 
     /**
+     * **A set runs from a box with nothing connected**, which is the whole of it.
+     *
+     * Which sessions a saved set needs is the one thing its name does not say, so running one meant
+     * opening the file, connecting the profiles by hand, and finding out one refusal at a time which had
+     * been missed. `fixtool load --set` never had that problem — its host opens every lane the set names —
+     * and this is the same contract in the window and over HTTP: not a session is up when the set is
+     * posted, and it dials, logs on, issues, matches and reports.
+     *
+     * The lanes are **left up** afterwards, as an auto-connected scenario session is: the run borrowed
+     * them, it did not own them. Close all is how a box goes back to nothing.
+     */
+    @Test
+    fun `a set with nothing connected brings up the profile it names, and runs`() {
+        val venue = TestFixServer().also { it.start() }
+        this.venue = venue
+        venue.answer = { request -> listOf(TestFixServer.executionReportFor(request)) }
+        val template =
+            File(testDir, "nos-auto.fix").apply {
+                writeText("8=FIX.4.4|35=D|11=ORD-\${messageIndex}|55=EUR/USD|54=1|38=1000000|40=1|")
+            }
+        saveLanes(venue)
+        assertEquals(0, viewModel.sessions.size, "nothing is connected, which is the point")
+
+        val body =
+            """
+            {"phases":[
+              {"label":"Send some orders","template":"${template.absolutePath}","profile":"LOADGEN",
+               "match":{"requestTag":11,"replyTag":11,"replyType":"8"},
+               "shape":{"kind":"burst","count":4},"settleMs":3000}]}
+            """.trimIndent()
+        val accepted = obj(post("/load", body))
+        val id = assertNotNull(accepted["load"]?.jsonPrimitive?.contentOrNull, "the set was refused: $accepted")
+
+        val record = awaitFinished(id)
+        assertEquals(0, record["exitCode"]!!.jsonPrimitive.int, "every order was answered: $record")
+        val phase = record["phases"]!!.jsonArray.single().jsonObject
+        assertEquals(4, phase["replies"]!!.jsonObject["matched"]!!.jsonPrimitive.int)
+        assertEquals(2, phase["lanes"]!!.jsonPrimitive.int, "both lanes of the profile, not the first one to answer")
+        assertEquals(
+            2,
+            viewModel.sessions.count { it.connectionState.value == FixConnectionState.LOGGED_ON },
+            "and they are still up afterwards: the run borrowed them, it did not own them",
+        )
+    }
+
+    /**
      * **A set names its template the way the command line reads one**: a path, then a saved message by id
      * or by name.
      *
@@ -470,13 +552,17 @@ class ControlServerLoadIntegrationTest {
                 ),
             ).message
 
-        // Nothing is logged on, so a set whose template resolved gets as far as the lanes and no further.
+        // Nothing is logged on, so the set dials LOADGEN, finds nobody home, and ends there — which is
+        // enough to prove the template resolved, and is why each is awaited before the next is posted:
+        // two sets cannot hold the same lanes at once.
+        viewModel.loadLogonWaitMs = 200
         val byId = post("/load", setBody(saved.id))
-        assertEquals(409, byId.statusCode(), byId.body())
-        assertTrue(byId.body().contains("logged on"), byId.body())
+        assertEquals(202, byId.statusCode(), byId.body())
+        awaitReleased(obj(byId)["load"]!!.jsonPrimitive.content)
 
         val byName = post("/load", setBody(saved.name))
-        assertEquals(409, byName.statusCode(), "the name still works, as it always did: ${byName.body()}")
+        assertEquals(202, byName.statusCode(), "the name still works, as it always did: ${byName.body()}")
+        awaitReleased(obj(byName)["load"]!!.jsonPrimitive.content)
 
         val byNothing = obj(post("/load", setBody("no-such-template")))
         assertTrue(byNothing["error"]!!.jsonPrimitive.content.contains("no template 'no-such-template'"), byNothing.toString())
@@ -613,6 +699,71 @@ class ControlServerLoadIntegrationTest {
     }
 
     /**
+     * **Close all, the other half of it.** A disconnect leaves the panes where they are — on purpose, the
+     * logs are still readable — and this is how a box goes back to nothing after a set has left a pane per
+     * lane. It disconnects on the way, so the far end gets a Logout rather than a socket that stopped
+     * answering, and the counts are what the call did rather than what is left.
+     */
+    @Test
+    fun `close all closes every pane and reports what it closed`() {
+        val venue = TestFixServer().also { it.start() }
+        this.venue = venue
+        connectLanes(venue)
+
+        val answer = post("/sessions/close", "{}")
+
+        assertEquals(200, answer.statusCode(), answer.body())
+        val json = obj(answer)
+        assertEquals("closed", json["status"]!!.jsonPrimitive.content)
+        assertEquals(2, json["sessions"]!!.jsonPrimitive.int, "both panes were open: $json")
+        assertEquals(1, json["profiles"]!!.jsonPrimitive.int, "and they are one profile's")
+        assertEquals(0, viewModel.sessions.size, "nothing is left: ${viewModel.sessions.map { it.title }}")
+
+        // Nothing open is a zero rather than an error, for the reason `disconnect all` is: "make sure the
+        // box is empty" is a reasonable thing for a script to say before it starts.
+        assertEquals(0, obj(post("/sessions/close", "{}"))["sessions"]!!.jsonPrimitive.int)
+    }
+
+    /** A live run refuses it, in the words Disconnect all is refused with — it would lose the same and more. */
+    @Test
+    fun `close all is refused while a load run is live`() {
+        val venue = TestFixServer().also { it.start() }
+        this.venue = venue
+        connectLanes(venue)
+
+        val accepted = obj(post("/load", """{"profile":"LOADGEN","raw":"35=D|11=ORD-${'$'}{messageIndex}|55=EUR/USD|","count":4,"settleMs":20000}"""))
+        val id = assertNotNull(accepted["load"]?.jsonPrimitive?.contentOrNull, "the run was refused: $accepted")
+        awaitLive(id)
+
+        val refused = post("/sessions/close", "{}")
+
+        assertEquals(409, refused.statusCode(), refused.body())
+        assertEquals("A load run is running. Stop it first.", obj(refused)["error"]!!.jsonPrimitive.content)
+        assertEquals(2, viewModel.sessions.size, "and it closed nothing")
+
+        assertEquals(202, post("/loads/$id/stop", "{}").statusCode())
+        awaitFinished(id)
+    }
+
+    /**
+     * **The set has let go of its lanes.** A set that ends by refusing writes no record, so waiting on the
+     * claim rather than on a status is the only wait that ends for both outcomes.
+     */
+    private fun awaitReleased(id: String) {
+        assertTrue(awaitTrue { !viewModel.isLoadRunning(id) }, "the set never released its lanes")
+    }
+
+    /** A polled predicate with the timeout every wait here uses. */
+    private fun awaitTrue(timeoutMs: Long = 20_000, predicate: () -> Boolean): Boolean {
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            if (predicate()) return true
+            Thread.sleep(50)
+        }
+        return predicate()
+    }
+
+    /**
      * The state Disconnect all reads: a live record whose id the claim still holds. Both are set on the
      * runner's first tick, and the claim is what outlives the record, so waiting on the pair is waiting
      * on exactly the condition the route asks about.
@@ -628,6 +779,19 @@ class ControlServerLoadIntegrationTest {
 
     /** Two lanes of LOADGEN, dialling [venue] and logged on, which is what a load set needs to start. */
     private fun connectLanes(venue: TestFixServer) {
+        val live = saveLanes(venue)
+        viewModel.connectProfile(live.id, live)
+        val start = System.currentTimeMillis()
+
+        fun loggedOn() = viewModel.getProfileSessions(live.id).count { it.connectionState.value == FixConnectionState.LOGGED_ON }
+
+        while (loggedOn() < 2 && System.currentTimeMillis() - start < 25_000) Thread.sleep(100)
+        val states = viewModel.sessions.joinToString { "${it.title}=${it.connectionState.value}" }
+        assertEquals(2, loggedOn(), "two lanes should log on: $states")
+    }
+
+    /** The same profile, saved and left down: what a box looks like the morning after. */
+    private fun saveLanes(venue: TestFixServer): FixConnectionProfile {
         val live =
             FixConnectionProfile(
                 id = "lg",
@@ -649,14 +813,7 @@ class ControlServerLoadIntegrationTest {
                     ),
             )
         viewModel.saveConnectionProfile(live)
-        viewModel.connectProfile(live.id, live)
-        val start = System.currentTimeMillis()
-
-        fun loggedOn() = viewModel.getProfileSessions(live.id).count { it.connectionState.value == FixConnectionState.LOGGED_ON }
-
-        while (loggedOn() < 2 && System.currentTimeMillis() - start < 25_000) Thread.sleep(100)
-        val states = viewModel.sessions.joinToString { "${it.title}=${it.connectionState.value}" }
-        assertEquals(2, loggedOn(), "two lanes should log on: $states")
+        return live
     }
 
     /**

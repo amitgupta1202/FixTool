@@ -25,12 +25,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.Environment
+import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import kotlinx.coroutines.delay
 
 enum class ViewMode {
     TABS,
@@ -894,6 +897,12 @@ fun ToolbarRunControls(viewModel: FixMessageViewModel, modifier: Modifier = Modi
     // Counted for a load run, not for a fan-out: every row this menu gates on it is a load, and a load
     // issues from one lane as happily as from fifty.
     val lanes = remember(menuOpen, sessionStates, viewModel.connectionProfiles.size) { Lanes.forLoad(viewModel) }
+    // What "Load run…" needs to be worth opening: a profile that could issue, whether or not it is up.
+    val issuers =
+        remember(menuOpen, viewModel.connectionProfiles.size) {
+            val initiator = FixConnectionConfig.ConnectionType.INITIATOR
+            viewModel.connectionProfiles.count { it.config.connectionType == initiator }
+        }
 
     if (loading) {
         LoadRunDialog(
@@ -948,13 +957,17 @@ fun ToolbarRunControls(viewModel: FixMessageViewModel, modifier: Modifier = Modi
             DropdownMenu(
                 expanded = menuOpen,
                 onDismissRequest = { menuOpen = false },
-                modifier = Modifier.background(AppTheme.Colors.surface).widthIn(min = 260.dp),
+                // Wide enough for the widest thing under a row: "on A · Run connects A, B" is a sentence,
+                // and a menu that has to ellipsise it on an ordinary two-profile set says nothing useful.
+                modifier = Modifier.background(AppTheme.Colors.surface).widthIn(min = 320.dp),
             ) {
                 RunConfigurationsMenu(
                     savedSets = savedSets,
                     loadSets = loadSets,
                     recent = recent,
                     lanes = lanes,
+                    profiles = issuers,
+                    sessionsOf = { viewModel.loadSetSessions(it) },
                     running = running,
                     onChose = { menuOpen = false },
                     onLoadRun = { loading = true },
@@ -999,8 +1012,67 @@ fun ToolbarRunControls(viewModel: FixMessageViewModel, modifier: Modifier = Modi
                 description = offer.tooltip,
             )
         }
+
+        CloseAllChip(viewModel, activeLoad, runningIds)
     }
 }
+
+/**
+ * **Close all — the half Disconnect all deliberately leaves undone.**
+ *
+ * A fifty-lane load set leaves fifty panes, and putting the box back to nothing meant closing them one at
+ * a time. It counts panes rather than connections, because a pane left over from a run already
+ * disconnected is exactly what it is for.
+ *
+ * This one **does** ask, and Disconnect all does not, because the difference between them is exactly what
+ * cannot be put back: Quick Connect returns the sessions, and nothing returns a pane's messages. It asks
+ * in the button rather than in a dialog — the second click is the confirmation — and it gives up on its
+ * own after a few seconds, so an armed button never sits waiting to be pressed by somebody who has
+ * forgotten what it is armed for.
+ */
+@Composable
+private fun CloseAllChip(
+    viewModel: FixMessageViewModel,
+    activeLoad: LoadRecord?,
+    runningIds: Set<String>,
+) {
+    val offer = viewModel.closeAllOffer(activeLoad, runningIds)
+    val panes = viewModel.sessions.size
+    var armed by remember { mutableStateOf(false) }
+    if (armed && !offer.enabled) armed = false
+    // Keyed on the count as well as the arming, so a pane closing or opening under an armed button
+    // restarts the countdown rather than leaving it armed over a number that has changed.
+    if (armed) {
+        LaunchedEffect(panes) {
+            delay(CLOSE_ALL_ARMED_MS)
+            armed = false
+        }
+    }
+    val sentence = if (armed) "Close $panes pane${if (panes == 1) "" else "s"}? Click again." else offer.tooltip
+    AppTooltip(sentence) {
+        ToolbarChip(
+            icon = Icons.Default.Close,
+            label = if (armed) "Close $panes?" else "Close all",
+            tint =
+                when {
+                    !offer.enabled -> AppTheme.Colors.textDisabled
+                    armed -> AppTheme.Colors.warning
+                    else -> AppTheme.Colors.text
+                },
+            chevron = false,
+            enabled = offer.enabled,
+            onClick = {
+                if (armed) viewModel.closeAllSessions()
+                armed = !armed
+            },
+            tag = "toolbar-close-all",
+            description = sentence,
+        )
+    }
+}
+
+/** How long Close all stays armed. Long enough to mean the second click, short enough not to lie in wait. */
+private const val CLOSE_ALL_ARMED_MS = 5_000L
 
 /**
  * **The run-configurations chooser's rows.**
@@ -1017,6 +1089,10 @@ private fun RunConfigurationsMenu(
     loadSets: List<LoadSet>,
     recent: List<RecentRun>,
     lanes: Lanes,
+    /** Saved profiles a load run could issue from at all — connected or not, since Run connects them. */
+    profiles: Int,
+    /** What each saved set runs on, and what Run would bring up for it. */
+    sessionsOf: (LoadSet) -> FixMessageViewModel.LoadSetSessions,
     running: Boolean,
     onChose: () -> Unit,
     onLoadRun: () -> Unit,
@@ -1027,9 +1103,14 @@ private fun RunConfigurationsMenu(
 ) {
     // The lane sentence fan-out uses: "2" on its own is a count of *profiles* and reads as two lanes, and
     // a lane is sequential, so fifty sessions give fifty outstanding rather than four thousand.
+    //
+    // **Neither row waits for a lane to be up any more.** A load run dials the profile it is pointed at
+    // and a set dials every profile it names, so a greyed row here would be hiding the door that connects
+    // them. What holds them now is a run already in flight, and — for a load run — having nowhere to issue
+    // from at all.
     RailMenuItem(
-        "Load run…  ${lanes.sentence}",
-        enabled = !running && lanes.profiles > 0,
+        "Load run…  ${if (lanes.profiles > 0) lanes.sentence else "nothing up yet"}",
+        enabled = !running && profiles > 0,
         tag = "rail-run-load",
     ) {
         onChose()
@@ -1039,8 +1120,11 @@ private fun RunConfigurationsMenu(
         val phases = "${set.phases.size} phase${if (set.phases.size == 1) "" else "s"}"
         RailMenuItem(
             "Load set ▸  ${set.label.ifBlank { set.name }}  $phases",
-            enabled = !running && lanes.profiles > 0,
+            enabled = !running,
             tag = "rail-run-load-set-${set.name}",
+            // Which sessions this one runs on, and which of them the click will connect — the one thing a
+            // set's name has never said, and the reason running a saved set meant opening its file first.
+            sub = sessionsOf(set).sentence,
         ) {
             onChose()
             onRunLoadSet(set.name)

@@ -232,6 +232,70 @@ class HelpDocTest {
         assertTrue(missing.isEmpty(), "the load sets chapter no longer says: $missing")
     }
 
+    /**
+     * **What a run does about the sessions it needs**, pinned as facts because every one of them is a thing
+     * a reader would otherwise do by hand, or wait for and not understand.
+     *
+     * The costly misreadings are all about scope. Somebody who thinks Run connects *everything* will not
+     * trust it near a production box; somebody who thinks it reconnects a profile that is already up will
+     * not either. And a run that seems to hang for ten seconds against a dead venue is a bug report unless
+     * the wait is written down.
+     */
+    @Test
+    fun `the load sets chapter states what a run brings up before it dials`() {
+        val chapter = html.substringAfter("""id="load-sets"""").substringBefore("""<h3 id="quick-connect"""")
+
+        val claims =
+            mapOf(
+                "a run connects the profiles it names" to "brings up the sessions it names",
+                "issuing and listening profiles both" to "issues from or listens on",
+                "acceptors are bound before anything dials them" to "acceptors first",
+                "the wait is bounded, and how long" to "up to ten seconds",
+                "it only touches what would have been refused" to "only where the run would have been refused",
+                "a profile already up is left alone" to "left exactly as it is",
+                "a parked phase's profile is not opened" to "neither opened nor waited for",
+                "a venue that never answers is still a refusal" to "reached LOGGED_ON",
+                "the menu row says what it will connect" to "which of them pressing it will connect",
+                "the lanes stay up afterwards" to "left up afterwards",
+                // The example workspaces are the case: the set names the client and the client dials us.
+                "our own venue comes up too, and first" to "when the venue is one of ours",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the load sets chapter no longer says: $missing")
+    }
+
+    /**
+     * **The two whole-window session buttons, and the one difference between them.**
+     *
+     * A reader who takes Close all for a louder Disconnect all loses a pane's messages finding out. The
+     * facts that stop that are what it takes away, that it asks, and that the asking is the button itself
+     * rather than a dialog — a second click nobody expects is worse than no confirmation at all.
+     */
+    @Test
+    fun `the toolbar chapter states what Close all takes away and that it asks`() {
+        val chapter = html.substringAfter("""id="quick-connect"""").substringBefore("""<h3 id="workspaces"""")
+
+        val claims =
+            mapOf(
+                "disconnect all asks nothing, because nothing is lost" to "It asks no confirmation",
+                "close all closes the panes" to "closes every session pane",
+                "and disconnects them on the way" to "disconnecting them on the way",
+                "it counts panes, not connections" to "counts panes rather than connections",
+                "close all does ask" to "This one does ask",
+                "and the second click is the confirmation" to "the second closes them",
+                "what it costs is the messages" to "nothing returns a pane's messages",
+                "and nothing else" to "run records and load reports are untouched",
+                "a live run refuses both" to "refuses it in the same words",
+                "and there is a door for a script" to "POST /sessions/close",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the toolbar chapter no longer says: $missing")
+    }
+
     /** The trace chapter, by what makes a trace different from a search box with a regex in it. */
     @Test
     fun `the trace chapter states what following an exchange does`() {

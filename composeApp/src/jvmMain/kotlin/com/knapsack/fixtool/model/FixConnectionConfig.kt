@@ -103,6 +103,9 @@ data class FixConnectionConfig(
             null
         }
 
+    /** An acceptor binds a port and waits; an initiator dials one. Which way round decides who goes first. */
+    fun isAcceptor(): Boolean = connectionType == ConnectionType.ACCEPTOR
+
     /**
      * **Does this acceptor accept a logon from any counterparty**, creating a session per client?
      *
@@ -115,7 +118,7 @@ data class FixConnectionConfig(
      * [senderCompID] is never wildcarded: it is who this acceptor *is*, and the one identity a
      * counterparty must get right. See [com.knapsack.fixtool.service.VenueSessionProvider].
      */
-    fun acceptsAnyClient(): Boolean = connectionType == ConnectionType.ACCEPTOR && targetCompID.trim() == ANY_CLIENT
+    fun acceptsAnyClient(): Boolean = isAcceptor() && targetCompID.trim() == ANY_CLIENT
 
     companion object {
         /** The TargetCompID that means "any client" — QuickFIX/J's own wildcard, so the two agree. */

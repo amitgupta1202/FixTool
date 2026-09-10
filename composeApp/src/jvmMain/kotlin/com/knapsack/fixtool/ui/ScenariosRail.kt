@@ -1661,13 +1661,51 @@ private fun SaveRunSetDialog(scenarios: List<Scenario>, onDismiss: () -> Unit, o
 }
 
 @Composable
-internal fun RailMenuItem(text: String, enabled: Boolean = true, tag: String, onClick: () -> Unit) {
+internal fun RailMenuItem(
+    text: String,
+    enabled: Boolean = true,
+    tag: String,
+    /**
+     * A dimmer second line under the row: what running it will actually do, when the row's own words
+     * cannot say it. A load set's sessions are the case it exists for — see `loadSetSessions`.
+     */
+    sub: String? = null,
+    onClick: () -> Unit,
+) {
     DropdownMenuItem(
-        text = { Text(text, color = if (enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled, fontSize = 11.sp) },
+        text = {
+            Column {
+                val tint = if (enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled
+                Text(text, color = tint, fontSize = 11.sp)
+                sub?.let {
+                    Text(
+                        it,
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        lineHeight = 12.sp,
+                        // A menu is only so wide, and a profile name cut without a sign it was cut reads
+                        // as a name that simply ends there — the same reason a rail row ellipsises.
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        },
         enabled = enabled,
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-        modifier = Modifier.height(26.dp).testTag(tag),
+        // **A minimum, not a height, the moment there are two lines in it.**
+        //
+        // A fixed height cut the second line through the middle and let the row below draw over what was
+        // left. What fixes it is the *kind* of constraint rather than the number: the menu's body scrolls,
+        // so the height a row is offered is unbounded, and `heightIn` passes that through where `height`
+        // clamped the column to a figure decided before anyone counted the lines in it. The 40 is a floor
+        // and rarely the operative one — material3's own menu item asks for 48 — so it is deliberately
+        // generous rather than exact. Found on screen; the line's own height is what the test asks about,
+        // because a squeezed Text still reports the squeezed size as its whole self.
+        modifier =
+            (if (sub == null) Modifier.height(26.dp) else Modifier.heightIn(min = 40.dp))
+                .testTag(tag),
     )
 }
 

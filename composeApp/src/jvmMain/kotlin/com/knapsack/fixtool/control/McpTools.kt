@@ -195,6 +195,16 @@ object McpTools {
                 ),
             ),
             tool(
+                "fixtool_close_sessions",
+                "Close every session pane, disconnecting them on the way. The other half of fixtool_disconnect: a " +
+                    "disconnect leaves the panes and their message logs where they are, and this is how a box is put " +
+                    "back to nothing after a load run has left fifty of them. Nothing comes back — a pane's messages " +
+                    "are gone, while the profiles, records and load reports are untouched. Reports how many panes it " +
+                    "closed and over how many profiles, reports 0 rather than an error when none was open, and is " +
+                    "refused while a load run or set is live.",
+                props(),
+            ),
+            tool(
                 "fixtool_send",
                 "Send a raw FIX message from a session (active, or session by id/title/index). With resolve=true the " +
                     "\${...} template expressions in raw are resolved against the session first (\${uuid}, \${now}, " +

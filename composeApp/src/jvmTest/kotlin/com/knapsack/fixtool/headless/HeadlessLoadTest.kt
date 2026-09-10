@@ -12,6 +12,7 @@ import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
+import com.knapsack.fixtool.service.RunSetStats
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.service.load.LoadReportCodec
 import org.junit.Test
@@ -340,6 +341,84 @@ class HeadlessLoadTest {
         assertTrue(!text.contains("phase 1 · issuing"), "a set that cannot overlap needs no prefix: $text")
         assertTrue(!text.contains("phase 2"), "nothing is said about a phase that has not started: $text")
     }
+
+    /**
+     * **The chain in a build log**: how many journeys were made whole, what one cost, and where the time
+     * went hop by hop.
+     *
+     * One line per leg because "which hop got slower" is the question a chain figure raises the moment it
+     * moves, and the waited clause apart from the round trip because they are the two parties' numbers.
+     */
+    @Test
+    fun `a phase that ends a chain prints the chain and one line per leg`() {
+        val chain =
+            LoadReport.Chain(
+                legs =
+                    listOf(
+                        LoadReport.Leg(1, "Ask for a quote", handover = null, roundTrip = dist(3_000), answered = 196),
+                        LoadReport.Leg(2, "Quote it", handover = dist(400), roundTrip = dist(2_000), answered = 196),
+                    ),
+                endToEnd = dist(5_400),
+                complete = 196,
+                requested = 200,
+            )
+
+        val text = HeadlessLoad.phaseBlock(LoadFixtures.burstReport(unmatched = 0).copy(chain = chain))
+
+        assertTrue(text.contains("chain              196   of 200 whole · first request to last reply · p50 5.4ms"), text)
+        assertTrue(text.contains("      196   1 · Ask for a quote · p50 3.0ms"), text)
+        assertTrue(text.contains("      196   2 · Quote it · waited 400µs · p50 2.0ms"), text)
+        assertTrue(!HeadlessLoad.phaseBlock(LoadFixtures.burstReport(unmatched = 0)).contains("chain"), "and a phase with none says nothing")
+    }
+
+    /**
+     * **A set-level discard is the set's line, and the set's verdict**, and it names no phase.
+     *
+     * The sessions were held for every phase at once, so the number belongs to the set and the phases say
+     * "discards counted for the set" rather than claiming a nought they never measured.
+     */
+    @Test
+    fun `a set that lost messages says so once, at least, and fails naming no phase`() {
+        val planned = plannedRoundTrip()
+        val phase =
+            LoadFixtures
+                .burstReport(unmatched = 0)
+                .copy(tool = LoadReport.Tool(discarded = null, neverLeftSocket = 0, issueFailures = 0, pendingPeak = 10))
+        val record =
+            LoadRecord(
+                id = "set-1",
+                label = "RFQ round trip",
+                startedAt = 0,
+                finishedAt = 63_100,
+                phases = listOf(phase, phase, phase),
+                set = LoadRecord.SetInfo("rfq-round-trip", OnFailure.STOP),
+                discarded = 12,
+            )
+
+        val text = HeadlessLoad.setSummary(record, planned, File("/tmp/loads/set-1"), null)
+
+        assertTrue(text.contains("discarded    12 thrown away by the panes on the set's sessions, at least"), text)
+        assertTrue(text.contains("clean · discards counted for the set · 0 never left the socket"), text)
+        assertTrue(text.contains("FAILED       3 passed · 12 discarded, at least · 63.1s · exit 1"), text)
+        assertEquals(1, text.split("discarded    ").size - 1, "the set says it once, not once per phase")
+    }
+
+    /** A distribution shaped like a real one, in microseconds, for a block measured where it happens. */
+    private fun dist(us: Long) =
+        RunSetStats.Distribution(p50 = us, p95 = us * 2, max = us * 3, samples = 196, min = us / 2, p99 = us * 2, mean = us)
+
+    /** The saved round-trip set, planned, which is what a summary is printed beside. */
+    private fun plannedRoundTrip() =
+        roundTrip.plan(
+            object : LoadSet.Resolver {
+                override fun profile(key: String) = LoadSet.Profile("p", "RFQ Load Client", FixConnectionConfig())
+
+                override fun template(key: String, profileId: String?) =
+                    LoadTemplate("RFQ Load QuoteRequest", listOf(35 to "R", 131 to "x"))
+            },
+            seedOverride = emptyMap(),
+            id = "set-1",
+        )
 
     /** A running record of the phases given, which is what the narrator is handed on every tick. */
     private fun live(vararg phases: LoadReport) =

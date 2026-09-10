@@ -13,6 +13,7 @@ import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.SocketStamp
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicReferenceArray
 import java.util.concurrent.locks.LockSupport
@@ -170,7 +171,7 @@ class LoadSetRunner(
      * So every join the set does swallows it, and the last line of [run] hands it back, once, with
      * nothing left behind it to skip.
      */
-    private class Interrupts {
+    internal class Interrupts {
         @Volatile private var caught = false
 
         /** Joins [thread] however often this one is interrupted while it waits. */
@@ -205,40 +206,55 @@ class LoadSetRunner(
      * next one replaces, which is the right answer: the record is a picture of now and not a log of every
      * now there was, and every reader of it re-reads the file anyway.
      */
-    private class RecordWriter(
-        private val store: LoadRecordStore?,
-        private val interrupts: Interrupts,
+    internal class RecordWriter(
+        /**
+         * **What a record is written with**, null when the set keeps none, which is every test that reads
+         * the answer rather than the file. The write and not the store, because what this owns is "the
+         * latest one there is, once" and not where a record lives, and a test can then hand it one that
+         * takes its time.
+         */
+        private val write: ((LoadRecord) -> Unit)?,
+        private val interrupts: Interrupts = Interrupts(),
     ) : AutoCloseable {
         private val latest = AtomicReference<LoadRecord?>()
 
-        @Volatile private var open = true
+        /** False from the first [close] on. Atomic, so the drain below it happens once and not twice. */
+        private val open = AtomicBoolean(true)
 
         private val thread =
-            store?.let {
-                Thread(::write, "fixtool-load-record").apply {
+            write?.let {
+                Thread(::drain, "fixtool-load-record").apply {
                     isDaemon = true
                     start()
                 }
             }
 
-        /** Never blocks the phase that called it, and never for a disk. */
+        /**
+         * Never blocks the phase that called it, and never for a disk.
+         *
+         * **A record offered after the close is dropped.** The set has written the record it finished
+         * with, and an older picture landing on top of that is the one thing this exists to prevent.
+         * Nothing offers there today, because every phase is joined before the first close.
+         */
         fun offer(record: LoadRecord) {
             val writer = thread ?: return
+            if (!open.get()) return
             latest.set(record)
             LockSupport.unpark(writer)
         }
 
-        private fun write() {
-            while (open) {
+        private fun drain() {
+            while (open.get()) {
                 val next = latest.getAndSet(null)
-                if (next == null) LockSupport.park(this) else store?.write(next)
+                if (next == null) LockSupport.park(this) else write?.invoke(next)
             }
         }
 
         /**
          * Nothing more is coming, and whatever the writer was doing is finished before this returns, so
          * the record the set writes last is the record left on disk. Idempotent, because it is called
-         * once where the phases end and once more in the teardown that runs whatever happened.
+         * once where the phases end and once more in the teardown that runs whatever happened, and both
+         * of those are the set's own thread.
          *
          * The join is [Interrupts]' and not a plain one, because a plain join on a thread whose interrupt
          * flag is set throws at once: the writer would be left running, the record it was holding would
@@ -246,13 +262,13 @@ class LoadSetRunner(
          * due. Every join the set does is that join, and the interrupt goes back at the end of [run].
          */
         override fun close() {
-            open = false
+            if (!open.getAndSet(false)) return
             thread?.let {
                 LockSupport.unpark(it)
                 interrupts.join(it)
             }
             // Whatever was offered and never written, so a set that threw still leaves its last picture.
-            latest.getAndSet(null)?.let { store?.write(it) }
+            latest.getAndSet(null)?.let { write?.invoke(it) }
         }
     }
 
@@ -682,7 +698,8 @@ class LoadSetRunner(
         val stubs = planned.phases.mapIndexed { index, plan -> stub(plan, compiled[index], byProfile, startedAt) }
 
         val interrupts = Interrupts()
-        val writer = RecordWriter(store, interrupts)
+        val write: ((LoadRecord) -> Unit)? = store?.let { records -> { record -> records.write(record) } }
+        val writer = RecordWriter(write, interrupts)
         val board = Board(planned, stubs, startedAt, host::now, writer, onProgress)
         try {
             board.publish()

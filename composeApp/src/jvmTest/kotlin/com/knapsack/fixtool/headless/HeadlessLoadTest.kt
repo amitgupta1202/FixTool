@@ -110,7 +110,7 @@ class HeadlessLoadTest {
         assertTrue(text.contains("unmatched            4   ORD-b7f2-1187 (lane 37) · ORD-b7f2-2410 (lane 10)"), text)
         assertTrue(text.contains("round trip   min 912µs · p50 14ms · p95 212ms · p99 640ms · max 1.88s · mean 41ms  (3,996)"), text)
         assertTrue(text.contains("timing       elapsed 2.7s · drain 1.9s"), text)
-        assertTrue(text.contains("tool         clean · 0 discarded on 51 sessions · 0 never left the socket"), text)
+        assertTrue(text.contains("tool         clean · 0 discarded on 52 sessions · 0 never left the socket"), text)
         assertTrue(text.contains("UNMATCHED    4 of 4,000 unanswered within 1m · exit 1"), text)
         assertTrue(text.contains("records: /tmp/loads/x"), text)
 

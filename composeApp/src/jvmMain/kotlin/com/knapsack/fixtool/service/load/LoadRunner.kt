@@ -145,6 +145,9 @@ class LoadRunner(
         // double `discardedBefore` and put two stamp listeners on the one session.
         val all = (lanes + listeners).distinct()
         progress.lanes = lanes.size
+        // Over how many sessions the delta below is taken, which is the only number that can answer
+        // "discarded on how many sessions". See LoadReport.Tool.discardedOn.
+        progress.sessions = all.size
         // A delta over the sessions this run takes part in, which is its own number only while it is the
         // only thing on them. A phase of a set is not, so the set takes the delta and this takes none:
         // see LoadReport.Tool.discarded.
@@ -345,6 +348,7 @@ class LoadRunner(
         private val onProgress: (LoadReport) -> Unit,
     ) {
         var lanes = 0
+        var sessions = 0
         var prepareMs = 0L
         var handed = 0L
         var settleLeftMs: Long? = null
@@ -423,6 +427,8 @@ class LoadRunner(
             val tool =
                 LoadReport.Tool(
                     discarded = discarded,
+                    // Beside the delta and nought without one, because it is a claim about the delta.
+                    discardedOn = if (countsDiscards) sessions else 0,
                     neverLeftSocket = issue.neverLeftSocket,
                     issueFailures = issued?.issueFailures ?: 0,
                     // Live too. The document leads on "outstanding · peak N" while a run is going, and this

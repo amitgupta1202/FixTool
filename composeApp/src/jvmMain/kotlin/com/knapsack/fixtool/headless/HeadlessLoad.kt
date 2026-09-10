@@ -615,8 +615,12 @@ object HeadlessLoad {
             // A phase of a set has no discard number of its own, and "0 discarded" would be a claim about
             // sessions the set was counting for every phase at once. See LoadReport.Tool.discarded.
             val panes =
-                r.tool.discarded?.let { "$it discarded on ${r.lanes + r.listen.size} sessions" }
-                    ?: "discards counted for the set"
+                r.tool.discarded?.let { count ->
+                    // The number the run counted, not `lanes + listen.size`, which read a listening
+                    // profile as one session however many it opened. See LoadReport.Tool.discardedOn.
+                    val on = r.tool.discardedOn
+                    if (on > 0) "$count discarded on $on session${if (on == 1) "" else "s"}" else "$count discarded"
+                } ?: "discards counted for the set"
             appendLine(
                 "tool".padEnd(COL) +
                     if (r.tool.limited) {

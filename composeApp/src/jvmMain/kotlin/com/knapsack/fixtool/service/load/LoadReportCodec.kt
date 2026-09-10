@@ -224,7 +224,10 @@ object LoadReportCodec {
                     // Only when this run counted its own. A phase of a set does not: the set holds the
                     // sessions and carries one delta for all of them, and an absent key reads back as
                     // "not this phase's to say" rather than as nought.
-                    r.tool.discarded?.let { put("discarded", it) }
+                    r.tool.discarded?.let {
+                        put("discarded", it)
+                        put("discardedOn", r.tool.discardedOn)
+                    }
                     put("neverLeftSocket", r.tool.neverLeftSocket)
                     put("issueFailures", r.tool.issueFailures)
                     put("pendingPeak", r.tool.pendingPeak)
@@ -500,6 +503,7 @@ object LoadReportCodec {
             tool =
                 LoadReport.Tool(
                     discarded = tool.longOrNull("discarded"),
+                    discardedOn = tool.intOrNull("discardedOn") ?: 0,
                     neverLeftSocket = tool.longOrNull("neverLeftSocket") ?: 0,
                     issueFailures = tool.longOrNull("issueFailures") ?: 0,
                     pendingPeak = tool.intOrNull("pendingPeak") ?: 0,

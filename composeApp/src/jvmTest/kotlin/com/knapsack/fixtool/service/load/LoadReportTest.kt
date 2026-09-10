@@ -36,7 +36,7 @@ import kotlin.test.assertTrue
  * JUnit file a build gates on. The exit code and the XML's `failures` must always agree.
  */
 class LoadReportTest {
-    private val clean = LoadReport.Tool(0, 0, 0, 100)
+    private val clean = LoadReport.Tool(discarded = 0, neverLeftSocket = 0, issueFailures = 0, pendingPeak = 100)
     private val limited = LoadReport.Tool(discarded = 12, neverLeftSocket = 3, issueFailures = 0, pendingPeak = 100)
 
     @Test
@@ -288,7 +288,7 @@ class LoadReportTest {
                     it !in setOf("perSecond", "strictRate", "settleLeftMs", "unmatchedTotal", "roundTripHistogram", "perLane")
                 } +
                     ("replies" to JsonObject(json["replies"]!!.jsonObject.filterKeys { it != "strays" })) +
-                    ("tool" to JsonObject(json["tool"]!!.jsonObject.filterKeys { it != "pendingPeak" })),
+                    ("tool" to JsonObject(json["tool"]!!.jsonObject.filterKeys { it != "pendingPeak" && it != "discardedOn" })),
             )
 
         val back = LoadReportCodec.fromJson(Json.parseToJsonElement(stripped.toString()).jsonObject)
@@ -298,6 +298,7 @@ class LoadReportTest {
         assertEquals(emptyList(), back.perLane)
         assertEquals(0, back.replies.strays)
         assertEquals(0, back.tool.pendingPeak)
+        assertEquals(0, back.tool.discardedOn, "a record from before the count says nothing about sessions rather than guessing")
         assertEquals(false, back.strictRate)
         assertEquals(3_996, back.replies.matched)
     }

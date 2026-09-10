@@ -174,6 +174,27 @@ class LoadRunnerTest {
     }
 
     /**
+     * **"discarded on N sessions" is a claim about the delta, so the run counts what it summed.**
+     *
+     * The line worked the number out as `lanes + listen.size`, which reads a listening *profile* as one
+     * session: a profile that opens two was two short, one that never reached LOGGED_ON was one over, and
+     * a profile that issues on the lanes it also listens on was one session counted twice.
+     */
+    @Test
+    fun `the discard count says over how many sessions it was summed, not how many profiles were named`() {
+        val clock = FakeClock()
+        val lanes = (1..2).map { FakeLane(it, clock, ::echo) }
+        val listeners = (3..4).map { FakeLane(it, clock, ::echo) }
+        val host = FakeHost(clock, lanes, listeners)
+
+        val r = LoadRunner(host, clock = clock).run(plan(shape = LoadShape.Burst(4)).copy(listenProfileIds = listOf("drop"))).report
+
+        assertEquals(4, r.tool.discardedOn, "the two lanes and the two sessions the one listen profile opened")
+        assertEquals(2, r.lanes)
+        assertEquals(listOf("drop"), r.listen, "one name, and lanes + listen.size would have said three")
+    }
+
+    /**
      * **A refused send takes its message index back.**
      *
      * The index reaches the matcher before the send, because the SEND stamp carries the wire and nothing

@@ -270,7 +270,8 @@ data class LoadReport(
     /** **FixTool's own contribution**, which the report shows rather than hides. */
     data class Tool(
         /**
-         * Messages the panes' queues threw away during the run, summed over the participating sessions.
+         * Messages the panes' queues threw away during the run, summed over the participating sessions,
+         * of which [discardedOn] says how many there were.
          *
          * **Null for a phase of a set, where the set carries it instead.** See [LoadRecord.discarded].
          *
@@ -283,6 +284,17 @@ data class LoadReport(
          * be had, so a phase of a set does not offer one.
          */
         val discarded: Long?,
+        /**
+         * **How many sessions [discarded] was summed over**: the lanes and the listening sessions, each
+         * counted once.
+         *
+         * Carried, because [LoadReport.lanes] and [LoadReport.listen] cannot say it. A listening profile
+         * is one name in [LoadReport.listen] and however many sessions at the far end of it, one that
+         * never reached LOGGED_ON is none of them, and a profile that issues on the lanes it also listens
+         * on is one session counted twice. Nought for a phase of a set, which has no delta of its own,
+         * and for a record written before the number was carried.
+         */
+        val discardedOn: Int = 0,
         /** Messages the engine accepted that never produced a SEND stamp. */
         val neverLeftSocket: Long,
         /** Messages the engine refused. */
@@ -491,7 +503,7 @@ data class LoadReport(
                 timing = null,
                 roundTrip = null,
                 perSecond = emptyList(),
-                tool = Tool(0, 0, 0, 0),
+                tool = Tool(discarded = 0, neverLeftSocket = 0, issueFailures = 0, pendingPeak = 0),
                 unmatched = emptyList(),
                 unmatchedTotal = 0,
                 note = note,

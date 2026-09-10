@@ -18,7 +18,9 @@ object LoadFixtures {
         unmatched: Int = 4,
         strictRate: Boolean = false,
         status: LoadStatus = LoadStatus.DONE,
-        tool: LoadReport.Tool = LoadReport.Tool(discarded = 0, neverLeftSocket = 0, issueFailures = 0, pendingPeak = 3_410),
+        // 52 and not 51: the fifty lanes plus the two sessions DROPCOPY opens. The count is the run's
+        // own, so a reader of it cannot go back to lanes + listen.size.
+        tool: LoadReport.Tool = LoadReport.Tool(discarded = 0, discardedOn = 52, neverLeftSocket = 0, issueFailures = 0, pendingPeak = 3_410),
         rate: LoadReport.RateReport? = null,
     ): LoadReport {
         val replies = LoadReport.Replies(matched = 4_000L - unmatched, unmatched = unmatched.toLong(), duplicates = 12, late = 0, strays = 0, lastMatchedAt = T0 + 2_701)

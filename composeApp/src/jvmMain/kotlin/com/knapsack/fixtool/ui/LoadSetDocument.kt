@@ -169,16 +169,38 @@ private fun SetHeader(
 /** "FAILED · PHASE 2", "ISSUING · PHASE 2 OF 3", "PASSED". Under CONTINUE it names the first that failed. */
 private fun setHeadline(record: LoadRecord): Pair<String, Color> = setWord(record) to setTint(record.verdict.outcome)
 
+/**
+ * The headline, and the one place a set says how much of itself is going at once.
+ *
+ * **Every phase that is running, and not the earliest of them.** The verdict names one phase because a
+ * verdict is about one phase, but "ISSUING" is about the whole set, and a set whose phase 3 is hitting
+ * quotes while phase 2 makes them and phase 1 asks for them is not issuing phase 1. Naming one of the
+ * three would report a third of the set as all of it.
+ */
 private fun setWord(record: LoadRecord): String {
     val v = record.verdict
     return when (v.outcome) {
-        SetOutcome.RUNNING ->
-            record.currentPhase?.let { "ISSUING · PHASE $it OF ${record.phases.size}" } ?: "PREPARING"
+        SetOutcome.RUNNING -> {
+            val live = record.livePhases
+            when {
+                live.isEmpty() -> "PREPARING"
+                live.size == 1 -> "ISSUING · PHASE ${live.single()} OF ${record.phases.size}"
+                else -> "ISSUING · PHASES ${andList(live)} OF ${record.phases.size}"
+            }
+        }
         SetOutcome.PASSED -> "PASSED"
         SetOutcome.FAILED -> v.phase?.let { "FAILED · PHASE $it" } ?: "FAILED"
         SetOutcome.STOPPED -> v.phase?.let { "STOPPED · PHASE $it" } ?: "STOPPED"
     }
 }
+
+/** "2 AND 3", "2, 3 AND 4": a list of phase numbers as a headline says them out loud. */
+private fun andList(numbers: List<Int>): String =
+    when (numbers.size) {
+        0 -> ""
+        1 -> numbers.single().toString()
+        else -> numbers.dropLast(1).joinToString(", ") + " AND " + numbers.last()
+    }
 
 private fun setTint(outcome: SetOutcome): Color =
     when (outcome) {

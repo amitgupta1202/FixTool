@@ -2071,6 +2071,8 @@ class ControlServer(
                     records.forEach { record ->
                         // The live phase, else the one the verdict names, else the last that was judged.
                         // Never a skipped stub, whose counts are zeroes and whose stage is "preparing".
+                        // The lowest-numbered when several are live, so a poller's row stays on the phase
+                        // the set is on rather than jumping to whichever phase started answering it.
                         val r = record.lead
                         add(
                             buildJsonObject {
@@ -2084,6 +2086,12 @@ class ControlServer(
                                         put("total", record.phases.size)
                                         put("done", record.donePhases)
                                         record.currentPhase?.let { put("current", it) }
+                                        // Every phase going at once, and only when there is more than
+                                        // one: a set of paced phases writes the row it always wrote,
+                                        // and a poller that reads only `current` keeps its meaning.
+                                        record.livePhases.takeIf { it.size > 1 }?.let { live ->
+                                            put("live", buildJsonArray { live.forEach { add(it) } })
+                                        }
                                     },
                                 )
                                 put("issued", r.issue.leftSocket)

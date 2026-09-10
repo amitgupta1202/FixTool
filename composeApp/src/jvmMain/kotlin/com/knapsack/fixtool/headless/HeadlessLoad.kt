@@ -373,6 +373,11 @@ object HeadlessLoad {
     /** The progress lines, one per phase change and one every few seconds while settling. */
     private class Narrator(
         private val err: Appendable,
+        /**
+         * What every one of this narrator's lines says it is about, for a set whose phases run beside each
+         * other. Empty for a single run and for a set that cannot overlap, whose lines are what they were.
+         */
+        private val about: String = "",
     ) {
         private var lastStage: LoadStage? = null
         private var lastSettleLine = 0L
@@ -384,16 +389,16 @@ object HeadlessLoad {
                 when (stage) {
                     LoadStage.PREPARING -> Unit
                     LoadStage.ISSUING -> {
-                        err.appendLine("fixtool: prepared ${r.lanes} lane${if (r.lanes == 1) "" else "s"} in ${r.issue.prepareMs}ms (per message: ${r.template.perMessageTags.joinToString(", ").ifEmpty { "none" }})")
-                        err.appendLine("fixtool: issuing ${LoadReportCodec.fmt(r.issue.requested)} ${r.shape.describe().removePrefix("×")}")
+                        line("prepared ${r.lanes} lane${if (r.lanes == 1) "" else "s"} in ${r.issue.prepareMs}ms (per message: ${r.template.perMessageTags.joinToString(", ").ifEmpty { "none" }})")
+                        line("issuing ${LoadReportCodec.fmt(r.issue.requested)} ${r.shape.describe().removePrefix("×")}")
                     }
                     LoadStage.SETTLING -> {
                         r.issue.spanMs?.let { span ->
-                            err.appendLine("fixtool: ${LoadReportCodec.fmt(r.issue.leftSocket)} left the socket in ${RunSetStats.humanMs(span)}" + (r.issue.achievedPerSecond?.let { " (${LoadReportCodec.fmt(it)}/s)" } ?: ""))
+                            line("${LoadReportCodec.fmt(r.issue.leftSocket)} left the socket in ${RunSetStats.humanMs(span)}" + (r.issue.achievedPerSecond?.let { " (${LoadReportCodec.fmt(it)}/s)" } ?: ""))
                         }
                         settleLine(r)
                     }
-                    LoadStage.DONE -> err.appendLine("fixtool: settle closed with ${LoadReportCodec.fmt(r.replies.unmatched)} pending")
+                    LoadStage.DONE -> line("settle closed with ${LoadReportCodec.fmt(r.replies.unmatched)} pending")
                 }
             } else if (stage == LoadStage.SETTLING && System.currentTimeMillis() - lastSettleLine > SETTLE_LINE_EVERY_MS) {
                 settleLine(r)
@@ -402,8 +407,10 @@ object HeadlessLoad {
 
         private fun settleLine(r: LoadReport) {
             lastSettleLine = System.currentTimeMillis()
-            err.appendLine("fixtool: settling, ${LoadReportCodec.fmt(r.replies.unmatched)} pending, ${humanDuration(r.settleLeftMs ?: r.settleMs)} left")
+            line("settling, ${LoadReportCodec.fmt(r.replies.unmatched)} pending, ${humanDuration(r.settleLeftMs ?: r.settleMs)} left")
         }
+
+        private fun line(text: String) = err.appendLine("fixtool: $about$text")
 
         private companion object {
             const val SETTLE_LINE_EVERY_MS = 2_000L
@@ -413,28 +420,45 @@ object HeadlessLoad {
     /**
      * The progress lines for a set: which phase, then that phase's own lines through [Narrator].
      *
-     * A fresh narrator per phase, so each phase says "prepared", "issuing" and "settling" once, exactly as
-     * a single run does. Everything goes to stderr, so `> report.txt` keeps the report clean.
+     * A narrator per phase, made when that phase goes live, so each phase says "prepared", "issuing" and
+     * "settling" once, exactly as a single run does. Everything goes to stderr, so `> report.txt` keeps
+     * the report clean.
+     *
+     * **Every phase that is running, and not the earliest of them.** This used to lead on the lowest and
+     * go quiet about anything beside it, which for a set of paced phases was the whole set and for a set
+     * with a reactive phase was a third of it: the two phases answering phase 1's replies said nothing at
+     * all from start to finish. So each live phase gets a narrator, and their lines carry the phase they
+     * belong to, because interleaved lines that all begin "fixtool:" are a log nobody can read.
+     *
+     * The prefix is decided once, off the first record, by whether any phase of the set is reactive. A set
+     * that cannot overlap prints exactly what it printed before, down to the byte.
+     *
+     * `internal` because a test reads its lines. A set is driven by a socket and a clock, and what this
+     * says about three phases going at once is not reachable from either.
      */
-    private class SetNarrator(
+    internal class SetNarrator(
         private val err: Appendable,
     ) {
         // Unsynchronised on purpose: LoadSetRunner publishes under one lock, so this is handed records one
-        // at a time and in the order they were made, however many phases it is running. What it does not
-        // yet do is narrate two phases at once. It leads on the lowest-numbered phase that is running, so
-        // a second phase beside it is silent until the first ends, which belongs with the rest of the
-        // report's one-live-phase reading rather than here.
-        private var phase = 0
-        private var narrator: Narrator? = null
+        // at a time and in the order they were made, however many phases it is running.
+        private val narrators = LinkedHashMap<Int, Narrator>()
+        private var overlaps: Boolean? = null
 
         fun tell(record: LoadRecord) {
-            val running = record.phases.indexOfFirst { it.status == LoadStatus.RUNNING }.takeIf { it >= 0 } ?: return
-            if (running + 1 != phase) {
-                phase = running + 1
-                narrator = Narrator(err)
-                err.appendLine("fixtool: phase $phase of ${record.phases.size} · ${record.phases[running].label}")
+            val canOverlap = overlaps ?: record.phases.any { it.shape is LoadShape.Triggered }.also { overlaps = it }
+            val live = record.livePhases
+            live.forEach { phase ->
+                val report = record.phases[phase - 1]
+                val narrator =
+                    narrators.getOrPut(phase) {
+                        err.appendLine("fixtool: phase $phase of ${record.phases.size} · ${report.label}")
+                        Narrator(err, about = if (canOverlap) "phase $phase · " else "")
+                    }
+                narrator.tell(report)
             }
-            narrator?.tell(record.phases[running])
+            // A phase that has ended keeps nothing. A phase number never goes live twice, so dropping it
+            // is only ever dropping a narrator that has said everything it was going to.
+            narrators.keys.retainAll(live.toSet())
         }
     }
 

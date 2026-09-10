@@ -310,6 +310,42 @@ class LoadSetDocumentTest {
         composeTestRule.onNodeWithTag("load-set-phase-title").assertTextContains("2 · Hit the first 2,000")
     }
 
+    /**
+     * **A set with three phases going at once names all three.**
+     *
+     * The headline is about the set and not about a phase, and a reactive set spends most of its length
+     * with every phase live: phase 3 hits the quotes phase 2 makes from phase 1's replies. Naming the
+     * lowest of them, which is what this did, reports a third of the set as the whole of it.
+     */
+    @Test
+    fun `a set running several phases at once names every one of them`() {
+        val live =
+            record(
+                listOf(
+                    phase("Ask for a quote", status = LoadStatus.RUNNING).copy(stage = LoadStage.ISSUING),
+                    phase("Quote it", status = LoadStatus.RUNNING).copy(stage = LoadStage.ISSUING),
+                    phase("Hit the quote", status = LoadStatus.RUNNING).copy(stage = LoadStage.ISSUING),
+                ),
+                id = "set-chained",
+            )
+
+        composeTestRule.setContent {
+            LoadSetView(
+                record = live,
+                focused = 1,
+                onFocus = {},
+                phaseWire = emptyList(),
+                records = File("loads/set-chained"),
+                onStop = {},
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("load-set-verdict").assertTextContains("ISSUING · PHASES 1, 2 AND 3 OF 3")
+        assertEquals(listOf(1, 2, 3), live.livePhases)
+        assertEquals(1, live.currentPhase, "the phase the set is on stays the lowest of them")
+    }
+
     @Test
     fun `a passing set says so, with no phase named`() {
         show(record(listOf(phase("Ask for a quote"), phase("Hit them"), phase("Pass the rest"))))

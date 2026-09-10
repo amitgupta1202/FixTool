@@ -80,6 +80,12 @@ data class LoadRecord(
      * measurements: leading on the last phase of a set that failed at phase two under STOP put "issued 0,
      * matched 0, stage preparing" on the row of a set that issued four thousand messages, which is a
      * poller's whole picture of it.
+     *
+     * **With several phases running at once, the lowest-numbered of them.** See [livePhases]: it is the
+     * phase the set would still be on if nothing reacted to anything, and it is the one that does not
+     * change under a reader as the phases behind it start beside it. A row is one phase wide whatever the
+     * set is doing, and a row that jumped to phase 3 the instant phase 3 began answering phase 2 would
+     * report the deepest phase's counts as the set's.
      */
     val lead: LoadReport
         get() {
@@ -90,8 +96,24 @@ data class LoadRecord(
                 ?: phases.first()
         }
 
-    /** The phase running now, 1-based, or null when none is. */
-    val currentPhase: Int? get() = phases.indexOfFirst { it.status == LoadStatus.RUNNING }.takeIf { it >= 0 }?.plus(1)
+    /**
+     * **Every phase running now, 1-based, in the order they sit in the set.**
+     *
+     * More than one once a phase can react to another: a three-phase RFQ set has all three going at once
+     * for most of its length, because phase 2 answers phase 1's replies while they land and phase 3
+     * answers phase 2's. Empty before the first phase starts and after the last has ended.
+     *
+     * Everything that has to name one phase reads [currentPhase] and everything that can name them all
+     * reads this, so the two never disagree about what "running" means.
+     */
+    val livePhases: List<Int>
+        get() = phases.mapIndexedNotNull { index, phase -> (index + 1).takeIf { phase.status == LoadStatus.RUNNING } }
+
+    /**
+     * The phase running now, 1-based, or null when none is. The **lowest-numbered** when several are, for
+     * the reason [lead] gives: it is the phase the set is on, and it does not move as a chain deepens.
+     */
+    val currentPhase: Int? get() = livePhases.firstOrNull()
 
     /** How many phases have run to a verdict, whatever it was. */
     val donePhases: Int get() = phases.count { it.status == LoadStatus.DONE || it.status == LoadStatus.STOPPED }
@@ -149,6 +171,9 @@ data class LoadRecord(
             val phase =
                 when (outcome) {
                     SetOutcome.STOPPED -> stoppedAt ?: firstSkipped
+                    // The lowest-numbered of the phases running, which is the phase the set is on. The
+                    // verdict names one phase by construction, and every word it has to put beside a
+                    // number is a word about a phase that is still going.
                     SetOutcome.RUNNING -> currentPhase
                     SetOutcome.FAILED -> firstBad ?: firstSkipped
                     SetOutcome.PASSED -> null

@@ -97,6 +97,9 @@ fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView
     }
     // One phase draws today's document unchanged. Several draw the set, which is this document with two
     // things around it: a verdict that names the phase, and a timeline saying where the clock went.
+    // The lowest-numbered phase running, when several are: a document that re-focused itself the moment a
+    // reacting phase started beside the one being read would take the reader off the phase they opened.
+    // Whatever they click stays clicked, because `doc.phase` comes first.
     val focused = if (record.phases.size > 1) (doc.phase ?: record.currentPhase ?: settledFocus(record)) else 1
     val report = record.phases.getOrElse(focused - 1) { record.only }
     val wire =

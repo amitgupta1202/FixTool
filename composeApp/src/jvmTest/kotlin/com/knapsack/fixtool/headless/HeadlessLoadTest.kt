@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
@@ -297,6 +298,59 @@ class HeadlessLoadTest {
         )
         assertEquals(LoadReportCodec.toJUnitXml(one), single)
     }
+
+    /**
+     * **Every phase that is running gets narrated, and its lines say which phase they are about.**
+     *
+     * The narrator led on the lowest-numbered running phase and went quiet about anything beside it, so a
+     * reactive set said nothing at all about the two phases doing most of its work. Interleaved lines all
+     * beginning "fixtool:" are unreadable, so a set that can overlap names the phase on every line.
+     */
+    @Test
+    fun `the set narrator tells every live phase, and names them when the set can overlap`() {
+        val out = StringBuilder()
+        val issuing = LoadFixtures.burstReport(unmatched = 0).copy(status = LoadStatus.RUNNING, stage = LoadStage.ISSUING)
+        val record =
+            live(
+                issuing.copy(label = "Ask for a quote"),
+                issuing.copy(label = "Quote it", shape = LoadShape.Triggered()),
+            )
+
+        HeadlessLoad.SetNarrator(out).tell(record)
+
+        val text = out.toString()
+        assertTrue(text.contains("fixtool: phase 1 of 2 · Ask for a quote"), text)
+        assertTrue(text.contains("fixtool: phase 2 of 2 · Quote it"), text)
+        assertTrue(text.contains("fixtool: phase 1 · issuing 4,000 4,000"), text)
+        assertTrue(text.contains("fixtool: phase 2 · issuing 4,000 reactive"), text)
+    }
+
+    /** A set that cannot overlap has one live phase and prints the lines it always printed, unprefixed. */
+    @Test
+    fun `a set of paced phases is narrated exactly as it was`() {
+        val out = StringBuilder()
+        val issuing = LoadFixtures.burstReport(unmatched = 0).copy(status = LoadStatus.RUNNING, stage = LoadStage.ISSUING)
+        val record = live(issuing.copy(label = "Ask for a quote"), issuing.copy(label = "Ask again", status = LoadStatus.PENDING))
+
+        HeadlessLoad.SetNarrator(out).tell(record)
+
+        val text = out.toString()
+        assertTrue(text.contains("fixtool: phase 1 of 2 · Ask for a quote"), text)
+        assertTrue(text.contains("fixtool: issuing 4,000 4,000"), text)
+        assertTrue(!text.contains("phase 1 · issuing"), "a set that cannot overlap needs no prefix: $text")
+        assertTrue(!text.contains("phase 2"), "nothing is said about a phase that has not started: $text")
+    }
+
+    /** A running record of the phases given, which is what the narrator is handed on every tick. */
+    private fun live(vararg phases: LoadReport) =
+        LoadRecord(
+            id = "set-live",
+            label = "RFQ reactive",
+            startedAt = 0,
+            finishedAt = null,
+            phases = phases.toList(),
+            set = LoadRecord.SetInfo("rfq-reactive", OnFailure.STOP),
+        )
 
     /**
      * **MUTED in the status column, and the set line counts it apart from a skip.**

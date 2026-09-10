@@ -46,6 +46,7 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.LoadRunDefaults
+import com.knapsack.fixtool.model.LoadShapeChoice
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPhaseSpec
 import com.knapsack.fixtool.model.load.LoadPlan
@@ -119,6 +120,15 @@ data class PhaseEdit(
     /** What the set seeds, so a `${'$'}{name}` the set covers is not refused on this screen. */
     val seeded: Set<String>,
     /**
+     * **The label of every phase before this one, in order**, which is what the trigger picker offers.
+     *
+     * Labels and not only [n], because every refusal about a trigger names a phase by number *and* label,
+     * so a picker offering "2" where the sentence says "phase 2 · Quote it" would be the one surface that
+     * made the reader go and look. Empty for phase 1, which is what stops it being offered a shape it
+     * could never be: nothing runs before the first phase.
+     */
+    val earlier: List<String> = emptyList(),
+    /**
      * What an **earlier** phase keeps, to the phase number that keeps it.
      *
      * Separate from [seeded] because the template's sub-line says where each name comes from, and a
@@ -185,7 +195,7 @@ fun LoadRunDialogContent(
     // `remember` locals, so every open reset to 4000 / 500 / 60s however often a run had been tuned by hand.
     // A phase's own spec wins over both: it is the thing being edited.
     val saved = remember(profileId) { phase?.spec?.let(::defaultsOf) ?: viewModel.loadRunDefaults(profileId) }
-    var burst by remember(saved) { mutableStateOf(saved.burst) }
+    var shapeChoice by remember(saved) { mutableStateOf(saved.shape) }
     var count by remember(saved) { mutableStateOf(saved.count) }
     var rate by remember(saved) { mutableStateOf(saved.rate) }
     var forText by remember(saved) { mutableStateOf(saved.forText) }
@@ -193,6 +203,12 @@ fun LoadRunDialogContent(
     var seedRows by remember(saved) { mutableStateOf(saved.seed.map { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }) }
     var phaseLabel by remember { mutableStateOf(phase?.spec?.label ?: "") }
     var indexFrom by remember { mutableStateOf(phase?.spec?.indexFrom?.toString() ?: "1") }
+    // Reactive's own two fields, beside the count and the rate rather than folded into either, for the
+    // reason the count and the rate are beside each other: an option that is not selected keeps what it
+    // was given, so a phase switched to a burst and back is the reactive phase it was.
+    var after by remember { mutableStateOf(phase?.spec?.after) }
+    var capOn by remember { mutableStateOf((phase?.spec?.shape as? LoadShape.Triggered)?.cap != null) }
+    var cap by remember { mutableStateOf((phase?.spec?.shape as? LoadShape.Triggered)?.cap?.toString() ?: "") }
     val specCapture: Map<String, Int> = phase?.spec?.capture ?: emptyMap()
     val captureFromSpec = specCapture.map { (name, tag) -> name to tag.toString() }
     var captureRows by remember { mutableStateOf(captureFromSpec) }
@@ -226,22 +242,37 @@ fun LoadRunDialogContent(
     val literalSeed = remember(seedRows) { seedMap(seedRows) }
     val seed = remember(literalSeed) { renderedSeed(literalSeed) }
     val seedProblems = remember(seedRows) { seedRefusals(seedRows) }
-    val shape: LoadShape? =
-        if (burst) {
-            count
+    // The ceiling, only when the tick is on. A ticked box over a field holding nothing a rate can be read
+    // out of is no shape at all, so it refuses rather than issuing an uncapped phase the author capped.
+    val capped =
+        if (capOn) {
+            cap
                 .trim()
+                .removeSuffix("/s")
                 .toIntOrNull()
                 ?.takeIf { it > 0 }
-                ?.let { LoadShape.Burst(it) }
         } else {
-            val r =
-                rate
+            null
+        }
+    val shape: LoadShape? =
+        when (shapeChoice) {
+            LoadShapeChoice.BURST ->
+                count
                     .trim()
-                    .removeSuffix("/s")
                     .toIntOrNull()
                     ?.takeIf { it > 0 }
-            val f = HeadlessRun.parseDuration(forText)?.takeIf { it > 0 }
-            if (r != null && f != null) LoadShape.Rate(r, f) else null
+                    ?.let { LoadShape.Burst(it) }
+            LoadShapeChoice.RATE -> {
+                val r =
+                    rate
+                        .trim()
+                        .removeSuffix("/s")
+                        .toIntOrNull()
+                        ?.takeIf { it > 0 }
+                val f = HeadlessRun.parseDuration(forText)?.takeIf { it > 0 }
+                if (r != null && f != null) LoadShape.Rate(r, f) else null
+            }
+            LoadShapeChoice.REACTIVE -> if (capOn && capped == null) null else LoadShape.Triggered(capped)
         }
     val match =
         requestTag.trim().toIntOrNull()?.let { req ->
@@ -249,12 +280,14 @@ fun LoadRunDialogContent(
         }
     val override = if (forLoad) StoreAndLogOverride.FOR_LOAD else null
     val listenNames = listen.mapNotNull { id -> profiles.firstOrNull { it.id == id }?.name }
-    // **A shape this screen cannot author is carried, not rebuilt.** The Shape segment is Burst or Rate
-    // until #46 gives it a third option, so a reactive phase opened here keeps the shape it arrived with
-    // and the Burst and Rate fields are neither shown as its own nor written back over it. Done stays
-    // reachable for the same reason `muted` and `strictRate` do not disable it: an editor with no field
-    // for something must not make its absence the reason the phase cannot be saved.
-    val carriedShape = phase?.spec?.shape as? LoadShape.Triggered
+    // **Which options the segment offers.** Reactive fires as an earlier phase of a set is answered, so a
+    // single run has nothing that could ever fire it and is offered two. So is phase 1 of a set, whose
+    // `earlier` is empty. A phase that already carries the shape is offered it whatever its position,
+    // because a segment drawing none of its options as on would be the one control that lies about the
+    // thing it is editing: a hand-written set file reaching phase 1 with a reactive shape shows it, and
+    // the set band's own sentence says why it cannot run.
+    val reactiveOffered = phase != null && (phase.earlier.isNotEmpty() || shapeChoice == LoadShapeChoice.REACTIVE)
+    val shapeOptions = if (reactiveOffered) SHAPES else SHAPES.dropLast(1)
 
     // Two kinds of refusal, both placed under the row that caused them. The plan's own are LoadPlan.problems,
     // shared with the CLI and the API. The rest are about the *form* — a plan with no template and no shape
@@ -277,13 +310,12 @@ fun LoadRunDialogContent(
             if (template != null && match == null) {
                 add(Refusal(Where.MATCH, "The template carries no tag a reply can be matched on. Name the request and reply tags."))
             }
-            if (shape == null && carriedShape == null) {
-                add(
-                    Refusal(
-                        Where.SHAPE,
-                        if (burst) "Count must be a whole number above zero." else "Rate needs a number per second and a duration such as 10m.",
-                    ),
-                )
+            if (shape == null) add(Refusal(Where.SHAPE, shapeRefusal(shapeChoice)))
+            // A reactive phase that names nothing to react to has no trigger to take its count and its
+            // indices from, so it is not a phase yet. Said here as well as in the set band, because the
+            // picker that answers it is one row below this sentence.
+            if (phase != null && shapeChoice == LoadShapeChoice.REACTIVE && after == null) {
+                add(Refusal(Where.SHAPE, triggerRefusal(phase.earlier.isEmpty())))
             }
             // A phase is authored as often with the lanes down as up: a set is written before it is run,
             // and the set runner refuses a phase with no lane before phase 1 dials, with this same sentence.
@@ -335,13 +367,18 @@ fun LoadRunDialogContent(
      * editor owns comes off the fields on the screen; everything it does not is carried over from the phase
      * that was opened. `muted` belongs to the set band and `strictRate` to the command line, so neither has
      * a field in this dialog, and rebuilding without them wrote a parked phase back un-parked.
+     *
+     * `after` is rebuilt and not carried, because the Reacts to picker is a field for it. A phase written
+     * back as a burst or a rate therefore loses the trigger it had, which is one of the two remedies its
+     * own refusal offers: a trigger only a reactive phase may hold cannot survive the shape being changed
+     * away from one.
      */
     @Suppress("ReturnCount")
     fun spec(): LoadPhaseSpec? {
         val t = template ?: return null
         val p = profile ?: return null
         val opened = phase?.spec
-        val sh = carriedShape ?: shape ?: return null
+        val sh = shape ?: return null
         return LoadPhaseSpec(
             label = phaseLabel.trim().ifBlank { t.name },
             template = t.name,
@@ -354,7 +391,7 @@ fun LoadRunDialogContent(
             capture = captureMap(captureRows),
             strictRate = opened?.strictRate ?: false,
             muted = opened?.muted ?: false,
-            after = opened?.after,
+            after = if (sh is LoadShape.Triggered) after else null,
         )
     }
 
@@ -366,7 +403,10 @@ fun LoadRunDialogContent(
         }
         val ready = plan() ?: return
         profileId?.let {
-            viewModel.rememberLoadRunDefaults(it, LoadRunDefaults(burst, count, rate, forText, settle, seedRows.map { (k, v) -> listOf(k, v) }))
+            viewModel.rememberLoadRunDefaults(
+                it,
+                LoadRunDefaults.of(shapeChoice, count, rate, forText, settle, seedRows.map { (k, v) -> listOf(k, v) }),
+            )
         }
         onRun(ready)
     }
@@ -489,25 +529,31 @@ fun LoadRunDialogContent(
                 FormRow("Shape") {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         SlimSegmented(
-                            options = listOf(true, false),
-                            selected = burst,
-                            onSelect = { burst = it },
-                            label = { if (it) "Burst" else "Rate" },
-                            optionTestTag = { if (it) "load-shape-burst" else "load-shape-rate" },
+                            options = shapeOptions,
+                            selected = shapeChoice,
+                            onSelect = { shapeChoice = it },
+                            label = ::shapeWord,
+                            optionTestTag = { "load-shape-" + shapeWord(it).lowercase() },
                         )
-                        if (burst) {
-                            SlimField(count, { count = it }, modifier = Modifier.width(64.dp).testTag("load-count"))
-                            if (phase == null) Hint("messages, as fast as the lanes accept them")
-                        } else {
-                            SlimField(rate, { rate = it }, modifier = Modifier.width(56.dp).testTag("load-rate"))
-                            Hint("a second, for")
-                            SlimField(forText, { forText = it }, modifier = Modifier.width(52.dp).testTag("load-for"))
+                        when (shapeChoice) {
+                            LoadShapeChoice.BURST -> {
+                                SlimField(count, { count = it }, modifier = Modifier.width(64.dp).testTag("load-count"))
+                                if (phase == null) Hint("messages, as fast as the lanes accept them")
+                            }
+                            LoadShapeChoice.RATE -> {
+                                SlimField(rate, { rate = it }, modifier = Modifier.width(56.dp).testTag("load-rate"))
+                                Hint("a second, for")
+                                SlimField(forText, { forText = it }, modifier = Modifier.width(52.dp).testTag("load-for"))
+                            }
+                            // No number of its own: the count belongs to the phase this one reacts to, and
+                            // the two rows below are where it says which phase and how fast at most.
+                            LoadShapeChoice.REACTIVE -> Hint("fires when the phase it reacts to is answered")
                         }
                         // Beside the count *and* beside the rate: `${messageIndex}` restarts at 1 in every
                         // phase whatever its shape, so a rate phase has the same reason to count from where
                         // another stopped and had no field to say it. Never beside a reactive phase, whose
                         // indices are its trigger's: a field for a derived number is a field that lies.
-                        if (phase != null && carriedShape == null) {
+                        if (phase != null && shapeChoice != LoadShapeChoice.REACTIVE) {
                             Sub("from")
                             SlimField(
                                 indexFrom,
@@ -516,11 +562,13 @@ fun LoadRunDialogContent(
                             )
                         }
                     }
+                    // Every preset is a burst or a rate, so a reactive phase has none to be on. The row
+                    // stays, because a chip is also the one click back to a shape that takes a number.
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Sub("presets")
                         PRESETS.forEach { preset ->
-                            Chip(preset.label, on = preset.matches(burst, count, rate, forText), tag = "load-preset-${preset.slug}") {
-                                burst = preset.burst
+                            Chip(preset.label, on = preset.matches(shapeChoice, count, rate, forText), tag = "load-preset-${preset.slug}") {
+                                shapeChoice = preset.shape
                                 preset.count?.let { count = it }
                                 preset.rate?.let { rate = it }
                                 preset.forText?.let { forText = it }
@@ -528,6 +576,26 @@ fun LoadRunDialogContent(
                         }
                     }
                     Refusals(blocking, Where.SHAPE)
+                }
+                if (phase != null && shapeChoice == LoadShapeChoice.REACTIVE) {
+                    FormRow("Reacts to") {
+                        Picker(
+                            after?.let { triggerOption(it, phase.earlier) } ?: "pick a phase",
+                            phase.earlier.mapIndexed { i, label -> triggerOption(i + 1, phase.earlier) to (i + 1) },
+                            "phase-after",
+                        ) { after = it }
+                        Hint("one message per reply that phase is given, at that message's own index.")
+                    }
+                    FormRow("Speed") {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SlimCheckbox(checked = capOn, onCheckedChange = { capOn = it }, testTag = "load-cap-on") {
+                                Text("never above", color = AppTheme.Colors.text, style = AppTheme.Type.body)
+                            }
+                            SlimField(cap, { cap = it }, modifier = Modifier.width(64.dp).testTag("load-cap"))
+                            Sub(capUnit(lanes))
+                        }
+                        Hint(capHint(capOn))
+                    }
                 }
                 // "Wait for replies" here, `settle` everywhere else: the field's own name, the record, the
                 // report and `fixtool load --settle` keep the engine's word, which is read by people who know
@@ -745,7 +813,7 @@ fun LoadRunDialogContent(
         if (phase != null) {
             PhaseFooter(
                 why = why,
-                summary = phaseSummary(carriedShape ?: shape, indexFrom, settle, lanes),
+                summary = phaseSummary(shape, after, indexFrom, settle, lanes),
                 done = blocking.isEmpty(),
                 onRemove = phase.onRemove,
                 onDone = ::start,
@@ -926,15 +994,27 @@ private fun PhaseFooter(why: String?, summary: String, done: Boolean, onRemove: 
     }
 }
 
-/** "×2,000 from 2,001 on 5 lanes · settle 60s", the sentence the footer carries when nothing is wrong. */
+/**
+ * "×2,000 from 2,001 on 5 lanes · settle 60s", the sentence the footer carries when nothing is wrong.
+ *
+ * A reactive phase says which phase fires it instead of where it counts from, because its indices are that
+ * phase's: printing " from 2,001" off a field the row does not even show would be a number out of thin air.
+ */
 private fun phaseSummary(
     shape: LoadShape?,
+    after: Int?,
     indexFrom: String,
     settle: String,
     lanes: FixMessageViewModel.FanOutLanes?,
 ): String {
+    val reactive = shape is LoadShape.Triggered
     val n = indexFrom.trim().toIntOrNull()
-    val from = if (n != null && n > 1) " from " + "%,d".format(n) else ""
+    val from =
+        when {
+            reactive -> after?.let { " after phase $it" } ?: ""
+            n != null && n > 1 -> " from " + "%,d".format(n)
+            else -> ""
+        }
     val on = (lanes as? FixMessageViewModel.FanOutLanes.Available)?.let { " on ${it.lanes.size} lanes" } ?: ""
     return (shape?.describe() ?: "no shape") + from + on + " · settle " + settle
 }
@@ -943,30 +1023,81 @@ private fun phaseSummary(
 private fun defaultsOf(spec: LoadPhaseSpec): LoadRunDefaults =
     when (val shape = spec.shape) {
         is LoadShape.Burst ->
-            LoadRunDefaults(
-                burst = true,
+            LoadRunDefaults.of(
+                LoadShapeChoice.BURST,
                 count = shape.count.toString(),
                 settle = compact(spec.settleMs),
                 seed = emptyList(),
             )
         is LoadShape.Rate ->
-            LoadRunDefaults(
-                burst = false,
+            LoadRunDefaults.of(
+                LoadShapeChoice.RATE,
                 rate = shape.perSecond.toString(),
                 forText = compact(shape.forMs),
                 settle = compact(spec.settleMs),
                 seed = emptyList(),
             )
-        // A reactive phase has no control on this screen until the Shape segment grows a third option, so
-        // the count field opens empty rather than showing a number this phase never asked for. Nothing is
-        // read back over it either: `spec()` carries the shape the phase arrived with.
+        // The count opens empty rather than at 4,000: a reactive phase asked for no number, and offering
+        // one it never asked for would put four thousand messages behind a single click on Burst. The
+        // ceiling and the trigger are seeded from the spec itself, beside the label and the index.
         is LoadShape.Triggered ->
-            LoadRunDefaults(
-                burst = true,
+            LoadRunDefaults.of(
+                LoadShapeChoice.REACTIVE,
                 count = "",
                 settle = compact(spec.settleMs),
                 seed = emptyList(),
             )
+    }
+
+/** Burst, Rate, Reactive: the segment's own word for each option, and the tag a test reaches it by. */
+private fun shapeWord(choice: LoadShapeChoice): String =
+    when (choice) {
+        LoadShapeChoice.BURST -> "Burst"
+        LoadShapeChoice.RATE -> "Rate"
+        LoadShapeChoice.REACTIVE -> "Reactive"
+    }
+
+/** The order the segment draws them in, and the only place that order is written down. */
+private val SHAPES = listOf(LoadShapeChoice.BURST, LoadShapeChoice.RATE, LoadShapeChoice.REACTIVE)
+
+/** Why the form has no shape yet, in the words of whichever option is selected. */
+private fun shapeRefusal(choice: LoadShapeChoice): String =
+    when (choice) {
+        LoadShapeChoice.BURST -> "Count must be a whole number above zero."
+        LoadShapeChoice.RATE -> "Rate needs a number per second and a duration such as 10m."
+        LoadShapeChoice.REACTIVE ->
+            "The ceiling must be a whole number of messages a second. Untick never above to run uncapped."
+    }
+
+/**
+ * **A reactive phase with no trigger**, said differently for phase 1 than for a phase that has a choice.
+ *
+ * Phase 1 is offered no picker at all, so telling it to pick one would name a control that is not on the
+ * screen. What it gets is the two things it can actually do.
+ */
+private fun triggerRefusal(first: Boolean): String =
+    if (first) {
+        "The first phase has nothing before it to react to. Pick Burst or Rate, or move it after the " +
+            "phase that triggers it."
+    } else {
+        "Pick the phase this one reacts to. A reactive phase issues one message for each message an " +
+            "earlier phase issued, so it has to say which."
+    }
+
+/** "2 · Quote it", the way every refusal about a trigger names a phase, so the picker names it the same. */
+private fun triggerOption(n: Int, earlier: List<String>): String =
+    "$n" + (earlier.getOrNull(n - 1)?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
+
+/** "/s, across all 5 lanes", because a ceiling is aggregate and a per-lane reading of it would be five times it. */
+private fun capUnit(lanes: FixMessageViewModel.FanOutLanes?): String =
+    "/s" + ((lanes as? FixMessageViewModel.FanOutLanes.Available)?.let { ", across all ${it.lanes.size} lanes" } ?: "")
+
+/** What the tick means either way, since an unticked box is a decision and not an empty field. */
+private fun capHint(on: Boolean): String =
+    if (on) {
+        "A ceiling, not a schedule. Sitting under it is normal and is never a shortfall."
+    } else {
+        "Unticked: as fast as they arrive. The venue sets the pace."
     }
 
 /** The phase's own match tag when it has one, and the template's inference when it does not. */
@@ -1105,26 +1236,36 @@ private fun <T> Picker(current: String, options: List<Pair<String, T>>, tag: Str
 // The plain functions
 // ------------------------------------------------------------------------------------------------
 
-/** The four shapes people actually run. A chip reads as on when the fields already say what it says. */
+/**
+ * The four shapes people actually run. A chip reads as on when the fields already say what it says.
+ *
+ * Every one of them is a burst or a rate, because a preset is a volume and a reactive phase asks for none:
+ * its volume is the phase it reacts to. So no chip is ever on while Reactive is selected, and clicking one
+ * is the way back to a shape that takes a number.
+ */
 private data class Preset(
     val label: String,
     val slug: String,
-    val burst: Boolean,
+    val shape: LoadShapeChoice,
     val count: String? = null,
     val rate: String? = null,
     val forText: String? = null,
 ) {
-    fun matches(isBurst: Boolean, count: String, rate: String, forText: String): Boolean =
-        isBurst == burst &&
-            if (burst) this.count == count.trim() else this.rate == rate.trim() && this.forText == forText.trim()
+    fun matches(choice: LoadShapeChoice, count: String, rate: String, forText: String): Boolean =
+        choice == shape &&
+            when (shape) {
+                LoadShapeChoice.BURST -> this.count == count.trim()
+                LoadShapeChoice.RATE -> this.rate == rate.trim() && this.forText == forText.trim()
+                LoadShapeChoice.REACTIVE -> false
+            }
 }
 
 private val PRESETS =
     listOf(
-        Preset("100 smoke", "smoke", burst = true, count = "100"),
-        Preset("4,000 burst", "burst", burst = true, count = "4000"),
-        Preset("500/s for 10m", "500", burst = false, rate = "500", forText = "10m"),
-        Preset("2,000/s for 1h", "2000", burst = false, rate = "2000", forText = "1h"),
+        Preset("100 smoke", "smoke", LoadShapeChoice.BURST, count = "100"),
+        Preset("4,000 burst", "burst", LoadShapeChoice.BURST, count = "4000"),
+        Preset("500/s for 10m", "500", LoadShapeChoice.RATE, rate = "500", forText = "10m"),
+        Preset("2,000/s for 1h", "2000", LoadShapeChoice.RATE, rate = "2000", forText = "1h"),
     )
 
 /**

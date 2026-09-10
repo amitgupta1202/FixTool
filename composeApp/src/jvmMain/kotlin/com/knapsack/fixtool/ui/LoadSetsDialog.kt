@@ -175,6 +175,9 @@ fun LoadSetsDialogContent(
                         setLabel = draft.label.ifBlank { draft.name },
                         spec = spec,
                         seeded = draft.seed.keys,
+                        // Every phase before this one, by label, because that is what the Reacts to picker
+                        // offers and what decides whether Reactive is offered at all: phase 1 has none.
+                        earlier = draft.phases.take(index).map { it.label },
                         captured = capturedBefore(index),
                         onBack = { editing = null },
                         onDone = { updated ->

@@ -591,6 +591,192 @@ class LoadSetsDialogTest {
         composeTestRule.onNodeWithTag("load-set-why").assertTextContains("Phase 2", substring = true)
     }
 
+    /**
+     * **The whole feature, from the dialog.** Pick Reactive, pick the phase it reacts to, Done, Save, and
+     * the file on disk carries the shape and the trigger a set file could only be hand-written to carry.
+     *
+     * The picker names the phase the way every refusal about a trigger names it, number and label, so the
+     * sentence and the control cannot send their reader looking in two places.
+     */
+    @Test
+    fun `a phase is made reactive in the dialog, and the file carries the trigger`() {
+        viewModel.saveLoadSet(roundTrip)
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-shape-reactive").performClick()
+        composeTestRule.waitForIdle()
+        // Reactive takes no count of its own, so the burst's field is gone and so is the index it counts
+        // from: both are the trigger's.
+        composeTestRule.onNodeWithTag("load-count").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("phase-index-from").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("phase-after").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-after-1 · Ask for a quote").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-done").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val saved = assertNotNull(viewModel.loadSet("round-trip"))
+        assertEquals(LoadShape.Triggered(), saved.phases[1].shape)
+        assertEquals(1, saved.phases[1].after)
+        assertEquals(1, saved.phases[1].indexFrom, "its indices are its trigger's, so it authors none")
+        // And the row says so, in the words the file was written in.
+        composeTestRule.onNodeWithTag("load-set-phase-plan-2").assertTextContains("reactive", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-plan-2").assertTextContains("after phase 1", substring = true)
+    }
+
+    /** A ceiling is a number a second, and an unticked box is the decision to run uncapped. */
+    @Test
+    fun `the never above tick writes the cap, and unticking it takes it away again`() {
+        viewModel.saveLoadSet(
+            roundTrip.copy(
+                phases = roundTrip.phases.mapIndexed { i, p -> if (i == 1) p.copy(shape = LoadShape.Triggered(), after = 1) else p },
+            ),
+        )
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-cap-on").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-cap").performTextInput("200")
+        composeTestRule.onNodeWithTag("phase-done").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(LoadShape.Triggered(200), assertNotNull(viewModel.loadSet("round-trip")).phases[1].shape)
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-cap").assertTextContains("200")
+        composeTestRule.onNodeWithTag("load-cap-on").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-done").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(LoadShape.Triggered(), assertNotNull(viewModel.loadSet("round-trip")).phases[1].shape)
+    }
+
+    /**
+     * **Phase 1 is not offered a shape nothing could ever fire.** Nothing runs before the first phase, so
+     * the segment has two options there and three from phase 2 on.
+     */
+    @Test
+    fun `the first phase is offered burst and rate only, and the second is offered all three`() {
+        viewModel.saveLoadSet(roundTrip)
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-1").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-shape-reactive").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("phase-back").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-shape-reactive").assertIsDisplayed()
+    }
+
+    /**
+     * **Every option keeps what it was given while another one is selected.**
+     *
+     * The reason the shape is a choice with three sets of fields rather than one field that changes
+     * meaning: a phase tried as a rate and put back as a burst is the burst it was, and a trigger picked
+     * before somebody looked at what a rate would do is still picked when they come back.
+     */
+    @Test
+    fun `switching between all three shapes loses nothing that was typed`() {
+        viewModel.saveLoadSet(roundTrip)
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-count").assertTextContains("2000")
+
+        composeTestRule.onNodeWithTag("load-shape-rate").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-rate").performTextClearance()
+        composeTestRule.onNodeWithTag("load-rate").performTextInput("750")
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-shape-reactive").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-after").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-after-1 · Ask for a quote").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-shape-burst").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-count").assertTextContains("2000", substring = true)
+
+        composeTestRule.onNodeWithTag("load-shape-rate").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-rate").assertTextContains("750")
+
+        composeTestRule.onNodeWithTag("load-shape-reactive").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("phase-after").assertTextContains("1 · Ask for a quote", substring = true)
+    }
+
+    /**
+     * A reactive phase with no trigger has nothing to take its count or its indices from, so it is not a
+     * phase yet. The sentence is in the Shape band, one row above the picker that answers it.
+     */
+    @Test
+    fun `reactive with no phase picked refuses in the shape band and holds Done`() {
+        viewModel.saveLoadSet(roundTrip)
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-shape-reactive").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule
+            .onNodeWithTag("load-refusal")
+            .assertTextContains("Pick the phase this one reacts to", substring = true)
+        composeTestRule.onNodeWithTag("phase-done").assertHasNoClickAction()
+    }
+
+    /**
+     * A shape changed away from reactive drops the trigger with it, because `after` belongs to a reactive
+     * phase and nothing else. That is one of the two remedies the set's own refusal offers, and the other
+     * is one click away on the segment.
+     */
+    @Test
+    fun `a reactive phase put back to a burst keeps no trigger`() {
+        viewModel.saveLoadSet(
+            roundTrip.copy(
+                phases = roundTrip.phases.mapIndexed { i, p -> if (i == 1) p.copy(shape = LoadShape.Triggered(), after = 1) else p },
+            ),
+        )
+        show()
+
+        composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-shape-burst").performClick()
+        composeTestRule.waitForIdle()
+        // The count opened empty, because a reactive phase asked for no number and offering four thousand
+        // behind one click would be a volume nobody chose.
+        composeTestRule.onNodeWithTag("load-count").performTextInput("500")
+        composeTestRule.onNodeWithTag("phase-done").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-set-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val saved = assertNotNull(viewModel.loadSet("round-trip"))
+        assertEquals(LoadShape.Burst(500), saved.phases[1].shape)
+        assertNull(saved.phases[1].after, "a burst that named a trigger would be refused for holding one")
+    }
+
     @Test
     fun `Run set saves first, then hands over a planned set`() {
         viewModel.saveLoadSet(roundTrip)

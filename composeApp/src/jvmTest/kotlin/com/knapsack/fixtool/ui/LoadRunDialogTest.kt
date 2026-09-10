@@ -228,6 +228,24 @@ class LoadRunDialogTest {
         composeTestRule.onNodeWithTag("load-count").assertDoesNotExist()
     }
 
+    /**
+     * **A single run is never offered Reactive.**
+     *
+     * A reactive shape fires as an earlier phase of a set is answered, and a single run has no earlier
+     * phase, so the option would be one nothing could ever fire. The set door reaches this same dialog,
+     * which is why the segment is asked here rather than left to whoever opens it.
+     */
+    @Test
+    fun `the single run door offers two shapes, because nothing could ever fire a third`() {
+        viewModel.saveConnectionProfile(profile(resetOnLogon = true))
+
+        composeTestRule.setContent { LoadRunDialogContent(viewModel, fixedTemplate = nos, onDismiss = {}, onRun = {}) }
+
+        composeTestRule.onNodeWithTag("load-shape-burst").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-shape-rate").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("load-shape-reactive").assertDoesNotExist()
+    }
+
     /** The count, the rate and the settle window were `remember` locals, so every open reset them. */
     @Test
     fun `the dialog opens on what this profile was last asked for`() {

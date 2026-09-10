@@ -637,14 +637,22 @@ class LoadSetRunner(
                 .filterNot { it.muted }
                 .flatMap { it.capture.keys }
 
-        /** **Nothing this phase would have fired will be fired now**, on every way out of it. */
+        /**
+         * **Nothing this phase would have fired will be fired now**, on every way out of it, and the
+         * note says which way out it was.
+         *
+         * Three ways and not two. `ran` is set before the phase issues rather than after it, so it says
+         * "this phase got as far as issuing" and not "this phase finished": a phase that threw half way
+         * through would otherwise tell the phases waiting on it that it had finished, which is a note
+         * that reaches a record and sends whoever reads it looking for the wrong thing.
+         */
         private fun closeDependants(index: Int) {
             val n = index + 1
             val reason =
-                if (ran[index]) {
-                    "phase $n has finished, so nothing more will fire this one"
-                } else {
-                    "phase $n did not run, so nothing would have fired this one"
+                when {
+                    !ran[index] -> "phase $n did not run, so nothing would have fired this one"
+                    failures.get(index) != null -> "phase $n could not finish, so nothing more will fire this one"
+                    else -> "phase $n has finished, so nothing more will fire this one"
                 }
             planned.phases.forEachIndexed { i, plan -> if (plan.after == n) triggers[i].close(reason) }
         }

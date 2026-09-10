@@ -434,6 +434,41 @@ class ConcurrentPhasesTest {
         assertEquals("it runs on its own schedule, so nothing fires it", buffers[0].note)
     }
 
+    /**
+     * **A phase that threw does not tell the phases waiting on it that it has finished.**
+     *
+     * The note is read off `ran`, which is set before the phase issues rather than after it: what it
+     * says is that the phase got as far as issuing, and a phase that threw half way through got that
+     * far. So a phase that died mid-run used to close its dependants with "has finished", which now
+     * reaches a record and sends whoever reads it looking for a phase that ended properly.
+     */
+    @Test
+    fun `a phase that threw says so to the phases it would have fired`() {
+        val clock = FakeClock()
+        val lanes = lanes(clock)
+        val host = FakeHost(clock, lanes)
+        val runner = LoadSetRunner(host, clock = clock)
+        val buffers = CopyOnWriteArrayList<TriggerBuffer>()
+        runner.onTriggerBuffers = { buffers += it }
+
+        assertFailsWith<LoadRefused> {
+            runner.run(
+                setOf(
+                    burst("ask", orders, LoadMatch(11, 11, "8")),
+                    burst("broken", unseeded, LoadMatch(131, 131, "S")),
+                    burst("react", quoteRequests, LoadMatch(131, 131, "S")).copy(after = 2),
+                ),
+            )
+        }
+
+        assertEquals(
+            "phase 2 could not finish, so nothing more will fire this one",
+            buffers[2].note,
+            "a phase that threw told the phase waiting on it that it had finished",
+        )
+        assertTrue(buffers.all { it.closed })
+    }
+
     /** A phase that ran closes its dependants' buffers too, saying it has finished rather than that it never went. */
     @Test
     fun `a phase that ran closes the buffer of everything waiting on it when it ends`() {

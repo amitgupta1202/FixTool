@@ -53,7 +53,8 @@ class RenderOnTrigger(
     /**
      * One queue of indices per lane, unbounded because the dispatcher must never wait: it is the only
      * thing draining the trigger buffer, and a dispatcher parked on a full lane queue would stop the
-     * lanes that are keeping up as well as the one that is not.
+     * lanes that are keeping up as well as the one that is not. Which also makes every offer into one
+     * of them succeed, so nothing on the way out of this has to handle a refusal or an interrupt.
      */
     private val laneQueues = List(lanes) { LinkedBlockingQueue<Int>() }
 
@@ -110,14 +111,16 @@ class RenderOnTrigger(
                 val index = buffer.next() ?: break
                 val offset = index - indexFrom
                 if (offset in 0 until tracked) fired.set(offset)
-                laneQueues[Math.floorMod(offset, lanes)].put(index)
+                laneQueues[Math.floorMod(offset, lanes)].offer(index)
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
         } finally {
             // Every renderer is told there is no more and finished with before the indices nothing fired
-            // go out, because what a phase never sent belongs after everything it did send.
-            laneQueues.forEach { it.put(END_INDEX) }
+            // go out, because what a phase never sent belongs after everything it did send. Offered and
+            // never put: a lane queue is unbounded so an offer always takes, and a put would throw the
+            // interrupt that closing this brings straight back out of the one block that has to run.
+            laneQueues.forEach { it.offer(END_INDEX) }
             joinRenderers()
             if (!stopped) neverFired().forEach { put(it) }
             put(END_READY)

@@ -83,7 +83,8 @@ class CompiledTemplate private constructor(
          *
          * Its own kind rather than a [Variable] with a scope entry, because a capture can be **missing** —
          * the venue answered without the tag, or never answered — and a missing capture must not render as
-         * `${'$'}{quoteId}` on the wire. See [Rendered.Unaddressable].
+         * `${'$'}{quoteId}` on the wire. A missing capture is one of the two ways a message goes unsent:
+         * see [Rendered.Unaddressable], whose other way is an index no trigger ever released.
          */
         data class Captured(
             val name: String,
@@ -93,9 +94,11 @@ class CompiledTemplate private constructor(
     /**
      * **What rendering one message came back as.**
      *
-     * A message, or the name that was not there. A load run's bar is "every requested message answered", so
-     * a message the tool could not build is a hole in the proof rather than a smaller proof, and the run has
-     * to be able to say which index and which name rather than putting a literal `${'$'}{quoteId}` on the wire.
+     * A message, or what was not there for it: a capture name an earlier phase should have filled, or the
+     * phase whose reply would have released this message and never did. A load run's bar is "every
+     * requested message answered", so a message the tool could not build is a hole in the proof rather than
+     * a smaller proof, and the run has to be able to say which index and what was missing rather than
+     * putting a literal `${'$'}{quoteId}` on the wire.
      */
     sealed interface Rendered {
         val index: Int

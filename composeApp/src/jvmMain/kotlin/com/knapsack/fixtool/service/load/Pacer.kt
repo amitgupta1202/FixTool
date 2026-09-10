@@ -63,7 +63,8 @@ class Pacer(
         val handedToEngine: Long,
         val issueFailures: Long,
         /**
-         * Messages the plan asked for that were never built, because a capture they needed was not there.
+         * Messages the plan asked for that were never built, because what they needed was not there: a
+         * capture an earlier phase should have filled, or a trigger that never fired for that index.
          *
          * Its own counter and not folded into [issueFailures], because the engine never saw them: counting
          * them as refusals would put a hole a set's earlier phase left into the tool's own block, and the

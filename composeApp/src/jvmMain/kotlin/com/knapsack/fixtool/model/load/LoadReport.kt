@@ -157,8 +157,12 @@ data class LoadReport(
         val lastSendAt: Long?,
         val prepareMs: Long,
         /**
-         * Messages the plan asked for that were never rendered, because a capture an earlier phase should
-         * have filled was not there.
+         * Messages the plan asked for that were never rendered, because what they needed was not there.
+         *
+         * **Two different facts down one route.** A phase of a set could not address a message, because a
+         * capture an earlier phase should have filled was missing. Or a reactive phase was never fired for
+         * it, because the phase it reacts to was never answered for that index. Both are messages the tool
+         * never asked, both count here, and [LoadReport.unaddressable] names which of the two each one was.
          *
          * Counted, not hidden: the bar is "every requested message answered", so a message that was never
          * sent is a hole in the proof and not a smaller proof.
@@ -318,10 +322,18 @@ data class LoadReport(
         fun most(): Int = captured.values.maxOrNull() ?: 0
     }
 
-    /** One message the plan asked for that was never rendered, and the name that was missing. */
+    /** One message the plan asked for that was never sent, and what was not there for it. */
     data class Unaddressable(
         /** The 1-based message index, after `indexFrom`. */
         val index: Int,
+        /**
+         * The capture name an earlier phase should have filled, or the phase whose reply would have
+         * released this message and never did.
+         *
+         * Both, because both are ways a message never gets built, and a reader has to be able to tell
+         * "the venue answered without the tag" from "the venue never answered at all". A reactive phase
+         * captures nothing of its own, so the phase it reacts to is the only name it has to give.
+         */
         val missing: String,
     )
 
@@ -340,7 +352,8 @@ data class LoadReport(
         UNMATCHED,
 
         /**
-         * A message the plan asked for was never sent, because a capture it needed was not there.
+         * A message the plan asked for was never sent, because what it needed was not there: a capture an
+         * earlier phase should have filled, or a trigger that never fired for that index.
          *
          * Its own word rather than UNMATCHED, because "unanswered" says the venue did not reply and this
          * says the tool never asked. Both fail, and a reader has to be able to tell them apart.
@@ -430,14 +443,18 @@ data class LoadReport(
             rate: RateReport?,
             tool: Tool,
             strictRate: Boolean,
-            /** What the plan asked for and the tool never sent. Fails the phase, like anything unanswered. */
+            /**
+             * What the plan asked for and the tool never sent, for want of a capture or of a trigger.
+             * Fails the phase, like anything unanswered.
+             */
             issue: Issue = Issue(0, 0, 0, null, null, 0),
         ): Verdict {
             val completeness =
                 when {
                     status == LoadStatus.RUNNING -> Completeness.PENDING
-                    // Before unanswered: a phase that could not address 4 of its 2,000 has a hole the
-                    // venue is not responsible for, and that is the thing to say first.
+                    // Before unanswered: a phase that could not address 4 of its 2,000 has a hole in its
+                    // own proof, whether an earlier phase's capture was missing or its trigger was never
+                    // answered for those four, and that is the thing to say first.
                     issue.unaddressable > 0 -> Completeness.INCOMPLETE
                     replies.unmatched > 0 -> Completeness.UNMATCHED
                     else -> Completeness.COMPLETE

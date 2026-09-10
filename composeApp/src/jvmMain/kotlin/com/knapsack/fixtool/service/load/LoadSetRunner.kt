@@ -159,6 +159,39 @@ class LoadSetRunner(
     }
 
     /**
+     * **An interrupt that lands on the thread running the set, held until the set has ended.**
+     *
+     * Stopping a set is a polled flag and never an interrupt (R19), so an interrupt arriving on this
+     * thread is somebody else's and is theirs to be told about. Telling them by leaving the flag set part
+     * way through the ending takes the rest of the ending away, because `Thread.join` is interruptible and
+     * throws the moment it is called: the record writer would never be joined, the last record would never
+     * be written, and the caller would be handed an `InterruptedException` where a record was due.
+     *
+     * So every join the set does swallows it, and the last line of [run] hands it back, once, with
+     * nothing left behind it to skip.
+     */
+    private class Interrupts {
+        @Volatile private var caught = false
+
+        /** Joins [thread] however often this one is interrupted while it waits. */
+        @Suppress("SwallowedException")
+        fun join(thread: Thread) {
+            while (thread.isAlive) {
+                try {
+                    thread.join()
+                } catch (e: InterruptedException) {
+                    caught = true
+                }
+            }
+        }
+
+        /** The last line of the set, where whoever interrupted it is told, once and in one place. */
+        fun handBack() {
+            if (caught) Thread.currentThread().interrupt()
+        }
+    }
+
+    /**
      * **The record on disk, written by one thread, and always the latest one there is.**
      *
      * A phase publishes about four times a second while it is issuing and once a poll while it is
@@ -174,6 +207,7 @@ class LoadSetRunner(
      */
     private class RecordWriter(
         private val store: LoadRecordStore?,
+        private val interrupts: Interrupts,
     ) : AutoCloseable {
         private val latest = AtomicReference<LoadRecord?>()
 
@@ -205,12 +239,17 @@ class LoadSetRunner(
          * Nothing more is coming, and whatever the writer was doing is finished before this returns, so
          * the record the set writes last is the record left on disk. Idempotent, because it is called
          * once where the phases end and once more in the teardown that runs whatever happened.
+         *
+         * The join is [Interrupts]' and not a plain one, because a plain join on a thread whose interrupt
+         * flag is set throws at once: the writer would be left running, the record it was holding would
+         * never be written, and the caller would be handed an `InterruptedException` where a record was
+         * due. Every join the set does is that join, and the interrupt goes back at the end of [run].
          */
         override fun close() {
             open = false
             thread?.let {
                 LockSupport.unpark(it)
-                it.join()
+                interrupts.join(it)
             }
             // Whatever was offered and never written, so a set that threw still leaves its last picture.
             latest.getAndSet(null)?.let { store?.write(it) }
@@ -346,6 +385,7 @@ class LoadSetRunner(
         private val table: StampMatcher.CaptureTable?,
         private val triggers: List<TriggerBuffer>,
         private val cancelled: () -> Boolean,
+        private val interrupts: Interrupts,
     ) {
         private val size = planned.phases.size
 
@@ -439,23 +479,12 @@ class LoadSetRunner(
          *
          * Uninterruptibly, because an interrupt on the thread that started the set would otherwise skip
          * the joins and let the teardown cycle the sessions under a phase that is still issuing. Stopping
-         * a set is a polled flag and never an interrupt, so an interrupt arriving here is somebody else's
-         * and is handed back on the way out.
+         * a set is a polled flag and never an interrupt, so an interrupt arriving here is somebody else's.
+         * It is handed back at the end of [run] and not here: the next thing this thread does is join the
+         * record writer, and handing it back here would take that join and the last record with it. See
+         * [Interrupts].
          */
-        @Suppress("SwallowedException")
-        private fun joinAll(threads: List<Thread>) {
-            var interrupted = false
-            threads.forEach { thread ->
-                while (thread.isAlive) {
-                    try {
-                        thread.join()
-                    } catch (e: InterruptedException) {
-                        interrupted = true
-                    }
-                }
-            }
-            if (interrupted) Thread.currentThread().interrupt()
-        }
+        private fun joinAll(threads: List<Thread>) = threads.forEach { interrupts.join(it) }
 
         @Suppress("TooGenericExceptionCaught")
         private fun phase(index: Int) {
@@ -652,11 +681,12 @@ class LoadSetRunner(
         val handles = sessions.map { it.addStampListener(router::onStamp) }
         val stubs = planned.phases.mapIndexed { index, plan -> stub(plan, compiled[index], byProfile, startedAt) }
 
-        val writer = RecordWriter(store)
+        val interrupts = Interrupts()
+        val writer = RecordWriter(store, interrupts)
         val board = Board(planned, stubs, startedAt, host::now, writer, onProgress)
         try {
             board.publish()
-            Conductor(planned, board, held, router, table, triggers, cancelled).conduct()
+            Conductor(planned, board, held, router, table, triggers, cancelled, interrupts).conduct()
             // Before the last record rather than after it, so nothing the writer was still holding can
             // land on top of the one the set finished with.
             writer.close()
@@ -669,6 +699,8 @@ class LoadSetRunner(
             writer.close()
             handles.forEach { it.close() }
             host.release()
+            // Last, because everything above owes the caller something and half of it is interruptible.
+            interrupts.handBack()
         }
     }
 

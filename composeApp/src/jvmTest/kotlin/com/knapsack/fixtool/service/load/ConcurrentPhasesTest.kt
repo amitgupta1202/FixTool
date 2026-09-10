@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.WireTags
 import org.junit.Test
+import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.assertEquals
@@ -290,6 +291,51 @@ class ConcurrentPhasesTest {
             "and phase 3 is told, rather than left at a gate nobody will open",
         )
         assertEquals(1, host.releases)
+    }
+
+    /**
+     * **An interrupt on the thread running the set costs it neither its record nor the interrupt.**
+     *
+     * Stopping a set is a polled flag and never an interrupt, so an interrupt landing on this thread is
+     * somebody else's. The joins that hold the teardown off the live phases swallow it, and what they
+     * used to do was hand it straight back on their way out. The next thing the set does is join the
+     * record writer, and a join on a thread whose flag is set throws before it waits: the writer was left
+     * running, the last record was never written, the last progress line never went out, and the caller
+     * was handed an InterruptedException where a record was due.
+     *
+     * Nothing interrupts this thread in the app today, which is what makes it worth pinning now rather
+     * than after something does. The interrupt itself is not swallowed for good: it is handed back on the
+     * last line of the set, with nothing left behind it to take away.
+     */
+    @Test
+    fun `an interrupt on the set's own thread does not cost it the last record`() {
+        val clock = FakeClock()
+        val lanes = lanes(clock)
+        val host = FakeHost(clock, lanes)
+        val dir = File.createTempFile("fixtool-set-interrupt", "").also { it.delete() }
+        try {
+            val store = LoadRecordStore(dir.absolutePath)
+            val landed = AtomicBoolean()
+            val record =
+                LoadSetRunner(host, store, clock = clock).run(
+                    setOf(
+                        burst("ask", orders, LoadMatch(11, 11, "8")),
+                        burst("hit", quoteRequests, LoadMatch(131, 131, "S")),
+                    ),
+                ) {
+                    // Somebody else's interrupt, on the set's own thread, before it has run a phase.
+                    if (landed.compareAndSet(false, true)) Thread.currentThread().interrupt()
+                }
+
+            // First, because reading it is also what clears it: the rest of this test, and every test
+            // after it on this thread, runs without somebody else's interrupt on it.
+            assertTrue(Thread.interrupted(), "the interrupt is handed back, once, on the last line of the set")
+            assertEquals(listOf(LoadStatus.DONE, LoadStatus.DONE), record.phases.map { it.status })
+            assertEquals(record, store.readRecord(record.id), "the record on disk is the one the set returned")
+        } finally {
+            Thread.interrupted()
+            dir.deleteRecursively()
+        }
     }
 
     // -------------------------------------------------------------------------------------------------

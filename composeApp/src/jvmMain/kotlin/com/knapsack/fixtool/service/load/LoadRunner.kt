@@ -49,6 +49,14 @@ class LoadRunner(
      * that knows which phase that was.
      */
     private val listen: (StampMatcher, List<LoadLane>) -> AutoCloseable = ::everySession,
+    /**
+     * Where this phase's per-index send and reply times go, for the chain block the set assembles.
+     *
+     * Null for a single run, which is one phase and therefore no chain, and for a phase of a set that
+     * takes part in none. The set owns the arrays because it is the set that joins the legs. See
+     * [ChainTimes].
+     */
+    private val chain: ChainTimes.Phase? = null,
 ) {
     /** The finished report, and the evidence the record keeps beside it. */
     data class Outcome(
@@ -151,6 +159,7 @@ class LoadRunner(
                 captures = plan.capture.entries.map { it.key to it.value },
                 table = captures.table,
                 trigger = fires,
+                times = chain,
             )
         progress.matcher = matcher
         val listening = listen(matcher, all)

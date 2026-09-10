@@ -510,6 +510,35 @@ object HeadlessLoad {
             ).joinToString(" · ")
     }
 
+    /**
+     * **The chain, as a build log reads it**: how many journeys were made whole, what one cost, and where
+     * the time went leg by leg.
+     *
+     * Under the phase the chain ends at, because that is where the block lives, and one line per leg
+     * because "which hop got slower" is the question a chain figure raises the moment it moves. The
+     * waited clause is FixTool's own share, so a reader can tell a venue that slowed down from a tool
+     * that did.
+     */
+    private fun chainBlock(chain: LoadReport.Chain): String =
+        buildString {
+            appendLine(
+                "chain".padEnd(COL) + LoadReportCodec.fmt(chain.complete).padStart(NUM) +
+                    "   of ${LoadReportCodec.fmt(chain.requested)} whole · first request to last reply · " +
+                    span(chain.endToEnd),
+            )
+            chain.legs.forEach { leg ->
+                val waited = leg.handover?.let { "waited ${LoadReportCodec.humanMicros(it.p50)} · " }.orEmpty()
+                appendLine(
+                    "".padEnd(COL) + LoadReportCodec.fmt(leg.answered).padStart(NUM) +
+                        "   ${leg.phase} · ${leg.label} · $waited${span(leg.roundTrip)}",
+                )
+            }
+        }
+
+    /** Microseconds, as the round-trip line prints them. `RunSetStats.describe` reads its numbers as millis. */
+    private fun span(d: RunSetStats.Distribution): String =
+        "p50 ${LoadReportCodec.humanMicros(d.p50)} · p95 ${LoadReportCodec.humanMicros(d.p95)} · max ${LoadReportCodec.humanMicros(d.max)}"
+
     /** The summary block a build log is read from: the counts, the timings, the tool's own part, the verdict. */
     fun summary(r: LoadReport, records: File): String = phaseBlock(r) + "".padEnd(COL) + "records: $records\n"
 
@@ -547,6 +576,7 @@ object HeadlessLoad {
                         "p99 ${LoadReportCodec.humanMicros(d.p99)} · max ${LoadReportCodec.humanMicros(d.max)} · mean ${LoadReportCodec.humanMicros(d.mean)}  (${LoadReportCodec.fmt(d.samples.toLong())})",
                 )
             }
+            r.chain?.let { append(chainBlock(it)) }
             appendLine(
                 "tool".padEnd(COL) +
                     if (r.tool.limited) {

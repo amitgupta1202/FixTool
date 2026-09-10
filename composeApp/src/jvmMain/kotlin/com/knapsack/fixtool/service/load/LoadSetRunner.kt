@@ -344,6 +344,19 @@ class LoadSetRunner(
                 publishLocked()
             }
 
+        /**
+         * **The chain blocks, once every phase has ended and its times are settled.**
+         *
+         * On the last phase of each chain, because a chain has one end. Published like everything else,
+         * so the record on disk and the document on screen both hold the block the set finished with.
+         */
+        fun attachChains(chains: Map<Int, LoadReport.Chain>) =
+            synchronized(lock) {
+                if (chains.isEmpty()) return@synchronized
+                chains.forEach { (index, chain) -> reports[index] = reports[index].copy(chain = chain) }
+                publishLocked()
+            }
+
         fun publish() = synchronized(lock) { publishLocked() }
 
         /** The record as it stands, which is what the set hands back. */
@@ -407,6 +420,7 @@ class LoadSetRunner(
         private val held: LoadHost,
         private val router: Router,
         private val table: StampMatcher.CaptureTable?,
+        private val times: ChainTimes?,
         private val triggers: List<TriggerBuffer>,
         private val cancelled: () -> Boolean,
         private val interrupts: Interrupts,
@@ -560,10 +574,17 @@ class LoadSetRunner(
         private fun issue(index: Int) {
             val n = index + 1
             val runner =
-                LoadRunner(held, store = null, clock = clock, fires = releasesOf(index)) { matcher, _ ->
-                    board.register(index, matcher)
-                    router.register(n, matcher)
-                }
+                LoadRunner(
+                    held,
+                    store = null,
+                    clock = clock,
+                    fires = releasesOf(index),
+                    listen = { matcher, _ ->
+                        board.register(index, matcher)
+                        router.register(n, matcher)
+                    },
+                    chain = times?.get(index),
+                )
             val outcome =
                 runner.run(
                     planned.phases[index],
@@ -704,10 +725,14 @@ class LoadSetRunner(
         // One table for the whole set, sized by the highest index any phase will reach, because a phase
         // that counts from 2,001 reads what phase 1 filled at 2,001. Absent when nothing is captured.
         val names = live.flatMap { it.capture.keys }
-        val table =
-            names.takeIf { it.isNotEmpty() }?.let {
-                StampMatcher.CaptureTable(it, (live.maxOf { p -> p.indexTo } + 1).toInt())
-            }
+        // One past the highest index any live phase will reach, which is what both the table and the chain
+        // times are sized by. The formula and never the table's existence: a set can chain without
+        // capturing anything, and a set can capture without chaining at all.
+        val highest = (live.maxOfOrNull { it.indexTo }?.plus(1) ?: 0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val table = names.takeIf { it.isNotEmpty() }?.let { StampMatcher.CaptureTable(it, highest) }
+        // Arrays only for the phases of a chain, so a set of paced phases and every single run there has
+        // ever been allocate nothing at all and carry no chain block. See Chains.
+        val times = Chains.participants(planned).takeIf { it.isNotEmpty() }?.let { ChainTimes(highest, it) }
         val triggers = triggerBuffers(planned).also { onTriggerBuffers(it) }
         val sessions = byProfile.values.flatten().distinct()
         val handles = sessions.map { it.addStampListener(router::onStamp) }
@@ -719,7 +744,14 @@ class LoadSetRunner(
         val board = Board(planned, stubs, startedAt, host::now, writer, onProgress)
         try {
             board.publish()
-            Conductor(planned, board, held, router, table, triggers, cancelled, interrupts).conduct()
+            try {
+                Conductor(planned, board, held, router, table, times, triggers, cancelled, interrupts).conduct()
+            } finally {
+                // Every phase has been joined by now, however the set went, so the times are settled and
+                // visible to this thread. In the finally because a set that threw still measured whatever
+                // it measured, and the record it leaves behind is written either way.
+                times?.let { board.attachChains(Chains.of(planned, it)) }
+            }
             // Before the last record rather than after it, so nothing the writer was still holding can
             // land on top of the one the set finished with.
             writer.close()

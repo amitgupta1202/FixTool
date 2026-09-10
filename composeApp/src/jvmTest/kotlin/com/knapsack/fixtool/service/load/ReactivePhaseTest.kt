@@ -16,7 +16,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -114,6 +116,34 @@ class ReactivePhaseTest {
         assertEquals(
             (1..200).filterNot { it in silent }.map { "QID-RFQ-t1-$it" }.toSet(),
             dealer.flatMap { it.sent }.mapNotNull { WireTags.tagValue(it, 117) }.toSet(),
+        )
+
+        // The chain block, on the last phase of the chain and on no other. 196 of the 200 journeys were
+        // made whole, each leg is measured over its own messages, and the end to end is measured over the
+        // journeys rather than added up out of three aggregates about three different sets of messages.
+        assertNull(asked.chain, "a chain has one end, and this is not it")
+        assertNull(quoted.chain)
+        val chain = assertNotNull(hitBack.chain, "the last phase of the chain carries what the chain cost")
+        assertEquals(200L, chain.requested)
+        assertEquals(196L, chain.complete, "four requests were never answered, so four chains never started")
+        assertEquals(196, chain.endToEnd.samples)
+        assertEquals(listOf(1, 2, 3), chain.legs.map { it.phase })
+        assertEquals(listOf("Ask for a quote", "Quote it", "Respond"), chain.legs.map { it.label })
+        assertEquals(listOf(196L, 196L, 196L), chain.legs.map { it.answered })
+        assertNull(chain.legs.first().handover, "nothing released the first phase, so it waited for nothing")
+        assertNotNull(chain.legs[1].handover)
+        assertNotNull(chain.legs[2].handover)
+
+        // The numbers are real and they add up the way a journey does: every leg is inside the whole, and
+        // the whole is at least the three round trips it is made of. The fake socket costs a microsecond
+        // a hop, so these are small and they are measurements and not zeroes.
+        assertTrue(chain.endToEnd.min > 0, "a journey that took no time at all was not measured")
+        chain.legs.forEach { leg ->
+            assertTrue(leg.roundTrip.max <= chain.endToEnd.max, "leg ${leg.phase} outlasted the whole chain")
+        }
+        assertTrue(
+            chain.endToEnd.min >= chain.legs.sumOf { it.roundTrip.min },
+            "the quickest journey was quicker than its own three round trips",
         )
 
         // The point of the whole feature. Phase 1 spends its sixty seconds on four requests that never came
@@ -364,6 +394,36 @@ class ReactivePhaseTest {
         assertEquals(listOf(LoadStatus.DONE, LoadStatus.SKIPPED, LoadStatus.SKIPPED), record.phases.map { it.status })
         assertEquals("phase 2 did not run, so nothing would have fired this one", record.phases[2].note)
         assertTrue(dealer.all { it.sent.isEmpty() }, "nothing was quoted for a request nobody made")
+    }
+
+    /**
+     * **A set with no reacting phase measures no chain and writes no key about one.**
+     *
+     * The other half of the chain block, and the one that matters to every set that already exists. The
+     * arrays are allocated for the phases of a chain and for no others, so a staged set writes what it
+     * has always written, and a reader of one cannot tell this work happened.
+     */
+    @Test
+    fun `a set of paced phases has no chain at all`() {
+        val clock = FakeClock()
+        val client = (1..2).map { FakeLane(it, clock, { emptyList() }) }
+        client.forEach { it.answers("R", ::quoteFor) }
+        val host = FakeHost(clock, client, lanesByProfile = mapOf(CLIENT to client))
+
+        val record =
+            LoadSetRunner(host, clock = clock).run(
+                planned(
+                    phase(CLIENT, "Ask for a quote", ask, LoadMatch(131, 131, "S"), LoadShape.Burst(4)).copy(requested = 4),
+                    phase(CLIENT, "Ask again", ask, LoadMatch(131, 131, "S"), LoadShape.Burst(4))
+                        .copy(requested = 4, indexFrom = 5),
+                ),
+            )
+
+        assertEquals(listOf(null, null), record.phases.map { it.chain })
+        assertFalse(
+            LoadReportCodec.recordToJson(record).toString().contains("chain"),
+            "a set that never chained wrote a key about chaining",
+        )
     }
 
     /** A reactive phase is released by an earlier phase, and only a set has one. Said before a lane opens. */

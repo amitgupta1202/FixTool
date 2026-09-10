@@ -75,6 +75,14 @@ data class LoadReport(
      */
     val evidence: Evidence? = null,
     /**
+     * **What one message cost from the first request to the last reply, across every phase of a chain.**
+     *
+     * On the **last phase of the chain** and nowhere else, because a chain has one end and putting the
+     * same block on each of its phases would be the same numbers said three times. Null for every phase
+     * of a set nothing reacts to, so a set of paced phases is the record it always was.
+     */
+    val chain: Chain? = null,
+    /**
      * Why this phase is what it is, when the numbers cannot say: "phase 2 did not pass and the set stops
      * on failure". Null for a phase that ran.
      */
@@ -324,6 +332,57 @@ data class LoadReport(
         /** The highest count any name reached, for a figure that has to be one number. */
         fun most(): Int = captured.values.maxOrNull() ?: 0
     }
+
+    /**
+     * **The thing reactive phases exist to produce: what one message cost all the way through.**
+     *
+     * A three-phase RFQ set run in blocks can say what each block's round trip was and nothing at all
+     * about what a quote request cost from asking to being filled, because the three blocks' aggregates
+     * are three numbers about three different sets of messages and adding them invents a latency no
+     * message ever had. A chain is joined per message, by the `${'$'}{messageIndex}` every phase already
+     * counts in, so [endToEnd] is a distribution over journeys that actually happened.
+     *
+     * **[complete] of [requested] is the funnel's floor and the legs are its steps.** The four requests
+     * the venue never answered are four chains that never started, and they are missing from every leg
+     * after the first: the block says so rather than reporting the p95 of the 196 that worked as though
+     * 200 had.
+     */
+    data class Chain(
+        /** One per phase of the chain, in the order a message travels them. Never fewer than two. */
+        val legs: List<Leg>,
+        /**
+         * The chain's first send to its last reply, in microseconds, over the messages that got the whole
+         * way. Not the sum of the legs: a sum of percentiles is not the percentile of a sum.
+         */
+        val endToEnd: RunSetStats.Distribution,
+        /** How many of [requested] reached the end of the chain. */
+        val complete: Long,
+        /** What the chain was asked for, which is its first phase's count. */
+        val requested: Long,
+    )
+
+    /**
+     * **One phase's share of a chain**: what it waited for, what it sent, and what came back.
+     *
+     * [handover] and [roundTrip] are kept apart because they are the two parties' numbers. The round trip
+     * is the venue answering, and the handover is FixTool taking a reply off the socket, rendering the
+     * next message from it and getting that message out again. A chain that has grown slower has grown
+     * slower in one of the two, and one number for both would hide which.
+     */
+    data class Leg(
+        /** Which phase of the set this is, 1-based. */
+        val phase: Int,
+        val label: String,
+        /**
+         * The reply that released this phase, to this phase's own send. Null for the chain's first phase,
+         * which nothing released and which therefore waited for nothing.
+         */
+        val handover: RunSetStats.Distribution?,
+        /** This phase's own round trip: its send to the reply that answered it. */
+        val roundTrip: RunSetStats.Distribution,
+        /** How many of the chain's messages this phase was answered for. */
+        val answered: Long,
+    )
 
     /** One message the plan asked for that was never sent, and what was not there for it. */
     data class Unaddressable(

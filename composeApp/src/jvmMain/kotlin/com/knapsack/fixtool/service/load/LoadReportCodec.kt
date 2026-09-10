@@ -14,6 +14,7 @@ import com.knapsack.fixtool.model.load.humanDuration
 import com.knapsack.fixtool.service.RunSetStats
 import com.knapsack.fixtool.service.ScenarioReport
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -177,10 +178,7 @@ object LoadReportCodec {
                 },
             )
             put("timing", r.timing?.let { t -> buildJsonObject { put("elapsedMs", t.elapsedMs); put("drainMs", t.drainMs) } } ?: JsonNull)
-            put(
-                "roundTrip",
-                r.roundTrip?.let { RunSetStats.toJson(RunSetStats.Stats(replyLatency = it, wallClock = null))["replyLatency"] } ?: JsonNull,
-            )
+            put("roundTrip", r.roundTrip?.let(::distributionJson) ?: JsonNull)
             // Thirty counts on one line: the shape of the distribution, at a size that does not grow with
             // the run. Written unconditionally, so a reader never has to tell "no samples" from "old record".
             put("roundTripHistogram", buildJsonArray { r.roundTripHistogram.forEach { add(JsonPrimitive(it)) } })
@@ -266,6 +264,9 @@ object LoadReportCodec {
                     }
                 } ?: JsonNull,
             )
+            // Only the phase a chain ends at grows the key, and no phase of a set with no reacting phase
+            // does, so a staged set's record is the record it always was.
+            r.chain?.let { put("chain", chainJson(it)) }
             r.note?.let { put("note", it) }
             // A phase that has not run is not judged, and says so rather than carrying a verdict of
             // zeroes that a reader would have to know to disbelieve.
@@ -305,6 +306,68 @@ object LoadReportCodec {
                 }
             }
         }
+
+    /**
+     * **A chain, as the block its last phase carries.**
+     *
+     * Written whole rather than as references to the phases it spans, because the record is read by things
+     * that hold one phase at a time and a leg that has to be resolved against a sibling is a leg every
+     * reader has to reassemble.
+     */
+    private fun chainJson(chain: LoadReport.Chain): JsonObject =
+        buildJsonObject {
+            put("requested", chain.requested)
+            put("complete", chain.complete)
+            put("endToEnd", distributionJson(chain.endToEnd))
+            put(
+                "legs",
+                buildJsonArray {
+                    chain.legs.forEach { leg ->
+                        add(
+                            buildJsonObject {
+                                put("phase", leg.phase)
+                                put("label", leg.label)
+                                put("answered", leg.answered)
+                                put("roundTrip", distributionJson(leg.roundTrip))
+                                // The chain's first phase waited for nothing, so it has no handover and
+                                // says so by absence rather than by a distribution of noughts.
+                                leg.handover?.let { put("handover", distributionJson(it)) }
+                            },
+                        )
+                    }
+                },
+            )
+        }
+
+    private fun chainFrom(o: JsonObject): LoadReport.Chain? {
+        val endToEnd = distributionFrom(o["endToEnd"]) ?: return null
+        val legs =
+            (o["legs"] as? JsonArray).orEmpty().mapNotNull { e ->
+                val l = e.jsonObject
+                val roundTrip = distributionFrom(l["roundTrip"]) ?: return@mapNotNull null
+                LoadReport.Leg(
+                    phase = l.intOrNull("phase") ?: 0,
+                    label = l.str("label"),
+                    handover = distributionFrom(l["handover"]),
+                    roundTrip = roundTrip,
+                    answered = l.longOrNull("answered") ?: 0,
+                )
+            }
+        if (legs.isEmpty()) return null
+        return LoadReport.Chain(
+            legs = legs,
+            endToEnd = endToEnd,
+            complete = o.longOrNull("complete") ?: 0,
+            requested = o.longOrNull("requested") ?: 0,
+        )
+    }
+
+    /** A distribution in the shape the round trip already writes one, so a chain's reads the same. */
+    private fun distributionJson(d: RunSetStats.Distribution): JsonElement =
+        RunSetStats.toJson(RunSetStats.Stats(replyLatency = d, wallClock = null))["replyLatency"] ?: JsonNull
+
+    private fun distributionFrom(element: JsonElement?): RunSetStats.Distribution? =
+        (element as? JsonObject)?.let { RunSetStats.fromJson(buildJsonObject { put("replyLatency", it) })?.replyLatency }
 
     private fun rateJson(rate: LoadReport.RateReport): JsonObject =
         buildJsonObject {
@@ -400,10 +463,7 @@ object LoadReportCodec {
                     lastMatchedAt = replies.longOrNull("lastMatchedAt"),
                 ),
             timing = (o["timing"] as? JsonObject)?.let { t -> LoadReport.Timing(t.long("elapsedMs"), t.long("drainMs")) },
-            roundTrip =
-                (o["roundTrip"] as? JsonObject)?.let { d ->
-                    RunSetStats.fromJson(buildJsonObject { put("replyLatency", d) })?.replyLatency
-                },
+            roundTrip = distributionFrom(o["roundTrip"]),
             // A record written before the histogram existed reads back as an empty one, which is the same
             // thing a run with no matched reply says, and is what the charts already have to handle.
             roundTripHistogram =
@@ -450,6 +510,7 @@ object LoadReportCodec {
                     val u = e.jsonObject
                     LoadReport.Unaddressable(u.intOrNull("index") ?: 0, u.strOrNull("missing") ?: "")
                 },
+            chain = (o["chain"] as? JsonObject)?.let(::chainFrom),
             note = o.strOrNull("note"),
             evidence =
                 (o["evidence"] as? JsonObject)?.let { e ->
@@ -510,7 +571,7 @@ object LoadReportCodec {
     private fun JsonObject.obj(key: String): JsonObject = this[key] as? JsonObject ?: JsonObject(emptyMap())
 
     /** `{"quoteId": 117}` as a map, which is the shape both halves of a capture block are written in. */
-    private fun intMap(element: kotlinx.serialization.json.JsonElement?): Map<String, Int> =
+    private fun intMap(element: JsonElement?): Map<String, Int> =
         (element as? JsonObject)
             .orEmpty()
             .mapNotNull { (name, value) -> (value as? JsonPrimitive)?.intOrNull?.let { name to it } }

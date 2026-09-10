@@ -44,6 +44,11 @@ class StampMatcher(
     private val table: CaptureTable? = null,
     /** Where a match releases the phase reacting to this one, or null when nothing reacts to it. */
     private val trigger: Trigger? = null,
+    /**
+     * Where this phase's per-index send and reply times are kept, so the set can measure a chain. Null
+     * for a single run and for a phase of a set that takes part in none. See [ChainTimes].
+     */
+    private val times: ChainTimes.Phase? = null,
 ) {
     /**
      * **Where this phase's matches are released to**: the buffer of every phase that reacts to it.
@@ -409,7 +414,8 @@ class StampMatcher(
 
     private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp): Claim {
         val id = requestId(sessionId, type, stamp.wire) ?: return Claim.NOT_A_REPLY
-        pending[id] = Pending(stamp.micros, laneOf(sessionId), stamp.wire, issuedIndex.remove(id) ?: 0)
+        val messageIndex = issuedIndex.remove(id) ?: 0
+        pending[id] = Pending(stamp.micros, laneOf(sessionId), stamp.wire, messageIndex)
         leftSocket.incrementAndGet()
         val now = outstanding.incrementAndGet()
         if (now > pendingPeak) pendingPeak = now
@@ -417,6 +423,9 @@ class StampMatcher(
             if (firstSendMicros == NONE) firstSendMicros = stamp.micros
             if (stamp.micros > lastSendMicros) lastSendMicros = stamp.micros
             secondAt(secondOf(stamp.micros)).issued++
+            // One array write, inside the monitor this block already holds, allocating nothing. The set
+            // reads it after this phase has been joined, and never while it is still filling.
+            times?.sent(messageIndex, stamp.micros)
         }
         return Claim.MINE
     }
@@ -472,6 +481,9 @@ class StampMatcher(
             }
             if (reply.micros > lastMatchedMicros) lastMatchedMicros = reply.micros
             if (specimens.size < specimenLimit) specimens += Specimen(request.wire, reply.wire, rtt)
+            // Inside the window and matched, which is the only kind of reply a chain is made of: a late
+            // one returned above, and a duplicate never reaches here at all. See [ChainTimes].
+            times?.answered(request.messageIndex, reply.micros)
             // The first reply only: a duplicate must not overwrite the value the match already kept, or a
             // later phase would address whichever ExecutionReport happened to arrive last.
             captures.forEachIndexed { i, (_, tag) ->

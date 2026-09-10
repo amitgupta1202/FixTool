@@ -8,6 +8,7 @@ import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.RoundTripHistogram
 import com.knapsack.fixtool.model.load.SetOutcome
+import com.knapsack.fixtool.service.RunSetStats
 import com.knapsack.fixtool.service.load.LoadFixtures.burstReport
 import com.knapsack.fixtool.service.load.LoadFixtures.shortfall
 import kotlinx.serialization.json.Json
@@ -25,6 +26,7 @@ import kotlinx.serialization.json.put
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -485,6 +487,39 @@ class LoadReportTest {
         assertEquals(false, schedule.ceiling, "a record written before a ceiling existed is a schedule")
         assertEquals(0L, schedule.starvedForMs)
     }
+
+    /**
+     * **The chain block survives the file, and a report without one grows no key.**
+     *
+     * The second half is what keeps every record that is not a chain exactly the record it was: a single
+     * run and a set of paced phases both write what they wrote before this existed.
+     */
+    @Test
+    fun `a chain round trips, and a report with no chain writes nothing about one`() {
+        val chain =
+            LoadReport.Chain(
+                legs =
+                    listOf(
+                        LoadReport.Leg(1, "Ask for a quote", handover = null, roundTrip = distribution(3_000), answered = 196),
+                        LoadReport.Leg(2, "Quote it", handover = distribution(400), roundTrip = distribution(2_000), answered = 196),
+                    ),
+                endToEnd = distribution(5_400),
+                complete = 196,
+                requested = 200,
+            )
+        val chained = burstReport(unmatched = 0).copy(chain = chain)
+
+        assertEquals(chain, reread(chained).chain)
+        assertNull(reread(burstReport(unmatched = 0)).chain)
+        assertFalse(
+            LoadReportCodec.toJson(burstReport(unmatched = 0)).toString().contains("chain"),
+            "a report with no chain must write no key, or every record ever made would grow one",
+        )
+    }
+
+    /** A distribution shaped like a real one, for a block whose arithmetic is tested where it happens. */
+    private fun distribution(us: Long) =
+        RunSetStats.Distribution(p50 = us, p95 = us * 2, max = us * 3, samples = 196, min = us / 2, p99 = us * 2, mean = us)
 
     /** Through the text of the file and back, which is what a record on disk goes through. */
     private fun reread(report: LoadReport): LoadReport =

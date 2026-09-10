@@ -675,7 +675,7 @@
   .offs .how { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--app-dim); text-align: right; }
   .offs .ok { color: var(--app-good); }
 
-  /* Section 8: a dialog, header and footer. */
+  /* Section 9: a dialog, header and footer. */
   .dbody { padding: 16px 10px; background: var(--app-bg); font-family: var(--sans); font-size: 10.5px; color: var(--app-dim); }
   .dfoot {
     display: flex; align-items: center; gap: 8px; padding: 7px 8px; flex-wrap: wrap;
@@ -685,7 +685,7 @@
   .dfoot .ta { color: var(--app-info); font-size: 10.5px; }
   .dfoot .why { white-space: normal; line-height: 1.35; }
 
-  /* Sections 6 and 9: the vocabulary and the per-component tables. */
+  /* Sections 6 and 10: the vocabulary and the per-component tables. */
   .vocab, .changes { width: 100%; border-collapse: collapse; font-family: var(--sans); }
   .vocab { font-size: 13px; min-width: 900px; }
   .changes { font-size: 12.5px; min-width: 700px; }
@@ -703,6 +703,13 @@
   .vocab .wh { color: var(--faint); font-size: 11.5px; width: 9rem; }
   .vocab .m, .changes .m { font-family: var(--mono); font-size: 11px; }
 
+  /* Section 8: who folds what. Four columns, so each one is narrower than the vocabulary's three. */
+  .folds { min-width: 800px; font-size: 12.5px; }
+  .folds td:first-child { width: 8rem; }
+  .folds .nf { width: 8.5rem; }
+  .folds .mw { color: var(--faint); font-size: 11.5px; width: 12rem; }
+  .folds .st { color: var(--faint); font-weight: 400; font-size: 11px; }
+
   /* Section 7: what comes back and what does not. */
   .lose { columns: 2 240px; column-gap: 22px; max-width: 46rem; margin: 1.1rem 0 0; }
   .lose .lg { break-inside: avoid; border-left: 2px solid var(--rule); padding-left: 0.85rem; margin-bottom: 14px; }
@@ -716,8 +723,8 @@
     <p class="eyebrow">FixTool · design note · 2026-09-10</p>
     <h1>One Grammar for Every Pane</h1>
     <p class="standfirst">The toolbar note gave each control a kind and a place. This one gives every pane, dock
-      and dialog the same five things: one header, one name, one way to show a state, one word per action, and
-      one way to lose something.</p>
+      and dialog the same six things: one header, one name, one way to show a state, one word per action, one
+      way to lose something, and one way to run out of room.</p>
   </header>
 
   <p>The panes grew the way the toolbar grew, one feature at a time, and each of them got the header that made
@@ -734,7 +741,9 @@
     the header, the tooltip and the help. Three, a toggle looks pressed when it is on, never tint alone and
     never an icon swap alone. Four, one verb per action, sentence case, and a pane action and its all-panes twin
     share the verb and differ only in the object. Five, losing something either arms (click again) or confirms
-    inline, never in a dialog and never silently.</div>
+    inline, never in a dialog and never silently. Six, every bar folds. When the room runs out, labels become
+    icons, then actions fold from the right into one ⋯ menu in a declared order, then the title ellipsises
+    in the middle. A bar never wraps and never clips a control halfway.</div>
 
   <h2>Ten headers today</h2>
 
@@ -1061,9 +1070,9 @@
       <span class="tip">More</span>
       <span class="tip">Close session · click again to confirm</span>
     </div>
-    <figcaption>One <code>PaneHeader</code> composable serves both layouts, with the fold rule SplitView
-      already has, so the buttons collapse into More when the pane is narrow and the two layouts can never drift
-      again. Today they already have: the same button is "Add Separator" in tabs and "Add Blank Line" in split,
+    <figcaption>One <code>PaneHeader</code> composable serves both layouts, with the fold rule of section
+      8, so the buttons collapse into ⋯ in a declared order when the pane is narrow and the two layouts can
+      never drift again. Today they already have: the same button is "Add Separator" in tabs and "Add Blank Line" in split,
       and the tabs layout has no title, no overflow and no rule for what happens when the icons run out of
       room. The four toggles keep their glyphs and gain the pressed look, so their tooltips lose the "Wrap: On
       (click to unwrap)" sentences: the button now says on by looking on, and the tooltip can go back to naming
@@ -1337,6 +1346,170 @@
       to twenty two.</figcaption>
   </figure>
 
+  <h2>When the room runs out</h2>
+
+  <figure>
+    <div class="edge">
+
+      <div class="one">
+        <span class="cap">900 px · everything</span>
+        <div class="xscroll"><div class="screen" style="width:900px">
+          <div class="hdr plain">
+            <span class="ico go">⏻</span>
+            <span class="t">RFQ Client</span>
+            <span class="n">41</span>
+            <span class="s warn">⚠ 12 lost</span>
+            <span class="sp"></span>
+            <span class="ico">↩</span><span class="ico">⌕</span>
+            <span class="ico on">⛛</span><span class="ico">⑃</span>
+            <span class="vs"></span>
+            <span class="pb ghost">＋ Blank line</span>
+            <span class="pb ghost">🗑 Clear</span>
+            <span class="vs"></span>
+            <span class="pb ghost">↓ Scroll to bottom</span>
+            <span class="vs"></span>
+            <span class="ico">⋯</span>
+            <span class="ico">✕</span>
+          </div>
+          <div class="dvd"></div>
+        </div></div>
+      </div>
+
+      <div class="one">
+        <span class="cap">520 px · labels become icons</span>
+        <div class="xscroll"><div class="screen" style="width:520px">
+          <div class="hdr plain">
+            <span class="ico go">⏻</span>
+            <span class="t">RFQ Client</span>
+            <span class="n">41</span>
+            <span class="s warn">⚠ 12 lost</span>
+            <span class="sp"></span>
+            <span class="ico">↩</span><span class="ico">⌕</span>
+            <span class="ico on">⛛</span><span class="ico">⑃</span>
+            <span class="vs"></span>
+            <span class="ico">＋</span><span class="ico">🗑</span>
+            <span class="vs"></span>
+            <span class="ico">↓</span>
+            <span class="vs"></span>
+            <span class="ico">⋯</span>
+            <span class="ico">✕</span>
+          </div>
+          <div class="dvd"></div>
+        </div></div>
+      </div>
+
+      <div class="one">
+        <span class="cap">300 px · folded</span>
+        <div class="xscroll"><div class="screen" style="width:300px">
+          <div class="hdr plain">
+            <span class="ico go">⏻</span>
+            <span class="t" style="flex:1 1 auto;min-width:0;overflow:hidden">RFQ Cl…ent</span>
+            <span class="n">41</span>
+            <span class="ico">⋯</span>
+            <span class="ico">✕</span>
+          </div>
+          <div class="dvd"></div>
+          <div class="mplace">
+            <div class="menu" style="width:248px">
+              <div class="mi"><span class="mk blank">✓</span>Wrap lines</div>
+              <div class="mi"><span class="mk blank">✓</span>Search in pane<span class="ct">⌘F</span></div>
+              <div class="mi"><span class="mk">✓</span>Filter pane</div>
+              <div class="mi"><span class="mk blank">✓</span>Group by conversation</div>
+              <div class="sep"></div>
+              <div class="mi"><span class="mk blank">✓</span>Add blank line</div>
+              <div class="mi"><span class="mk blank">✓</span>Clear messages</div>
+              <div class="sep"></div>
+              <div class="mi"><span class="mk blank">✓</span>Scroll to bottom</div>
+              <div class="sep"></div>
+              <div class="mi"><span class="mk blank">✓</span>Minimize</div>
+              <div class="mi"><span class="mk blank">✓</span>Move left</div>
+              <div class="mi"><span class="mk blank">✓</span>Move right</div>
+            </div>
+          </div>
+        </div></div>
+      </div>
+
+    </div>
+    <figcaption>One mechanism, <code>FoldingActions(actions, priority)</code>, measured with
+      <code>BoxWithConstraints</code>, which is the fold SplitView's <code>SessionPanelHeader</code> already
+      does with <code>fullHeaderWidth</code>, generalised and given to every bar. Three stages, always in this
+      order. First, labelled chips drop to their icon and keep the label as the tooltip. Second, actions fold
+      from the right into one ⋯ menu, low priority first: the fold order is declared per bar and is not the
+      visual order, so Close and the power button never fold while Move left goes first. Third, the title
+      ellipsises in the middle with the existing <code>MiddleEllipsisText</code>, and the status disappears
+      before the title shortens, because the status is optional and the title is not. A bar never wraps to a
+      second line and never draws half a button. The folded menu shows the labels and shortcuts the buttons
+      would have shown, so nothing is reachable at one width and gone at another.</figcaption>
+  </figure>
+
+  <h3>Who folds what</h3>
+
+  <div class="xscroll">
+    <table class="vocab folds">
+      <thead>
+        <tr><th>Bar</th><th>Never folds</th><th>Folds first → last</th><th>Minimum width</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Dock header</td>
+          <td class="nf">title, Hide</td>
+          <td>status, then actions in declared order</td>
+          <td class="mw">title at 8 characters plus Hide, and the resize handle stops there</td>
+        </tr>
+        <tr>
+          <td>Pane header</td>
+          <td class="nf">power, Close</td>
+          <td>Move left, Move right, Minimize, Scroll to bottom, Clear messages, Add blank line, then the
+            four toggles</td>
+          <td class="mw">the folded header, about 160 px</td>
+        </tr>
+        <tr>
+          <td>Pane bar<span class="st"> (step 2 of the toolbar note)</span></td>
+          <td class="nf">View ▾</td>
+          <td>the three layout segments fold into View ▾ as Layout ▸, and tabs scroll rather than
+            shrink</td>
+          <td class="mw">View ▾ plus one tab</td>
+        </tr>
+        <tr>
+          <td>Editor toolbar</td>
+          <td class="nf">Send</td>
+          <td>View ▾, template Open and Save, then the five field buttons, and Load run and Send to all
+            drop to icons before they fold</td>
+          <td class="mw">Send plus ⋯</td>
+        </tr>
+        <tr>
+          <td>Load document header</td>
+          <td class="nf">verdict badge</td>
+          <td>Reveal records, Copy JSON, Compare, and Run again and Stop drop to icons</td>
+          <td class="mw">badge plus ⋯</td>
+        </tr>
+        <tr>
+          <td>Dialog footer</td>
+          <td class="nf">Cancel, primary</td>
+          <td>the reason sentence ellipsises, then the secondary actions fold</td>
+          <td class="mw">Cancel plus primary</td>
+        </tr>
+        <tr>
+          <td>Toolbar<span class="st"> (step 4 of the toolbar note)</span></td>
+          <td class="nf">Workspace ▾, Settings, Help</td>
+          <td>Blank line, Search, Capture, then Quick Connect, Run and Disconnect all drop to icons, then
+            Clear all and Close all fold</td>
+          <td class="mw">the never-folds plus ⋯</td>
+        </tr>
+        <tr>
+          <td>Stripes</td>
+          <td class="nf">everything</td>
+          <td>nothing, a stripe is 26 px and a tab is one word</td>
+          <td class="mw">fixed</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top:1.2rem">The editor's own progressive overflow into a <code>Popup</code>, which
+    re-renders eleven buttons a second time, is retired in favour of the shared fold, and so is the load
+    documents' width check at 460 px.</p>
+
   <h2>Dialogs and the odd ones</h2>
 
   <figure>
@@ -1395,7 +1568,7 @@
       </thead>
       <tbody>
         <tr><td>Editor</td><td>DockHeader titled "Editor", labelled Send chips, a Validate badge, View ▾, "⋯"
-          overflow, a tooltip on the Hide that has none today</td></tr>
+          overflow, a tooltip on the Hide that has none today, folds per the fold table</td></tr>
         <tr><td>Scenarios</td><td>DockHeader titled "Scenarios", tooltips on the expand and collapse glyphs,
           "Hide Scenarios"</td></tr>
         <tr><td>Detail</td><td>DockHeader titled "Detail", "Expand all" and "Collapse all",
@@ -1415,7 +1588,9 @@
         <tr><td>Scenario dock</td><td>Tooltips, "Minimize" and "Restore", tab close "Close tab", sentence
           case</td></tr>
         <tr><td>Session pane header</td><td>One PaneHeader for both layouts, the pane vocabulary,
-          ToggleIconButton, and Close arms</td></tr>
+          ToggleIconButton, Close arms, and it folds per the fold table</td></tr>
+        <tr><td>Pane bar</td><td>Layout segments fold into View ▾ as Layout ▸, and its tabs scroll
+          rather than shrink</td></tr>
         <tr><td>Filter bar</td><td>Moves to the toolbar note's filter row, and its checkbox reads
           "Blank lines"</td></tr>
         <tr><td>Raw search bar</td><td>SlimSearchBar, tooltips on its three buttons, ⌘F opens it</td></tr>
@@ -1427,9 +1602,9 @@
           case already</td></tr>
         <tr><td>Capture review</td><td>Unchanged apart from case</td></tr>
         <tr><td>Load documents</td><td>"Run again" in all four places, "Reveal records" everywhere, one
-          Section composable instead of two</td></tr>
+          Section composable instead of two, folds per the fold table</td></tr>
         <tr><td>Settings</td><td>The dialog header, Restore defaults to the footer with an inline confirm,
-          SlimSearchBar in the sidebar</td></tr>
+          SlimSearchBar in the sidebar, a footer that folds per the fold table</td></tr>
         <tr><td>Help</td><td>Material 3, one name, a tooltip on its close</td></tr>
         <tr><td>Search all sessions</td><td>The dialog header, "Pin results", ⌘⇧F</td></tr>
         <tr><td>Load run and Load sets dialogs</td><td>Unchanged. They already carry the footer idiom this
@@ -1451,9 +1626,11 @@
     the menu bar, because those two need the names and the catalogue this note settles.</p>
 
   <ol class="steps">
-    <li><b>DockHeader.</b> One composable, adopted by the nine docks, with the stripe nouns as titles and a
-      Hide tooltip on every one. The help text is updated wherever it names a panel.
-      <span class="where">a new DockHeader.kt · the nine panels · the help content</span></li>
+    <li><b>FoldingActions and DockHeader.</b> FoldingActions first, because every header after it is built
+      on it, and DockHeader is its first user. One composable, adopted by the nine docks, with the stripe nouns
+      as titles and a Hide tooltip on every one. The help text is updated wherever it names a panel.
+      <span class="where">a new FoldingActions.kt and DockHeader.kt · the nine panels · the help
+        content</span></li>
     <li><b>ToggleIconButton.</b> The pressed look, replacing every tint-only and icon-swap toggle, and the
       Validate badge beside Send.
       <span class="where">TooltipButton.kt · TabBar.kt · SplitView.kt · MessageEditorPanel</span></li>
@@ -1465,7 +1642,8 @@
       UI sources for the retired phrasings ("Add Separator", "click to hide", "More Options",
       "Close Detail Panel" and the rest) so they cannot come back.
       <span class="where">every file in ui/ · a new UiStringsTest</span></li>
-    <li><b>Editor header.</b> Labelled chips, View ▾, overflow.
+    <li><b>Editor header.</b> Labelled chips, View ▾, overflow, the progressive Popup overflow
+      retired.
       <span class="where">MessageEditorPanel.kt, the BoxWithConstraints toolbar row</span></li>
     <li><b>Dialog chrome.</b> DialogHeader, SlimSearchBar everywhere, Help to Material 3, the Settings footer,
       "Pin results".
@@ -1480,7 +1658,7 @@
   </ol>
 
   <p>Then toolbar steps 4 and 5, the toolbar regroup and the menu bar, with the names and the catalogue this
-    note fixed.</p>
+    note fixed. Toolbar step 4 adopts FoldingActions for the toolbar's own groups, per the fold table.</p>
 
   <h2>Decisions</h2>
 
@@ -1528,6 +1706,23 @@
       <div class="a"><strong>Keeps it.</strong> That row is the rail's content toolbar, the way the editor's
         button row is the editor's, and neither belongs in a header. Only the title bar above it
         changes.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Fold order is declared, not positional.</div>
+      <div class="a"><strong>Declared.</strong> A bar names which of its actions matter least, and those go
+        first, whatever their position. Positional folding would hide Close on a pane header before it hid
+        Move left.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>A bar never wraps.</div>
+      <div class="a"><strong>Never.</strong> Two-line headers move everything below them and read as two
+        bars. Folding keeps the height constant, which is what lets a person find the same control at the same
+        place at every width.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Minimum widths are the folded bar.</div>
+      <div class="a"><strong>The folded bar.</strong> The resize handle stops where the folded header would
+        clip, so no width exists at which a control is half drawn.</div>
     </div>
     <div>
       <div class="q"><span class="tag asm">assumed</span>A retired-phrasings test.</div>

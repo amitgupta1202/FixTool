@@ -503,10 +503,186 @@ class LoadSetTest {
                 ).problems(
                     Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "hit" to readsTwoCaptures)),
                     LoadPlan.Surface.DIALOG,
-                )
+                ) +
+                listOf(null, 5, 2, 3).flatMap { after ->
+                    set(listOf(twoPhases[0], reactive(after), twoPhases[1].copy(label = "Last")))
+                        .problems(Fake(), LoadPlan.Surface.CLI)
+                } +
+                set(listOf(twoPhases[0].copy(muted = true), reactive(after = 1, cap = 0)))
+                    .problems(Fake(), LoadPlan.Surface.DIALOG) +
+                set(listOf(twoPhases[0], twoPhases[1].copy(after = 1))).problems(Fake(), LoadPlan.Surface.API)
 
         assertTrue(everyRefusal.size >= 4, "the fixture stopped producing refusals: $everyRefusal")
         everyRefusal.forEach { assertTrue('—' !in it.sentence, "em dash in: ${it.sentence}") }
+        everyRefusal.forEach { assertTrue(';' !in it.sentence, "semicolon in: ${it.sentence}") }
+    }
+
+    /** Step 2 of #46 builds the shape and refuses it. This sentence goes when the trigger itself lands. */
+    private val notYet =
+        "it is reactive, and this version of FixTool cannot run a reactive phase yet. Give it a burst or a rate."
+
+    private fun reactive(after: Int?, cap: Int? = null) =
+        twoPhases[1].copy(label = "Answer every quote", shape = LoadShape.Triggered(cap), after = after, indexFrom = 1)
+
+    /** The one thing wrong with a well-formed reactive set, so every other test can subtract it. */
+    @Test
+    fun `a reactive phase is refused because nothing runs one yet, and nothing else is wrong with it`() {
+        val problems = set(reactiveChain).problems(Fake(), LoadPlan.Surface.CLI)
+
+        assertEquals(listOf(2, 3), problems.map { it.phase }, problems.toString())
+        assertEquals(listOf(notYet, notYet), problems.map { it.sentence })
+    }
+
+    /** A setting a surface took and then quietly dropped is worse than one it never took. */
+    @Test
+    fun `a trigger on a burst or a rate phase is refused rather than ignored`() {
+        val problems = set(listOf(twoPhases[0], twoPhases[1].copy(after = 1))).problems(Fake(), LoadPlan.Surface.CLI)
+
+        assertEquals(listOf(2), problems.map { it.phase }, problems.toString())
+        assertEquals(
+            "it names phase 1 as its trigger, and only a reactive phase has one. Make its shape reactive, or drop the trigger.",
+            problems.single().sentence,
+        )
+    }
+
+    @Test
+    fun `a reactive phase that names no trigger is refused`() {
+        val problems = set(listOf(twoPhases[0], reactive(after = null))).problems(Fake(), LoadPlan.Surface.CLI)
+
+        assertEquals(listOf(2, 2), problems.map { it.phase }, problems.toString())
+        assertEquals(
+            "it is reactive and names no phase to react to. A reactive phase issues one message for each " +
+                "message an earlier phase issued, so it has to say which.",
+            problems.first().sentence,
+        )
+    }
+
+    /**
+     * Bounds before order, because "phase 5 runs after it" is true of a phase that does not exist and
+     * useless to hear. The set says how many phases it has instead.
+     */
+    @Test
+    fun `a trigger the set has no phase for is refused by the count, not by the order`() {
+        val problems = set(listOf(twoPhases[0], reactive(after = 5))).problems(Fake(), LoadPlan.Surface.CLI)
+
+        assertEquals(
+            "it reacts to phase 5, and the set has 2 phases. Name a phase that runs before it.",
+            problems.first { it.phase == 2 }.sentence,
+            problems.toString(),
+        )
+    }
+
+    /** "which runs after it" is not true of a phase reacting to itself, so the self case says its own. */
+    @Test
+    fun `a phase reacting to itself, and one reacting to a phase that runs later, each say why`() {
+        val itself = set(listOf(twoPhases[0], reactive(after = 2))).problems(Fake(), LoadPlan.Surface.CLI)
+        val later =
+            set(listOf(twoPhases[0], reactive(after = 3), twoPhases[1].copy(label = "Last")))
+                .problems(Fake(), LoadPlan.Surface.CLI)
+
+        assertEquals(
+            "it reacts to itself, and nothing would ever fire it. Name a phase that runs before it.",
+            itself.first { it.phase == 2 }.sentence,
+            itself.toString(),
+        )
+        assertEquals(
+            "it reacts to phase 3, which runs after it. Name a phase that runs before it.",
+            later.first { it.phase == 2 }.sentence,
+            later.toString(),
+        )
+    }
+
+    /** A parked phase issues nothing, so nothing it would have issued can fire the phase waiting on it. */
+    @Test
+    fun `a phase reacting to a muted phase is refused, and reading its capture does not say so twice`() {
+        val phases =
+            listOf(
+                twoPhases[0].copy(capture = mapOf("quoteId" to 117), muted = true),
+                reactive(after = 1).copy(template = "hit"),
+            )
+        val resolve = Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "hit" to hitByCapture))
+
+        val problems = set(phases).problems(resolve, LoadPlan.Surface.CLI)
+
+        assertEquals(
+            listOf(
+                "it reacts to phase 1 · Ask for a quote, and that phase is muted. Unmute it, or nothing will ever fire this one.",
+                notYet,
+            ),
+            problems.map { it.sentence },
+            "one mistake with one remedy, so the muted-capture sentence is not printed as well",
+        )
+    }
+
+    /** A ceiling has to be a rate or nothing at all, and only a dialog has a field to leave empty. */
+    @Test
+    fun `a cap that is not a rate is refused, in each surface's own words`() {
+        val phases = listOf(twoPhases[0], reactive(after = 1, cap = 0))
+
+        val cli = set(phases).problems(Fake(), LoadPlan.Surface.CLI)
+        val dialog = set(phases).problems(Fake(), LoadPlan.Surface.DIALOG)
+
+        assertEquals(
+            "it is capped at 0/s, which is not a rate. Give it a number above zero, or take \"cap\" out of the phase in the set file.",
+            cli.first { it.phase == 2 }.sentence,
+            cli.toString(),
+        )
+        assertEquals(
+            "it is capped at 0/s, which is not a rate. Give it a number above zero, or leave the cap empty.",
+            dialog.first { it.phase == 2 }.sentence,
+        )
+    }
+
+    /**
+     * **R17.** Phases 2 and 3 both reacting to phase 1 is a real race, not a tidiness rule: phase 1's
+     * match for message 7 fires them both at once, so phase 2's reply for 7 has not landed and its
+     * capture for 7 is not there for phase 3 to read.
+     */
+    @Test
+    fun `a reactive phase reading a sibling's capture is refused, and not told that nothing seeds it`() {
+        val resolve =
+            Fake(
+                mapOf(
+                    "RFQ Load QuoteRequest" to quoteRequest,
+                    "RFQ Load QuoteResponse" to quoteResponse,
+                    "hit" to hitByCapture,
+                ),
+            )
+        val siblings =
+            listOf(
+                twoPhases[0],
+                reactive(after = 1).copy(label = "Keep the quote", capture = mapOf("quoteId" to 117)),
+                reactive(after = 1).copy(label = "Hit the quote", template = "hit"),
+            )
+
+        val problems = set(siblings).problems(resolve, LoadPlan.Surface.CLI)
+
+        assertEquals(
+            "the template reads \${quoteId}, and phase 2 keeps it, which is not this phase's trigger nor one " +
+                "of its trigger's own. A reactive phase fires as its trigger's replies land, so nothing says " +
+                "phase 2 has answered for the same message yet. React to phase 2 instead of phase 1, or read " +
+                "a name its trigger keeps.",
+            problems.first { it.phase == 3 && it.sentence != notYet }.sentence,
+            problems.toString(),
+        )
+        assertTrue(problems.none { "nothing seeds" in it.sentence }, "one mistake, one sentence: $problems")
+    }
+
+    /** The chain is what R17 permits: a trigger's captures, and everything its trigger could itself read. */
+    @Test
+    fun `a reactive phase reads what its trigger keeps, and what its trigger's own trigger kept`() {
+        val resolve =
+            Fake(mapOf("RFQ Load QuoteRequest" to quoteRequest, "hit" to hitByCapture, "keep" to quoteResponse))
+        val chain =
+            listOf(
+                twoPhases[0].copy(capture = mapOf("quoteId" to 117)),
+                reactive(after = 1).copy(label = "Keep the quote", template = "keep"),
+                reactive(after = 2).copy(label = "Hit the quote", template = "hit"),
+            )
+
+        val problems = set(chain).problems(resolve, LoadPlan.Surface.CLI)
+
+        assertEquals(listOf(notYet, notYet), problems.map { it.sentence }, problems.toString())
     }
 
     @Test

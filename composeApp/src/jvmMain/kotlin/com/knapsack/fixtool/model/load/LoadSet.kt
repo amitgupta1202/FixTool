@@ -142,6 +142,7 @@ data class LoadSet(
             }
             if (!spec.muted) {
                 captureProblems(spec, index, claimed).forEach { found += Problem(n, it) }
+                triggerProblems(spec, index, surface).forEach { found += Problem(n, it) }
                 // A name is readable in this phase when the set seeds it, a lane hands it over, or an
                 // EARLIER LIVE phase captured it. A capture in this phase or a later one is a different
                 // mistake, and so is one an earlier phase keeps and is muted, and each sentence below says
@@ -151,20 +152,24 @@ data class LoadSet(
                 // they were seeded: a name that IS captured, only in the wrong order or by a phase nothing
                 // will run, is not a name nothing seeds, and printing both sentences reads as two faults
                 // with two remedies for one mistake.
-                val earlier =
+                val earlier = readableAt(index)
+                // Kept by an earlier live phase and still out of reach, which only a reactive phase can be
+                // in: its own siblings' captures. Handed to templateProblems with the rest for the same
+                // reason [tooLate] is, so one mistake gets one sentence.
+                val outOfAncestry =
                     phases
                         .take(index)
                         .filterNot { it.muted }
                         .flatMap { it.capture.keys }
-                        .toSet()
+                        .toSet() - earlier
                 val tooLate = phases.drop(index).flatMap { it.capture.keys }.toSet()
                 val unresolved = template.readsThatAreNotSeeded(seed.keys + earlier)
                 val parked = parkedCaptures(index, unresolved)
                 val spokenFor = parked.values.flatten().toSet()
                 LoadPlan
-                    .templateProblems(template, seed.keys + earlier + tooLate + spokenFor, surface)
+                    .templateProblems(template, seed.keys + earlier + tooLate + spokenFor + outOfAncestry, surface)
                     .forEach { found += Problem(n, it) }
-                unresolved.filter { it in tooLate && it !in spokenFor }.forEach { name ->
+                unresolved.filter { it in tooLate && it !in spokenFor && it !in outOfAncestry }.forEach { name ->
                     found +=
                         Problem(
                             n,
@@ -172,7 +177,13 @@ data class LoadSet(
                                 "Add a capture to a phase before it, or seed it.",
                         )
                 }
+                unresolved.filter { it in outOfAncestry }.forEach { name ->
+                    found += Problem(n, outOfAncestrySentence(name, index, spec.after))
+                }
                 parked.forEach { (before, names) ->
+                    // A phase that reacts to a muted phase AND reads its captures made one mistake with one
+                    // remedy, and [triggerProblems] has already said "unmute it" for this very phase.
+                    if (before == spec.after) return@forEach
                     found += Problem(n, mutedCaptureSentence(names, before, phases[before - 1].label, surface))
                 }
                 spec.capture.keys.forEach { claimed[it] = n }
@@ -187,6 +198,100 @@ data class LoadSet(
             }
         }
         return found
+    }
+
+    /**
+     * **What is wrong with one phase's trigger**, in the phase's voice.
+     *
+     * Every sentence starts with "it", because [Problem.describe] has already put "Phase 3 · Hit every
+     * answer:" in front of it. The bounds case is asked before the order case, so a set of three phases
+     * whose phase 2 reacts to phase 5 is told the set has three phases rather than that phase 5 runs
+     * after it, which is true of a phase that does not exist and useless to hear.
+     *
+     * `after` on a burst or a rate is refused rather than ignored. This tool does not keep a setting a
+     * surface accepted and then quietly dropped, and the codec writes it either way.
+     */
+    private fun triggerProblems(spec: LoadPhaseSpec, index: Int, surface: LoadPlan.Surface): List<String> {
+        val n = index + 1
+        val reactive = spec.shape as? LoadShape.Triggered
+        val after = spec.after
+        if (reactive == null) {
+            return listOfNotNull(
+                after?.let {
+                    "it names phase $it as its trigger, and only a reactive phase has one. " +
+                        "Make its shape reactive, or drop the trigger."
+                },
+            )
+        }
+        return listOfNotNull(
+            when {
+                after == null ->
+                    "it is reactive and names no phase to react to. A reactive phase issues one message for " +
+                        "each message an earlier phase issued, so it has to say which."
+                after < 1 || after > phases.size ->
+                    "it reacts to phase $after, and the set has ${phases.size} phases. " +
+                        "Name a phase that runs before it."
+                after == n -> "it reacts to itself, and nothing would ever fire it. Name a phase that runs before it."
+                after > n -> "it reacts to phase $after, which runs after it. Name a phase that runs before it."
+                phases[after - 1].muted ->
+                    "it reacts to phase $after · ${phases[after - 1].label}, and that phase is muted. " +
+                        "Unmute it, or nothing will ever fire this one."
+                else -> null
+            },
+            reactive.cap
+                ?.takeIf { it <= 0 }
+                ?.let { "it is capped at $it/s, which is not a rate. ${surface.capRemedy}" },
+            // #46 step 2 builds the shape, the trigger and these refusals, and nothing runs one yet. This
+            // is what keeps a set carrying a reactive phase from opening a lane before finding that out,
+            // rather than throwing out of the pacer after logon, which is not a refusal. It goes when the
+            // trigger itself lands.
+            "it is reactive, and this version of FixTool cannot run a reactive phase yet. Give it a burst or a rate.",
+        )
+    }
+
+    /**
+     * **Every capture name this phase may read**, which for a reactive phase is not every earlier one.
+     *
+     * A paced phase reads what every earlier live phase kept, because a paced phase runs after them. A
+     * reactive phase reads only what its trigger kept and what its trigger could itself read, and that is
+     * a real race rather than a tidiness rule: with phases 2 and 3 both reacting to phase 1, phase 1's
+     * match for message 7 fires phase 3 at the same moment it fires phase 2, so phase 2's reply for 7 has
+     * not landed and its capture for 7 is not there to read.
+     *
+     * A phase whose trigger does not exist or runs later is judged as a paced phase would be, because it
+     * is already being refused for the trigger and a second sentence about a scope it does not have would
+     * be two refusals for one mistake.
+     */
+    private fun readableAt(index: Int): Set<String> {
+        val spec = phases[index]
+        val earlierLive =
+            phases
+                .take(index)
+                .filterNot { it.muted }
+                .flatMap { it.capture.keys }
+                .toSet()
+        if (spec.shape !is LoadShape.Triggered) return earlierLive
+        val after = spec.after?.takeIf { it in 1..index } ?: return earlierLive
+        val trigger = phases[after - 1]
+        // A muted trigger keeps nothing anybody may read, which is what mutedCaptureSentence is for. Its
+        // own ancestry is still in scope: the phases before it ran, whatever became of it.
+        return (if (trigger.muted) emptySet() else trigger.capture.keys.toSet()) + readableAt(after - 1)
+    }
+
+    /**
+     * "the template reads ${quoteId}, which phase 2 keeps, and this phase reacts to phase 1 …"
+     *
+     * The house opening, because the mistake is what the template reads, and the phase that keeps the name
+     * by number because that is the phase whose trigger the author has to choose between. Named rather
+     * than "an earlier phase", since "no earlier phase captures it" would be a lie about a name an earlier
+     * phase plainly captures.
+     */
+    private fun outOfAncestrySentence(name: String, index: Int, after: Int?): String {
+        val keeper = phases.take(index).indexOfFirst { !it.muted && name in it.capture.keys } + 1
+        return "the template reads \${$name}, and phase $keeper keeps it, which is not this phase's trigger " +
+            "nor one of its trigger's own. A reactive phase fires as its trigger's replies land, so nothing " +
+            "says phase $keeper has answered for the same message yet. React to phase $keeper instead of " +
+            "phase $after, or read a name its trigger keeps."
     }
 
     /**

@@ -105,13 +105,28 @@ data class LoadPlan(
          * borrow [seedRemedy], which is a whole sentence about one of them.
          */
         internal val scopeRemedy: (Boolean) -> String,
+        /**
+         * How to be rid of a value this surface offered, for the reactive cap, which is a ceiling and not
+         * a schedule and so has to be a rate or nothing at all. "Untick it" is dialog vocabulary and a set
+         * file has no ticks to untick, which is the whole reason a remedy follows its surface.
+         */
+        internal val capRemedy: String,
     ) {
-        DIALOG({ "Add $it=… under Seed." }, { if (it) "add them under Seed" else "add it under Seed" }),
+        DIALOG(
+            { "Add $it=… under Seed." },
+            { if (it) "add them under Seed" else "add it under Seed" },
+            "Give it a number above zero, or leave the cap empty.",
+        ),
         CLI(
             { "Pass --seed $it=… on the command line, or capture it in an earlier phase of a set." },
             { if (it) "seed them with --seed" else "seed it with --seed" },
+            "Give it a number above zero, or take \"cap\" out of the phase in the set file.",
         ),
-        API({ "Add \"$it\" to the request's seed object." }, { if (it) "seed them" else "seed it" }),
+        API(
+            { "Add \"$it\" to the request's seed object." },
+            { if (it) "seed them" else "seed it" },
+            "Give it a number above zero, or leave \"cap\" out of the phase.",
+        ),
     }
 
     companion object {

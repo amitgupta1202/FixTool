@@ -1929,6 +1929,11 @@ class ControlServer(
             if (muted > 0) put("muted", muted)
             val profiles = set.phases.map { it.profile }.distinct()
             put("profiles", buildJsonArray { profiles.forEach { add(it) } })
+            // What each phase will do, in the words every other surface prints. A count told an agent what
+            // a set was worth reading until a phase could be reactive: "reactive · after phase 1" is the
+            // only thing that says a set is a chain rather than three blocks, and a row with a count and a
+            // phase total says nothing about it at all.
+            put("plans", buildJsonArray { set.phases.forEach { add(it.describe()) } })
         }
 
     /**

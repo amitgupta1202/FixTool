@@ -235,12 +235,54 @@ class ControlServerLoadIntegrationTest {
         assertEquals(listOf("LOADGEN"), row["profiles"]!!.jsonArray.map { it.jsonPrimitive.content })
 
         assertNull(row["muted"], "a set with nothing parked reads exactly as it did")
+        assertEquals(
+            2,
+            row["plans"]!!.jsonArray.size,
+            "the row says what each phase will do, because a count says nothing about the shape of one",
+        )
 
         val whole = obj(get("/load-sets/round-trip"))
         assertEquals("Round trip", whole["label"]!!.jsonPrimitive.content)
         assertEquals(2, whole["phases"]!!.jsonArray.size)
 
         assertEquals(404, get("/load-sets/nowhere").statusCode())
+    }
+
+    /**
+     * **A reactive set is a chain, and a phase count cannot say so.**
+     *
+     * `GET /load-sets` had a name, a label, a phase count and the profiles, all of which a three-block set
+     * and a three-link chain answer identically. The plan line is the one thing that tells them apart, and
+     * it is the same line the dialog's phase row and the set file's own reader print.
+     */
+    @Test
+    fun `a load set row says what each phase will do, so a reactive one reads as a chain`() {
+        viewModel.loadSetStore.save(
+            LoadSet(
+                name = "reactive",
+                label = "Reactive",
+                storeAndLog = StoreAndLogOverride.FOR_LOAD,
+                phases =
+                    listOf(
+                        LoadPhaseSpec("Ask for a quote", "Quotes", "LOADGEN", match = LoadMatch(131, 131, "S"), shape = LoadShape.Burst(200)),
+                        LoadPhaseSpec(
+                            "Quote it",
+                            "Hits",
+                            "LOADGEN",
+                            match = LoadMatch(117, 117, "AI"),
+                            shape = LoadShape.Triggered(200),
+                            after = 1,
+                        ),
+                    ),
+            ),
+        )
+
+        val row = obj(get("/load-sets"))["sets"]!!.jsonArray.single().jsonObject
+        val plans = row["plans"]!!.jsonArray
+
+        assertTrue(plans[0].jsonPrimitive.content.contains("×200"), plans.toString())
+        assertTrue(plans[1].jsonPrimitive.content.contains("reactive, capped 200/s"), plans.toString())
+        assertTrue(plans[1].jsonPrimitive.content.contains("after phase 1"), plans.toString())
     }
 
     /** So an agent reading the list knows the set will run two of its three before it starts one. */

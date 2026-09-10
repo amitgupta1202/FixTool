@@ -20,6 +20,14 @@ class Pacer(
     private val shape: LoadShape,
     private val lanes: Int,
     private val clock: Clock = Clock.SYSTEM,
+    /**
+     * **How many messages the plan asks for**, which a reactive shape cannot answer on its own.
+     *
+     * A burst counts its own and a rate multiplies two numbers it is holding, so for those the default
+     * is the whole answer. A reactive phase issues one message per message its trigger issued, and only
+     * `LoadPlan.requested` has that, so the plan hands it over rather than the shape being asked.
+     */
+    private val requested: Long = shape.ownCount ?: 0L,
 ) {
     /** Time, and the wait for a mark. Replaceable so a test can stall it and read the shortfall back. */
     interface Clock {
@@ -88,17 +96,66 @@ class Pacer(
     }
 
     /**
+     * **One message a reactive phase is handed**, on the lane it belongs to, already rendered.
+     *
+     * A reactive pacer chooses neither the index nor the moment, because its trigger's replies do. So it
+     * is handed finished messages rather than asked to fetch one by index, and the lane comes with the
+     * message because the index alone no longer says which lane it is: see [Reactive].
+     */
+    data class Ready(
+        val laneIndex: Int,
+        val rendered: CompiledTemplate.Rendered,
+        /**
+         * **False for an index no trigger ever released**, which is counted and never dated.
+         *
+         * Those all arrive together, when the trigger says nothing more is coming, and for a reactive
+         * phase that is after its trigger's whole settle window. Dating them would stretch the
+         * per-second histogram from the last real send to that close, and every idle second in between
+         * would be reported as a second the cap was starved in. They are messages that never happened,
+         * so they move no clock. See [Tally.count].
+         */
+        val fired: Boolean = true,
+    )
+
+    /**
+     * **What a reactive phase issues from and to.**
+     *
+     * [run]'s `issue` cannot serve. It is handed the index the pacer chose, and a reactive pacer chooses
+     * none: its messages arrive already rendered, in the order their triggers landed and their lanes
+     * finished with them. [RenderOnTrigger] is what fills this from the other side.
+     */
+    interface Reactive {
+        /** The next message, or null once nothing more is coming. Blocks until one or the other. */
+        fun next(): Ready?
+
+        /** Hands one to the engine, as `issue` does for a paced phase, and says what became of it. */
+        fun hand(ready: Ready): Issued
+    }
+
+    /**
      * Issues the whole plan. [issue] is handed the lane index and the 1-based message index, renders and
      * sends, and answers whether the engine accepted the message.
+     *
+     * [reactive] is the other half of that job, for a triggered shape, which is released by its trigger's
+     * replies rather than by a schedule and so is handed messages instead of asked for them.
      */
-    fun run(issue: (laneIndex: Int, messageIndex: Int) -> Issued, cancelled: () -> Boolean): IssueStats =
+    fun run(
+        issue: (laneIndex: Int, messageIndex: Int) -> Issued,
+        cancelled: () -> Boolean,
+        reactive: Reactive? = null,
+    ): IssueStats =
         when (shape) {
             is LoadShape.Burst -> burst(shape.count, issue, cancelled)
             is LoadShape.Rate -> rate(shape, issue, cancelled)
-            // A reactive phase is released by its trigger's replies and not by a schedule, so it has no
-            // pacer yet. Nothing reaches this: LoadSet.problems() refuses a reactive phase before a lane
-            // is opened, and a throw here would land after logon, which is not a refusal.
-            is LoadShape.Triggered -> error("a reactive phase has no pacer yet")
+            is LoadShape.Triggered ->
+                triggered(
+                    shape,
+                    requireNotNull(reactive) {
+                        "a reactive phase is released by its trigger's replies, and nothing was handed over " +
+                            "to read them from"
+                    },
+                    cancelled,
+                )
         }
 
     private fun burst(count: Int, issue: (Int, Int) -> Issued, cancelled: () -> Boolean): IssueStats {
@@ -127,6 +184,39 @@ class Pacer(
         return tally.finish(stopped = false, perSecond = shape.perSecond)
     }
 
+    /**
+     * **A reactive phase: one message per trigger, in the order the triggers landed.**
+     *
+     * There is no schedule, so there is no lag and there is no shortfall, and [Tally.finish] is asked for
+     * no rate at all, which is what keeps `shortfalls` empty for a shape that could never be behind one.
+     *
+     * [LoadShape.Triggered.cap] is a ceiling and never a target. A token falls due every `1/cap` seconds
+     * and a message is released at the later of now and that token, so a phase whose triggers arrive
+     * more slowly than the cap allows simply sits under it. One series of tokens covers every lane,
+     * which one issuing thread gives free: the cap is a number about the phase and not about a lane.
+     *
+     * The wait is [Clock.awaitUntil], the same one a rate holds its schedule with, so a test can stall
+     * it and read back exactly what a cap released and when.
+     */
+    private fun triggered(shape: LoadShape.Triggered, reactive: Reactive, cancelled: () -> Boolean): IssueStats {
+        val tally = Tally(requested)
+        val interval = shape.cap?.takeIf { it > 0 }?.let { NANOS_PER_SECOND / it }
+        var nextToken = Long.MIN_VALUE
+        while (true) {
+            if (cancelled()) return tally.finish(stopped = true, perSecond = 0)
+            val ready = reactive.next() ?: break
+            if (interval != null && ready.fired) {
+                val at = maxOf(clock.nanoTime(), nextToken)
+                clock.awaitUntil(at)
+                nextToken = at + interval
+            }
+            val issued = reactive.hand(ready)
+            // An index nothing ever fired is counted where it belongs and dated nowhere: see Ready.fired.
+            if (ready.fired) tally.record(issued, clock.nanoTime(), lagNanos = 0) else tally.count(issued)
+        }
+        return tally.finish(stopped = cancelled(), perSecond = 0)
+    }
+
     /** The running counts, and the per-second histogram, kept off the hot path's allocations. */
     private class Tally(
         private val requested: Long,
@@ -139,12 +229,24 @@ class Pacer(
         private var maxLag = 0L
         private var perSecond = IntArray(INITIAL_SECONDS)
 
-        fun record(issued: Issued, nowNanos: Long, lagNanos: Long) {
+        /**
+         * **A message the plan asked for, counted and nothing else.**
+         *
+         * What a reactive phase does with an index no trigger ever released. [record] would date it as
+         * well, and those all arrive at once when the trigger's window closes, so the histogram would be
+         * sized through that close and every idle second since the last real send would come back as a
+         * second the cap was starved in. See [Ready.fired].
+         */
+        fun count(issued: Issued) {
             when (issued) {
                 Issued.HANDED -> handed++
                 Issued.REFUSED -> failed++
                 Issued.UNADDRESSABLE -> unaddressable++
             }
+        }
+
+        fun record(issued: Issued, nowNanos: Long, lagNanos: Long) {
+            count(issued)
             if (first == null) first = nowNanos
             last = nowNanos
             if (lagNanos > maxLag) maxLag = lagNanos

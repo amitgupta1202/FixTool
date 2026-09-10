@@ -765,7 +765,9 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
         <li><strong>Burst or rate.</strong> <code>--count 4000</code> issues four thousand as fast as the lanes
             carry them. <code>--rate 500/s --for 10m</code> issues on a schedule the run never skips: a message
             that could not go on time goes as soon as it can, and the report says where the run fell behind and
-            by how much.</li>
+            by how much. Those are the two shapes a single run has. A phase of a
+            <a href="#load-sets">load set</a> has a third, <strong>reactive</strong>, which takes its volume
+            from the phase it reacts to and so has nothing a single run could ever fire it with.</li>
         <li><strong>Per-message values.</strong> <code>11=ORD-${run}-${messageIndex}</code> gives every message
             its own ClOrdID, with <code>run</code> seeded by <code>--set run=b7f2</code> so a second run can
             address what the first created. <code>${uuid}</code> and <code>${utcnow}</code> render per message.
@@ -817,6 +819,42 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             phase should have kept it. If the venue answers without the tag, the later phase cannot address that
             message: it is <strong>not sent</strong>, counted by index and name, and the phase fails, because the
             bar is every requested message answered and a message nobody asked is a hole in the proof.</li>
+        <li><strong>A phase can react to the one before it.</strong> Phases run in order by default: 200
+            QuoteRequests, then the whole settle window, then 200 Quotes, then 200 QuoteResponses. That is three
+            blocks and it measures three legs separately. A <strong>reactive</strong> phase instead issues
+            <em>one message for each reply the phase it reacts to is given, as that reply lands</em>, so the
+            three blocks become 200 chains, each one running at the venue's own speed.
+            <strong>Reactive does not make a set faster.</strong> With four of 200 QuoteRequests unanswered,
+            phase 1's settle window still runs its full 60 seconds. What it changes is that the 196 chains that
+            worked finish in the first 200ms instead of a minute later, and that the report can say what one
+            whole journey cost: the <strong>chain</strong> block gives the round trip leg by leg, with the
+            handover between them, which staged phases cannot measure because nothing in them is one journey.</li>
+        <li><strong>What a reactive phase takes from its trigger.</strong> Its count and its message indices,
+            both. It asks for no number of its own, and it has no <em>from N</em>, because the message it
+            answers is at its trigger's index, which is what keeps <code>${messageIndex}</code> lining up along
+            the whole chain. <strong>Phase 1 can never be reactive</strong>, since nothing runs before it, so
+            the volume of a whole chain is set once by the first phase and inherited from there. It reads only
+            what its trigger kept and what its trigger could itself read, and never a sibling's captures: with
+            two phases both reacting to phase 1, phase 1's match fires them at the same moment, so neither has
+            answered for the other yet. A message whose trigger never fired is
+            <strong>unaddressable</strong>: it is not sent, counted by index, and the phase is
+            <strong>incomplete</strong>, exactly as a missing capture is.</li>
+        <li><strong>A cap is a ceiling, never a schedule.</strong> A reactive phase can be held to a number of
+            messages a second, aggregate across every lane, and the tick in the dialog says
+            <em>never above</em>. Sitting under it is the normal, healthy case and is
+            <strong>never a shortfall</strong>: it means triggers arrived more slowly than the ceiling, which is
+            the venue's answer and not the run's failure. So a capped phase gets its own verdict,
+            <strong>CAPPED</strong>, rather than being judged against the cap as a rate is judged against its
+            schedule, the chart draws the ceiling and paints no second red for being under it, and Compare will
+            not rank one capped run against another.</li>
+        <li><strong>Authoring one.</strong> In <strong>Load sets&hellip;</strong>, open a phase from the second
+            on and the Shape segment offers <em>Burst</em>, <em>Rate</em> and <em>Reactive</em>. Reactive swaps
+            the count for two rows: <strong>Reacts to</strong>, a picker naming each earlier phase the way every
+            refusal does, <code>1 · Ask for a quote</code>, and <strong>Speed</strong>, whose <em>never above</em>
+            tick is the optional ceiling. In the file it is
+            <code>"shape": { "kind": "triggered", "cap": 200 }</code> with <code>"after": 1</code> beside it, and
+            <code>fixtool load --set</code> runs it with no flag of its own, because the shape is in the file and
+            there is no count to pass.</li>
         <li><strong>A phase can be muted.</strong> The <em>mute</em> chip on a phase row parks it: it keeps its
             template, its profile, its shape and its place in the order, and the set skips it on every run, opening
             no lane of its profile and judging nothing about it. Any phase, not only the last, because the set knows

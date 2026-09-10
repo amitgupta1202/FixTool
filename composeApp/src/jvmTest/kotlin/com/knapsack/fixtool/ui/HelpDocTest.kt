@@ -196,6 +196,42 @@ class HelpDocTest {
         assertTrue(missing.isEmpty(), "the scenarios chapter no longer says: $missing")
     }
 
+    /**
+     * The load-sets chapter's *reactive* half, pinned the way the acceptor chapter's is: by the facts an
+     * author gets wrong at a cost, not by the sentences that carry them.
+     *
+     * The costly ones are all about expectation. Somebody who reads "reactive" as "faster" will run one to
+     * shorten a soak and find it took exactly as long. Somebody who reads a cap as a rate will read every
+     * healthy run as red. And a phase 1 that cannot be reactive is the first thing anybody tries.
+     */
+    @Test
+    fun `the load sets chapter states what a reactive phase is for`() {
+        val chapter = html.substringAfter("""id="load-sets"""").substringBefore("""<h3 id="quick-connect"""")
+
+        val claims =
+            mapOf(
+                "a reactive phase fires per reply, as the reply lands" to
+                    "one message for each reply the phase it reacts to is given, as that reply lands",
+                "it is not a way to make a set faster" to "Reactive does not make a set faster",
+                "what it buys is the chain, measured end to end" to "the round trip leg by leg",
+                "the count and the indices are the trigger's" to "Its count and its message indices",
+                "phase 1 can never be reactive" to "Phase 1 can never be reactive",
+                "a sibling's captures are out of reach" to "never a sibling's captures",
+                "a trigger that never fired leaves a message unsent" to "unaddressable",
+                // The one that turns every healthy reactive run red if it is read as a rate.
+                "a cap is a ceiling and being under it is not a shortfall" to "never a shortfall",
+                "so a capped phase gets its own verdict" to "CAPPED",
+                "the third option is on the Shape segment, from phase 2 on" to "from the second",
+                "the picker names a phase the way the refusals do" to "1 · Ask for a quote",
+                "the file spells it triggered, beside after" to "\"kind\": \"triggered\"",
+                "the CLI needs no flag for it" to "runs it with no flag of its own",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the load sets chapter no longer says: $missing")
+    }
+
     /** The trace chapter, by what makes a trace different from a search box with a regex in it. */
     @Test
     fun `the trace chapter states what following an exchange does`() {

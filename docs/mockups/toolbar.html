@@ -1,0 +1,1108 @@
+<meta charset="utf-8">
+<title>Every Button in Its Place</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    /* The page: an editorial note, the same tokens as run-menu.html so the notes read as one series. */
+    --ground: #eef0f3;
+    --card: #ffffff;
+    --ink: #191c21;
+    --muted: #5b6570;
+    --faint: #8a939e;
+    --rule: #d7dce3;
+    --accent: #2f6fb0;
+    --accent-soft: #e3ecf6;
+    --good: #3f7d33;
+    --bad: #b8342f;
+    --warn: #9a6a1c;
+    --warn-soft: #f6edd9;
+
+    /* The app's own chrome, fixed in both page themes, because FixTool ships one dark palette
+       (Theme.kt has no light set). These panels are the tool, not the page. */
+    --app-bg: #1e1e1e;
+    --app-surface: #2b2b2b;
+    --app-variant: #252525;
+    --app-header: #202020;
+    --app-text: #e0e0e0;
+    --app-text2: #b0b0b0;
+    --app-dim: #6a6a6a;
+    --app-rule: #3a3a3a;
+    --app-border2: #555555;
+    --app-good: #98c379;
+    --app-warn: #ce9178;
+    --app-bad: #e06c75;
+    --app-info: #61afef;
+    --app-teal: #4ec9b0;
+    --app-field: #9cdcfe;
+    --app-tag: #dcdcaa;
+
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --col: 40rem;
+    --wide: 64rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14171a;
+      --card: #1b1f23;
+      --ink: #e3e7eb;
+      --muted: #98a2ad;
+      --faint: #737d88;
+      --rule: #2a3138;
+      --accent: #61afef;
+      --accent-soft: #1d2a36;
+      --good: #98c379;
+      --bad: #e06c75;
+      --warn: #d9a75a;
+      --warn-soft: #2b2518;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14171a;
+    --card: #1b1f23;
+    --ink: #e3e7eb;
+    --muted: #98a2ad;
+    --faint: #737d88;
+    --rule: #2a3138;
+    --accent: #61afef;
+    --accent-soft: #1d2a36;
+    --good: #98c379;
+    --bad: #e06c75;
+    --warn: #d9a75a;
+    --warn-soft: #2b2518;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+  }
+
+  .col { max-width: var(--col); }
+
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.75rem; margin-bottom: 2.25rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+    font-size: clamp(2rem, 5.5vw, 2.9rem);
+    line-height: 1.05;
+    margin: 0 0 0.9rem;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: 1.14rem;
+    color: var(--muted);
+    margin: 0;
+    max-width: 34rem;
+  }
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-size: 1.6rem;
+    line-height: 1.2;
+    margin: 3.25rem 0 0.9rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.09rem;
+    letter-spacing: -0.012em;
+    margin: 2.25rem 0 0.6rem;
+  }
+
+  p { margin: 0 0 1rem; max-width: var(--col); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  code, .m { font-family: var(--mono); font-size: 0.86em; }
+
+  p code, li code, figcaption code, td code {
+    background: var(--accent-soft);
+    padding: 0.06em 0.32em;
+    border-radius: 2px;
+  }
+
+  ul.prose, ol.prose { max-width: var(--col); padding-left: 1.2rem; margin: 0 0 1.2rem; }
+  ul.prose li, ol.prose li { margin-bottom: 0.45rem; }
+
+  /* ---------- figures and the app panel ---------- */
+
+  figure { margin: 1.5rem 0 2.25rem; }
+
+  figcaption {
+    font-size: 0.93rem;
+    color: var(--muted);
+    max-width: 46rem;
+    margin-top: 0.7rem;
+    line-height: 1.55;
+  }
+
+  /* The tool. Dark in both page themes, on purpose. */
+  .screen {
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: var(--sans);
+    color: var(--app-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  }
+
+  .screen.narrow { max-width: 620px; }
+  .screen.mid { max-width: 800px; }
+  .screen.win { max-width: 900px; }
+
+  .scrollhint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--app-dim);
+    border-top: 1px dashed var(--app-rule);
+    padding: 3px 9px;
+    text-align: center;
+  }
+
+  .sub { color: var(--app-dim); font-size: 10.5px; }
+
+  .side { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .side > div { min-width: 260px; }
+
+  .cbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--app-text2);
+  }
+
+  .cbox i {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--app-border2);
+    border-radius: 2px;
+    display: inline-block;
+    flex: none;
+    position: relative;
+    background: var(--app-surface);
+  }
+
+  .cbox.on { color: var(--app-text); }
+  .cbox.on i { background: #35443f; border-color: #3d6b60; }
+
+  .cbox.on i::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 5px;
+    width: 6px;
+    height: 3px;
+    border-left: 1.5px solid var(--app-teal);
+    border-bottom: 1.5px solid var(--app-teal);
+    transform: rotate(-45deg);
+  }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--app-text2);
+    background: transparent;
+    border: 1px solid var(--app-rule);
+    border-radius: 999px;
+    padding: 2px 8px;
+    cursor: default;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .chip.on { color: var(--app-teal); border-color: #3d6b60; background: #26332f; }
+
+  .seg { display: inline-flex; border: 1px solid var(--app-border2); border-radius: 3px; overflow: hidden; }
+
+  .seg span {
+    font-size: 11px;
+    padding: 2px 9px;
+    color: var(--app-text2);
+    background: var(--app-surface);
+    cursor: default;
+    white-space: nowrap;
+  }
+
+  .seg span + span { border-left: 1px solid var(--app-border2); }
+  .seg span.on { background: #35443f; color: var(--app-teal); font-weight: 500; }
+
+  .legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 10.5px;
+    color: var(--app-dim);
+    align-items: center;
+  }
+
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  .edge { display: flex; flex-direction: column; gap: 16px; }
+  .edge > .one { display: flex; flex-direction: column; gap: 5px; }
+
+  .edge .cap {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  /* ---------- menus ---------- */
+
+  .menu {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border2);
+    border-radius: 3px;
+    padding: 3px 0;
+    width: 268px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+
+  .menu .mi { padding: 4px 10px; font-size: 11.5px; color: var(--app-text); display: flex; gap: 8px; align-items: baseline; }
+  .menu .mi .ct { font-family: var(--mono); font-size: 10px; color: var(--app-dim); margin-left: auto; }
+  .menu .mi.off { color: var(--app-dim); }
+  .menu .mi.on { background: #2d5a8c; }
+  .menu .mi .mk { width: 11px; flex: none; color: var(--app-teal); font-size: 10px; }
+  .menu .mi .mk.blank { color: transparent; }
+  .menu .sep { height: 1px; background: var(--app-rule); margin: 3px 0; }
+  .menu .grp { padding: 4px 10px 2px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-dim); }
+
+  .tip {
+    display: inline-block; background: var(--app-surface); border: 1px solid var(--app-border2); border-radius: 3px;
+    padding: 3px 8px; font-size: 10.5px; color: var(--app-text2); font-family: var(--mono);
+  }
+
+  .tip.no { color: var(--app-warn); }
+
+  /* ---------- the toolbar strip ---------- */
+
+  .tbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--app-header);
+    border-bottom: 1px solid var(--app-rule);
+    font-family: var(--sans);
+    font-size: 11.5px;
+    color: var(--app-text2);
+    flex-wrap: wrap;
+  }
+
+  .tbar .ic {
+    width: 22px; height: 22px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center;
+    color: var(--app-text2); font-size: 12px; border: 1px solid transparent;
+  }
+
+  .tbar .ic.on { color: var(--app-text); background: var(--app-surface); border-color: var(--app-rule); }
+  .tbar .gap { width: 8px; }
+  .tbar .gap.wide { width: 26px; }
+  .tbar .vsep { width: 1px; height: 16px; background: var(--app-rule); margin: 0 4px; }
+
+  .tbar .tb {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 3px;
+    background: var(--app-surface); border: 1px solid var(--app-border2); color: var(--app-text); font-size: 11.5px;
+    white-space: nowrap;
+  }
+
+  .tbar .tb.go { color: var(--app-good); border-color: #47603a; }
+  .tbar .tb.open { border-color: var(--app-info); }
+  .tbar .tb.off { color: var(--app-dim); border-color: var(--app-rule); }
+  .tbar .tb.risk { color: var(--app-warn); border-color: #6d4a3a; }
+  .tbar .tb .chev { color: var(--app-dim); font-size: 9px; }
+  .tbar .tb .k { font-family: var(--mono); font-size: 10px; color: var(--app-dim); }
+  .tbar .filter { flex: 1; min-width: 120px; max-width: 220px; background: var(--app-surface); border: 1px solid var(--app-rule); border-radius: 3px; padding: 3px 8px; color: var(--app-dim); font-size: 11px; }
+  .tbar .fill { flex: 1; }
+
+  /* ---------- new here: kind labels under today's row ---------- */
+
+  .xscroll { overflow-x: auto; }
+  /* Scaled, not cropped: the point of this figure is the whole row read left to right. */
+  .kwrap { min-width: 1150px; zoom: 0.75; }
+
+  .tbar.kinded { flex-wrap: nowrap; align-items: flex-end; gap: 3px; padding-bottom: 4px; }
+  .tbar.kinded .ic { width: 20px; height: 20px; }
+  .tbar.kinded .filter { flex: none; width: 152px; max-width: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tbar.kinded .gap.wide { width: 16px; }
+  .tbar.kinded .gap, .tbar.kinded .vsep { align-self: center; }
+
+  .u { display: flex; flex-direction: column; align-items: stretch; gap: 3px; flex: none; }
+  .u > .ic, .u > .tb, .u > .chip, .u > .filter, .u > .cbox { align-self: center; }
+
+  .kn {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-align: center;
+    border-top: 3px solid currentColor;
+    padding-top: 2px;
+    line-height: 1;
+  }
+
+  .kn.win { color: var(--app-info); }
+  .kn.act { color: var(--app-good); }
+  .kn.view { color: var(--app-tag); }
+  .kn.filt { color: var(--app-teal); }
+  .kn.sys { color: var(--app-dim); }
+  .kn.ws { color: var(--app-warn); }
+
+  .legend.kl { padding: 9px 9px 3px; }
+  .legend.kl i.win { background: var(--app-info); }
+  .legend.kl i.act { background: var(--app-good); }
+  .legend.kl i.view { background: var(--app-tag); }
+  .legend.kl i.filt { background: var(--app-teal); }
+  .legend.kl i.sys { background: var(--app-dim); }
+  .legend.kl i.ws { background: var(--app-warn); }
+
+  .kdots { display: flex; align-items: center; gap: 3px; padding: 4px 9px 10px; flex-wrap: wrap; }
+  .kdots i { width: 9px; height: 9px; border-radius: 2px; display: block; flex: none; }
+  .kdots i.win { background: var(--app-info); }
+  .kdots i.act { background: var(--app-good); }
+  .kdots i.view { background: var(--app-tag); }
+  .kdots i.filt { background: var(--app-teal); }
+  .kdots i.sys { background: var(--app-dim); }
+
+  .kdots .lbl {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--app-dim); margin-right: 6px;
+  }
+
+  /* ---------- new here: the tool window stripes ---------- */
+
+  .frame { display: flex; align-items: stretch; height: 372px; }
+
+  .stripe { background: var(--app-header); display: flex; flex: none; }
+  .stripe.left, .stripe.right { width: 26px; flex-direction: column; align-items: stretch; gap: 3px; padding: 7px 0; }
+  .stripe.left { border-right: 1px solid var(--app-rule); }
+  .stripe.right { border-left: 1px solid var(--app-rule); }
+  .stripe.bottom { flex-direction: row; align-items: center; gap: 3px; padding: 0 7px; height: 23px; border-top: 1px solid var(--app-rule); }
+
+  .vtab {
+    display: flex; align-items: center; justify-content: center;
+    padding: 7px 3px; border: 2px solid transparent; cursor: default; flex: none;
+  }
+
+  .vtab > span { writing-mode: vertical-rl; font-size: 10px; color: var(--app-dim); white-space: nowrap; letter-spacing: 0.01em; }
+  .stripe.left .vtab > span { transform: rotate(180deg); }
+  .vtab.on { background: var(--app-surface); }
+  .vtab.on > span { color: var(--app-text); }
+  .stripe.left .vtab.on { border-left-color: var(--app-info); }
+  .stripe.right .vtab.on { border-right-color: var(--app-info); }
+
+  .htab { font-size: 10px; color: var(--app-dim); padding: 3px 9px; border: 2px solid transparent; cursor: default; }
+  .htab.on { background: var(--app-surface); color: var(--app-text); border-bottom-color: var(--app-info); }
+
+  .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .midrow { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+
+  .pan { flex: none; background: var(--app-variant); padding: 7px 8px; font-size: 10px; color: var(--app-dim); line-height: 1.5; }
+  .pan.ed { width: 112px; border-right: 1px solid var(--app-rule); }
+  .pan.det { width: 128px; border-left: 1px solid var(--app-rule); }
+  .pan .pt { color: var(--app-text); font-size: 10.5px; font-weight: 600; margin-bottom: 6px; }
+  .pan .pl { font-family: var(--mono); font-size: 9.5px; color: var(--app-dim); }
+  .pan .pv { font-family: var(--mono); font-size: 9.5px; color: var(--app-text2); margin-bottom: 4px; }
+
+  .msgarea { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .tbr { display: flex; align-items: center; background: var(--app-header); border-bottom: 1px solid var(--app-rule); padding: 0 7px; gap: 4px; }
+  .tbr .st { font-size: 10px; color: var(--app-dim); padding: 5px 8px; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .tbr .st.on { color: var(--app-text); background: var(--app-bg); border-bottom-color: var(--app-info); }
+  .tbr .rt { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+  .tbr .fun { color: var(--app-teal); font-size: 11px; }
+
+  /* The same button as the toolbar's, one size down, because the pane bar is not the toolbar. */
+  .tbr .tb {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 3px;
+    background: var(--app-surface); border: 1px solid var(--app-border2); color: var(--app-text);
+    font-size: 11px; white-space: nowrap;
+  }
+
+  .tbr .tb.open { border-color: var(--app-info); }
+  .tbr .tb .chev { color: var(--app-dim); font-size: 9px; }
+
+  .frow {
+    display: flex; align-items: center; gap: 7px;
+    background: var(--app-variant); border-bottom: 1px solid var(--app-rule);
+    padding: 4px 8px; font-size: 11px;
+  }
+
+  .frow .fun { color: var(--app-teal); font-size: 11px; flex: none; }
+  .frow .rx {
+    font-family: var(--mono); font-size: 10px; color: var(--app-field);
+    background: var(--app-surface); border: 1px solid var(--app-border2); border-radius: 3px;
+    padding: 2px 7px; flex: 1 1 auto; min-width: 70px; max-width: 240px;
+  }
+  .frow .sp { flex: 1; }
+  .frow .x { color: var(--app-dim); font-size: 10px; flex: none; }
+
+  .grid { flex: 1; min-height: 0; padding: 6px 8px; font-family: var(--mono); font-size: 9.5px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+  .grid .gr { display: flex; gap: 8px; white-space: nowrap; }
+  .grid .ts { color: var(--app-dim); }
+  .grid .dr.o { color: var(--app-info); }
+  .grid .dr.i { color: var(--app-teal); }
+  .grid .tg { color: var(--app-tag); }
+  .grid .nm { color: var(--app-text); }
+  .grid .id { color: var(--app-text2); }
+
+  /* ---------- new here: the menu bar ---------- */
+
+  .mbar {
+    display: flex; align-items: center; gap: 1px;
+    background: var(--app-header); border-bottom: 1px solid var(--app-rule);
+    padding: 3px 8px; font-size: 11.5px; color: var(--app-text2);
+    flex-wrap: wrap;
+  }
+
+  .mbar .mm { padding: 2px 7px; border-radius: 3px; white-space: nowrap; }
+  .mbar .mm.brand { color: var(--app-text); font-weight: 600; }
+  .mbar .mm.open { background: #2d5a8c; color: #eaf2fb; }
+
+  .mrow { display: flex; align-items: flex-start; padding: 8px 8px 14px 34px; gap: 0; flex-wrap: nowrap; }
+  .mrow .menu.sub2 { width: 152px; margin-top: 24px; margin-left: -3px; flex: none; }
+  .mrow > .menu:first-child { flex: none; }
+
+  /* Columns, not a grid: a grid leaves a hole under the short menus and Window is twice their height. */
+  .tree {
+    columns: 2; column-gap: 22px; padding: 12px;
+    font-family: var(--mono); font-size: 10px; line-height: 1.65; color: var(--app-text2);
+  }
+
+  .tree > div { break-inside: avoid; margin-bottom: 10px; }
+
+  .tree .tn { color: var(--app-text); font-weight: 600; letter-spacing: 0.04em; }
+  .tree ul { list-style: none; margin: 1px 0 0; padding: 0 0 0 10px; }
+  .tree li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tree .sc { color: var(--app-dim); }
+  .tree .rr { color: var(--app-rule); }
+
+  /* ---------- the stripe map ---------- */
+
+  .wins { display: grid; grid-template-columns: repeat(3, minmax(170px, 1fr)); gap: 16px; max-width: 46rem; margin: 1.1rem 0 0; }
+  .wins .wg { border-left: 2px solid var(--rule); padding-left: 0.85rem; }
+  .wins .wt { font-family: var(--sans); font-weight: 600; font-size: 0.92rem; }
+  .wins ul { list-style: none; margin: 0.3rem 0 0; padding: 0; font-size: 0.92rem; color: var(--muted); }
+  .wins li { display: flex; justify-content: space-between; gap: 0.7rem; line-height: 1.5; }
+  .wins .kb { font-family: var(--mono); font-size: 0.76rem; color: var(--faint); }
+
+  /* ---------- prose furniture ---------- */
+
+  .callout {
+    max-width: var(--col);
+    border-left: 2px solid var(--warn);
+    background: var(--warn-soft);
+    padding: 0.7rem 0.95rem;
+    margin: 0 0 1.2rem;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    color: var(--ink);
+    border-radius: 0 3px 3px 0;
+  }
+
+  .callout b { font-family: var(--sans); font-weight: 600; }
+
+  .steps { counter-reset: st; list-style: none; padding: 0; margin: 1rem 0 1.5rem; max-width: 46rem; display: grid; gap: 0.7rem; }
+  .steps li { counter-increment: st; position: relative; padding-left: 2.2rem; font-size: 0.95rem; line-height: 1.5; }
+  .steps li::before { content: counter(st); position: absolute; left: 0; top: 0.05rem; font-family: var(--mono); font-size: 0.8rem; color: var(--accent); width: 1.5rem; height: 1.5rem; border: 1px solid var(--rule); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .steps b { font-family: var(--sans); font-weight: 600; }
+  .steps .where { display: block; font-family: var(--mono); font-size: 0.74rem; color: var(--faint); margin-top: 0.1rem; }
+
+  .qa { max-width: 46rem; display: grid; gap: 1.1rem; margin: 1rem 0 1.5rem; }
+  .qa > div { border-left: 2px solid var(--rule); padding-left: 0.9rem; }
+  .qa .q { font-family: var(--sans); font-weight: 600; font-size: 0.98rem; margin-bottom: 0.15rem; }
+
+  .qa .q .tag {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 0.62rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 1px 6px;
+    border: 1px solid;
+    margin-right: 0.45rem;
+    vertical-align: 1.5px;
+    white-space: nowrap;
+  }
+
+  .qa .q .tag.dec { color: var(--good); border-color: var(--good); }
+  .qa .q .tag.asm { color: var(--faint); border-color: var(--rule); }
+  .qa .q .tag.open { color: var(--warn); border-color: var(--warn); }
+  .qa .a { font-size: 0.95rem; color: var(--muted); line-height: 1.55; }
+  .qa .a strong { color: var(--good); font-weight: 600; }
+
+  .tips { display: flex; gap: 8px; flex-wrap: wrap; padding: 9px 9px 11px; align-items: center; }
+
+  [hidden] { display: none !important; }
+
+  @media (max-width: 720px) {
+    .tree { columns: 1; }
+    .wins { grid-template-columns: 1fr; }
+    .mrow { padding-left: 8px; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="mast">
+    <p class="eyebrow">FixTool · design note · 2026-09-10</p>
+    <h1>Every Button in Its Place</h1>
+    <p class="standfirst">Why the toolbar reads as a list of features rather than a set of controls, and where
+      each of its twenty-four buttons goes: to a tool-window stripe, to the panes it modifies, to a filter row,
+      to a menu bar, or stays.</p>
+  </header>
+
+  <p>The toolbar grew one feature at a time. The message editor came first, then scenarios, then the latency
+    panel, then load runs, then the order book, then the trace, and each of them added a button at whichever end
+    of the row happened to be free. The result is a row where the button for a panel that opens on the right
+    sits far left, where Settings sits between two panel toggles, and where Clear all sessions sits between Add
+    blank line and Layout with nothing separating it from either. Every control is a grey icon with a tooltip,
+    so the only way to learn what is a toggle, what is a one-shot action and what is a view setting is to click
+    it and watch what happens.</p>
+
+  <div class="callout"><b>The kind rule.</b> There are three kinds of control and they must not look alike. A
+    tool window toggle sits on the edge its window opens from and shows open as a pressed tab. A view modifier
+    sits on the thing it modifies. An action on the whole workspace sits in the toolbar. A filter is a fourth
+    thing, a query, and gets its own row that is never hidden while it is narrowing anything.</div>
+
+  <h2>The toolbar today</h2>
+
+  <figure>
+    <div class="screen">
+      <div class="xscroll">
+        <div class="kwrap">
+          <div class="tbar kinded">
+            <span class="u"><span class="ic on">✎</span><span class="kn win">W</span></span>
+            <span class="u"><span class="ic">▤</span><span class="kn win">W</span></span>
+            <span class="u"><span class="tb">FixTool <span class="chev">▾</span></span><span class="kn ws">◦</span></span>
+            <span class="gap wide"></span>
+            <span class="u"><span class="chip on">⇄ Following RFQ 7f3a</span><span class="kn filt">F</span></span>
+            <span class="u"><span class="filter">Filter all sessions (regex)…</span><span class="kn filt">F</span></span>
+            <span class="u"><span style="display:inline-flex;gap:8px"><span class="cbox on"><i></i>In</span><span class="cbox on"><i></i>Out</span></span><span class="kn filt">F</span></span>
+            <span class="u"><span class="tb go">▶ Quick Connect <span class="chev">▾</span></span><span class="kn act">A</span></span>
+            <span class="u"><span class="tb open">▷ Run <span class="chev">▾</span></span><span class="kn act">A</span></span>
+            <span class="u"><span class="tb">⏻ Disconnect all <span class="k">10</span></span><span class="kn act">A</span></span>
+            <span class="u"><span class="ic">⌨</span><span class="kn win">W</span></span>
+            <span class="u"><span class="ic">⏺</span><span class="kn act">A</span></span>
+            <span class="u"><span class="ic">⌕</span><span class="kn act">A</span></span>
+            <span class="u"><span class="ic">＋</span><span class="kn act">A</span></span>
+            <span class="u"><span class="ic">🗑</span><span class="kn act">A</span></span>
+            <span class="u"><span class="ic">▭</span><span class="kn view">V</span></span>
+            <span class="u"><span class="ic">▦</span><span class="kn view">V</span></span>
+            <span class="u"><span class="ic">👁</span><span class="kn view">V</span></span>
+            <span class="u"><span class="ic">⑃</span><span class="kn view">V</span></span>
+            <span class="u"><span class="ic">⇄</span><span class="kn win">W</span></span>
+            <span class="vsep"></span>
+            <span class="u"><span class="ic">⚡</span><span class="kn win">W</span></span>
+            <span class="u"><span class="ic">⚙</span><span class="kn sys">S</span></span>
+            <span class="u"><span class="ic">?</span><span class="kn sys">S</span></span>
+            <span class="u"><span class="ic">☰</span><span class="kn win">W</span></span>
+            <span class="u"><span class="ic">☷</span><span class="kn win">W</span></span>
+            <span class="u"><span class="ic">⏱</span><span class="kn win">W</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="legend kl">
+        <span><i class="win"></i>W tool window</span>
+        <span><i class="act"></i>A action</span>
+        <span><i class="view"></i>V view modifier</span>
+        <span><i class="filt"></i>F filter</span>
+        <span><i class="sys"></i>S system</span>
+        <span><i class="ws"></i>◦ workspace switcher, a kind of one</span>
+      </div>
+      <div class="kdots">
+        <span class="lbl">in order</span>
+        <i class="win"></i><i class="win"></i>
+        <i class="filt"></i><i class="filt"></i><i class="filt"></i>
+        <i class="act"></i><i class="act"></i><i class="act"></i>
+        <i class="win"></i>
+        <i class="act"></i><i class="act"></i><i class="act"></i><i class="act"></i>
+        <i class="view"></i><i class="view"></i><i class="view"></i><i class="view"></i>
+        <i class="win"></i><i class="win"></i>
+        <i class="sys"></i><i class="sys"></i>
+        <i class="win"></i><i class="win"></i><i class="win"></i>
+      </div>
+      <div class="scrollhint">the whole row, drawn at 75% of its real size, because at full size it does
+        not fit a page this wide either</div>
+    </div>
+    <figcaption>Three interleavings do most of the damage. Terminal sits inside the connect group, between
+      Disconnect all and Capture scenario, because it was added next to Quick Connect. Settings and Help sit
+      between the Connection toggle and the Message Detail toggle, splitting the panel toggles into two runs
+      with two unrelated buttons in the middle. Clear all sessions, the only control that destroys anything,
+      sits between Add blank line and Layout with no divider on either side and no confirmation behind it.
+      Counted by kind the row holds eight tool window toggles, seven workspace actions, four view modifiers,
+      three controls that are really one filter, and two system buttons, plus the workspace switcher: twenty
+      four buttons in five kinds, arranged in none of them.</figcaption>
+  </figure>
+
+  <h2>The toolbar after</h2>
+
+  <figure>
+    <div class="screen">
+      <div class="tbar">
+        <span class="tb">FixTool <span class="chev">▾</span></span>
+        <span class="vsep"></span>
+        <span class="tb go">▶ Quick Connect <span class="chev">▾</span></span>
+        <span class="tb open">▷ Run <span class="chev">▾</span></span>
+        <span class="tb">⏻ Disconnect all <span class="k">10</span></span>
+        <span class="vsep"></span>
+        <span class="tb">⏺ Capture</span>
+        <span class="tb">⌕ Search</span>
+        <span class="tb">＋ Blank line</span>
+        <span class="vsep"></span>
+        <span class="tb risk">🗑 Clear all</span>
+        <span class="fill"></span>
+        <span class="ic">⚙</span>
+        <span class="ic">?</span>
+      </div>
+      <div class="tips">
+        <span class="tip">Capture scenario from all sessions</span>
+        <span class="tip">Clear all sessions · no undo</span>
+        <span class="tip no">Settings · dictionary needs configuring</span>
+      </div>
+    </div>
+    <figcaption>Ten items, and each divider group answers one question. Where am I: the workspace. What is
+      connected: Quick Connect, Run and Disconnect all, the three that run-menu.html already put together for
+      the same reason. What do I do to every session at once: Capture, Search, Blank line. What is dangerous:
+      Clear all, alone between two dividers. Settings and Help sit at the far right on their own, where an
+      application has always kept them. Nothing in this row toggles anything, so nothing in this row needs an on
+      state, which frees the pressed look entirely for the stripes.</figcaption>
+  </figure>
+
+  <h2>Tool-window stripes</h2>
+
+  <figure>
+    <div class="xscroll">
+      <div class="screen win" style="min-width:900px">
+        <div class="tbar">
+          <span class="tb">FixTool <span class="chev">▾</span></span>
+          <span class="vsep"></span>
+          <span class="tb go">▶ Quick Connect <span class="chev">▾</span></span>
+          <span class="tb open">▷ Run <span class="chev">▾</span></span>
+          <span class="tb">⏻ Disconnect all <span class="k">10</span></span>
+          <span class="vsep"></span>
+          <span class="tb">⏺ Capture</span>
+          <span class="tb">⌕ Search</span>
+          <span class="tb">＋ Blank line</span>
+          <span class="vsep"></span>
+          <span class="tb risk">🗑 Clear all</span>
+          <span class="fill"></span>
+          <span class="ic">⚙</span>
+          <span class="ic">?</span>
+        </div>
+        <div class="frame">
+          <div class="stripe left">
+            <span class="vtab on"><span>Editor</span></span>
+            <span class="vtab"><span>Scenarios</span></span>
+          </div>
+          <div class="mid">
+            <div class="midrow">
+              <div class="pan ed">
+                <div class="pt">Editor</div>
+                <div class="pl">35</div>
+                <div class="pv">R QuoteRequest</div>
+                <div class="pl">55</div>
+                <div class="pv">GBP/USD</div>
+                <div class="pl">38</div>
+                <div class="pv">5000000</div>
+              </div>
+              <div class="msgarea">
+                <div class="tbr">
+                  <span class="st on">RFQ Client</span>
+                  <span class="st">Venue</span>
+                  <span class="rt">
+                    <span class="fun">⛛</span>
+                    <span class="seg"><span class="on">▭ Tabs</span><span>⇆</span><span>⇅</span></span>
+                    <span class="tb">View <span class="chev">▾</span></span>
+                  </span>
+                </div>
+                <div class="frow">
+                  <span class="fun">⛛</span>
+                  <span class="rx">35=8|35=9</span>
+                  <span class="cbox on"><i></i>In</span>
+                  <span class="cbox on"><i></i>Out</span>
+                  <span class="sp"></span>
+                  <span class="x">✕</span>
+                </div>
+                <div class="grid">
+                  <div class="gr"><span class="ts">09:41:02.118</span><span class="dr o">→</span><span class="tg">35=R</span><span class="nm">QuoteRequest</span><span class="id">RFQ-A1</span></div>
+                  <div class="gr"><span class="ts">09:41:02.121</span><span class="dr i">←</span><span class="tg">35=S</span><span class="nm">Quote</span><span class="id">RFQ-A1</span></div>
+                  <div class="gr"><span class="ts">09:41:04.902</span><span class="dr o">→</span><span class="tg">35=D</span><span class="nm">NewOrderSingle</span><span class="id">RFQ-A1</span></div>
+                  <div class="gr"><span class="ts">09:41:04.907</span><span class="dr i">←</span><span class="tg">35=8</span><span class="nm">ExecReport New</span><span class="id">RFQ-A1</span></div>
+                  <div class="gr"><span class="ts">09:41:04.931</span><span class="dr i">←</span><span class="tg">35=8</span><span class="nm">ExecReport Fill</span><span class="id">RFQ-A1</span></div>
+                </div>
+              </div>
+              <div class="pan det">
+                <div class="pt">Detail</div>
+                <div class="pl">35 MsgType</div>
+                <div class="pv">8 ExecReport</div>
+                <div class="pl">150 ExecType</div>
+                <div class="pv">F Trade</div>
+                <div class="pl">31 LastPx</div>
+                <div class="pv">1.27415</div>
+              </div>
+            </div>
+            <div class="stripe bottom">
+              <span class="htab">Terminal</span>
+              <span class="htab">Trace</span>
+            </div>
+          </div>
+          <div class="stripe right">
+            <span class="vtab on"><span>Detail</span></span>
+            <span class="vtab"><span>Connection</span></span>
+            <span class="vtab"><span>Order book</span></span>
+            <span class="vtab"><span>Latency</span></span>
+          </div>
+        </div>
+        <div class="tips">
+          <span class="tip">Editor · ⌘1</span>
+          <span class="tip">Order book · ⌘5</span>
+          <span class="tip">Trace · ⌘8</span>
+        </div>
+      </div>
+    </div>
+    <figcaption>The button now sits where the panel appears, and an open panel is a pressed tab you can see
+      from across the room instead of a grey icon tinted slightly less grey. Eight icons leave the toolbar.
+      Nothing here is a new idiom for this app: the Scenarios rail is already a left dock, the Terminal is
+      already a bottom dock, and the Trace already opens in a slot under the message grid, so the stripes finish
+      something the app has started three times in three different ways. Keyboard is ⌘1 to ⌘8 in stripe order,
+      printed in each tooltip so the shortcut is learned by hovering rather than by reading the
+      help.</figcaption>
+  </figure>
+
+  <div class="wins">
+    <div class="wg">
+      <div class="wt">Left stripe</div>
+      <ul>
+        <li><span>Editor</span><span class="kb">⌘1</span></li>
+        <li><span>Scenarios</span><span class="kb">⌘2</span></li>
+      </ul>
+    </div>
+    <div class="wg">
+      <div class="wt">Right stripe</div>
+      <ul>
+        <li><span>Detail</span><span class="kb">⌘3</span></li>
+        <li><span>Connection</span><span class="kb">⌘4</span></li>
+        <li><span>Order book</span><span class="kb">⌘5</span></li>
+        <li><span>Latency</span><span class="kb">⌘6</span></li>
+      </ul>
+    </div>
+    <div class="wg">
+      <div class="wt">Bottom stripe</div>
+      <ul>
+        <li><span>Terminal</span><span class="kb">⌘7</span></li>
+        <li><span>Trace</span><span class="kb">⌘8</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>The view controls, on the panes</h2>
+
+  <figure>
+    <div class="screen narrow">
+      <div class="tbr">
+        <span class="st on">RFQ Client</span>
+        <span class="st">Venue</span>
+        <span class="rt">
+          <span class="fun">⛛</span>
+          <span class="seg"><span class="on">▭ Tabs</span><span>⇆</span><span>⇅</span></span>
+          <span class="tb open">View <span class="chev">▾</span></span>
+        </span>
+      </div>
+      <div class="mrow" style="justify-content:flex-end;padding:8px 10px 14px">
+        <div class="menu" style="width:214px">
+          <div class="mi"><span class="mk">●</span>Parsed rows</div>
+          <div class="mi"><span class="mk blank">○</span>Raw rows</div>
+          <div class="sep"></div>
+          <div class="mi"><span class="mk">✓</span>Hide protocol tags</div>
+          <div class="mi"><span class="mk blank">✓</span>Group by conversation</div>
+        </div>
+      </div>
+    </div>
+    <figcaption>These four change how every pane draws, not what the workspace does, so they belong on the pane
+      area's own bar rather than in a row of app-level buttons. The cycling Layout button becomes three segments,
+      because a three-state button that cycles can never show what the next click will do: today its tooltip has
+      to say "Layout: Tabs (click for Horizontal Split)", which is a control explaining its own mechanism.
+      Raw and Parsed, protocol tags and Group by conversation are checkmarks in one menu because none of them is
+      pressed often enough to earn a permanent icon, and a named line with a state mark beside it says more than
+      a glyph that changes shape.</figcaption>
+  </figure>
+
+  <h2>The filter row</h2>
+
+  <figure>
+    <div class="screen narrow">
+      <div class="frow">
+        <span class="fun">⛛</span>
+        <span class="chip on">⇄ Following RFQ 7f3a · 3 panes · 41 msgs ✕</span>
+        <span class="rx">35=8|35=9</span>
+        <span class="cbox on"><i></i>In</span>
+        <span class="cbox on"><i></i>Out</span>
+        <span class="sp"></span>
+        <span class="x">✕</span>
+      </div>
+      <div class="tips">
+        <span class="tip">Filter row · ⌘⇧F</span>
+        <span class="tip">Stays open while a filter or a followed trace is narrowing the panes</span>
+      </div>
+    </div>
+    <figcaption>The regex, the direction boxes and the Following chip are one query over the panes, so they
+      share one row directly above the thing they narrow. The row opens on demand, from the funnel button on the
+      tab bar or with ⌘⇧F, because ⌘F is already Search all sessions and should stay that way. It cannot be
+      closed while it is narrowing anything: the ✕ at its right clears the regex, ticks both directions back on
+      and unfollows, and only then does the row go away. That is the silent-filter rule the Following chip
+      already enforces, extended to the regex, which today can sit narrowing every pane in a field nobody has
+      looked at since they typed in it.</figcaption>
+  </figure>
+
+  <h2>A menu bar, as the catalogue</h2>
+
+  <figure>
+    <div class="side">
+      <div style="flex:0 1 430px;min-width:300px">
+        <div class="edge"><span class="cap">the menu bar, View open</span></div>
+        <div class="screen" style="margin-top:5px">
+          <div class="mbar">
+            <span class="mm brand">FixTool</span>
+            <span class="mm">Workspace</span>
+            <span class="mm">Session</span>
+            <span class="mm">Run</span>
+            <span class="mm open">View</span>
+            <span class="mm">Window</span>
+            <span class="mm">Help</span>
+          </div>
+          <div class="mrow">
+            <div class="menu" style="width:210px">
+              <div class="mi on"><span class="mk blank">✓</span>Layout<span class="ct">▸</span></div>
+              <div class="mi"><span class="mk">●</span>Parsed rows</div>
+              <div class="mi"><span class="mk blank">○</span>Raw rows</div>
+              <div class="sep"></div>
+              <div class="mi"><span class="mk">✓</span>Hide protocol tags</div>
+              <div class="mi"><span class="mk blank">✓</span>Group by conversation</div>
+              <div class="sep"></div>
+              <div class="mi"><span class="mk blank">✓</span>Filter row<span class="ct">⌘⇧F</span></div>
+            </div>
+            <div class="menu sub2">
+              <div class="mi"><span class="mk">✓</span>Tabs</div>
+              <div class="mi"><span class="mk blank">✓</span>Split horizontal</div>
+              <div class="mi"><span class="mk blank">✓</span>Split vertical</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1 1 500px;min-width:320px">
+        <div class="edge"><span class="cap">the whole tree</span></div>
+        <div class="screen" style="margin-top:5px">
+          <div class="tree">
+            <div>
+              <div class="tn">FixTool</div>
+              <ul>
+                <li>About FixTool</li>
+                <li>Settings… <span class="sc">⌘,</span></li>
+                <li>Quit FixTool <span class="sc">⌘Q</span></li>
+              </ul>
+            </div>
+            <div>
+              <div class="tn">Workspace</div>
+              <ul>
+                <li>Open…</li>
+                <li>Recent <span class="sc">▸</span></li>
+                <li>Reset example</li>
+                <li>Reveal in Finder</li>
+              </ul>
+            </div>
+            <div>
+              <div class="tn">Session</div>
+              <ul>
+                <li>Quick Connect <span class="sc">▸ profiles</span></li>
+                <li>Disconnect all</li>
+                <li class="rr">.....................</li>
+                <li>Capture scenario from all sessions</li>
+                <li>Search all sessions <span class="sc">⌘F</span></li>
+                <li>Add blank line to all sessions</li>
+                <li class="rr">.....................</li>
+                <li>Clear all sessions</li>
+              </ul>
+            </div>
+            <div>
+              <div class="tn">Run</div>
+              <ul>
+                <li>Load run…</li>
+                <li>Load set <span class="sc">▸</span></li>
+                <li>Run set <span class="sc">▸</span></li>
+                <li>Load sets…</li>
+                <li class="rr">.....................</li>
+                <li>Recent <span class="sc">▸</span></li>
+              </ul>
+            </div>
+            <div>
+              <div class="tn">View</div>
+              <ul>
+                <li>Layout <span class="sc">▸</span></li>
+                <li>Parsed rows · Raw rows</li>
+                <li>Hide protocol tags</li>
+                <li>Group by conversation</li>
+                <li>Filter row <span class="sc">⌘⇧F</span></li>
+              </ul>
+            </div>
+            <div>
+              <div class="tn">Window</div>
+              <ul>
+                <li>Editor <span class="sc">⌘1</span></li>
+                <li>Scenarios <span class="sc">⌘2</span></li>
+                <li>Detail <span class="sc">⌘3</span></li>
+                <li>Connection <span class="sc">⌘4</span></li>
+                <li>Order book <span class="sc">⌘5</span></li>
+                <li>Latency <span class="sc">⌘6</span></li>
+                <li>Terminal <span class="sc">⌘7</span></li>
+                <li>Trace <span class="sc">⌘8</span></li>
+                <li class="rr">.....................</li>
+                <li>Hide all tool windows <span class="sc">⇧⌘F12</span></li>
+              </ul>
+            </div>
+            <div>
+              <div class="tn">Help</div>
+              <ul>
+                <li>Help &amp; documentation</li>
+                <li>Automation reference</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>The toolbar is the favourites, the menu bar is the catalogue. Every action gets a name and a
+      shortcut somewhere a person can find without being told, and that is exactly what lets the rare things
+      stop competing for toolbar space: Add blank line and Hide protocol tags do not need to be visible at all
+      times, they need to be findable once. FixTool has no menu bar at all today. run-menu.html deferred one and
+      said a menu bar Run could come later as a second door to the same menu, and here it does, with the same
+      items and the same handlers.</figcaption>
+  </figure>
+
+  <h2>Order of work</h2>
+
+  <ol class="steps">
+    <li><b>Stripes.</b> A small <code>ToolWindow</code> model (id, edge, title, icon, shortcut) and a
+      <code>ToolWindowStripe</code> composable, read by the three stripes so the edge is data rather than three
+      copies of a layout. Open state and panel widths move into the view-state JSON store, not
+      <code>AppSettings</code>, which <code>SettingsPagesTest</code> enforces. The eight toggles leave
+      <code>Toolbar.kt</code> and their parameters go with them. A pure move with no behaviour change, and the
+      biggest visual win of the five.
+      <span class="where">Toolbar.kt, the eight TooltipIconButton toggles · a new ToolWindowStripe.kt</span></li>
+    <li><b>View controls.</b> The segmented layout control and <code>View ▾</code> on the tab bar. The four view
+      parameters leave <code>Toolbar.kt</code>. The cycling behaviour goes with the button that cycled.
+      <span class="where">Toolbar.kt:615 (Layout) to :713 (Group) · the pane tab bar</span></li>
+    <li><b>Filter row.</b> The regex field, the In and Out boxes and the Following chip move to a row in the
+      message area, with the never-silent rule: forced open while narrowing, and closing clears and unfollows.
+      The filter parameters leave <code>Toolbar.kt</code>.
+      <span class="where">Toolbar.kt:151 (following chip) to :330 (Out) · Escape already unfollows</span></li>
+    <li><b>Toolbar regroup and rename.</b> What is left gets the four divider groups, one noun per tooltip, and
+      the shortened signature. Fifty-five parameters is not a design, it is a record of what was added when.
+      <span class="where">Toolbar.kt, the parameter list and the Row body</span></li>
+    <li><b>Menu bar.</b> A Compose Desktop <code>MenuBar</code> mirroring every action above, built from the same
+      action list the toolbar and the stripes read, so no item is defined twice and no item can drift. The help
+      page's toolbar section and <code>AUTOMATION.md</code> are updated in this commit, not later.
+      <span class="where">main.kt window scope · docs/AUTOMATION.md · the help content</span></li>
+  </ol>
+
+  <h2>Decisions</h2>
+
+  <div class="qa">
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Stripes, not only a Window menu.</div>
+      <div class="a"><strong>Both.</strong> A menu names a panel. A stripe puts the button where the panel opens
+        and shows you it is open without being asked. IntelliJ ships both and so does this, with the stripe as
+        the thing you point at and the menu as the thing you search.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Trace goes on the bottom stripe.</div>
+      <div class="a"><strong>Bottom.</strong> It already opens under the message grid, and it is a list across
+        sessions rather than a detail of one, which is the same shape as a console. Nothing about it wants a side
+        of the window.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Toggle state is a pressed tab, not a tint.</div>
+      <div class="a"><strong>Pressed tab.</strong> A slightly brighter tint on a grey icon is what made the
+        current row unreadable: eight of the twenty-four buttons carry state and none of them announces it from
+        more than a foot away.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Clear all stays one click and stays unconfirmed.</div>
+      <div class="a"><strong>One click.</strong> It is isolated by two dividers, it is the only warm-coloured
+        control in the row, and its tooltip says "no undo". Reconnecting and re-running are cheap, and a
+        confirmation on the single destructive button would only train people to click through
+        confirmations.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Blank line stays on the toolbar for now.</div>
+      <div class="a"><strong>Stays.</strong> It is the one action people press in the middle of doing something
+        else, to mark the moment before they try the next thing. It becomes a candidate to drop as soon as the
+        menu bar gives it a home and a shortcut.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>⌘1 to ⌘8 for tool windows, ⌘⇧F for the filter row.</div>
+      <div class="a">IntelliJ's numbering, in stripe order, left then right then bottom. ⌘F stays Search all
+        sessions, which it already is.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag asm">assumed</span>One noun per tool window.</div>
+      <div class="a">Editor, Scenarios, Detail, Connection, Order book, Latency, Terminal, Trace. "Repeatable
+        Scenarios", "Message Detail", "Latency Stats" and "Trace across sessions" go. A stripe tab has room for a
+        noun and no room for a sentence, and the sentence was only ever there because a tooltip had to carry the
+        whole explanation.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag open">open</span>Does the filter row show by default in a fresh
+        workspace?</div>
+      <div class="a">Default in this note: hidden until asked for, and forced open while narrowing. The
+        alternative is always visible, which is one row of grid gone on every screen for a control most sessions
+        never touch.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag open">open</span>Should the stripes hide when nothing is open?</div>
+      <div class="a">Default: no. They are how you find the windows, and 26px on each edge is a cheap price for
+        the app telling you what it can show you.</div>
+    </div>
+  </div>
+
+</div>

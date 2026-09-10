@@ -26,6 +26,22 @@ data class LoadRecord(
     val set: SetInfo? = null,
     /** The seed as rendered, once, and shared by every phase. */
     val seed: Map<String, String> = emptyMap(),
+    /**
+     * **Messages the panes threw away while this set ran, over every session it held. At least.**
+     *
+     * The set's and not a phase's, because the sessions are the set's: they are opened before phase 1 and
+     * released after the last, every phase issues and listens on them, and which phase was live when a
+     * pane gave up is not something the counter records. Two phases taking a delta each over the same
+     * sessions both reported the same discarded message and both failed on it. One delta over the set's
+     * own lifetime is the number that exists.
+     *
+     * **A lower bound and never an exact count.** `FixMessageSession` increments it without a lock, from
+     * the receive thread and from every sending thread, so the true number is at or above this. Every
+     * surface that prints it says "at least" for that reason.
+     *
+     * Nought for a single run, which counts its own on the phase: see [LoadReport.Tool.discarded].
+     */
+    val discarded: Long = 0,
 ) {
     /** Which saved set produced this, and what it did between phases. */
     data class SetInfo(
@@ -63,12 +79,17 @@ data class LoadRecord(
      *
      * A finished set where nothing was judged at all, every phase skipped, exits 1. It proved nothing, and
      * a build cannot pass on it. See [verdict], which says the same in words.
+     *
+     * **A discard fails the set**, for the reason it fails a phase: evidence FixTool threw away is
+     * evidence nothing can be proved on, whichever of the set's phases was issuing at the time. See
+     * [discarded].
      */
     val exitCode: Int?
         get() {
             if (phases.any { it.status.isLive }) return null
             val judged = phases.filterNot { it.status == LoadStatus.SKIPPED }
             if (judged.any { it.verdict.exitCode == null }) return null
+            if (discarded > 0) return LoadReport.EXIT_FAILED
             return judged.maxOfOrNull { it.verdict.exitCode ?: 0 } ?: LoadReport.EXIT_FAILED
         }
 
@@ -164,6 +185,10 @@ data class LoadRecord(
                     stoppedAt != null -> SetOutcome.STOPPED
                     status == LoadStatus.RUNNING -> SetOutcome.RUNNING
                     firstBad != null -> SetOutcome.FAILED
+                    // After the phase that failed, and before "nothing was judged", because a set whose
+                    // sessions lost messages has failed as a set and names no phase: the discard belongs
+                    // to the sessions and every phase was on them. See [discarded].
+                    discarded > 0 -> SetOutcome.FAILED
                     nothingJudged && phases.firstOrNull { !it.isMuted }?.note == STOPPED_NOTE -> SetOutcome.STOPPED
                     nothingJudged -> SetOutcome.FAILED
                     else -> SetOutcome.PASSED

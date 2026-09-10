@@ -57,6 +57,14 @@ class LoadRunner(
      * [ChainTimes].
      */
     private val chain: ChainTimes.Phase? = null,
+    /**
+     * **Whether this run counts what the panes threw away.**
+     *
+     * True for a single run, which opens its own sessions and is the only thing on them, so the delta over
+     * its own length is its own number. False for a phase of a set, where the sessions are held for every
+     * phase at once and the set takes one delta instead. See [LoadReport.Tool.discarded].
+     */
+    private val countsDiscards: Boolean = true,
 ) {
     /** The finished report, and the evidence the record keeps beside it. */
     data class Outcome(
@@ -136,9 +144,10 @@ class LoadRunner(
         // double `discardedBefore` and put two stamp listeners on the one session.
         val all = (lanes + listeners).distinct()
         progress.lanes = lanes.size
-        // A delta over the sessions this phase takes part in, which is this phase's own number only while
-        // it is the only phase on them. See LoadReport.Tool.discarded for what overlap does to it.
-        val discardedBefore = all.sumOf { it.discarded() }
+        // A delta over the sessions this run takes part in, which is its own number only while it is the
+        // only thing on them. A phase of a set is not, so the set takes the delta and this takes none:
+        // see LoadReport.Tool.discarded.
+        val discardedBefore = if (countsDiscards) all.sumOf { it.discarded() } else 0L
 
         val prepareStart = clock.nanoTime()
         val prototypes =
@@ -302,7 +311,7 @@ class LoadRunner(
             // Release with the matcher still listening: a reply during logout is late, not lost.
             host.release()
             val lateCounts = matcher.snapshot()
-            val discardedAfter = all.sumOf { it.discarded() }
+            val discardedAfter = if (countsDiscards) all.sumOf { it.discarded() } else 0L
 
             val stopped = stats.stopped || stoppedInSettle
             val report =
@@ -310,7 +319,7 @@ class LoadRunner(
                     status = if (stopped) LoadStatus.STOPPED else LoadStatus.DONE,
                     result = result,
                     late = lateCounts.late,
-                    discarded = (discardedAfter - discardedBefore).coerceAtLeast(0),
+                    discarded = if (countsDiscards) (discardedAfter - discardedBefore).coerceAtLeast(0) else null,
                     finishedAt = host.now(),
                 )
             val capturedRows = captures.table?.rows().orEmpty()
@@ -354,12 +363,20 @@ class LoadRunner(
         }
 
         fun emit(stage: LoadStage) {
-            val report = build(stage, LoadStatus.RUNNING, finishedAt = null, result = null, late = null, discarded = 0)
+            val report =
+                build(
+                    stage,
+                    LoadStatus.RUNNING,
+                    finishedAt = null,
+                    result = null,
+                    late = null,
+                    discarded = if (countsDiscards) 0L else null,
+                )
             store?.write(report)
             onProgress(report)
         }
 
-        fun finalReport(status: LoadStatus, result: StampMatcher.Result, late: Long, discarded: Long, finishedAt: Long): LoadReport =
+        fun finalReport(status: LoadStatus, result: StampMatcher.Result, late: Long, discarded: Long?, finishedAt: Long): LoadReport =
             build(LoadStage.DONE, status, finishedAt, result, late, discarded)
 
         @Suppress("LongParameterList")
@@ -369,7 +386,7 @@ class LoadRunner(
             finishedAt: Long?,
             result: StampMatcher.Result?,
             late: Long?,
-            discarded: Long,
+            discarded: Long?,
         ): LoadReport {
             val counts = result?.counts ?: matcher?.snapshot()
             val issued = stats

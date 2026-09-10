@@ -8,6 +8,7 @@ import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
+import com.knapsack.fixtool.model.load.SetOutcome
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.WireTags
 import org.junit.Test
@@ -18,6 +19,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -495,26 +497,26 @@ class ConcurrentPhasesTest {
     }
 
     // -------------------------------------------------------------------------------------------------
-    // What overlap costs: one discard, counted by both phases
+    // What overlap costs: one discard, and the set that owns it
     // -------------------------------------------------------------------------------------------------
 
     /**
-     * **One message thrown away, reported by both phases, and failing both.**
+     * **One message thrown away, counted once, by the set that held the sessions.**
      *
-     * `discarded` is a delta: every participating session's cumulative counter, read when a phase starts
-     * and again when it ends. Two phases over the same sessions at the same time take deltas that span the
-     * same discard, so one message the panes threw away fails two phases and the set names the earlier of
-     * them. The number is not exact in the other direction either, since the counter is incremented
-     * without a lock from the receive thread and from every sending thread.
+     * `discarded` is a delta over a cumulative per-session counter, so it belongs to whoever holds the
+     * sessions for its length. Two phases over the same sessions at the same time used to take a delta
+     * each: one message the panes threw away was reported by both and failed both, and which of them was
+     * issuing when a pane gave up is not something the counter records. So the set takes one delta over
+     * its own lifetime, no phase offers a number it cannot have, and the set fails on it naming no phase.
      *
-     * This is pinned rather than fixed. Moving the count to the set means a new field on the record, both
-     * directions of the codec and a rule for how a set-level discard fails a set once no phase carries
-     * one, which belongs with the report's own reshaping. Nothing a surface accepts overlaps yet, so
-     * nothing reads a doubled number today. What this test is for is that the day it does, it is a test
-     * that changes and not a surprise.
+     * The number is still not exact in the other direction, because the counter is incremented without a
+     * lock from the receive thread and from every sending thread. It is a lower bound, and every surface
+     * that prints it says so.
+     *
+     * This test used to pin the doubling as a known cost. It is the test the plan said would change.
      */
     @Test
-    fun `two overlapping phases both count the same discarded message`() {
+    fun `one discarded message is the set's, counted once and failing the set`() {
         val clock = FakeClock()
         val lanes = lanes(clock)
         // On phase 1's third order, which is after phase 2 has read its own starting count: the clock
@@ -537,13 +539,17 @@ class ConcurrentPhasesTest {
             }
 
         assertEquals(1L, lanes.sumOf { it.discardedCount }, "the panes threw one message away, once")
-        assertEquals(listOf(1L, 1L), record.phases.map { it.tool.discarded }, "and both phases charged themselves with it")
+        assertEquals(1L, record.discarded, "and the set that held the sessions counted it once")
+        assertEquals(listOf(null, null), record.phases.map { it.tool.discarded }, "neither phase has a number of its own")
         assertEquals(
-            listOf(LoadReport.ToolVerdict.LIMITED, LoadReport.ToolVerdict.LIMITED),
+            listOf(LoadReport.ToolVerdict.CLEAN, LoadReport.ToolVerdict.CLEAN),
             record.phases.map { it.verdict.tool },
+            "a phase that was told nothing about the panes cannot report itself limited by them",
         )
-        assertEquals(1, record.exitCode, "a discard fails a phase, so one discard fails a set twice over")
-        assertEquals(1, record.verdict.phase, "named on the earlier of the two")
+        assertEquals(0, record.phases[0].verdict.exitCode, "so both phases passed on what they did measure")
+        assertEquals(1, record.exitCode, "and the set failed on what only the set could measure")
+        assertEquals(SetOutcome.FAILED, record.verdict.outcome)
+        assertNull(record.verdict.phase, "a discard on shared sessions belongs to no phase, so it names none")
     }
 
     // -------------------------------------------------------------------------------------------------

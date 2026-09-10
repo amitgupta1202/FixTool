@@ -517,6 +517,52 @@ class LoadReportTest {
         )
     }
 
+    /**
+     * **A discard belongs to the set, so it travels on the record and fails the set naming no phase.**
+     *
+     * The sessions are the set's, held for every phase at once, so no phase has a number to give and none
+     * pretends to. The set has one, it survives the file, and a build reads it as a `<testsuite>` of its
+     * own rather than as a failure charged to whichever phase happened to be issuing.
+     */
+    @Test
+    fun `a set's discard is the set's, in the file, in the verdict and in the JUnit`() {
+        val noNumber = LoadReport.Tool(discarded = null, neverLeftSocket = 0, issueFailures = 0, pendingPeak = 10)
+        val phase = burstReport(unmatched = 0).copy(tool = noNumber)
+        val lost = setOf(phase, phase, discarded = 12)
+
+        val back = LoadReportCodec.recordFromJson(LoadReportCodec.recordToJson(lost))
+        val xml = LoadReportCodec.toJUnitXml(lost)
+
+        assertEquals(12L, back.discarded)
+        assertNull(back.phases[0].tool.discarded, "a phase of a set carries no number of its own")
+        assertEquals(LoadReport.EXIT_PASSED, phase.verdict.exitCode, "every phase passed on what it measured")
+        assertEquals(LoadReport.EXIT_FAILED, lost.exitCode, "and the set failed on what only the set measured")
+        assertEquals(SetOutcome.FAILED, lost.verdict.outcome)
+        assertNull(lost.verdict.phase, "a discard on shared sessions names no phase")
+        assertTrue(xml.contains("""name="load: the set's sessions""""), xml)
+        assertTrue(xml.contains("12 discarded by the panes on the set's sessions, at least"), xml)
+
+        val clean = setOf(phase, phase, discarded = 0)
+        assertEquals(LoadReport.EXIT_PASSED, clean.exitCode)
+        assertTrue(!LoadReportCodec.toJUnitXml(clean).contains("the set's sessions"), "a clean set writes no suite about them")
+        assertTrue(
+            !LoadReportCodec.recordToJson(clean).toString().contains("discarded"),
+            "and no key about them, on the record or on a phase",
+        )
+    }
+
+    /** A two-phase set of the phases given, which is the only shape a set-level discard can happen in. */
+    private fun setOf(first: LoadReport, second: LoadReport, discarded: Long) =
+        LoadRecord(
+            id = "set-1",
+            label = "RFQ round trip",
+            startedAt = 0,
+            finishedAt = 1_000,
+            phases = listOf(first, second),
+            set = LoadRecord.SetInfo("rfq-round-trip", OnFailure.STOP),
+            discarded = discarded,
+        )
+
     /** A distribution shaped like a real one, for a block whose arithmetic is tested where it happens. */
     private fun distribution(us: Long) =
         RunSetStats.Distribution(p50 = us, p95 = us * 2, max = us * 3, samples = 196, min = us / 2, p99 = us * 2, mean = us)

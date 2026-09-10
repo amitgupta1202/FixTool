@@ -870,7 +870,13 @@ private fun ToolPart(r: LoadReport) {
     Section("The tool's own part", "shown, never hidden") {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(0.dp), modifier = Modifier.fillMaxWidth()) {
             JudgementPill(if (r.tool.limited) "limited" else "clean", if (r.tool.limited) AppTheme.Colors.error else AppTheme.Colors.success)
-            StripItem("discarded by the panes", LoadReportCodec.fmt(r.tool.discarded), "load-tool-discarded")
+            // A phase of a set has no number of its own: the sessions are the set's and the set counted
+            // what they threw away. Said rather than shown as nought, which would be a claim.
+            StripItem(
+                "discarded by the panes",
+                r.tool.discarded?.let { LoadReportCodec.fmt(it) } ?: "counted for the set",
+                "load-tool-discarded",
+            )
             StripItem("accepted that never left the socket", LoadReportCodec.fmt(r.tool.neverLeftSocket), "load-tool-never-left")
             StripItem("refused", LoadReportCodec.fmt(r.tool.issueFailures), "load-tool-refused")
             // Read off the shape, not off the absence of a rate report. A rate run that ended before its

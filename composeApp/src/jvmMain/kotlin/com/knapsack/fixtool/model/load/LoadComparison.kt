@@ -190,8 +190,15 @@ data class LoadComparison(
             )
 
         private fun tool(b: LoadReport, a: LoadReport, thresholdUs: Long): List<Row> =
-            listOf(
-                count("discarded by the panes", b.tool.discarded, a.tool.discarded, lowerIsBetter = true),
+            listOfNotNull(
+                // Only when there is a number on either side. A phase of a set has none, because its
+                // sessions were the set's and the set counted what they threw away, so "0 → 0, same" here
+                // would be a claim about a thing neither phase measured.
+                if (b.tool.discarded == null && a.tool.discarded == null) {
+                    null
+                } else {
+                    count("discarded by the panes", b.tool.discarded ?: 0, a.tool.discarded ?: 0, lowerIsBetter = true)
+                },
                 count("accepted, never left the socket", b.tool.neverLeftSocket, a.tool.neverLeftSocket, lowerIsBetter = true),
                 count("refused", b.tool.issueFailures, a.tool.issueFailures, lowerIsBetter = true),
                 unranked("peak outstanding", b.tool.pendingPeak.toLong(), a.tool.pendingPeak.toLong()),

@@ -222,6 +222,9 @@ private fun setMetaLine(record: LoadRecord): String {
             "$lanes lane${if (lanes == 1) "" else "s"}",
             storeAndLog?.describe(),
             record.verdict.counts().ifBlank { null },
+            // The set's own, because the sessions are the set's and no phase has a number of its own. "At
+            // least", because the counter is written without a lock by every thread that touches it.
+            record.discarded.takeIf { it > 0 }?.let { "${LoadReportCodec.fmt(it)} discarded, at least" },
             elapsed,
             record.exitCode?.let { "exit $it" },
             // Why "Run set again" is off, beside everything else this line says about the set, rather than

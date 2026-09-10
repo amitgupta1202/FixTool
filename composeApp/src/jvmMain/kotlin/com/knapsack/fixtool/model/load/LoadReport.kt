@@ -272,20 +272,17 @@ data class LoadReport(
         /**
          * Messages the panes' queues threw away during the run, summed over the participating sessions.
          *
-         * **A phase's own number, and under overlap it over-reports.** It is a delta: every participating
-         * session's cumulative counter read when the phase starts and again when it ends. Two phases of a
-         * set running at the same time over the same sessions both take a delta that spans the same
-         * discard, so one message thrown away is reported by both and fails both. The counter itself is
-         * also not exact: `FixMessageSession` increments it without a lock, from the receive thread and
-         * from every sending thread, so the true number is at or above what is read here.
+         * **Null for a phase of a set, where the set carries it instead.** See [LoadRecord.discarded].
          *
-         * It stays per phase for now on purpose. Moving it to the set means a new field on
-         * [LoadRecord], both directions of the codec and a rule for how a set-level discard fails a set
-         * once no phase carries one, which belongs with the rest of the report's reshaping rather than
-         * beside the change that made the phases concurrent. Nothing a surface accepts overlaps yet, so
-         * nothing reads a doubled number today.
+         * The counter is per session and cumulative for that session's life, so the only way to attribute
+         * it to a run is a delta, and a delta belongs to whoever holds the sessions for its length. A
+         * single run opens its own and is the only thing on them, so the number is its own. A set holds
+         * one set of sessions for every phase at once: a phase's delta spans whatever the phase beside it
+         * caused, one message thrown away was reported by both phases and failed both, and which phase was
+         * live when a pane gave up is not something the counter records. There is no per-phase number to
+         * be had, so a phase of a set does not offer one.
          */
-        val discarded: Long,
+        val discarded: Long?,
         /** Messages the engine accepted that never produced a SEND stamp. */
         val neverLeftSocket: Long,
         /** Messages the engine refused. */
@@ -293,7 +290,7 @@ data class LoadReport(
         /** The most requests outstanding at once. */
         val pendingPeak: Int,
     ) {
-        val limited: Boolean get() = discarded > 0 || neverLeftSocket > 0 || issueFailures > 0
+        val limited: Boolean get() = (discarded ?: 0) > 0 || neverLeftSocket > 0 || issueFailures > 0
     }
 
     data class UnmatchedRequest(

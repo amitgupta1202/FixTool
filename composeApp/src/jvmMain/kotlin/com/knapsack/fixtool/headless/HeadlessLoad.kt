@@ -484,6 +484,14 @@ object HeadlessLoad {
                 appendLine("seed".padEnd(COL) + record.seed.entries.joinToString(" · ") { "${it.key}=${it.value}" })
             }
             appendLine("policy".padEnd(COL) + policySentence(planned.onFailure))
+            // The set's own, because the sessions are the set's. "At least", because the counter is
+            // incremented without a lock from the receive thread and from every sending thread.
+            if (record.discarded > 0) {
+                appendLine(
+                    "discarded".padEnd(COL) +
+                        "${LoadReportCodec.fmt(record.discarded)} thrown away by the panes on the set's sessions, at least",
+                )
+            }
             record.phases.forEachIndexed { index, phase ->
                 appendLine()
                 appendLine(phaseHeading(index + 1, phase, dictionary))
@@ -529,6 +537,9 @@ object HeadlessLoad {
             listOfNotNull(
                 v.phase?.let { "phase $it" },
                 v.counts().ifBlank { null },
+                // Beside the phase counts and never inside them: a phase count is a number of phases and
+                // this is a number of messages, on sessions every phase was sharing.
+                record.discarded.takeIf { it > 0 }?.let { "${LoadReportCodec.fmt(it)} discarded, at least" },
                 elapsed,
                 record.exitCode?.let { "exit $it" },
             ).joinToString(" · ")
@@ -601,12 +612,17 @@ object HeadlessLoad {
                 )
             }
             r.chain?.let { append(chainBlock(it)) }
+            // A phase of a set has no discard number of its own, and "0 discarded" would be a claim about
+            // sessions the set was counting for every phase at once. See LoadReport.Tool.discarded.
+            val panes =
+                r.tool.discarded?.let { "$it discarded on ${r.lanes + r.listen.size} sessions" }
+                    ?: "discards counted for the set"
             appendLine(
                 "tool".padEnd(COL) +
                     if (r.tool.limited) {
                         LoadReportCodec.toolSentence(r.tool)
                     } else {
-                        "clean · ${r.tool.discarded} discarded on ${r.lanes + r.listen.size} sessions · ${r.tool.neverLeftSocket} never left the socket"
+                        "clean · $panes · ${r.tool.neverLeftSocket} never left the socket"
                     },
             )
             appendLine(verdictLine(r))

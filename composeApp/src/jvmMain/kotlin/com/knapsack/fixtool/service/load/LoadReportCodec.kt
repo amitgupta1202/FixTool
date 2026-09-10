@@ -64,6 +64,9 @@ object LoadReportCodec {
                 )
             }
             put("seed", buildJsonObject { record.seed.forEach { (k, v) -> put(k, v) } })
+            // Only when the panes lost something, the same bargain `stopped` and `muted` strike below, so
+            // a clean set writes what it always wrote and a reader can tell nothing from nothing.
+            if (record.discarded > 0) put("discarded", record.discarded)
             put(
                 "verdict",
                 record.verdict.let { v ->
@@ -109,6 +112,7 @@ object LoadReportCodec {
             // The set's seed is every phase's seed, so a record written before it existed reads its own
             // first phase rather than coming back empty.
             seed = (o["seed"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content } ?: phases.first().seed,
+            discarded = o.longOrNull("discarded") ?: 0,
         )
     }
 
@@ -217,7 +221,10 @@ object LoadReportCodec {
             put(
                 "tool",
                 buildJsonObject {
-                    put("discarded", r.tool.discarded)
+                    // Only when this run counted its own. A phase of a set does not: the set holds the
+                    // sessions and carries one delta for all of them, and an absent key reads back as
+                    // "not this phase's to say" rather than as nought.
+                    r.tool.discarded?.let { put("discarded", it) }
                     put("neverLeftSocket", r.tool.neverLeftSocket)
                     put("issueFailures", r.tool.issueFailures)
                     put("pendingPeak", r.tool.pendingPeak)
@@ -490,7 +497,7 @@ object LoadReportCodec {
                 },
             tool =
                 LoadReport.Tool(
-                    discarded = tool.longOrNull("discarded") ?: 0,
+                    discarded = tool.longOrNull("discarded"),
                     neverLeftSocket = tool.longOrNull("neverLeftSocket") ?: 0,
                     issueFailures = tool.longOrNull("issueFailures") ?: 0,
                     pendingPeak = tool.intOrNull("pendingPeak") ?: 0,
@@ -609,11 +616,16 @@ object LoadReportCodec {
      * does for one scenario and for a set, so nobody's existing pipeline changes shape. A skipped phase is
      * three `<skipped/>` cases carrying its note, which every build server draws as grey rather than as
      * missing.
+     *
+     * **A set-level discard is a suite of its own, and only when there is one.** It belongs to no phase,
+     * because the sessions belong to the set and every phase was on them, so charging it to one would name
+     * a phase the counter never named. A clean set's file is exactly the file it was.
      */
     fun toJUnitXml(record: LoadRecord): String {
         if (record.phases.size == 1) return toJUnitXml(record.only)
         val setName = record.set?.name ?: record.label
-        val cases = record.phases.map { casesFor(it) }
+        val sessions = sessionCases(record)
+        val cases = record.phases.map { casesFor(it) } + listOfNotNull(sessions)
         val time = record.finishedAt?.let { it - record.startedAt }
         val head =
             "<testsuites name=\"" + ScenarioReport.esc("load set: ${record.label}") +
@@ -625,18 +637,31 @@ object LoadReportCodec {
             record.phases.mapIndexed { index, phase ->
                 val n = index + 1
                 suiteXml(phase, "load: $n · ${phase.label}", ScenarioReport.esc("load.$setName.$n"), indent = "  ")
-            }
+            } +
+                listOfNotNull(
+                    sessions?.let {
+                        suiteXml(it, "load: the set's sessions", ScenarioReport.esc("load.$setName.sessions"), "  ", time)
+                    },
+                )
         return XML_DECLARATION + head + suites.joinToString("") + "</testsuites>\n"
     }
 
-    private fun suiteXml(r: LoadReport, name: String, classname: String, indent: String): String {
-        val cases = casesFor(r)
+    /** The one judgement that belongs to the whole set rather than to a phase, or null when it passed. */
+    private fun sessionCases(record: LoadRecord): List<Case>? =
+        record.discarded.takeIf { it > 0 }?.let {
+            listOf(Case("tool", failure = "${fmt(it)} discarded by the panes on the set's sessions, at least"))
+        }
+
+    private fun suiteXml(r: LoadReport, name: String, classname: String, indent: String): String =
+        suiteXml(casesFor(r), name, classname, indent, r.timing?.elapsedMs)
+
+    private fun suiteXml(cases: List<Case>, name: String, classname: String, indent: String, timeMs: Long?): String {
         val head =
             indent + "<testsuite name=\"" + ScenarioReport.esc(name) +
                 "\" tests=\"" + cases.size +
                 "\" failures=\"" + cases.count { it.failure != null } +
                 "\" skipped=\"" + cases.count { it.skipped } +
-                "\"" + ScenarioReport.timeAttr(r.timing?.elapsedMs) + ">\n"
+                "\"" + ScenarioReport.timeAttr(timeMs) + ">\n"
         return head + cases.joinToString("") { caseXml(it, classname, indent) } + indent + "</testsuite>\n"
     }
 
@@ -764,7 +789,7 @@ object LoadReportCodec {
         } else {
             "FixTool limited the run: " +
                 listOfNotNull(
-                    tool.discarded.takeIf { it > 0 }?.let { "${fmt(it)} discarded by the panes" },
+                    tool.discarded?.takeIf { it > 0 }?.let { "${fmt(it)} discarded by the panes" },
                     tool.neverLeftSocket.takeIf { it > 0 }?.let { "${fmt(it)} handed to the engine never left the socket" },
                     tool.issueFailures.takeIf { it > 0 }?.let { "${fmt(it)} refused by the engine" },
                 ).joinToString(", ")

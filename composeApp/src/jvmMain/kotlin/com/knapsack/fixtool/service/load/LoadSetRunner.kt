@@ -294,11 +294,17 @@ class LoadSetRunner(
      * one at a time, in the order the records were made. The disk write is the one thing kept out from
      * under it, because it is the one thing that waits on something. See [RecordWriter].
      */
+    @Suppress("LongParameterList")
     private class Board(
         private val planned: LoadSet.Planned,
         stubs: List<LoadReport>,
         private val startedAt: Long,
         private val now: () -> Long,
+        /**
+         * What the panes have thrown away since the set opened its sessions, read on every publish so a
+         * live record carries it too. The set's own and not a phase's: see [LoadRecord.discarded].
+         */
+        private val discarded: () -> Long,
         private val writer: RecordWriter,
         private val onProgress: (LoadRecord) -> Unit,
     ) {
@@ -377,6 +383,7 @@ class LoadSetRunner(
                 phases = reports.mapIndexed { i, r -> withLate(r, matchers[i]) },
                 set = LoadRecord.SetInfo(planned.name, planned.onFailure),
                 seed = planned.seed,
+                discarded = discarded(),
             )
 
         /** A finished phase's late count, re-read from its matcher, because a reply to it can still arrive. */
@@ -584,6 +591,8 @@ class LoadSetRunner(
                         router.register(n, matcher)
                     },
                     chain = times?.get(index),
+                    // The set holds the sessions for every phase at once, so the set takes the delta.
+                    countsDiscards = false,
                 )
             val outcome =
                 runner.run(
@@ -735,13 +744,18 @@ class LoadSetRunner(
         val times = Chains.participants(planned).takeIf { it.isNotEmpty() }?.let { ChainTimes(highest, it) }
         val triggers = triggerBuffers(planned).also { onTriggerBuffers(it) }
         val sessions = byProfile.values.flatten().distinct()
+        // The set's own delta over the sessions it holds. Taken here rather than per phase, because two
+        // phases on one session both span the same discard and which of them was issuing when a pane gave
+        // up is not something the counter records. See LoadRecord.discarded.
+        val discardedBefore = sessions.sumOf { it.discarded() }
         val handles = sessions.map { it.addStampListener(router::onStamp) }
         val stubs = planned.phases.mapIndexed { index, plan -> stub(plan, compiled[index], byProfile, startedAt) }
 
         val interrupts = Interrupts()
         val write: ((LoadRecord) -> Unit)? = store?.let { records -> { record -> records.write(record) } }
         val writer = RecordWriter(write, interrupts)
-        val board = Board(planned, stubs, startedAt, host::now, writer, onProgress)
+        val discarded = { (sessions.sumOf { it.discarded() } - discardedBefore).coerceAtLeast(0) }
+        val board = Board(planned, stubs, startedAt, host::now, discarded, writer, onProgress)
         try {
             board.publish()
             try {

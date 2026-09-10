@@ -135,7 +135,7 @@ class LoadRunner(
         // Each lane renders ahead of its own sends, so a lane's message is not queued behind every other
         // lane's rendering on the pacer thread. See RenderAhead: this is what makes a per-lane number
         // worth showing rather than a picture of the round-robin.
-        val producers = RenderAhead.forLanes(prototypes, plan.requested, plan.indexFrom)
+        val producers = RenderAhead.forLanes(prototypes, plan.requested, plan.indexFrom, phase)
 
         try {
             progress.emit(LoadStage.ISSUING)

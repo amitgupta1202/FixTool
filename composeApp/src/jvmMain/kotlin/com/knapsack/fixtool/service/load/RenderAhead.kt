@@ -108,6 +108,14 @@ class RenderAhead(
             requested: Long,
             /** The 1-based index the phase counts from, which `LoadPlan.indexFrom` says. */
             indexFrom: Int = 1,
+            /**
+             * Which phase of its set these render for, 1-based, which is only in the thread name.
+             *
+             * A set runs more than one phase at a time, so `fixtool-render-ahead-3` named lane 3 of
+             * whichever phase you happened to be looking at. A thread dump of a stalled set is the one
+             * place this is ever read, and there it has to say which phase's lane 3 it is.
+             */
+            phase: Int = 1,
         ): List<RenderAhead> {
             val lanes = prototypes.size
             return prototypes.mapIndexed { index, prototype ->
@@ -116,7 +124,7 @@ class RenderAhead(
                     firstIndex = indexFrom + index,
                     stride = lanes,
                     count = countFor(requested, lanes, index),
-                    name = "fixtool-render-ahead-$index",
+                    name = "fixtool-render-ahead-p$phase-$index",
                 )
             }
         }

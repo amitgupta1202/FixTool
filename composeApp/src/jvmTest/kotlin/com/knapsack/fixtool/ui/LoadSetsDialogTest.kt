@@ -665,6 +665,49 @@ class LoadSetsDialogTest {
     }
 
     /**
+     * **A trigger's refusal is under the phase that holds it**, which is the whole placement rule: the
+     * phase this names is the one whose edit button is one line above the sentence.
+     *
+     * A set file can hold a trigger the dialog would not have offered, by hand or from a reorder, and the
+     * band has to say so rather than leaving Run set off with no sentence beside a row. The parked case is
+     * beside it because muting a trigger is the one way to break a chain from the set band itself.
+     */
+    @Test
+    fun `a phase reacting to a later phase, and to a muted one, are refused on their own rows`() {
+        viewModel.saveLoadSet(
+            roundTrip.copy(
+                name = "muted-trigger",
+                label = "Muted trigger",
+                phases =
+                    roundTrip.phases.mapIndexed { i, p ->
+                        if (i == 1) p.copy(shape = LoadShape.Triggered(), after = 1) else p.copy(muted = true)
+                    },
+            ),
+        )
+        viewModel.saveLoadSet(
+            roundTrip.copy(phases = roundTrip.phases.mapIndexed { i, p -> if (i == 0) p.copy(shape = LoadShape.Triggered(), after = 2) else p }),
+        )
+        show()
+
+        composeTestRule.onNodeWithTag("load-sets-row-round-trip").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule
+            .onNodeWithTag("load-set-refusal")
+            .assertTextContains("Phase 1 · Ask for a quote: it reacts to phase 2, which runs after it.", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-fixes-1").assertTextContains("1 fix", substring = true)
+        composeTestRule.onNodeWithTag("load-set-run").assertHasNoClickAction()
+
+        // Muting a trigger strands the phase that reacts to it, and the sentence is that phase's own.
+        composeTestRule.onNodeWithTag("load-sets-row-muted-trigger").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule
+            .onNodeWithTag("load-set-refusal")
+            .assertTextContains("phase 1 · Ask for a quote, and that phase is muted.", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-fixes-2").assertTextContains("1 fix", substring = true)
+    }
+
+    /**
      * **Phase 1 is not offered a shape nothing could ever fire.** Nothing runs before the first phase, so
      * the segment has two options there and three from phase 2 on.
      */

@@ -42,7 +42,31 @@ class StampMatcher(
     private val captures: List<Pair<String, Int>> = emptyList(),
     /** Where they are kept. The set owns it, because a later phase reads what an earlier one filled. */
     private val table: CaptureTable? = null,
+    /** Where a match releases the phase reacting to this one, or null when nothing reacts to it. */
+    private val trigger: Trigger? = null,
 ) {
+    /**
+     * **Where this phase's matches are released to**: the buffer of every phase that reacts to it.
+     *
+     * Both halves are called from inside this matcher's own monitor, and that is what makes the pair
+     * consistent rather than merely close together. A reply that read the settle window open and then
+     * lost the CPU could otherwise fire an index behind the "nothing more is coming" the reacting phase
+     * has already acted on, and that index would be reported as one its trigger never answered when its
+     * trigger plainly did.
+     *
+     * [fired] runs on a MINA processor thread shared by every session on it, so an implementation
+     * enqueues and returns. It never sends, never waits and never throws: `SocketStampFilter` swallows
+     * what comes back out of a stamp listener, so a throw here is a trigger that vanishes with nothing
+     * said about it. See [TriggerBuffer].
+     */
+    interface Trigger {
+        /** The request issued as [messageIndex] has been answered, inside the window. */
+        fun fired(messageIndex: Int)
+
+        /** The window has closed, so nothing more can be answered inside it and nothing more will fire. */
+        fun done()
+    }
+
     private class Pending(
         val sentMicros: Long,
         val laneSlot: Int,
@@ -65,8 +89,14 @@ class StampMatcher(
      * it counted down, so every capture an earlier phase kept is there and visible by the time the phase
      * after it renders a message. It is no longer true that the phase that filled the table has finished:
      * a set runs more than one phase at a time now. What is true is that a phase is only ever handed the
-     * captures of a phase it waited for, which `LoadSetRunner.Conductor.readable` is what keeps honest, and
-     * a phase fired by another's replies will read them through its trigger buffer rather than from here.
+     * captures of a phase it waited for, which `LoadSetRunner.Conductor.readable` keeps honest.
+     *
+     * **A reactive phase reads its trigger's captures from here too**, and its trigger buffer is what
+     * makes that safe rather than what replaces it. The buffer carries a message index and never a
+     * value. What publishes the values is the order they are written in: [record] puts them and then
+     * fires the index, on one thread under one monitor, and the index travels to the reading phase
+     * through two blocking queues, each of which publishes everything the putting thread had done. So
+     * an index only ever reaches a renderer after the values kept at it are there to be read.
      */
     class CaptureTable(
         val names: List<String>,
@@ -398,12 +428,11 @@ class StampMatcher(
             request != null -> {
                 outstanding.decrementAndGet()
                 matchedIds[id] = request.laneSlot
-                if (settleClosed) {
-                    late.incrementAndGet()
-                } else {
-                    matched.incrementAndGet()
-                    record(request, stamp)
-                }
+                // Matched or late is decided inside [record]'s lock rather than out here, because that
+                // same lock decides whether this reply releases the phase reacting to us. Read apart,
+                // a reply could count as matched and release nothing, and the phase waiting on it
+                // would report a message its trigger plainly answered as one that was never answered.
+                record(request, stamp)
                 Claim.MINE
             }
             matchedIds.containsKey(id) -> {
@@ -416,9 +445,22 @@ class StampMatcher(
         }
     }
 
+    /**
+     * **One reply paired with its request, or counted as late**, and the phase reacting to us released.
+     *
+     * The whole of it under one monitor, which [closeSettle] also takes. Three things have to agree
+     * about where the window closed: whether this reply is matched or late, whether its captured values
+     * are in the table, and whether the phase waiting on this one is told about it. Deciding any of
+     * them outside the monitor lets a reply be matched by one rule and late by another.
+     */
     private fun record(request: Pending, reply: SocketStamp) {
         val rtt = (reply.micros - request.sentMicros).coerceAtLeast(0)
         synchronized(samples) {
+            if (settleClosed) {
+                late.incrementAndGet()
+                return
+            }
+            matched.incrementAndGet()
             samples.add(rtt)
             val bucket = RoundTripHistogram.indexOf(rtt)
             histogram[bucket]++
@@ -435,6 +477,10 @@ class StampMatcher(
             captures.forEachIndexed { i, (_, tag) ->
                 table?.put(i, request.messageIndex, WireTags.tagValue(reply.wire, tag))
             }
+            // After the captures and never before them. A reacting phase is handed an index and looks
+            // the values up by it, so the values have to be written before the index that sends it
+            // looking. Same thread, in this order, under this monitor: that is the whole ordering.
+            trigger?.fired(request.messageIndex)
         }
     }
 
@@ -466,6 +512,11 @@ class StampMatcher(
     /**
      * **The settle window is over.** What is still pending is the run's unmatched set, frozen here, and any
      * reply that arrives from now on is late rather than matched. Idempotent: the first close decides.
+     *
+     * This is also where a phase reacting to this one is told that nothing more will fire it, because
+     * this is the first moment at which that is true: until the window closes, a reply that would fire
+     * one can still land. It happens inside the same monitor [record] fires under, so the last index to
+     * fire and the "nothing more is coming" behind it can never cross. See [Trigger].
      */
     fun closeSettle(): List<Unmatched> {
         unmatchedAtClose?.let { return it }
@@ -477,6 +528,7 @@ class StampMatcher(
                     .map { (id, p) -> Unmatched(id, p.laneSlot, p.sentMicros, p.wire) }
                     .sortedBy { it.sentMicros }
             unmatchedAtClose = frozen
+            trigger?.done()
             return frozen
         }
     }

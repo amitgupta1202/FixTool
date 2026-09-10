@@ -28,6 +28,16 @@ import java.util.concurrent.LinkedBlockingQueue
 class TriggerBuffer(
     /** The phase that reads this one, 1-based. What a note about it names. */
     val phase: Int,
+    /**
+     * **What fills this one**, as the record names it: "phase 1 · Ask for a quote". Null when nothing
+     * does, which is every phase that runs on a schedule of its own.
+     *
+     * Kept here because the phase reading it has to be able to say what did not happen. An index no
+     * trigger ever released is reported as a message the phase never sent, and the reason it gives is
+     * the phase that never answered for it. A reactive phase that captures nothing has no capture name
+     * to blame, so this is the only name there is.
+     */
+    val firedBy: String? = null,
 ) {
     private val queue = LinkedBlockingQueue<Int>()
 
@@ -48,7 +58,15 @@ class TriggerBuffer(
      * A post after the close is dropped rather than kept: the phase that would have issued for it has been
      * told there is nothing more coming, and one more index behind that promise is a message nobody is
      * waiting to send.
+     *
+     * **On the same monitor the close takes**, so an index can never land behind the sentinel. Reading
+     * `closed` and then offering, with nothing holding the two together, leaves the window where the
+     * close slips between them: the queue ends up `[END, index]`, [next] takes the sentinel and returns
+     * null, and that index sits there for the rest of the set while the phase waiting on it reports a
+     * message its trigger plainly answered as one that was never answered. The monitor is uncontended in
+     * every ordinary moment and held for one `offer`, which is what a stamp thread can afford.
      */
+    @Synchronized
     fun post(index: Int) {
         if (closed) return
         queue.offer(index)

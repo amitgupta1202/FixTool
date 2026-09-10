@@ -87,10 +87,55 @@ class TriggerBufferTest {
         assertEquals((1..POSTS).toList(), (1..POSTS).map { buffer.next() })
     }
 
+    /**
+     * **Nothing is ever left behind the sentinel.**
+     *
+     * A post that read `closed` and then offered, with nothing holding the two together, can have the
+     * close slip between them: the queue ends up as the end marker followed by an index, [next] takes
+     * the marker and says there is no more, and that index sits there for the rest of the set. The phase
+     * waiting on it then reports a message its trigger plainly answered as one that was never answered.
+     *
+     * Two closers, because in a set there really are two: the matcher's own window closing, and the
+     * phase's exit closing whatever it would have fired. Only a monitor across the read and the offer
+     * makes the pair safe, and what says so is the buffer being empty of everything but the marker once
+     * the reader has been told there is no more.
+     */
+    @Test
+    fun `an index posted while the buffer is closing is never left behind the end of it`() {
+        repeat(ROUNDS) { round ->
+            val buffer = TriggerBuffer(phase = 2)
+            val read = CopyOnWriteArrayList<Int>()
+            val reader = Thread { while (true) read += buffer.next() ?: break }
+            val posters =
+                (0 until POSTERS).map { p ->
+                    Thread { (1..RACING_POSTS).forEach { buffer.post(p * RACING_POSTS + it) } }
+                }
+            val closers =
+                listOf(
+                    Thread { buffer.close("phase 1's settle window closed, so nothing more will fire this one") },
+                    Thread { buffer.close("phase 1 has finished, so nothing more will fire this one") },
+                )
+            (listOf(reader) + posters + closers).forEach {
+                it.isDaemon = true
+                it.start()
+            }
+            (posters + closers).forEach { it.join(WAIT_S * 1_000) }
+            reader.join(WAIT_S * 1_000)
+
+            assertTrue(!reader.isAlive, "round $round: the reader was never told there was no more")
+            assertEquals(0, buffer.waiting, "round $round: ${buffer.waiting} indices are stranded behind the end marker")
+            assertEquals(read.size, read.distinct().size, "round $round: an index came back twice")
+        }
+    }
+
     private companion object {
         const val WAIT_S = 5L
 
         /** More than any bounded queue this would have been given, so a drop would show. */
         const val POSTS = 10_000
+
+        const val ROUNDS = 50
+        const val POSTERS = 4
+        const val RACING_POSTS = 200
     }
 }

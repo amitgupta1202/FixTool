@@ -443,4 +443,134 @@ class StampMatcherTest {
             table.rows(),
         )
     }
+
+    // -------------------------------------------------------------------------------------------------
+    // What a match releases, and the one lock that keeps it consistent with the close
+    // -------------------------------------------------------------------------------------------------
+
+    /**
+     * A trigger that keeps what it was told, in the order it was told, for a test to read back.
+     *
+     * [slowly] makes each release take a millisecond, which is the nanosecond the R18 race lives in made
+     * wide enough to see. A real one enqueues and returns, and this one is the same code with the window
+     * held open: what the fire and the close being one monitor's business has to survive is exactly a
+     * close arriving while a release is halfway through.
+     */
+    private class Recording(
+        private val slowly: Boolean = false,
+        val buffer: TriggerBuffer = TriggerBuffer(2, "phase 1 · Ask"),
+    ) : StampMatcher.Trigger {
+        override fun fired(messageIndex: Int) {
+            if (slowly) Thread.sleep(FIRE_MS)
+            buffer.post(messageIndex)
+        }
+
+        override fun done() = buffer.close("the window closed")
+    }
+
+    @Test
+    fun `a match releases the index it was issued for, and a duplicate of it releases nothing`() {
+        val fires = Recording()
+        val m =
+            StampMatcher(
+                match = LoadMatch(11, 11, "8"),
+                requestType = "D",
+                issuing = setOf(laneA),
+                trigger = fires,
+            )
+
+        m.issued("ORD-1", 7)
+        m.onStamp(send(laneA, "ORD-1", at = 1_000))
+        m.onStamp(receive(laneA, "ORD-1", at = 2_000))
+        m.onStamp(receive(laneA, "ORD-1", at = 3_000))
+        m.finish()
+
+        assertEquals(listOf(7), drain(fires.buffer), "one release per match, and a duplicate is not one")
+        assertEquals(1L, m.snapshot().duplicates)
+        assertTrue(fires.buffer.closed, "the window closing is what says nothing more will fire")
+        assertEquals("the window closed", fires.buffer.note)
+    }
+
+    /**
+     * **The R18 race, run twenty times, with the window held open.**
+     *
+     * A reply reads the settle window open, loses the CPU, and is still being recorded when the window is
+     * closed on another thread. The fire and the close are the same monitor's business, so exactly one of
+     * two things is true of every reply: it counted as matched and the index it answered for is in the
+     * buffer, or it counted as late and it is not. Both halves are asserted, because "everything matched
+     * was released" would pass a matcher that released everything twice.
+     *
+     * Move the fire outside `record`'s lock and the close walks into the middle of it: the reply has
+     * already counted as matched, the buffer is closed by the time its index is posted, and the index is
+     * dropped. The phase waiting on it then reports a message its trigger plainly answered as one that
+     * was never answered, which is `matched` and `read` parting company here.
+     */
+    @Test
+    fun `a reply is matched and released, or late and not, and never one of each`() {
+        repeat(REPETITIONS) { round ->
+            val fires = Recording(slowly = true)
+            val m =
+                StampMatcher(
+                    match = LoadMatch(11, 11, "8"),
+                    requestType = "D",
+                    issuing = setOf(laneA),
+                    trigger = fires,
+                )
+            (1..REPLIES).forEach { i ->
+                m.issued("ORD-$i", i)
+                m.onStamp(send(laneA, "ORD-$i", at = i * 10L))
+            }
+
+            val read = java.util.concurrent.CopyOnWriteArrayList<Int>()
+            val reader = Thread { while (true) read += fires.buffer.next() ?: break }
+            val replier =
+                Thread {
+                    (1..REPLIES).forEach { i -> m.onStamp(receive(laneA, "ORD-$i", at = 1_000 + i * 10L)) }
+                }
+            // Closed from a third thread, once some replies are in, so the close lands in the middle of
+            // the stream rather than politely after it. Which reply it lands on is the point.
+            val closer =
+                Thread {
+                    while (m.snapshot().matched < CLOSE_AFTER) Thread.sleep(1)
+                    m.closeSettle()
+                }
+            // Daemons, and joined with a deadline, because the failure this test is for can also be a
+            // reader left waiting on a buffer nothing ever closed, and a hung test says nothing at all.
+            listOf(reader, replier, closer).forEach {
+                it.isDaemon = true
+                it.start()
+            }
+            replier.join(JOIN_MS)
+            m.closeSettle()
+            reader.join(JOIN_MS)
+            closer.join(JOIN_MS)
+            assertTrue(listOf(reader, replier, closer).none { it.isAlive }, "round $round: a thread never came back")
+
+            val counts = m.snapshot()
+            assertEquals(
+                counts.matched,
+                read.size.toLong(),
+                "round $round: ${counts.matched} matched and ${read.size} released, so a reply did one and not the other",
+            )
+            assertEquals(REPLIES.toLong(), counts.matched + counts.late, "round $round: every reply is matched or late")
+            assertEquals(read.sorted(), read.distinct().sorted(), "round $round: an index was released twice")
+        }
+    }
+
+    /** Everything the buffer has, in order, to the end of it. What a reactive phase's dispatcher does. */
+    private fun drain(buffer: TriggerBuffer): List<Int> = generateSequence { buffer.next() }.toList()
+
+    private companion object {
+        const val REPETITIONS = 20
+        const val REPLIES = 12
+
+        /** How long one release is held open for, so a close has somewhere to land in the middle of it. */
+        const val FIRE_MS = 1L
+
+        /** Replies in before the close goes, so it never arrives before the stream it is racing. */
+        const val CLOSE_AFTER = 2L
+
+        /** Long enough that a working matcher never reaches it, short enough that a broken one says so. */
+        const val JOIN_MS = 30_000L
+    }
 }

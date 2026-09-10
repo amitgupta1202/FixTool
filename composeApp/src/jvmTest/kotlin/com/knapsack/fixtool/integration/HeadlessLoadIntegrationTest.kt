@@ -58,14 +58,25 @@ class HeadlessLoadIntegrationTest {
         )
     }
 
-    /** The same two phases, but phase 2 addresses what phase 1 was given rather than what it chose. */
-    private fun writeCapturingSet(name: String = "round-trip", count: Int = 20) {
+    /**
+     * The same two phases, but phase 2 addresses what phase 1 was given rather than what it chose.
+     *
+     * [reactive] makes phase 2 fire as phase 1's quotes land rather than after phase 1's whole settle
+     * window, which is the same file the dialog writes and the only thing `--set` needs to run one.
+     */
+    private fun writeCapturingSet(name: String = "round-trip", count: Int = 20, reactive: Boolean = false) {
         writeCaptureTemplate()
+        val second =
+            if (reactive) {
+                """"shape": { "kind": "triggered" }, "after": 1"""
+            } else {
+                """"shape": { "kind": "burst", "count": $count }"""
+            }
         File(home, "load-sets").mkdirs()
         File(home, "load-sets/$name.json").writeText(
             """
             {
-              "schema": 1,
+              "schema": 2,
               "name": "$name",
               "label": "Round trip",
               "seed": $seedGeneratorJson,
@@ -80,7 +91,7 @@ class HeadlessLoadIntegrationTest {
                 { "label": "Hit them", "template": "${File(home, "hits-by-capture.fix").absolutePath}",
                   "profile": "LOADGEN",
                   "match": { "requestTag": 11, "replyTag": 11, "replyType": "8" },
-                  "shape": { "kind": "burst", "count": $count }, "settleMs": 10000 }
+                  $second, "settleMs": 10000 }
               ]
             }
             """.trimIndent(),
@@ -478,6 +489,35 @@ class HeadlessLoadIntegrationTest {
         val captured = File(dirs.single(), LoadReport.Evidence.forPhase(1, captured = true).captured!!).readLines()
         assertEquals(20, captured.filter { it.isNotBlank() }.size, "one line per index that carries a value")
         assertTrue(captured.first().contains("quoteId=OPAQUE-"), captured.first())
+    }
+
+    /**
+     * **A reactive set runs from the command line with no flag of its own.**
+     *
+     * The shape is in the file, so `--set` is the whole grammar: there is no `--reactive` to pass and no
+     * `--count` that would mean anything, because a reactive phase's count belongs to the phase it reacts
+     * to. What the run has to show for it is the chain, which is the figure a staged set cannot produce.
+     */
+    @Test
+    fun `a reactive phase in a set file runs from the command line, and reports its chain`() {
+        server.answer = opaqueVenue()
+        writeCapturingSet(reactive = true)
+        val jsonFile = File(home, "reports/reactive.json")
+
+        val (code, out, err) = loadSet("--set", "round-trip", "--seed", "run=rx1", "--json", jsonFile.absolutePath)
+
+        assertEquals(0, code, "stdout:\n$out\nstderr:\n$err")
+        assertTrue(out.contains("PASSED       2 passed"), out)
+        val hits = server.applicationMessages.filter { TestFixServer.fieldValue(it, 35) == "AJ" }
+        assertEquals(20, hits.size, "one hit per quote the venue answered")
+        assertTrue(hits.all { TestFixServer.fieldValue(it, 117)!!.startsWith("OPAQUE-") }, "the id came off the reply")
+
+        val phases = Json.parseToJsonElement(jsonFile.readText()).jsonObject["phases"]!!.jsonArray
+        val reacting = phases[1].jsonObject
+        assertEquals("triggered", reacting["shape"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
+        val issue = reacting["issue"]!!.jsonObject
+        assertEquals(20, issue["requested"]!!.jsonPrimitive.int, "the trigger's count")
+        assertNotNull(reacting["chain"], "the phase that ends a chain reports one")
     }
 
     /**

@@ -480,13 +480,9 @@ private fun PhaseFooter(phase: LoadReport) {
                         if (complete) AppTheme.Colors.success else AppTheme.Colors.error,
                     )
                     JudgementPill(
-                        "rate · " +
-                            if (phase.verdict.rate == LoadReport.RateVerdict.NOT_APPLICABLE) {
-                                "n/a, burst"
-                            } else {
-                                phase.verdict.rate.name
-                                    .lowercase()
-                            },
+                        // The report's own words: "not applicable" means something different for a
+                        // burst, a reactive phase and a run that stopped. See LoadReport.rateWord.
+                        "rate · " + phase.rateWord,
                         when (phase.verdict.rate) {
                             LoadReport.RateVerdict.HELD -> AppTheme.Colors.success
                             LoadReport.RateVerdict.SHORTFALL -> AppTheme.Colors.warning

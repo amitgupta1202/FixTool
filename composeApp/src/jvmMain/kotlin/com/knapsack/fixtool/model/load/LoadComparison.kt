@@ -183,13 +183,11 @@ data class LoadComparison(
 
         private fun replyType(m: LoadMatch): String = m.replyType?.let { "35=$it" } ?: "any"
 
-        private fun verdictWord(r: LoadReport): String =
-            if (r.verdict.rate == LoadReport.RateVerdict.NOT_APPLICABLE) {
-                "n/a, burst"
-            } else {
-                r.verdict.rate.name
-                    .lowercase()
-            }
+        /**
+         * The report's own words, because Compare said "n/a, burst" about a reactive phase and about a
+         * run that stopped as readily as about a burst. See [LoadReport.rateWord].
+         */
+        private fun verdictWord(r: LoadReport): String = r.rateWord
 
         /** A row that is only ever "same" or "differs" — the shape of every comparability and context row. */
         private fun same(label: String, before: String, after: String): Row =

@@ -613,11 +613,24 @@ object LoadReportCodec {
         }
 
     private fun rateCase(r: LoadReport): Case {
-        val rate = r.rate ?: return Case("rate", note = "not applicable to a burst", skipped = true)
+        val rate = r.rate ?: return Case("rate", note = noScheduleSentence(r), skipped = true)
         val sentence = rateSentence(rate)
         val shortfall = r.verdict.rate == LoadReport.RateVerdict.SHORTFALL
         return if (shortfall && r.strictRate) Case("rate", failure = sentence) else Case("rate", note = sentence)
     }
+
+    /**
+     * Why there was no schedule to judge, which is a different fact for each shape that has none.
+     *
+     * This said "not applicable to a burst" for every one of them, and the moment a phase could be
+     * reactive that was a build log calling a reactive phase a burst.
+     */
+    private fun noScheduleSentence(r: LoadReport): String =
+        when (r.shape) {
+            is LoadShape.Burst -> "not applicable to a burst"
+            is LoadShape.Triggered -> "not applicable to a reactive phase, which is released by replies"
+            is LoadShape.Rate -> "not applicable: the run did not finish, so its schedule was never judged"
+        }
 
     private fun toolCase(r: LoadReport): Case =
         if (r.tool.limited) Case("tool", failure = toolSentence(r.tool)) else Case("tool", note = "clean")

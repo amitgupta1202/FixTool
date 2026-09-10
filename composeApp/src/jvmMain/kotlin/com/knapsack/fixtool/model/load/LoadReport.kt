@@ -89,6 +89,27 @@ data class LoadReport(
      */
     val isMuted: Boolean get() = status == LoadStatus.SKIPPED && note == LoadRecord.MUTED_NOTE
 
+    /**
+     * **The rate judgement in words**, which is not the verdict's own name when there was no schedule.
+     *
+     * "Not applicable" is three different facts, and only the shape says which. A burst never had a
+     * schedule. A reactive phase is released by replies, and its cap, when it has one, is a ceiling
+     * rather than a schedule. A run that stopped before its pacer finished has a schedule nobody judged.
+     * The pill was drawn in three places and every one of them said "n/a, burst" whatever the shape was,
+     * so the words live here once and the three read them.
+     */
+    val rateWord: String
+        get() =
+            if (verdict.rate != RateVerdict.NOT_APPLICABLE) {
+                verdict.rate.name.lowercase()
+            } else {
+                when (shape) {
+                    is LoadShape.Burst -> "n/a, burst"
+                    is LoadShape.Triggered -> "n/a, reactive"
+                    is LoadShape.Rate -> "n/a, the run did not finish"
+                }
+            }
+
     /** What the template was, and which of its tags were rendered per message. */
     data class TemplateInfo(
         val name: String,

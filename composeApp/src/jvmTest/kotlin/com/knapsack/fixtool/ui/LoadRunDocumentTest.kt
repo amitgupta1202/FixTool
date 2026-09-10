@@ -88,6 +88,25 @@ class LoadRunDocumentTest {
         composeTestRule.onNodeWithText("tool · clean").assertExists()
     }
 
+    /**
+     * **A reactive phase is not a burst, and the document said it was in two places.**
+     *
+     * The pill read the literal "n/a, burst" for anything the verdict could not score, and the tool
+     * strip fell through its burst arm into "the run did not finish, so its schedule was never judged",
+     * which of a finished reactive phase is simply false. The comment three lines above that arm records
+     * fixing the same lie once already, for rate runs interrupted mid-flight.
+     */
+    @Test
+    fun `a reactive phase is drawn as reactive rather than as a burst`() {
+        val report = LoadFixtures.burstReport(unmatched = 0).copy(shape = LoadShape.Triggered())
+        viewModel.loadRecordStore.write(report)
+
+        composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
+
+        composeTestRule.onNodeWithText("rate · n/a, reactive").assertExists()
+        composeTestRule.onNodeWithTag("load-tool-rate").assertTextContains("reactive, so no schedule to lag", substring = true)
+    }
+
     /** The two lead figures carry the run's rank. The other five are a strip, reported and not shouted. */
     @Test
     fun `the two counts that decide the verdict are the figures, and the five that do not are a strip`() {

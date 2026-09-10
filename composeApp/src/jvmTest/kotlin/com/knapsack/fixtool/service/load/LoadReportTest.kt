@@ -385,6 +385,44 @@ class LoadReportTest {
         )
     }
 
+    // -------------------------------------------------------------------------------------------------
+    // A shape with no schedule, and which shape it was
+    // -------------------------------------------------------------------------------------------------
+
+    /**
+     * **"Not applicable" is three different facts, and every place that printed it said "burst".**
+     *
+     * The pill on the run document, the pill on the set document and the row in Compare all read the
+     * verdict's name and hard-coded "n/a, burst" for the one case that has none, so a reactive phase and
+     * a run that stopped before its pacer finished were both drawn as bursts. One owner now, and this is
+     * what it says.
+     */
+    @Test
+    fun `a shape with no schedule to judge says which shape it was`() {
+        val burst = burstReport(unmatched = 0)
+
+        assertEquals("n/a, burst", burst.rateWord)
+        assertEquals("n/a, reactive", burst.copy(shape = LoadShape.Triggered()).rateWord)
+        assertEquals("n/a, reactive", burst.copy(shape = LoadShape.Triggered(cap = 200)).rateWord)
+        assertEquals(
+            "n/a, the run did not finish",
+            burst.copy(shape = LoadShape.Rate(500, 600_000)).rateWord,
+            "a rate run with no rate report is one nobody judged, which is not a burst",
+        )
+        assertEquals("shortfall", burstReport(unmatched = 0, rate = shortfall).rateWord)
+    }
+
+    /** The build log said "not applicable to a burst" about every shape that had no schedule too. */
+    @Test
+    fun `the JUnit rate case says which shape had no schedule`() {
+        val reactive = LoadReportCodec.toJUnitXml(burstReport(unmatched = 0).copy(shape = LoadShape.Triggered()))
+
+        assertTrue(
+            reactive.contains("""<skipped message="not applicable to a reactive phase, which is released by replies"/>"""),
+            reactive,
+        )
+    }
+
     /** A set that passed on the two phases that ran exits 0, and its one parked phase is not judged. */
     @Test
     fun `a set with a muted phase and the rest passed exits zero`() {

@@ -491,9 +491,14 @@ private fun StripItem(label: String, value: String, tag: String, first: Boolean 
 private fun Throughput(r: LoadReport, narrow: Boolean) {
     if (!LoadCharts.hasPerSecond(r)) return
     val note =
-        (r.shape as? LoadShape.Rate)
-            ?.let { "red is any second under the pacer's own floor, ${it.perSecond}/s less Pacer.TOLERANCE" }
-            ?: "a burst has no schedule, so no second is behind one"
+        when (val shape = r.shape) {
+            is LoadShape.Rate ->
+                "red is any second under the pacer's own floor, ${shape.perSecond}/s less Pacer.TOLERANCE"
+            is LoadShape.Burst -> "a burst has no schedule, so no second is behind one"
+            // Including a capped one: a cap is a line to sit under, so a second below it is a second
+            // its trigger had less for it and never a second behind anything.
+            is LoadShape.Triggered -> "a reactive phase has no schedule, so no second is behind one"
+        }
     Section("Throughput and latency, second by second", note) {
         if (narrow) {
             Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
@@ -870,6 +875,9 @@ private fun ToolPart(r: LoadReport) {
             when {
                 rate != null -> StripItem("rate", LoadReportCodec.rateSentence(rate), "load-tool-rate")
                 r.shape is LoadShape.Burst -> StripItem("rate", "burst, so no schedule to lag", "load-tool-rate")
+                // A reactive phase without a cap is neither, and would have landed in the else below
+                // and claimed a finished phase did not finish. Its messages are released by replies.
+                r.shape is LoadShape.Triggered -> StripItem("rate", "reactive, so no schedule to lag", "load-tool-rate")
                 else -> StripItem("rate", "the run did not finish, so its schedule was never judged", "load-tool-rate")
             }
         }
@@ -904,13 +912,10 @@ private fun Judgements(r: LoadReport, records: File) {
                     if (complete) AppTheme.Colors.success else AppTheme.Colors.error,
                 )
                 JudgementPill(
-                    "rate · " +
-                        if (r.verdict.rate == LoadReport.RateVerdict.NOT_APPLICABLE) {
-                            "n/a, burst"
-                        } else {
-                            r.verdict.rate.name
-                                .lowercase()
-                        },
+                    // The words are the report's own, because "not applicable" is a different fact for a
+                    // burst, for a reactive phase and for a run that stopped, and this said "burst" for
+                    // all three. See LoadReport.rateWord.
+                    "rate · " + r.rateWord,
                     when (r.verdict.rate) {
                         LoadReport.RateVerdict.HELD -> AppTheme.Colors.success
                         LoadReport.RateVerdict.SHORTFALL -> AppTheme.Colors.warning

@@ -58,6 +58,16 @@ class LoadSetRunner(
     internal var onTriggerBuffers: (List<TriggerBuffer>) -> Unit = {}
 
     /**
+     * **How a phase's thread is made**, so a test can hand back one that refuses to start.
+     *
+     * `internal` for the reason [onTriggerBuffers] is: the failure that matters most about asking a
+     * machine for a thread per phase cannot be staged from outside. A machine with none left answers
+     * `Thread.start()` with an `OutOfMemoryError` rather than with a thread, and what the set does about
+     * that is the difference between a phase that ends and a phase parked at a gate nobody will open.
+     */
+    internal var newThread: (String, () -> Unit) -> Thread = { name, body -> Thread(body, name) }
+
+    /**
      * **The reply router: one listener per session for the whole set, and every stamp to the phase that
      * issued it.**
      *
@@ -376,12 +386,52 @@ class LoadSetRunner(
                     if (plan.muted) {
                         null
                     } else {
-                        Thread({ phase(index) }, "fixtool-load-phase-${index + 1}").apply { isDaemon = true }
+                        index to newThread("fixtool-load-phase-${index + 1}") { phase(index) }.apply { isDaemon = true }
                     }
                 }
-            threads.forEach { it.start() }
-            joinAll(threads)
+            try {
+                startAll(threads)
+            } finally {
+                joinAll(threads.map { it.second })
+            }
             (0 until size).firstNotNullOfOrNull { failures.get(it) }?.let { throw it }
+        }
+
+        /**
+         * **Starting a thread is the one thing here that can fail before any phase has run.**
+         *
+         * Fifty lanes over three phases is a hundred and fifty-three threads, and a machine with none
+         * left answers `start()` with an `OutOfMemoryError`. Letting that out of here would skip the
+         * joins beneath it and run the teardown, which closes every stamp listener and releases the
+         * host, under the phases that did start: in the app, a disconnect and a reconnect beneath a
+         * phase still issuing. It would also leave the unstarted phase's `finished` uncounted, and a
+         * phase gated on that one waits at its gate for the rest of the process.
+         *
+         * So the failure is recorded against the phase that could not start and against every phase
+         * behind it, and each of them is counted out by hand exactly as its own thread's `finally`
+         * would have counted it. Behind it as well as itself, because a machine that could not make
+         * this thread will not make the next one either. Nothing is published from here: the throwable
+         * goes back to the caller whatever happens, and a machine that has just run out of threads is a
+         * poor place to build a record.
+         */
+        @Suppress("TooGenericExceptionCaught")
+        private fun startAll(threads: List<Pair<Int, Thread>>) {
+            threads.forEachIndexed { at, (_, thread) ->
+                try {
+                    thread.start()
+                } catch (t: Throwable) {
+                    threads.drop(at).forEach { (index, _) -> abandon(index, t) }
+                    return
+                }
+            }
+        }
+
+        /** A phase that never got a thread, counted out of the set exactly as its own thread would have. */
+        private fun abandon(index: Int, cause: Throwable) {
+            failures.set(index, cause)
+            started[index].countDown()
+            closeDependants(index)
+            finished[index].countDown()
         }
 
         /**

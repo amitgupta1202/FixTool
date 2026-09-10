@@ -12,8 +12,10 @@ import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.WireTags
 import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -208,6 +210,86 @@ class ConcurrentPhasesTest {
         )
         assertEquals(600, lanes.sumOf { lane -> lane.sent.count { it.contains("35=D") } }, "and issued everything it asked for")
         assertEquals(1, host.releases, "released once, after the join, and not from under the phase still going")
+    }
+
+    /**
+     * **A phase whose thread will not start does not leave the set holding its own gates.**
+     *
+     * Fifty lanes over three phases asks a machine for a hundred and fifty-three threads, and one with
+     * none left answers `Thread.start()` with an `OutOfMemoryError` rather than with a thread. Thrown
+     * from where the phases are started, it goes straight past the joins beneath it into the teardown,
+     * which closes every stamp listener and releases the host: in the app that is a disconnect and a
+     * reconnect under phase 1, which is still issuing. Nothing counts the unstarted phase's latches down
+     * either, so a phase gated on that one waits at its gate for the rest of the process.
+     *
+     * So the phase that could not start is counted out by hand, as is every phase behind it, and the
+     * error reaches the caller only after phase 1 has ended. The venue notes whether the host had been
+     * released each time it answered, which is what "after" means here, and takes its time over the
+     * first message so that a teardown running early would have a window it could not miss.
+     *
+     * **The machine runs out of threads once phase 1 is issuing**, rather than at some moment of the
+     * scheduler's choosing. A phase still at its gate when a later one fails is skipped by that failure,
+     * which is a fine record and not what this is about: what is worth pinning is the phase that had
+     * started, and the set holding on to its own error until that phase has ended.
+     */
+    @Test
+    fun `a phase whose thread will not start is counted out, and the phase that did start is joined`() {
+        val clock = FakeClock()
+        val lanes = lanes(clock)
+        val host = FakeHost(clock, lanes)
+        val answeredAfterRelease = AtomicBoolean()
+        val firstAnswer = AtomicBoolean(true)
+        lanes.forEach { lane ->
+            lane.answers("D") { wire ->
+                if (host.released) answeredAfterRelease.set(true)
+                if (firstAnswer.compareAndSet(true, false)) Thread.sleep(SLOW_ANSWER_MS)
+                fill(wire)
+            }
+        }
+        val runner = LoadSetRunner(host, clock = clock)
+        val buffers = CopyOnWriteArrayList<TriggerBuffer>()
+        runner.onTriggerBuffers = { buffers += it }
+        val seen = CopyOnWriteArrayList<List<LoadStatus>>()
+        // A machine with a thread for phase 1 and none for anything after it.
+        runner.newThread = { name, body ->
+            if (name.endsWith("-1")) {
+                Thread(body, name)
+            } else {
+                object : Thread(body, name) {
+                    override fun start() {
+                        awaitSent("phase 1's first order", lanes)
+                        throw OutOfMemoryError("unable to create native thread")
+                    }
+                }
+            }
+        }
+
+        val thrown =
+            assertFailsWith<OutOfMemoryError> {
+                runner.run(
+                    setOf(
+                        burst("ask", orders, LoadMatch(11, 11, "8")),
+                        burst("hit", quoteRequests, LoadMatch(131, 131, "S")),
+                        burst("react", quoteRequests, LoadMatch(131, 131, "S")).copy(after = 2),
+                    ),
+                ) { seen += it.phases.map { p -> p.status } }
+            }
+
+        assertEquals("unable to create native thread", thrown.message)
+        assertEquals(
+            listOf(LoadStatus.DONE, LoadStatus.PENDING, LoadStatus.PENDING),
+            seen.last(),
+            "phase 1 reached its own verdict before the error went anywhere: $seen",
+        )
+        assertEquals(4, lanes.sumOf { lane -> lane.sent.count { it.contains("35=D") } }, "and issued everything it asked for")
+        assertFalse(answeredAfterRelease.get(), "the host was released while phase 1 was still being answered")
+        assertTrue(buffers.all { it.closed }, "a phase that never started still closes what was waiting on it")
+        assertEquals(
+            "phase 2 did not run, so nothing would have fired this one",
+            buffers[2].note,
+            "and phase 3 is told, rather than left at a gate nobody will open",
+        )
+        assertEquals(1, host.releases)
     }
 
     // -------------------------------------------------------------------------------------------------
@@ -449,5 +531,25 @@ class ConcurrentPhasesTest {
         )
         assertEquals(LoadReport.RateVerdict.HELD, report.verdict.rate, report.id)
         assertEquals(0, report.verdict.exitCode, report.id)
+    }
+
+    /** Waits, in real time, until something has gone down a lane. A hung test says nothing, so this says it. */
+    private fun awaitSent(what: String, lanes: List<FakeLane>) {
+        val deadline = System.nanoTime() + STALL_NANOS
+        while (lanes.sumOf { it.sent.size } == 0) {
+            check(System.nanoTime() < deadline) { "waited ${STALL_NANOS / 1_000_000_000}s for $what" }
+            Thread.sleep(1)
+        }
+    }
+
+    private companion object {
+        /**
+         * How long the venue takes over one message, in real milliseconds, so that a teardown running
+         * from the wrong place would have a window it could not miss. Nothing else waits on it.
+         */
+        const val SLOW_ANSWER_MS = 50L
+
+        /** How long a real-time wait sits before it says what it was waiting for. */
+        const val STALL_NANOS = 10_000_000_000L
     }
 }

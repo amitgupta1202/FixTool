@@ -37,6 +37,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -66,13 +68,32 @@ fun SlimField(
      */
     singleLine: Boolean = true,
     maxLines: Int = 1,
+    /**
+     * **False draws the field the way it behaves: sunken, greyed, and refusing the caret.**
+     *
+     * For the field whose value only counts while a tick or a radio beside it says so. A live field over a
+     * value nothing reads is the surface disagreeing with itself, and the number typed into it is taken,
+     * kept and thrown away without a word. Greyed, the field says which control decides.
+     *
+     * The value itself still shows, because a ceiling put there by a ticked box is worth reading back after
+     * the box is cleared. It is drawn as what it is: kept, and not in force.
+     */
+    enabled: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val background = if (tintBlank && value.isBlank()) AppTheme.Colors.emptyFieldBackground else AppTheme.Colors.surface
+    // A field that is off is never the empty one a form is waiting on, so the blank tint gives way to the
+    // disabled fill rather than colouring a row nothing is owed on.
+    val background =
+        when {
+            !enabled -> AppTheme.Colors.surfaceVariant
+            tintBlank && value.isBlank() -> AppTheme.Colors.emptyFieldBackground
+            else -> AppTheme.Colors.surface
+        }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
+        enabled = enabled,
         modifier =
             modifier
                 .let { if (singleLine) it.height(24.dp) else it.heightIn(min = 24.dp) }
@@ -82,11 +103,14 @@ fun SlimField(
                 // line measures taller than 24dp minus two 5dp pads, and BasicTextField top-aligns, so the
                 // fixed pad was clipping the lower half of the text (the rail's "filter…" showed as tops).
                 .padding(horizontal = 4.dp)
-                .let { if (singleLine) it else it.padding(vertical = 5.dp) },
+                .let { if (singleLine) it else it.padding(vertical = 5.dp) }
+                // Said in the semantics as well as in the paint, so a reader that never sees the fill is
+                // told the same thing, and so a test can ask.
+                .semantics { if (!enabled) disabled() },
         textStyle =
             TextStyle(
                 fontSize = 10.sp,
-                color = textColor,
+                color = if (enabled) textColor else AppTheme.Colors.textDisabled,
                 fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
             ),
         singleLine = singleLine,

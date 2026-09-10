@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.isRoot
@@ -232,19 +233,23 @@ class ReactivePhaseScreenshotTest {
         composeTestRule.onNodeWithTag("phase-after").assertTextContains("1 · Ask for a quote", substring = true)
         snapshot("03-shape-reactive-uncapped.png")
 
-        // 6. The ceiling's field with the tick still off. It takes the number, and the number does
-        // nothing: the shape is read from the tick, so the footer says the phase is uncapped while a
-        // ceiling sits in the box above it.
+        // 6. A ceiling put in and then untaken. The field keeps the number and is drawn off, so the tick,
+        // the field, the hint under it and the footer all say the same thing: the tick decides, and 999 is
+        // kept rather than in force.
+        composeTestRule.onNodeWithTag("load-cap-on").performClick()
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("load-cap").performTextInput("999")
+        composeTestRule.onNodeWithTag("load-cap-on").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("load-cap").assertTextContains("999")
+        composeTestRule.onNodeWithTag("load-cap").assertIsNotEnabled()
         composeTestRule.onNodeWithTag("phase-why").assertTextContains("reactive after phase 1", substring = true)
         snapshot("11-cap-typed-while-unticked.png")
-        composeTestRule.onNodeWithTag("load-cap").performTextClearance()
 
         // 7. The ceiling ticked, with a number in it.
         composeTestRule.onNodeWithTag("load-cap-on").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("load-cap").performTextClearance()
         composeTestRule.onNodeWithTag("load-cap").performTextInput("200")
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("load-cap").assertTextContains("200")

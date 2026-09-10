@@ -3,6 +3,7 @@ package com.knapsack.fixtool.ui
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -642,6 +643,8 @@ class LoadSetsDialogTest {
 
         composeTestRule.onNodeWithTag("load-set-phase-edit-2").performClick()
         composeTestRule.waitForIdle()
+        // The tick is the one decider, so the field it decides is off until it is on.
+        composeTestRule.onNodeWithTag("load-cap").assertIsNotEnabled()
         composeTestRule.onNodeWithTag("load-cap-on").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("load-cap").performTextInput("200")
@@ -657,6 +660,10 @@ class LoadSetsDialogTest {
         composeTestRule.onNodeWithTag("load-cap").assertTextContains("200")
         composeTestRule.onNodeWithTag("load-cap-on").performClick()
         composeTestRule.waitForIdle()
+        // Unticked, the ceiling is kept and drawn off rather than cleared: the number is worth reading back
+        // if the box goes on again, and greyed it cannot be mistaken for one the run will honour.
+        composeTestRule.onNodeWithTag("load-cap").assertTextContains("200")
+        composeTestRule.onNodeWithTag("load-cap").assertIsNotEnabled()
         composeTestRule.onNodeWithTag("phase-done").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("load-set-save").performClick()

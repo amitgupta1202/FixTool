@@ -591,7 +591,11 @@ fun LoadRunDialogContent(
                             SlimCheckbox(checked = capOn, onCheckedChange = { capOn = it }, testTag = "load-cap-on") {
                                 Text("never above", color = AppTheme.Colors.text, style = AppTheme.Type.body)
                             }
-                            SlimField(cap, { cap = it }, modifier = Modifier.width(64.dp).testTag("load-cap"))
+                            // Off with the tick, because the tick is the one decider: a live field over a
+                            // number the shape never reads takes it, keeps it and drops it on Done without
+                            // saying so. Typing must not tick the box either, which would hide the decider
+                            // inside the field it decides.
+                            SlimField(cap, { cap = it }, modifier = Modifier.width(64.dp).testTag("load-cap"), enabled = capOn)
                             Sub(capUnit(lanes))
                         }
                         Hint(capHint(capOn))

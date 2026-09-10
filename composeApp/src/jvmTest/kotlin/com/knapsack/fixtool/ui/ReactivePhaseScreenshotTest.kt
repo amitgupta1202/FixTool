@@ -26,6 +26,7 @@ import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPhaseSpec
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.NBSP
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -254,7 +255,7 @@ class ReactivePhaseScreenshotTest {
         composeTestRule.onNodeWithTag("phase-done").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("load-set-phase-plan-3").assertTextContains("reactive", substring = true)
-        composeTestRule.onNodeWithTag("load-set-phase-plan-3").assertTextContains("after phase 1", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-plan-3").assertTextContains("after${NBSP}phase${NBSP}1", substring = true)
         snapshot("07-set-rows-chain.png")
 
         // 9. The same row with the ceiling taken off, which is the shortest a reactive row gets. The two
@@ -264,7 +265,7 @@ class ReactivePhaseScreenshotTest {
         composeTestRule.onNodeWithTag("load-cap-on").performClick()
         composeTestRule.onNodeWithTag("phase-done").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("load-set-phase-plan-3").assertTextContains("reactive · after phase 1", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-plan-3").assertTextContains("reactive · after${NBSP}phase${NBSP}1", substring = true)
         snapshot("09-set-rows-uncapped.png")
     }
 

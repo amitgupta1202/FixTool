@@ -5,6 +5,14 @@ import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.load.CompiledTemplate
 
 /**
+ * **The no-break space that glues a number to the word naming it**, in every sentence a load set prints.
+ *
+ * Written as the escape and never as the character, because a literal one in the source reads as a space to
+ * every eye that opens the file and as nothing at all to a line breaker.
+ */
+internal const val NBSP = "\u00A0"
+
+/**
  * **Several load runs in order, under one seed, with one report.**
  *
  * Most load proofs against a venue are two or three runs that depend on each other: burst
@@ -579,16 +587,25 @@ data class LoadPhaseSpec(
      */
     private val countsFromHere: Boolean get() = indexFrom > 1 && shape !is LoadShape.Triggered
 
-    /** "RFQ Load Pass · 35=AJ → AI · 117 QuoteID · ×2,000 from 2,001 · settle 30s", for a row and a block. */
+    /**
+     * "RFQ Load Pass · 35=AJ → AI · 117 QuoteID · ×2,000 from 2,001 · settle 30s", for a row and a block.
+     *
+     * Every clause naming a number is written on [NBSP], so the only place the row may break is a `·`.
+     * A capped reactive phase is the longest sentence a spec can print, and on the set band it wrapped
+     * between "after phase" and "1", leaving a line that opened `1 · settle 1m` — a phase ordinal, to anyone
+     * reading the band rather than the sentence. Gluing only the number moved the break one word left and
+     * opened the line with `phase 1` instead, which is the same misreading, so the clause is glued whole.
+     * The break now falls between items, where it says nothing that was not already true.
+     */
     fun describe(): String =
         listOfNotNull(
             template,
             // `describe()` and not the data class's own toString, which put "LoadMatch(requestTag=131,
             // replyTag=131, replyType=S)" on the phase row where "131 → 131, reply 35=S" belongs.
             match?.describe(),
-            shape.describe() + if (countsFromHere) " from ${"%,d".format(indexFrom)}" else "",
-            after?.let { "after phase $it" },
-            "settle ${humanDuration(settleMs)}",
+            shape.describe() + if (countsFromHere) " from$NBSP${"%,d".format(indexFrom)}" else "",
+            after?.let { "after${NBSP}phase$NBSP$it" },
+            "settle$NBSP${humanDuration(settleMs)}",
             capture.keys.takeIf { it.isNotEmpty() }?.let { "keeps ${it.joinToString(", ")}" },
         ).joinToString(" · ")
 }

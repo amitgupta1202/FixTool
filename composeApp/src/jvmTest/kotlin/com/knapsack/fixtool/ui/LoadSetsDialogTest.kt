@@ -24,6 +24,7 @@ import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPhaseSpec
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.NBSP
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.SavedMessagesService
@@ -626,7 +627,7 @@ class LoadSetsDialogTest {
         assertEquals(1, saved.phases[1].indexFrom, "its indices are its trigger's, so it authors none")
         // And the row says so, in the words the file was written in.
         composeTestRule.onNodeWithTag("load-set-phase-plan-2").assertTextContains("reactive", substring = true)
-        composeTestRule.onNodeWithTag("load-set-phase-plan-2").assertTextContains("after phase 1", substring = true)
+        composeTestRule.onNodeWithTag("load-set-phase-plan-2").assertTextContains("after${NBSP}phase${NBSP}1", substring = true)
     }
 
     /** A ceiling is a number a second, and an unticked box is the decision to run uncapped. */

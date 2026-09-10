@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.model.load.NBSP
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import kotlinx.serialization.json.Json
@@ -134,18 +135,23 @@ class LoadSetTest {
         assertEquals(listOf(null, 1, 2), planned.phases.map { it.after }, "the trigger reaches the plan, not only the spec")
     }
 
-    /** A spec has no trigger plan, so the one honest thing it can print for a derived index is nothing. */
+    /**
+     * A spec has no trigger plan, so the one honest thing it can print for a derived index is nothing.
+     *
+     * [NBSP] before each number is what the row is written with: "after phase" and its ordinal reach one
+     * line together or neither of them does, so the set band can only ever break at a `·`.
+     */
     @Test
     fun `a reactive phase's row names its trigger and never prints an index it cannot know`() {
         assertEquals("reactive", LoadShape.Triggered().describe())
         assertEquals("reactive, capped 50/s", LoadShape.Triggered(cap = 50).describe())
         assertEquals(
-            "RFQ Load QuoteResponse · 11 → 11, reply 35=8 · reactive, capped 50/s · after phase 2 · settle 30s",
+            "RFQ Load QuoteResponse · 11 → 11, reply 35=8 · reactive, capped 50/s · after${NBSP}phase${NBSP}2 · settle${NBSP}30s",
             reactiveChain[2].describe(),
             "the authored indexFrom of 7 is nowhere in it",
         )
         assertEquals(
-            "RFQ Load QuoteResponse · 11 → 11, reply 35=8 · ×2,000 from 2,001 · settle 30s",
+            "RFQ Load QuoteResponse · 11 → 11, reply 35=8 · ×2,000 from${NBSP}2,001 · settle${NBSP}30s",
             twoPhases[1].describe(),
             "and a paced phase still says where it counts from",
         )

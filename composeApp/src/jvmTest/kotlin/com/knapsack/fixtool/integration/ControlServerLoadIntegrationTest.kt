@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.NBSP
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
 import com.knapsack.fixtool.service.load.LoadFixtures
@@ -282,7 +283,9 @@ class ControlServerLoadIntegrationTest {
 
         assertTrue(plans[0].jsonPrimitive.content.contains("×200"), plans.toString())
         assertTrue(plans[1].jsonPrimitive.content.contains("reactive, capped 200/s"), plans.toString())
-        assertTrue(plans[1].jsonPrimitive.content.contains("after phase 1"), plans.toString())
+        // The no-break space the row is written with reaches the API too: the plan an agent reads is the
+        // sentence a person reads, and one of them wrapping badly is not a reason to print two.
+        assertTrue(plans[1].jsonPrimitive.content.contains("after${NBSP}phase${NBSP}1"), plans.toString())
     }
 
     /** So an agent reading the list knows the set will run two of its three before it starts one. */

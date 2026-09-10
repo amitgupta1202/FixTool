@@ -241,11 +241,6 @@ data class LoadSet(
             reactive.cap
                 ?.takeIf { it <= 0 }
                 ?.let { "it is capped at $it/s, which is not a rate. ${surface.capRemedy}" },
-            // #46 step 2 builds the shape, the trigger and these refusals, and nothing runs one yet. This
-            // is what keeps a set carrying a reactive phase from opening a lane before finding that out,
-            // rather than throwing out of the pacer after logon, which is not a refusal. It goes when the
-            // trigger itself lands.
-            "it is reactive, and this version of FixTool cannot run a reactive phase yet. Give it a burst or a rate.",
         )
     }
 

@@ -94,6 +94,16 @@ data class LoadPlan(
     val indexTo: Long get() = indexFrom - 1L + requested
 
     /**
+     * **This phase's messages are released by phase [n]'s replies.**
+     *
+     * Three things and not one: a reactive shape, a trigger naming that phase, and a phase that is going
+     * to run at all. A paced phase can carry an [after] when a plan reaches the runner without being
+     * validated, and it waits on that phase's start and reads nothing else, so filling a buffer for it
+     * would be work nobody would ever collect.
+     */
+    fun reactsTo(n: Int): Boolean = after == n && shape is LoadShape.Triggered && !muted
+
+    /**
      * Where a refusal is about to be read, which decides only how its remedy is phrased. The sentence and
      * the diagnosis are the same everywhere; "Add run=… under Seed" is simply a lie on a command line.
      */

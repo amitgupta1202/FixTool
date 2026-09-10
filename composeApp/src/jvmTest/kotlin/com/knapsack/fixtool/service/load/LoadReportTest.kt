@@ -25,6 +25,7 @@ import kotlinx.serialization.json.put
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -422,6 +423,53 @@ class LoadReportTest {
             reactive,
         )
     }
+
+    /**
+     * **A ceiling is described and never scored.**
+     *
+     * Judged as a schedule, a capped phase whose trigger had less for it than the cap allowed reads HELD
+     * and claims to have met a rate nobody asked it for. The flag is what stops that, and the sentence
+     * says what a cap can actually say: how long it spent at the ceiling and how long it spent waiting.
+     */
+    @Test
+    fun `a cap is not judged as a schedule, and its sentence is its own`() {
+        val capped = burstReport(unmatched = 0, rate = ceiling).copy(shape = LoadShape.Triggered(cap = 200))
+
+        val verdict = LoadReport.verdict(LoadStatus.DONE, capped.replies, ceiling, capped.tool, strictRate = false)
+        val xml = LoadReportCodec.toJUnitXml(capped)
+
+        assertEquals(LoadReport.RateVerdict.NOT_APPLICABLE, verdict.rate)
+        assertEquals("never above 200/s · at the cap 4s · starved 4s", LoadReportCodec.rateSentence(ceiling))
+        assertEquals(0, Regex("""failures="(\d+)"""").find(xml)!!.groupValues[1].toInt())
+        assertTrue(xml.contains("<system-out>never above 200/s · at the cap 4s · starved 4s</system-out>"), xml)
+    }
+
+    /** A ceiling's two extra keys survive the file, and a record written before one reads as a schedule. */
+    @Test
+    fun `a ceiling round trips, and a rate report without one is still a schedule`() {
+        val capped = burstReport(unmatched = 0, rate = ceiling).copy(shape = LoadShape.Triggered(cap = 200))
+
+        assertEquals(ceiling, reread(capped).rate)
+        val schedule = assertNotNull(reread(burstReport(unmatched = 0, rate = shortfall)).rate)
+        assertEquals(false, schedule.ceiling, "a record written before a ceiling existed is a schedule")
+        assertEquals(0L, schedule.starvedForMs)
+    }
+
+    /** Through the text of the file and back, which is what a record on disk goes through. */
+    private fun reread(report: LoadReport): LoadReport =
+        LoadReportCodec.fromJson(Json.parseToJsonElement(LoadReportCodec.toJson(report).toString()).jsonObject)
+
+    /** Eight full seconds under a 200/s ceiling, half of them at it and half of them waiting. */
+    private val ceiling =
+        LoadReport.RateReport(
+            requestedPerSecond = 200,
+            heldForMs = 4_000,
+            shortfalls = emptyList(),
+            maxLagMs = 0,
+            tolerance = Pacer.TOLERANCE,
+            ceiling = true,
+            starvedForMs = 4_000,
+        )
 
     /** A set that passed on the two phases that ran exits 0, and its one parked phase is not judged. */
     @Test

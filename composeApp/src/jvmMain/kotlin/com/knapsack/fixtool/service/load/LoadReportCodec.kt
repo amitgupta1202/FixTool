@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -326,6 +327,13 @@ object LoadReportCodec {
             )
             put("maxLagMs", rate.maxLagMs)
             put("tolerance", rate.tolerance)
+            // A schedule never grows the two keys a ceiling needs, the same bargain a phase's `muted`
+            // strikes, and a reader with no `ceiling` key is reading a schedule, which is what every
+            // record written before a phase could be reactive is.
+            if (rate.ceiling) {
+                put("ceiling", true)
+                put("starvedForMs", rate.starvedForMs)
+            }
         }
 
     @Suppress("LongMethod")
@@ -492,6 +500,8 @@ object LoadReportCodec {
                 },
             maxLagMs = r.longOrNull("maxLagMs") ?: 0,
             tolerance = r["tolerance"]?.jsonPrimitive?.doubleOrNull ?: Pacer.TOLERANCE,
+            ceiling = r["ceiling"]?.jsonPrimitive?.booleanOrNull ?: false,
+            starvedForMs = r.longOrNull("starvedForMs") ?: 0,
         )
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
@@ -614,6 +624,9 @@ object LoadReportCodec {
 
     private fun rateCase(r: LoadReport): Case {
         val rate = r.rate ?: return Case("rate", note = noScheduleSentence(r), skipped = true)
+        // A ceiling is described and never scored. A phase under its cap is waiting on its trigger, and
+        // --strict-rate is about a schedule that was missed, so it has nothing to promote here.
+        if (rate.ceiling) return Case("rate", note = rateSentence(rate))
         val sentence = rateSentence(rate)
         val shortfall = r.verdict.rate == LoadReport.RateVerdict.SHORTFALL
         return if (shortfall && r.strictRate) Case("rate", failure = sentence) else Case("rate", note = sentence)
@@ -656,8 +669,21 @@ object LoadReportCodec {
             (if (more > 0) " and $more more" else "")
     }
 
-    /** "500/s requested · held 9m 41s · behind 14:21:07 → 14:21:26 (19s, min 412/s, 1,672 behind) · max lag 2.3s" */
+    /**
+     * "500/s requested · held 9m 41s · behind 14:21:07 → 14:21:26 (19s, min 412/s, 1,672 behind) · max lag 2.3s"
+     *
+     * And for a ceiling, "never above 200/s · at the cap 4s · starved 4s". A different sentence and not
+     * a different wording of the same one, because every clause of a schedule's is a claim a ceiling
+     * cannot make: nothing was requested, nothing was held, and nothing went late.
+     */
     fun rateSentence(rate: LoadReport.RateReport): String {
+        if (rate.ceiling) {
+            return listOf(
+                "never above ${rate.requestedPerSecond}/s",
+                "at the cap ${humanDuration(rate.heldForMs)}",
+                "starved ${humanDuration(rate.starvedForMs)}",
+            ).joinToString(" · ")
+        }
         val held = "held ${humanDuration(rate.heldForMs)}"
         val spans =
             rate.shortfalls.joinToString(" · ") { s ->

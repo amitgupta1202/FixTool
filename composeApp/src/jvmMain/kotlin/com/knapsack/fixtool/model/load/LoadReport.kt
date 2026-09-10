@@ -174,14 +174,35 @@ data class LoadReport(
         val neverLeftSocket: Long get() = (handedToEngine - leftSocket).coerceAtLeast(0)
     }
 
-    /** A rate run's schedule against what happened. Null for a burst, which has no schedule. */
+    /**
+     * A rate run's schedule against what happened, or a reactive phase's ceiling against it.
+     *
+     * Null for a burst, which has no schedule, and for an uncapped reactive phase, which has no ceiling
+     * either and issues as fast as its triggers arrive.
+     */
     data class RateReport(
+        /** The schedule that was asked for, or the ceiling that was asked not to be crossed. */
         val requestedPerSecond: Int,
         /** Full seconds in which the achieved rate met the requested one within [tolerance]. */
         val heldForMs: Long,
         val shortfalls: List<Shortfall>,
         val maxLagMs: Long,
         val tolerance: Double,
+        /**
+         * **This is a ceiling and not a schedule**, so nothing under it is behind anything.
+         *
+         * A reactive phase's cap is a line to sit under. Scored as a schedule, a healthy phase whose
+         * trigger simply had less for it than the cap allowed would claim to have met a rate nobody ever
+         * asked it for, so the verdict reads this and declines to score it at all.
+         */
+        val ceiling: Boolean = false,
+        /**
+         * Full seconds a ceiling spent under itself, which is [heldForMs]'s complement over the same
+         * seconds and only ever a description: a phase below its ceiling is waiting on its trigger.
+         *
+         * Nought for a schedule, whose falling short is a failure and lives in [shortfalls].
+         */
+        val starvedForMs: Long = 0,
     )
 
     data class Shortfall(
@@ -424,6 +445,10 @@ data class LoadReport(
             val rateVerdict =
                 when {
                     rate == null -> RateVerdict.NOT_APPLICABLE
+                    // A ceiling is a line to sit under, so there is no schedule here to have held or
+                    // missed. What it spent at the cap and what it spent waiting is described in the
+                    // report and never scored: see RateReport.ceiling.
+                    rate.ceiling -> RateVerdict.NOT_APPLICABLE
                     rate.shortfalls.isEmpty() -> RateVerdict.HELD
                     else -> RateVerdict.SHORTFALL
                 }

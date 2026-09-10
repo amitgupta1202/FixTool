@@ -517,20 +517,20 @@ class LoadSetTest {
         everyRefusal.forEach { assertTrue(';' !in it.sentence, "semicolon in: ${it.sentence}") }
     }
 
-    /** Step 2 of #46 builds the shape and refuses it. This sentence goes when the trigger itself lands. */
-    private val notYet =
-        "it is reactive, and this version of FixTool cannot run a reactive phase yet. Give it a burst or a rate."
-
     private fun reactive(after: Int?, cap: Int? = null) =
         twoPhases[1].copy(label = "Answer every quote", shape = LoadShape.Triggered(cap), after = after, indexFrom = 1)
 
-    /** The one thing wrong with a well-formed reactive set, so every other test can subtract it. */
+    /**
+     * **Nothing is wrong with a well-formed reactive set.**
+     *
+     * It used to carry one refusal per reactive phase, saying this version could not run one, which is
+     * what kept a set from opening a lane for a shape the pacer would have thrown on. It runs one now.
+     */
     @Test
-    fun `a reactive phase is refused because nothing runs one yet, and nothing else is wrong with it`() {
+    fun `a well-formed reactive set is refused for nothing at all`() {
         val problems = set(reactiveChain).problems(Fake(), LoadPlan.Surface.CLI)
 
-        assertEquals(listOf(2, 3), problems.map { it.phase }, problems.toString())
-        assertEquals(listOf(notYet, notYet), problems.map { it.sentence })
+        assertEquals(emptyList(), problems.map { it.sentence }, problems.toString())
     }
 
     /** A setting a surface took and then quietly dropped is worse than one it never took. */
@@ -549,11 +549,11 @@ class LoadSetTest {
     fun `a reactive phase that names no trigger is refused`() {
         val problems = set(listOf(twoPhases[0], reactive(after = null))).problems(Fake(), LoadPlan.Surface.CLI)
 
-        assertEquals(listOf(2, 2), problems.map { it.phase }, problems.toString())
+        assertEquals(listOf(2), problems.map { it.phase }, problems.toString())
         assertEquals(
             "it is reactive and names no phase to react to. A reactive phase issues one message for each " +
                 "message an earlier phase issued, so it has to say which.",
-            problems.first().sentence,
+            problems.single().sentence,
         )
     }
 
@@ -607,7 +607,6 @@ class LoadSetTest {
         assertEquals(
             listOf(
                 "it reacts to phase 1 · Ask for a quote, and that phase is muted. Unmute it, or nothing will ever fire this one.",
-                notYet,
             ),
             problems.map { it.sentence },
             "one mistake with one remedy, so the muted-capture sentence is not printed as well",
@@ -662,7 +661,7 @@ class LoadSetTest {
                 "of its trigger's own. A reactive phase fires as its trigger's replies land, so nothing says " +
                 "phase 2 has answered for the same message yet. React to phase 2 instead of phase 1, or read " +
                 "a name its trigger keeps.",
-            problems.first { it.phase == 3 && it.sentence != notYet }.sentence,
+            problems.single { it.phase == 3 }.sentence,
             problems.toString(),
         )
         assertTrue(problems.none { "nothing seeds" in it.sentence }, "one mistake, one sentence: $problems")
@@ -682,7 +681,7 @@ class LoadSetTest {
 
         val problems = set(chain).problems(resolve, LoadPlan.Surface.CLI)
 
-        assertEquals(listOf(notYet, notYet), problems.map { it.sentence }, problems.toString())
+        assertEquals(emptyList(), problems.map { it.sentence }, problems.toString())
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
@@ -35,8 +36,8 @@ import java.util.concurrent.locks.LockSupport
  * **What "strictly in order" now means.** A phase that names no trigger waits for every earlier phase and
  * for everything that reacts to one, transitively, so a set of paced phases runs exactly as it always did:
  * one at a time, in the order it was written. A phase that names a trigger starts when that phase starts,
- * which is what lets a reactive phase answer its trigger's replies as they land. `LoadSet.problems()` is
- * what keeps a trigger to a reactive phase, so nothing a surface will accept overlaps yet.
+ * and issues one message for each of that phase's requests as the venue answers it, which is what turns a
+ * three-phase RFQ set from three blocks into a chain per message.
  *
  * The record is written as the set goes, so a set killed at phase three leaves phases one and two complete
  * on disk, and the morning after an overnight set the answer is in `loads/<id>/load.json` whether or not
@@ -312,8 +313,8 @@ class LoadSetRunner(
      * earlier phase and for everything that reacts to one, transitively, so a set of paced phases runs
      * exactly as it always did. A phase that names a trigger waits only for that phase to **start**, which
      * is what a phase answering another's replies needs: waiting for the trigger to finish is the block it
-     * exists to break up. `LoadSet.problems()` refuses a trigger on anything but a reactive phase, so no
-     * set a surface accepts overlaps yet.
+     * exists to break up. From then on its own messages are released one at a time by [releasesOf], as
+     * that phase's requests are answered, and it ends when that phase's settle window closes.
      *
      * **Nothing is ever interrupted (R19).** Stopping is the polled flag it always was, passed to each
      * phase and read by its pacer and its settle loop. An interrupt would come out of `RenderAhead.next`,
@@ -456,7 +457,7 @@ class LoadSetRunner(
         private fun issue(index: Int) {
             val n = index + 1
             val runner =
-                LoadRunner(held, store = null, clock = clock) { matcher, _ ->
+                LoadRunner(held, store = null, clock = clock, fires = releasesOf(index)) { matcher, _ ->
                     board.register(index, matcher)
                     router.register(n, matcher)
                 }
@@ -465,12 +466,41 @@ class LoadSetRunner(
                     planned.phases[index],
                     phase = n,
                     captures = capturesFor(index),
+                    firedBy = triggers[index].takeIf { planned.phases[index].shape is LoadShape.Triggered },
                     cancelled = cancelled,
                 ) { progress -> board.update(index, progress) }
             outcome.report.evidence?.let { files ->
                 store?.writeEvidence(planned.id, files, outcome.unmatched, outcome.specimens, outcome.captured)
             }
             board.judged(index, outcome.report)
+        }
+
+        /**
+         * **What this phase's matches release**: the buffer of every reactive phase that reacts to it.
+         *
+         * Null when nothing does, which is most phases and every set that has no reactive phase at all,
+         * so the matcher of a set that could never overlap is exactly the matcher it always was.
+         *
+         * Only a reactive phase is wired up. A paced phase can carry an `after` when a plan reaches the
+         * runner without being validated, and it waits on that phase's start and nothing else: it reads
+         * no buffer, so filling one for it is work nobody would ever collect.
+         *
+         * Several phases can react to one, and each gets its own copy of every index, because two
+         * phases answering the same trigger both answer for every message it issued.
+         */
+        private fun releasesOf(index: Int): StampMatcher.Trigger? {
+            val n = index + 1
+            val waiting =
+                planned.phases.indices
+                    .filter { planned.phases[it].reactsTo(n) }
+                    .map { triggers[it] }
+            if (waiting.isEmpty()) return null
+            return object : StampMatcher.Trigger {
+                override fun fired(messageIndex: Int) = waiting.forEach { it.post(messageIndex) }
+
+                override fun done() =
+                    waiting.forEach { it.close("phase $n's settle window closed, so nothing more will fire this one") }
+            }
         }
 
         private fun capturesFor(index: Int): LoadRunner.Captures =
@@ -601,7 +631,14 @@ class LoadSetRunner(
      */
     private fun triggerBuffers(planned: LoadSet.Planned): List<TriggerBuffer> =
         planned.phases.mapIndexed { index, plan ->
-            TriggerBuffer(index + 1).also {
+            // The phase that fills it, by number and label, so the phase reading it can say what did not
+            // happen: an index nothing ever released is reported as a message this phase never sent, and
+            // a phase that captures nothing has no other name to give for what was missing.
+            val fills =
+                plan.after?.let { after ->
+                    planned.phases.getOrNull(after - 1)?.let { "phase $after · ${it.label}" }
+                }
+            TriggerBuffer(index + 1, firedBy = fills).also {
                 if (plan.after == null) it.close("it runs on its own schedule, so nothing fires it")
             }
         }

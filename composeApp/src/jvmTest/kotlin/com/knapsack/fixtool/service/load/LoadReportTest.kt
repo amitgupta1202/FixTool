@@ -430,6 +430,10 @@ class LoadReportTest {
      * Judged as a schedule, a capped phase whose trigger had less for it than the cap allowed reads HELD
      * and claims to have met a rate nobody asked it for. The flag is what stops that, and the sentence
      * says what a cap can actually say: how long it spent at the ceiling and how long it spent waiting.
+     *
+     * CAPPED and not NOT_APPLICABLE, because this phase has a rate report and the three that are not
+     * applicable have none: "not applicable" printed above "never above 200/s · at the cap 4s" tells a
+     * reader the block beneath it means nothing.
      */
     @Test
     fun `a cap is not judged as a schedule, and its sentence is its own`() {
@@ -438,10 +442,37 @@ class LoadReportTest {
         val verdict = LoadReport.verdict(LoadStatus.DONE, capped.replies, ceiling, capped.tool, strictRate = false)
         val xml = LoadReportCodec.toJUnitXml(capped)
 
-        assertEquals(LoadReport.RateVerdict.NOT_APPLICABLE, verdict.rate)
+        assertEquals(LoadReport.RateVerdict.CAPPED, verdict.rate)
+        assertEquals("capped", capped.copy(verdict = verdict).rateWord)
         assertEquals("never above 200/s · at the cap 4s · starved 4s", LoadReportCodec.rateSentence(ceiling))
         assertEquals(0, Regex("""failures="(\d+)"""").find(xml)!!.groupValues[1].toInt())
         assertTrue(xml.contains("<system-out>never above 200/s · at the cap 4s · starved 4s</system-out>"), xml)
+    }
+
+    /**
+     * **`--strict-rate` is accepted for a reactive phase and does nothing at all.**
+     *
+     * It promotes a shortfall and nothing else, and a ceiling never produces one: the pacer finishes a
+     * reactive phase with no requested rate, so the spans are computed against nothing, and the cap's own
+     * report hands back an empty list whatever happened. So a set file that carries both is not refused
+     * and not obeyed, which is the answer a build wants over a refusal it would have to work around.
+     *
+     * Pinned rather than left to be true by construction. The one line that could change it is the exit
+     * table's, and nothing else in the report would notice.
+     */
+    @Test
+    fun `strict rate is inert for a capped reactive phase`() {
+        val answered = LoadReport.Replies(4_000, 0, 0, 0, 0, null)
+
+        val strict = LoadReport.verdict(LoadStatus.DONE, answered, ceiling, clean, strictRate = true)
+
+        assertEquals(LoadReport.RateVerdict.CAPPED, strict.rate)
+        assertEquals(emptyList(), ceiling.shortfalls, "a ceiling has nothing for --strict-rate to promote")
+        assertEquals(0, strict.exitCode, "a phase that sat under its cap passed, whatever the build asked for")
+        assertEquals(
+            LoadReport.verdict(LoadStatus.DONE, answered, ceiling, clean, strictRate = false).exitCode,
+            strict.exitCode,
+        )
     }
 
     /** A ceiling's two extra keys survive the file, and a record written before one reads as a schedule. */

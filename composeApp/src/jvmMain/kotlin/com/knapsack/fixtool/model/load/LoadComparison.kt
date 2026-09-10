@@ -124,10 +124,27 @@ data class LoadComparison(
             ).map { (name, pair) -> micros("$name round trip", pair.first, pair.second) }
         }
 
+        /**
+         * The rate rows, and the one place a ceiling had to be kept out of a schedule's ranking.
+         *
+         * **Two capped phases rank SAME, and a capped phase against any other verdict is UNRANKED.** HELD
+         * is BETTER here, so without a rule of its own a ceiling would have arrived as "changed" or, worse,
+         * as an improvement: a phase that was told to sit under 200/s and did would read as having beaten
+         * a phase that was set a schedule and met it. They are not two points on one axis. One met a
+         * number it was given and the other stayed under a number it was given, and the honest answer to
+         * "which is better" is that the question does not apply. Two ceilings are the same verdict and say
+         * so, with the numbers that did move shown beneath.
+         *
+         * The numbers beneath follow the same rule. Two schedules compare max lag, which is a schedule's
+         * own measure of lateness and is nought for every ceiling. Two ceilings compare what each spent at
+         * the cap and what each spent waiting, unranked because both are descriptions. A ceiling against a
+         * schedule compares neither, because there is no pair of numbers there that means one thing.
+         */
         private fun rate(b: LoadReport, a: LoadReport): List<Row> {
             val br = b.rate
             val ar = a.rate
             if (br == null && ar == null) return emptyList()
+            val capped = b.verdict.rate == LoadReport.RateVerdict.CAPPED || a.verdict.rate == LoadReport.RateVerdict.CAPPED
             val verdict =
                 Row(
                     "rate verdict",
@@ -135,19 +152,42 @@ data class LoadComparison(
                     verdictWord(a),
                     when {
                         verdictWord(b) == verdictWord(a) -> "same"
-                        a.verdict.rate == LoadReport.RateVerdict.HELD -> "held"
+                        a.verdict.rate == LoadReport.RateVerdict.HELD && !capped -> "held"
                         else -> "changed"
                     },
                     when {
                         b.verdict.rate == a.verdict.rate -> Direction.SAME
+                        capped -> Direction.UNRANKED
                         a.verdict.rate == LoadReport.RateVerdict.HELD -> Direction.BETTER
                         b.verdict.rate == LoadReport.RateVerdict.HELD -> Direction.WORSE
                         else -> Direction.UNRANKED
                     },
                 )
-            val lag = if (br != null && ar != null) listOf(millis("max lag", br.maxLagMs, ar.maxLagMs)) else emptyList()
-            return listOf(verdict) + lag
+            return listOf(verdict) + beneath(br, ar)
         }
+
+        /** What a pair of rate reports have in common to show: a schedule's lag, or a ceiling's two spans. */
+        private fun beneath(br: LoadReport.RateReport?, ar: LoadReport.RateReport?): List<Row> =
+            when {
+                br == null || ar == null -> emptyList()
+                br.ceiling && ar.ceiling ->
+                    listOf(
+                        spans("at the cap", br.heldForMs, ar.heldForMs),
+                        spans("starved", br.starvedForMs, ar.starvedForMs),
+                    )
+                br.ceiling || ar.ceiling -> emptyList()
+                else -> listOf(millis("max lag", br.maxLagMs, ar.maxLagMs))
+            }
+
+        /** Two durations reported and never ranked, which is what a ceiling's two spans both are. */
+        private fun spans(label: String, b: Long, a: Long): Row =
+            Row(
+                label,
+                humanDuration(b),
+                humanDuration(a),
+                if (b == a) "same" else "changed",
+                if (b == a) Direction.SAME else Direction.UNRANKED,
+            )
 
         private fun tool(b: LoadReport, a: LoadReport, thresholdUs: Long): List<Row> =
             listOf(

@@ -569,7 +569,15 @@ object HeadlessLoad {
                 r.verdict.completeness == LoadReport.Completeness.UNMATCHED -> "UNMATCHED".padEnd(COL) + LoadReportCodec.unmatchedSentence(r).substringBefore(":")
                 else -> "COMPLETE".padEnd(COL) + "${LoadReportCodec.fmt(r.replies.matched)} of ${LoadReportCodec.fmt(r.issue.leftSocket)} answered"
             }
-        val rate = if (r.verdict.rate == LoadReport.RateVerdict.SHORTFALL) " · RATE SHORTFALL" + (if (r.strictRate) "" else " (reported, exit unaffected; --strict-rate would exit 1)") else ""
+        // Exhaustive, so a verdict added later cannot slip through this line unread. Only a shortfall is
+        // named: a verdict line says what went wrong, and a phase sitting under its cap is a phase doing
+        // what it was told. The rate line in the block above has already said "never above 200/s".
+        val rate =
+            when (r.verdict.rate) {
+                LoadReport.RateVerdict.SHORTFALL ->
+                    " · RATE SHORTFALL" + (if (r.strictRate) "" else " (reported, exit unaffected; --strict-rate would exit 1)")
+                LoadReport.RateVerdict.CAPPED, LoadReport.RateVerdict.HELD, LoadReport.RateVerdict.NOT_APPLICABLE -> ""
+            }
         val tool = if (r.verdict.tool == LoadReport.ToolVerdict.LIMITED) " · TOOL LIMITED" else ""
         return "$head$rate$tool · exit ${r.verdict.exitCode}"
     }

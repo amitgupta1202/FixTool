@@ -183,6 +183,9 @@ class ReactivePhaseTest {
      * because the tokens belong to the phase and not to a lane. Every full second reaches the ceiling, so
      * none was starved, and the verdict declines to score any of it: sitting under a ceiling is normal
      * and would read as having missed a schedule nobody asked for.
+     *
+     * The phase carries `strictRate` to pin that it is accepted and inert. It promotes a shortfall and a
+     * ceiling produces none, so the set exits 0 with the flag on exactly as it does with the flag off.
      */
     @Test
     fun `a capped reactive phase releases at its ceiling, and holds there`() {
@@ -199,7 +202,7 @@ class ReactivePhaseTest {
                     phase(CLIENT, "Ask for a quote", ask, LoadMatch(131, 131, "S"), LoadShape.Burst(200))
                         .copy(requested = 200, capture = mapOf("quoteId" to 117)),
                     phase(DEALER, "Quote it", quote, LoadMatch(117, 117, "AI"), LoadShape.Triggered(cap = 100))
-                        .copy(requested = 200, after = 1),
+                        .copy(requested = 200, after = 1, strictRate = true),
                 ),
             )
 
@@ -211,8 +214,9 @@ class ReactivePhaseTest {
         assertEquals(emptyList(), rate.shortfalls, "nothing under a ceiling is behind anything")
         assertEquals(ONE_SECOND, rate.heldForMs, "the one full second it had was spent at the cap")
         assertEquals(0L, rate.starvedForMs, "and none of it waiting for a trigger")
-        assertEquals(LoadReport.RateVerdict.NOT_APPLICABLE, quoted.verdict.rate)
-        assertEquals("n/a, reactive", quoted.rateWord)
+        assertEquals(LoadReport.RateVerdict.CAPPED, quoted.verdict.rate)
+        assertEquals("capped", quoted.rateWord)
+        assertTrue(quoted.strictRate, "the flag reached the phase, so exit 0 below is it being inert")
         assertEquals(0, record.exitCode)
 
         // Two hundred at a hundred a second is a shade under two seconds, which is the cap doing the work

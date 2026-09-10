@@ -921,6 +921,9 @@ private fun Judgements(r: LoadReport, records: File) {
                     when (r.verdict.rate) {
                         LoadReport.RateVerdict.HELD -> AppTheme.Colors.success
                         LoadReport.RateVerdict.SHORTFALL -> AppTheme.Colors.warning
+                        // Grey with the other unscored one, and for the same reason: a ceiling is a line
+                        // the phase sat under, which is neither a pass nor a fail. Only the word differs.
+                        LoadReport.RateVerdict.CAPPED -> AppTheme.Colors.textDisabled
                         LoadReport.RateVerdict.NOT_APPLICABLE -> AppTheme.Colors.textDisabled
                     },
                 )

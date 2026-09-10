@@ -486,6 +486,9 @@ private fun PhaseFooter(phase: LoadReport) {
                         when (phase.verdict.rate) {
                             LoadReport.RateVerdict.HELD -> AppTheme.Colors.success
                             LoadReport.RateVerdict.SHORTFALL -> AppTheme.Colors.warning
+                            // Grey with the other unscored one: a ceiling is a line the phase sat under,
+                            // which is neither a pass nor a fail. Only the word differs.
+                            LoadReport.RateVerdict.CAPPED -> AppTheme.Colors.textDisabled
                             LoadReport.RateVerdict.NOT_APPLICABLE -> AppTheme.Colors.textDisabled
                         },
                     )

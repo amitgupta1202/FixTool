@@ -624,8 +624,9 @@ object LoadReportCodec {
 
     private fun rateCase(r: LoadReport): Case {
         val rate = r.rate ?: return Case("rate", note = noScheduleSentence(r), skipped = true)
-        // A ceiling is described and never scored. A phase under its cap is waiting on its trigger, and
-        // --strict-rate is about a schedule that was missed, so it has nothing to promote here.
+        // A ceiling is described and never scored: see LoadReport.RateVerdict.CAPPED. A phase under its
+        // cap is waiting on its trigger, and --strict-rate promotes a shortfall, which a ceiling never
+        // produces, so there is nothing here for it to fail the build on.
         if (rate.ceiling) return Case("rate", note = rateSentence(rate))
         val sentence = rateSentence(rate)
         val shortfall = r.verdict.rate == LoadReport.RateVerdict.SHORTFALL

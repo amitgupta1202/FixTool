@@ -93,10 +93,13 @@ data class LoadReport(
      * **The rate judgement in words**, which is not the verdict's own name when there was no schedule.
      *
      * "Not applicable" is three different facts, and only the shape says which. A burst never had a
-     * schedule. A reactive phase is released by replies, and its cap, when it has one, is a ceiling
-     * rather than a schedule. A run that stopped before its pacer finished has a schedule nobody judged.
-     * The pill was drawn in three places and every one of them said "n/a, burst" whatever the shape was,
-     * so the words live here once and the three read them.
+     * schedule. An uncapped reactive phase is released by replies and asked for no rate at all. A run that
+     * stopped before its pacer finished has a schedule nobody judged. The pill was drawn in three places
+     * and every one of them said "n/a, burst" whatever the shape was, so the words live here once and the
+     * three read them.
+     *
+     * A capped reactive phase is the fourth case and is not one of these: it has a ceiling, a report about
+     * it and a verdict of its own, so it reads "capped". See [RateVerdict.CAPPED].
      */
     val rateWord: String
         get() =
@@ -365,10 +368,24 @@ data class LoadReport(
     }
 
     enum class RateVerdict {
-        /** A burst has no schedule to hold. */
+        /** A burst has no schedule to hold, nor has an uncapped reactive phase, nor has a run that stopped. */
         NOT_APPLICABLE,
         HELD,
         SHORTFALL,
+
+        /**
+         * **A reactive phase's cap: a line it sat under, described and never scored.**
+         *
+         * Its own member rather than NOT_APPLICABLE, because a capped phase has a rate report and the
+         * other three have none, and a reader handed "not applicable" beside "never above 200/s · at the
+         * cap 4s" is being told the block above it means nothing. It is also not HELD: holding is meeting
+         * a schedule, and nobody asked this phase for a rate, so a phase whose trigger simply had less
+         * for it than the cap allowed would claim to have met a number it was never set.
+         *
+         * Nothing promotes it to a failure. `--strict-rate` promotes a SHORTFALL, and a ceiling produces
+         * none: see [RateReport.ceiling].
+         */
+        CAPPED,
     }
 
     enum class ToolVerdict {
@@ -435,6 +452,10 @@ data class LoadReport(
          * run, when the run was stopped before it finished, or on a rate shortfall the plan asked to fail on.
          * A shortfall without `strictRate` is reported and exits 0, because the venue answered everything and
          * a build that wants to gate on the tool's own pacing has to say so.
+         *
+         * **`strictRate` reaches a shortfall and nothing else**, which is what makes it accepted and inert
+         * for a reactive phase. A ceiling produces no shortfalls to promote, so a set file or a command
+         * line that asks for both is not refused and not obeyed either: there is nothing there to fail on.
          */
         @Suppress("LongParameterList")
         fun verdict(
@@ -464,8 +485,8 @@ data class LoadReport(
                     rate == null -> RateVerdict.NOT_APPLICABLE
                     // A ceiling is a line to sit under, so there is no schedule here to have held or
                     // missed. What it spent at the cap and what it spent waiting is described in the
-                    // report and never scored: see RateReport.ceiling.
-                    rate.ceiling -> RateVerdict.NOT_APPLICABLE
+                    // report and never scored: see RateReport.ceiling and RateVerdict.CAPPED.
+                    rate.ceiling -> RateVerdict.CAPPED
                     rate.shortfalls.isEmpty() -> RateVerdict.HELD
                     else -> RateVerdict.SHORTFALL
                 }

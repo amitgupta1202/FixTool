@@ -419,6 +419,11 @@ object HeadlessLoad {
     private class SetNarrator(
         private val err: Appendable,
     ) {
+        // Unsynchronised on purpose: LoadSetRunner publishes under one lock, so this is handed records one
+        // at a time and in the order they were made, however many phases it is running. What it does not
+        // yet do is narrate two phases at once. It leads on the lowest-numbered phase that is running, so
+        // a second phase beside it is silent until the first ends, which belongs with the rest of the
+        // report's one-live-phase reading rather than here.
         private var phase = 0
         private var narrator: Narrator? = null
 

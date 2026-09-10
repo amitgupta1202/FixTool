@@ -27,7 +27,8 @@ import kotlin.concurrent.withLock
  * same clock, sends down the same lane and is counted by the same host as the phase beside it, so anything
  * kept here as a plain `var` or a plain list would be a fake that answers a concurrency question with its
  * own race. What makes two phases work is [FakeClock.concurrently], which advances virtual time only when
- * every phase still running is waiting for a mark.
+ * every phase still running is waiting for a mark, or [FakeClock.withParties] when the threads are not the
+ * test's to make: a set runs its phases on threads of its own, inside the call the test is sitting in.
  */
 internal class FakeLane(
     slot: Int,
@@ -153,8 +154,11 @@ internal class FakeClock(
     private val moved = lock.newCondition()
     private var nanos = start
 
-    /** How many threads may still reach a mark. [concurrently] is the only thing that changes it. */
-    private var parties = 1
+    /** How many threads may still reach a mark. [withParties] and [concurrently] are what change it. */
+    private var expected = 1
+
+    /** The threads that have reached one and could reach another, so an ended one stops being counted. */
+    private val parties = HashSet<Thread>()
 
     /** What each waiting thread is waiting for, so the clock can move to the soonest of them. */
     private val marks = HashMap<Thread, Long>()
@@ -183,6 +187,30 @@ internal class FakeClock(
     fun millis(): Long = nanoTime() / 1_000_000
 
     /**
+     * **Runs [body] with [n] threads expected to take part**, whoever it is that makes them.
+     *
+     * [concurrently] makes its own threads and can count them off as they return. A set makes one thread
+     * per phase, inside the very call the test is sitting in, so the only thing the test can say is how
+     * many there are going to be. A party whose thread has ended stops being counted, so the tail of the
+     * last one left runs at the jump forward this clock always did.
+     */
+    fun <T> withParties(n: Int, body: () -> T): T {
+        lock.withLock {
+            expected = n
+            moved.signalAll()
+        }
+        try {
+            return body()
+        } finally {
+            lock.withLock {
+                expected = 1
+                parties.clear()
+                moved.signalAll()
+            }
+        }
+    }
+
+    /**
      * **Runs [bodies] at the same time, one thread each, as the parties of this clock.**
      *
      * A party that returns stops being counted, so the last one left runs on exactly as a single-threaded
@@ -192,33 +220,25 @@ internal class FakeClock(
     fun <T> concurrently(vararg bodies: () -> T): List<T> {
         val results = arrayOfNulls<Any?>(bodies.size)
         val failures = CopyOnWriteArrayList<Throwable>()
-        lock.withLock {
-            parties = bodies.size
-            moved.signalAll()
-        }
-        val threads =
-            bodies.mapIndexed { i, body ->
-                Thread({
-                    try {
-                        results[i] = body()
-                    } catch (t: Throwable) {
-                        failures += t
-                    } finally {
-                        lock.withLock {
-                            parties--
-                            moved.signalAll()
+        withParties(bodies.size) {
+            val threads =
+                bodies.mapIndexed { i, body ->
+                    Thread({
+                        try {
+                            results[i] = body()
+                        } catch (t: Throwable) {
+                            failures += t
+                        } finally {
+                            lock.withLock {
+                                parties.remove(Thread.currentThread())
+                                expected = (expected - 1).coerceAtLeast(1)
+                                moved.signalAll()
+                            }
                         }
-                    }
-                }, "fake-clock-party-$i")
-            }
-        try {
+                    }, "fake-clock-party-$i")
+                }
             threads.forEach { it.start() }
             threads.forEach { it.join() }
-        } finally {
-            lock.withLock {
-                parties = 1
-                moved.signalAll()
-            }
         }
         failures.firstOrNull()?.let { throw it }
         @Suppress("UNCHECKED_CAST")
@@ -229,12 +249,14 @@ internal class FakeClock(
     private fun awaitLocked(deadlineNanos: Long) {
         val me = Thread.currentThread()
         marks[me] = deadlineNanos
+        parties += me
         try {
             var stalledMs = 0L
             while (true) {
                 val here = nanos
                 if (here >= deadlineNanos) return
-                val soonest = if (marks.size >= parties) marks.values.min() else null
+                val waitingFor = partiesLocked()
+                val soonest = if (marks.size >= waitingFor) marks.values.min() else null
                 if (soonest != null && soonest > here) {
                     nanos = soonest
                     moved.signalAll()
@@ -243,7 +265,7 @@ internal class FakeClock(
                 }
                 check(stalledMs < STALL_MS) {
                     "the fake clock waited ${STALL_MS}ms for a party to reach a mark: ${marks.size} of " +
-                        "$parties waiting, the clock at ${here}ns, this thread wanting ${deadlineNanos}ns"
+                        "$waitingFor waiting, the clock at ${here}ns, this thread wanting ${deadlineNanos}ns"
                 }
                 moved.await(STEP_MS, TimeUnit.MILLISECONDS)
                 stalledMs = if (nanos > here) 0 else stalledMs + STEP_MS
@@ -252,6 +274,23 @@ internal class FakeClock(
             marks.remove(me)
             moved.signalAll()
         }
+    }
+
+    /**
+     * **How many threads the clock still waits for**, with the ones that have ended taken off.
+     *
+     * [concurrently] takes its own off as each body returns, which it can because it made them. A party a
+     * test only said would exist, which is every thread a set makes for its own phases, is taken off when
+     * its thread dies. Without that the clock would wait for a phase that finished ten seconds ago and
+     * stall the phase still running beside it. Caller holds [lock].
+     */
+    private fun partiesLocked(): Int {
+        val ended = parties.filterNot { it.isAlive }
+        if (ended.isNotEmpty()) {
+            parties.removeAll(ended.toSet())
+            expected = (expected - ended.size).coerceAtLeast(1)
+        }
+        return expected
     }
 
     private companion object {

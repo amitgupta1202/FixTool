@@ -56,8 +56,17 @@ class StampMatcher(
      *
      * `Array<Array<String?>>` and not a map of maps: 4,000 messages × 2 names is 8,000 slots either way,
      * and an array indexed by the thing a later phase already has — its own `${'$'}{messageIndex}` — needs no
-     * boxing and no lookup. Written on the I/O threads under the matcher's own lock, read on the render-ahead
-     * threads of a later phase, by which time the phase that filled it has finished.
+     * boxing and no lookup.
+     *
+     * **What makes it safe to read is not a lock.** [put] runs on the I/O threads under the writing
+     * matcher's own monitor and [get] takes nothing at all, so a reader is only ever handed values the
+     * writer has finished with because of where the reading happens. A paced phase waits on a
+     * `CountDownLatch` its predecessors count down, and a latch publishes everything a thread wrote before
+     * it counted down, so every capture an earlier phase kept is there and visible by the time the phase
+     * after it renders a message. It is no longer true that the phase that filled the table has finished:
+     * a set runs more than one phase at a time now. What is true is that a phase is only ever handed the
+     * captures of a phase it waited for, which `LoadSetRunner.Conductor.readable` is what keeps honest, and
+     * a phase fired by another's replies will read them through its trigger buffer rather than from here.
      */
     class CaptureTable(
         val names: List<String>,

@@ -58,12 +58,14 @@ import com.knapsack.fixtool.model.load.LoadStage
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.humanDuration
 import com.knapsack.fixtool.service.RunSetStats
+import com.knapsack.fixtool.service.load.LoadRecordStore
 import com.knapsack.fixtool.service.load.LoadReportCodec
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.io.File
+import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -1082,7 +1084,9 @@ private fun copyText(text: String) {
 }
 
 internal fun copyJson(records: File) {
-    runCatching { copyText(File(records, "load.json").readText()) }
+    // Through NIO, like every other reader of a record: the store replaces this file with a rename, and a
+    // java.io read on Windows holds it against one. See LoadRecordStore.replace.
+    runCatching { copyText(Files.readString(File(records, LoadRecordStore.REPORT_FILE).toPath())) }
 }
 
 internal fun reveal(dir: File) {

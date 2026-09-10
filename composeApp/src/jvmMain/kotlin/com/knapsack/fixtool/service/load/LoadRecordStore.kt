@@ -11,7 +11,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import java.io.File
-import java.nio.file.AtomicMoveNotSupportedException
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
@@ -84,6 +84,14 @@ class LoadRecordStore(
      *
      * The bytes go to a temp file beside it and one rename puts them in place, which is a single step on
      * every filesystem this runs on. A reader either sees the record it saw before or the whole new one.
+     *
+     * **A rename that will not happen is not a failure of the write.** Windows renames through
+     * `MoveFileEx`, which refuses while anything else holds the file open, and the JDK names only "a
+     * different device" as `AtomicMoveNotSupportedException`: a sharing violation arrives as
+     * `AccessDeniedException` and would reach [write]'s catch and put a notification in front of somebody
+     * about a progress tick nothing was wrong with. So **every** failure of the rename falls back to the
+     * write this replaced, said to the log and not to the user. That one tick is written the old way,
+     * with the old window on it, which is by a distance the smaller of the two costs.
      */
     private fun replace(file: File, text: String) {
         val temp = File(file.parentFile, file.name + TEMP_SUFFIX)
@@ -91,11 +99,10 @@ class LoadRecordStore(
         val replace = StandardCopyOption.REPLACE_EXISTING
         try {
             Files.move(temp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, replace)
-        } catch (e: AtomicMoveNotSupportedException) {
-            // Nothing this runs on refuses two paths in one directory, but a filesystem that did would
-            // still have to end up with the record in place rather than with the temp file beside it.
-            logger.debug("Atomic replace of $file is not supported here, so it is replaced in two steps: ${e.message}")
-            Files.move(temp.toPath(), file.toPath(), replace)
+        } catch (e: IOException) {
+            logger.debug("$file could not be renamed into place, so it is written where it stands: ${e.message}")
+            file.writeText(text)
+            temp.delete()
         }
     }
 
@@ -143,12 +150,20 @@ class LoadRecordStore(
      *
      * A record that says RUNNING with nobody running it is healed on the way out, phase by phase, and
      * written back once so every later reader finds the same answer.
+     *
+     * **Read through NIO and never `readText`**, because the write beside it is a rename. A `java.io` read
+     * on Windows holds the file without sharing its deletion, and a rename onto a file held that way is
+     * refused: the reader costs the writer the progress tick it was in the middle of, and somebody is
+     * notified about a record nothing is wrong with. [Files.readString] shares it, so a read and a
+     * replace pass each other. Every reader of a record file goes through here, [list] and [listRecords]
+     * included.
      */
     @Suppress("TooGenericExceptionCaught")
     fun readRecord(id: String): LoadRecord? =
         try {
             val file = File(directoryFor(id), REPORT_FILE).takeIf { it.isFile } ?: return null
-            val record = LoadReportCodec.recordFromJson(Json.parseToJsonElement(file.readText()).jsonObject)
+            val text = Files.readString(file.toPath())
+            val record = LoadReportCodec.recordFromJson(Json.parseToJsonElement(text).jsonObject)
             if (record.status == LoadStatus.RUNNING && !isLive(record.id)) healInterrupted(record, file.lastModified()) else record
         } catch (e: Exception) {
             logger.error("Could not read load record '$id': ${e.message}", e)

@@ -1475,8 +1475,14 @@ private fun compact(ms: Long): String = humanDuration(ms).replace(" ", "")
 
 private fun quoted(text: String): String = if (text.any { it.isWhitespace() }) "\"$text\"" else text
 
+/**
+ * A copy is a convenience, and a box with no clipboard has nothing to copy to: a headless runner
+ * throws [java.awt.HeadlessException] out of the click handler and fails the test that pressed the
+ * button, which is not what that test is about. Swallowed rather than thrown, as [copyJson] already
+ * does for the record's own copy.
+ */
 internal fun copyToClipboard(text: String) {
-    Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+    runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null) }
 }
 
 private const val LANES_NAMED = 6

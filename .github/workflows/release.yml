@@ -46,8 +46,15 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Install a virtual display
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Run all tests
-        run: ./gradlew allTests
+        # Under a virtual display, because FixTool's dialogs are real AWT windows. A test that opens
+        # one through the toolbar cannot pass on a runner with no screen, and marking it skipped on CI
+        # would mean the release build never checks a path a user clicks. v1.18.0 was tagged and never
+        # released for exactly this: two tests, three attempts each, HeadlessException every time.
+        run: xvfb-run --auto-servernum ./gradlew allTests
 
   # Build Windows installer
   build-windows:

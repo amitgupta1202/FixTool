@@ -1218,8 +1218,9 @@ private fun clockLine(r: LoadReport): String =
         ).joinToString(" · ")
     }
 
+/** Swallowed where there is no clipboard, for the reason [copyToClipboard] carries. */
 private fun copyText(text: String) {
-    Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+    runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null) }
 }
 
 internal fun copyJson(records: File) {

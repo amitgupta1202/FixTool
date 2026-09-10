@@ -5,6 +5,13 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+- **A load run brings up the venue its lanes dial, and not a simulator that shares its port number.** Reported from a desk: a set naming two dev profiles opened four sessions, and the other two were the UAT simulators saved on the same two port numbers. Every step of it was ordinary. A dev venue reached through a forwarded local port makes its lanes look like loopback — which is what `socketConnectHost` calls the usual case, and the only reason the far-end rule looks at them at all — and that rule then took *an acceptor saved on that port number* as proof the venue was one of ours, picking whichever sorted first by name. A port number is not an identity: a desk's workspace is one counterparty copied per environment, so matching on one picks an environment out of a hat, and the run's own *Connecting …* notification was the first anyone heard of it. Three things have to agree now before a profile a set never named is dialled — the lanes dial loopback, a saved acceptor binds the port they dial, and that acceptor is **the session those lanes address**: its SenderCompID is the counterparty they name, and it would accept who they say they are. Two profiles answering to all of that is no answer, and neither is brought up. And when something **already holds the port**, nothing is: our acceptor's bind would be refused, and a held forwarded port is the lanes reaching the real venue through it already. The port each side is matched on is the one the engine uses — `SocketConnectPort` where it is set, which is the field the comparison skipped on the client's side while reading its equivalent on the acceptor's. The case the rule exists for is unchanged: the bundled RFQ venue example's load client still brings up its venue, and first.
+- **An environment moves the port the connection actually dials.** *Connect in ▸ UAT* set `port` and left `socketConnectPort` alone, and `SocketConnectPort=${socketConnectPort.ifBlank { port }}` is the line QuickFIX/J is handed — so a profile carrying both, an imported one or one whose panel-edited port moved while the advanced field stayed, went to the new environment's host on the old environment's port. The dialled port follows the named port, as the dialled host already followed the named host, and an environment extracted from a profile is read off the port that profile dials.
+
 ## [1.19.0] - 2026-09-10
 
 The release where a load run stops needing a briefing. 1.18 gave the tool sets, chains and a report

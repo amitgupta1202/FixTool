@@ -3596,20 +3596,79 @@ class FixMessageViewModel(
     /**
      * **The profile at the far end of these lanes, when the far end is one of ours.**
      *
-     * A loopback connect host plus a FixTool acceptor listening on the port the lanes dial: that is the
-     * whole condition, and it is what [fanOutFarEndNotice] is about. Also what "Also listen on" excludes,
-     * because a profile that is *answering* this run can never be a second place its replies arrive.
+     * Three things make it one of ours, and the port is only one of them: the lanes dial loopback, a saved
+     * acceptor binds the port they dial, and that acceptor is **the session they address** — it is the
+     * counterparty they name, and it would take their logon. What [fanOutFarEndNotice] is about, and what
+     * "Also listen on" excludes, because a profile that is *answering* this run can never be a second
+     * place its replies arrive.
+     *
+     * The CompIDs are load-bearing and were not always asked for. A desk's workspace is one counterparty
+     * copied per environment, so a port number on its own picks an environment out of a hat: a set naming
+     * two dev profiles brought up two UAT simulators that happened to be saved on the same two ports, and
+     * the run's own notification was the first anyone heard of it. Reported from a desk, and the reason
+     * for [answersFor][FixConnectionConfig.answersFor] and for taking the single answer or none.
      *
      * Null when the far end is somebody else's server, which is the case a load run is for.
      */
     fun farEndProfile(profileId: String): FixConnectionProfile? {
-        val client = _connectionProfiles.find { it.id == profileId } ?: return null
-        val host = client.config.socketConnectHost.ifBlank { client.config.host }
-        if (host.lowercase() !in LOOPBACK_HOSTS) return null
-        return _connectionProfiles.firstOrNull {
-            it.config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
-                it.config.socketAcceptPort.ifBlank { it.config.port } == client.config.port
-        }
+        val client = _connectionProfiles.find { it.id == profileId }?.config ?: return null
+        val host = client.socketConnectHost.ifBlank { client.host }
+        // The port the lanes actually dial, read the way the engine reads it. This used to be `config.port`
+        // against the acceptor's *effective* port, so the two halves of one comparison were asking about
+        // different fields.
+        val port = client.connectPort()
+        // An initiator, dialling loopback, on a port it names. Anything else has no far end of ours by
+        // construction: an acceptor dials nothing, and a profile pointed at a real host is pointed at
+        // somebody else's server, which is the case a load run is for.
+        if (client.isAcceptor() || host.lowercase() !in LOOPBACK_HOSTS || port.isBlank()) return null
+        // **One**, and by the session these lanes address. `firstOrNull` over a port number alone made the
+        // workspace's alphabetical order decide which environment a run brought up: a desk with a UAT
+        // simulator saved on the same port as its dev venue had the UAT one dialled by a set that named
+        // neither. Two answers is no answer, and a far end nobody named is not the thing to guess at.
+        return _connectionProfiles
+            .filter { it.config.acceptPort() == port && it.config.answersFor(client) }
+            .distinctBy { it.id }
+            .singleOrNull()
+    }
+
+    /**
+     * **The far end this run has to bind for itself**, or null when it must not touch one.
+     *
+     * [farEndProfile] answers who the far end is; this answers whether bringing it up is this run's to do.
+     * It is not, in two cases. One is a venue already up, which is [anyUp] and is why that question is
+     * wider than "is a lane logged on".
+     *
+     * The other is **something already holding the port**, which is the ordinary case at a desk: the lanes
+     * reach a real venue through a forwarded local port, which is what `socketConnectHost` calls usual and
+     * the only reason they look like loopback at all. Our acceptor could not bind that port if it tried,
+     * so this is not a guess about intent — it is the same question the bind is about to ask, asked before
+     * a profile the set never named is dialled on the strength of it.
+     */
+    private fun farEndToBringUp(profileId: String): FixConnectionProfile? {
+        val venue = farEndProfile(profileId) ?: return null
+        return venue.takeIf { !anyUp(it.id) && portIsFree(it.config.acceptPort()) }
+    }
+
+    /**
+     * **Is the address these lanes dial free?** — asked by binding it, briefly, and giving it straight back.
+     *
+     * A bind and not a connect, deliberately. A connect to a forwarded port is a connect *to the venue*:
+     * the tunnel opens a channel, the venue sees a socket that never logs on, and some venues count that.
+     * A bind is local and instant.
+     *
+     * **Loopback specifically, not the wildcard the acceptor binds.** A forward holds `127.0.0.1:port`,
+     * and BSD lets a wildcard bind sit beside a specific one — so `ServerSocket(port)` succeeds on macOS
+     * and answers a question nobody asked: our acceptor would bind, receive nothing, and the lanes would
+     * still reach the forward, because the more specific bind is the one a connection to localhost lands
+     * on. What decides is whether the address the lanes dial is already taken.
+     *
+     * True for a port that cannot be parsed, which leaves such a profile behaving as it did.
+     */
+    private fun portIsFree(port: String): Boolean {
+        val number = port.toIntOrNull() ?: return true
+        return runCatching {
+            java.net.ServerSocket(number, 1, java.net.InetAddress.getByName("127.0.0.1")).close()
+        }.isSuccess
     }
 
     /**
@@ -3853,7 +3912,7 @@ class FixMessageViewModel(
                     // five lanes dialling a port nothing was listening on. Only when it is down — a venue
                     // already bound is left exactly as it is, like any other profile that is up, which is
                     // [anyUp]'s whole reason for being a wider question than "is a lane logged on".
-                    farEndProfile(profileId)?.takeIf { !anyUp(it.id) }?.let { venue ->
+                    farEndToBringUp(profileId)?.let { venue ->
                         bringUp[venue.id] = venue
                         titles += sessionTitlesOf(venue)
                     }
@@ -4173,7 +4232,7 @@ class FixMessageViewModel(
             // The venue the lanes dial, when it is one of ours and it is down. Not in [needed], because
             // the set does not name it — but very much in what pressing this row will connect, and a row
             // that promised less than it does would be the same surprise in the other direction.
-            farEndProfile(profile.id)?.takeIf { !anyUp(it.id) && it.name !in toConnect }?.let {
+            farEndToBringUp(profile.id)?.takeIf { it.name !in toConnect }?.let {
                 toConnect += it.name
             }
         }

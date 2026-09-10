@@ -16,6 +16,9 @@ import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.ScenarioDoc
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -642,6 +645,177 @@ class LoadRunViewModelTest {
         assertNull(viewModel.farEndProfile("lg"))
         assertNull(viewModel.fanOutFarEndNotice("lg"))
     }
+
+    /**
+     * **A run dials what the set names, and a port number is not a name.**
+     *
+     * Reported from a desk: a set naming two dev profiles opened four sessions, the other two being the
+     * UAT simulators saved on the same port numbers. Every step of it was ordinary — the dev venue is
+     * reached through a forwarded local port, which is what makes the lanes look like loopback, and the
+     * far-end rule then took "an acceptor saved on that port number" as proof the venue was one of ours.
+     * It picked whichever sorted first by name, in an environment nobody had asked for.
+     *
+     * What makes an acceptor the far end of these lanes is the session they would share, not the number
+     * on the socket.
+     */
+    @Test
+    fun `a simulator that shares a port number with the venue the lanes dial is not the far end`() {
+        // The desk's workspace: dev reached through a port-forward, and the UAT simulators for the same
+        // two flows, saved on the same two ports.
+        viewModel.saveConnectionProfile(forwarded("dev-rfq", "DEV RFQ", sender = "TAKER", target = "RFQ_DEV", port = "5001"))
+        viewModel.saveConnectionProfile(forwarded("dev-ord", "DEV Orders", sender = "TAKER", target = "ORD_DEV", port = "5002"))
+        viewModel.saveConnectionProfile(sim("uat-rfq", "UAT RFQ Sim", sender = "RFQ_UAT", port = "5001"))
+        viewModel.saveConnectionProfile(sim("uat-ord", "UAT Orders Sim", sender = "ORD_UAT", port = "5002"))
+
+        assertNull(viewModel.farEndProfile("dev-rfq"))
+        assertNull(viewModel.farEndProfile("dev-ord"))
+
+        val pre = viewModel.loadPreflight(issuing = listOf("dev-rfq", "dev-ord"), listening = emptyList())
+
+        assertNull(pre.refusal)
+        assertEquals(listOf("DEV RFQ", "DEV Orders"), pre.bringUp.map { it.name }, "the set named two, so two are dialled")
+        assertEquals(setOf("DEV RFQ", "DEV Orders"), pre.titles)
+    }
+
+    /**
+     * **Two saved acceptors answer for one far end, so neither is guessed at.**
+     *
+     * The same counterparty copied per environment is the ordinary shape of a workspace — same CompIDs,
+     * a different host and port — and two of those copies can carry the same port with nothing to choose
+     * between them. A profile the set never named is the last thing to bring up on a coin toss.
+     */
+    @Test
+    fun `an ambiguous far end is left alone`() {
+        viewModel.saveConnectionProfile(forwarded("lg", "LOADGEN", sender = "LG", target = "V", port = "5001"))
+        viewModel.saveConnectionProfile(sim("venue-dev", "DEV Venue", sender = "V", port = "5001"))
+        assertEquals("venue-dev", viewModel.farEndProfile("lg")?.id)
+
+        viewModel.saveConnectionProfile(sim("venue-uat", "UAT Venue", sender = "V", port = "5001"))
+
+        assertNull(viewModel.farEndProfile("lg"), "two answers is no answer")
+        assertEquals(listOf("LOADGEN"), viewModel.loadPreflight(issuing = listOf("lg"), listening = emptyList()).bringUp.map { it.name })
+    }
+
+    /**
+     * **Something is already answering there, so there is nothing for us to bind.**
+     *
+     * This is the forwarded port again, seen from the one angle that settles it whatever the CompIDs say:
+     * our acceptor's bind would be refused. The run leaves the port alone and dials its lanes at whatever
+     * is on the other end of it, which is the venue the set meant.
+     */
+    @Test
+    fun `the far end is not bound when something already holds the port`() {
+        // Loopback specifically, as a port-forward holds it — a wildcard bind here would prove nothing on
+        // BSD, where one can sit beside a specific one.
+        java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { forward ->
+            val port = forward.localPort.toString()
+            viewModel.saveConnectionProfile(forwarded("lg", "LOADGEN", sender = "LG", target = "V", port = port))
+            viewModel.saveConnectionProfile(sim("venue", "VENUE", sender = "V", port = port))
+
+            // It is the far end by every name it goes by — and still not this run's to bring up.
+            assertEquals("venue", viewModel.farEndProfile("lg")?.id)
+            assertEquals(listOf("LOADGEN"), viewModel.loadPreflight(issuing = listOf("lg"), listening = emptyList()).bringUp.map { it.name })
+
+            val set =
+                LoadSet(
+                    name = "fwd",
+                    label = "Fwd",
+                    phases = listOf(LoadPhaseSpec("Ask", "Quote request", "LOADGEN", shape = LoadShape.Burst(10))),
+                )
+            assertEquals("on LOADGEN \u00b7 Run connects LOADGEN", viewModel.loadSetSessions(set).sentence, "and the row promises exactly that")
+        }
+    }
+
+    /**
+     * **The port the lanes dial is the one the engine dials.** A profile carrying both fields — an
+     * imported one, or one whose panel-edited port moved while the advanced field stayed — is dialled on
+     * `socketConnectPort`, so that is the port a far end has to be listening on to be one.
+     */
+    @Test
+    fun `the far end is matched on the port the engine actually dials`() {
+        viewModel.saveConnectionProfile(
+            FixConnectionProfile(
+                id = "lg",
+                name = "LOADGEN",
+                config =
+                    FixConnectionConfig(
+                        senderCompID = "LG",
+                        targetCompID = "V",
+                        host = "localhost",
+                        socketConnectHost = "localhost",
+                        // The panel's field, left behind by an edit the advanced field never saw.
+                        port = "5001",
+                        socketConnectPort = "5002",
+                    ),
+            ),
+        )
+        viewModel.saveConnectionProfile(sim("on-5001", "Stale Sim", sender = "V", port = "5001"))
+
+        assertNull(viewModel.farEndProfile("lg"), "5001 is not where these lanes go")
+
+        viewModel.saveConnectionProfile(sim("on-5002", "VENUE", sender = "V", port = "5002"))
+
+        assertEquals("on-5002", viewModel.farEndProfile("lg")?.id)
+    }
+
+    /**
+     * **And the case the rule exists for still works**, read from the example that is shipped rather than
+     * from a fixture that resembles it: the RFQ venue workspace's load client finds the venue its five
+     * lanes dial, which is the whole reason a run brings up a profile its set never named.
+     */
+    @Test
+    fun `the bundled example's load client still finds the venue its lanes dial`() {
+        val text =
+            requireNotNull(javaClass.getResourceAsStream("/examples/rfq-venue/connection_profiles.json"))
+                .bufferedReader()
+                .readText()
+        val json = Json { ignoreUnknownKeys = true }
+        val profiles =
+            json.decodeFromJsonElement(
+                ListSerializer(FixConnectionProfile.serializer()),
+                json.parseToJsonElement(text).jsonObject.getValue("profiles"),
+            )
+        profiles.forEach { viewModel.saveConnectionProfile(it) }
+
+        val client = assertNotNull(profiles.firstOrNull { it.name == "RFQ Load Client" })
+        val venue = assertNotNull(profiles.firstOrNull { it.name == "RFQ Demo Venue" })
+
+        assertEquals(venue.id, viewModel.farEndProfile(client.id)?.id)
+        assertEquals(
+            listOf("RFQ Demo Venue", "RFQ Load Client"),
+            viewModel.loadPreflight(issuing = listOf(client.id), listening = emptyList()).bringUp.map { it.name },
+        )
+    }
+
+    /** An initiator dialling a forwarded local port: the shape that makes a real venue look like loopback. */
+    private fun forwarded(id: String, name: String, sender: String, target: String, port: String) =
+        FixConnectionProfile(
+            id = id,
+            name = name,
+            config =
+                FixConnectionConfig(
+                    senderCompID = sender,
+                    targetCompID = target,
+                    host = "localhost",
+                    socketConnectHost = "localhost",
+                    port = port,
+                ),
+        )
+
+    /** A FixTool acceptor standing in for a venue, bound to [port]. */
+    private fun sim(id: String, name: String, sender: String, port: String) =
+        FixConnectionProfile(
+            id = id,
+            name = name,
+            config =
+                FixConnectionConfig(
+                    connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                    senderCompID = sender,
+                    targetCompID = FixConnectionConfig.ANY_CLIENT,
+                    port = port,
+                    socketAcceptPort = port,
+                ),
+        )
 
     /** The editor's own panel toggle, so the dialog's "view in editor" is not a dead link. */
     @Test

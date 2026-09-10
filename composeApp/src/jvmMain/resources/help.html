@@ -1057,6 +1057,14 @@ echo $?    # 0 everything answered · 1 unanswered, tool-limited, stopped, or a 
         nothing here to connect. The bundled examples are the other case: the lanes dial a FixTool acceptor on
         loopback, so bringing up the client alone would leave them dialling a port nothing had bound. That
         acceptor is brought up too, and first. An acceptor already bound is left exactly as it is.</p>
+    <p><strong>A port number is not an identity.</strong> Three things have to agree before a profile your set
+        never named is dialled: the lanes dial loopback, a saved acceptor binds the port they dial, and that
+        acceptor is <em>the session they address</em> &mdash; its SenderCompID is the counterparty they name,
+        and it would accept who they say they are. If two saved profiles answer to all of that, neither is
+        brought up. And if something <strong>already holds the port</strong> &mdash; a forwarded local port to a
+        real venue is the usual reason your lanes look like loopback at all &mdash; nothing is brought up
+        either: our acceptor could not bind it, and your lanes are already reaching the venue through it. This
+        is what keeps a dev set off the UAT simulator saved on the same port number.</p>
     <p>The
         <strong>Run &#9662;</strong> row for a set says which profiles it runs on and which of them pressing it
         will connect, so you can read it before you press it.</p>

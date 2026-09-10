@@ -259,6 +259,11 @@ class HelpDocTest {
                 "the lanes stay up afterwards" to "left up afterwards",
                 // The example workspaces are the case: the set names the client and the client dials us.
                 "our own venue comes up too, and first" to "when the venue is one of ours",
+                // And the reported case where it was not ours at all: a UAT simulator on the same port
+                // number as the dev venue a set's lanes dial.
+                "a port number alone does not make it ours" to "the session they address",
+                "two answers means neither is dialled" to "neither is brought up",
+                "a held port is left alone" to "already holds the port",
             )
         val flat = chapter.flat()
         val missing = claims.filterValues { it.flat() !in flat }.keys

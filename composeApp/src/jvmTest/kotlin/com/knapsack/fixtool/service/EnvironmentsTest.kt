@@ -67,6 +67,28 @@ class EnvironmentsTest {
         assertEquals("new.host", applied.socketConnectHost)
     }
 
+    /**
+     * **The dialled port follows the named port**, for the reason the host does: `SocketConnectPort` wins
+     * over `port` when a profile carries both, so an environment that moved only the visible one put the
+     * connection on the new host and the old environment's port.
+     */
+    @Test
+    fun `the dialled port follows the named port, so the two cannot disagree`() {
+        val config = profile("X-Y", "old.host", "1234").config.copy(socketConnectPort = "1234")
+        val applied = Environment(name = "E", host = "new.host", port = "9999").applyTo(config)
+
+        assertEquals("9999", applied.port)
+        assertEquals("9999", applied.socketConnectPort)
+        assertEquals("9999", applied.connectPort())
+    }
+
+    /** And an environment read back off a profile is read off the port that profile dials. */
+    @Test
+    fun `an environment extracted from a profile carries the port it dials`() {
+        val config = profile("X-Y", "h", "1234").config.copy(socketConnectPort = "5678")
+        assertEquals("5678", Environment.of("E", config).port)
+    }
+
     @Test
     fun `a blank override leaves the profile's own value alone`() {
         val config = profile("X-Y", "keep.host", "4321", ssl = true).config

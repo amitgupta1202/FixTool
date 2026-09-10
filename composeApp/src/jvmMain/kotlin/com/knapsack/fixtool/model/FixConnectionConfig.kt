@@ -120,6 +120,35 @@ data class FixConnectionConfig(
      */
     fun acceptsAnyClient(): Boolean = isAcceptor() && targetCompID.trim() == ANY_CLIENT
 
+    /**
+     * **The port the engine actually dials**, which is not always [port].
+     *
+     * `SocketConnectPort=${socketConnectPort.ifBlank { port }}` is the line QuickFIX/J is handed, and a
+     * profile that carries both — an imported one, or one whose panel-edited [port] moved while the
+     * advanced field stayed — dials the advanced one. Anything reasoning about where these lanes go has
+     * to read it the same way the connection does, or it is reasoning about a different endpoint.
+     */
+    fun connectPort(): String = socketConnectPort.ifBlank { port }
+
+    /** The port the engine binds, by the same rule and for the same reason. */
+    fun acceptPort(): String = socketAcceptPort.ifBlank { port }
+
+    /**
+     * **Is this acceptor the session [lanes] address?** — the counterparty they name, and one it would
+     * let in.
+     *
+     * A port number is not an identity. Two saved acceptors can carry the same port and be different
+     * venues in different environments, which is the ordinary shape of a desk's workspace: one
+     * counterparty copied per environment, differing in a host and a port. So what makes an acceptor the
+     * far end of these lanes is the CompIDs on the session they would share — this acceptor *is* who they
+     * address, and it would accept who they say they are.
+     */
+    fun answersFor(lanes: FixConnectionConfig): Boolean =
+        isAcceptor() &&
+            senderCompID.isNotBlank() &&
+            senderCompID == lanes.targetCompID &&
+            (acceptsAnyClient() || targetCompID == lanes.senderCompID)
+
     companion object {
         /** The TargetCompID that means "any client" — QuickFIX/J's own wildcard, so the two agree. */
         const val ANY_CLIENT = "*"

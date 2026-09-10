@@ -42,13 +42,17 @@ data class Environment(
      *
      * `socketConnectHost` follows `host` because that is the field QuickFIX/J actually dials when it
      * is set, and a profile whose two host fields disagreed would connect to the old environment
-     * while showing the new one.
+     * while showing the new one. **`socketConnectPort` follows `port` for exactly the same reason**:
+     * `SocketConnectPort=${'$'}{socketConnectPort.ifBlank { port }}` is the line the engine is handed, so a
+     * profile carrying both — an imported one, or one whose panel-edited port moved while the advanced
+     * field stayed — moved to the new host and kept the old environment's port.
      */
     fun applyTo(config: FixConnectionConfig): FixConnectionConfig =
         config.copy(
             host = host.ifBlank { config.host },
             socketConnectHost = host.ifBlank { config.socketConnectHost },
             port = port.ifBlank { config.port },
+            socketConnectPort = port.ifBlank { config.socketConnectPort },
             useSSL = useSSL ?: config.useSSL,
             autoReconnect = autoReconnect ?: config.autoReconnect,
             sessionQualifier = name,
@@ -67,7 +71,7 @@ data class Environment(
             Environment(
                 name = name,
                 host = config.socketConnectHost.ifBlank { config.host },
-                port = config.port,
+                port = config.connectPort(),
                 useSSL = config.useSSL,
                 autoReconnect = config.autoReconnect,
             )

@@ -42,7 +42,7 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 
 ### Latest Release
 
-Download the latest version from the [Releases page](https://github.com/amitgupta1202/FixTool/releases/latest).
+**v1.18.0** is the current release. Download it from the [Releases page](https://github.com/amitgupta1202/FixTool/releases/latest), and see [what is in it](CHANGELOG.md#1180---2026-09-10).
 
 **Installation:**
 

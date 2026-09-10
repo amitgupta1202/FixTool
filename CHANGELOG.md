@@ -5,7 +5,21 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0] - 2026-09-10
+
+The release where a load proof stops being a wrapper script. Most proofs against a venue are two or
+three runs that depend on each other, and the script around them owned the seed, the stop rule and
+the combined report, which are the three things the tool already does well for one run. A load set is
+those runs as a saved file: phases in order under one seed, with one record and one JUnit file, any
+phase mutable, and each phase able to keep named values off its own replies so the next one can
+address a quote the venue minted itself. A phase can also react to the one before it, issuing a
+message for each reply that phase draws, which turns a set of three blocks into two hundred chains
+that each run at the venue's own speed and can be measured from the first request to the last reply.
+And a set needs something to run against: the bundled RFQ venue stops deriving its ids and its prices
+from the request and answers out of a quote book instead, so a hit on a live quote, a hit that
+arrived too late, a second hit on a quote already answered and a hit on a quote it never sent are
+four different answers rather than one echo. Everything runnable is on one Run menu in the toolbar
+now, beside a Disconnect all that puts a box back to nothing connected.
 
 ### ✨ Added
 

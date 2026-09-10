@@ -88,13 +88,21 @@ class LoadRecordStore(
      * **A rename that will not happen is not a failure of the write.** Windows renames through
      * `MoveFileEx`, which refuses while anything else holds the file open, and the JDK names only "a
      * different device" as `AtomicMoveNotSupportedException`: a sharing violation arrives as
-     * `AccessDeniedException` and would reach [write]'s catch and put a notification in front of somebody
-     * about a progress tick nothing was wrong with. So **every** failure of the rename falls back to the
-     * write this replaced, said to the log and not to the user. That one tick is written the old way,
-     * with the old window on it, which is by a distance the smaller of the two costs.
+     * `AccessDeniedException` and would reach [write]'s catch, which loses the tick, leaves the temp file
+     * beside the record and puts an error in the log about a write nothing was wrong with. The tick it
+     * loses is the one that matters when it is the last one, because a poller then waits on a record for
+     * a verdict nobody will ever write into it. So **every** failure of the rename falls back to the
+     * write this replaced, at debug rather than at error. That one tick is written the old way, with the
+     * old window on it, which is by a distance the smaller of the two costs.
+     *
+     * **A temp name of this write's own**, because two writers share this directory: the run producing
+     * the record, and a reader healing one whose process died, which writes back what it healed. One
+     * name between them is one writer's half-written bytes moved into place by the other, or a rename
+     * with nothing left to rename. A temp file is never mistaken for a record either, because
+     * [listRecords] walks directories and reads [REPORT_FILE] by name.
      */
     private fun replace(file: File, text: String) {
-        val temp = File(file.parentFile, file.name + TEMP_SUFFIX)
+        val temp = File(file.parentFile, "${file.name}.${System.nanoTime()}$TEMP_SUFFIX")
         temp.writeText(text)
         val replace = StandardCopyOption.REPLACE_EXISTING
         try {
@@ -153,10 +161,9 @@ class LoadRecordStore(
      *
      * **Read through NIO and never `readText`**, because the write beside it is a rename. A `java.io` read
      * on Windows holds the file without sharing its deletion, and a rename onto a file held that way is
-     * refused: the reader costs the writer the progress tick it was in the middle of, and somebody is
-     * notified about a record nothing is wrong with. [Files.readString] shares it, so a read and a
-     * replace pass each other. Every reader of a record file goes through here, [list] and [listRecords]
-     * included.
+     * refused, so the reader costs the writer the tick it was in the middle of and leaves its temp file
+     * behind. [Files.readString] shares it, so a read and a replace pass each other. Every reader of a
+     * record file goes through here, [list] and [listRecords] included.
      */
     @Suppress("TooGenericExceptionCaught")
     fun readRecord(id: String): LoadRecord? =

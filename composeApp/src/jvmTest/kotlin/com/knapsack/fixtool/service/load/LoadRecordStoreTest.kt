@@ -195,8 +195,68 @@ class LoadRecordStoreTest {
         )
     }
 
+    /**
+     * **Two writers of one record never take each other's temp file.**
+     *
+     * A record has more than one writer. The run producing it writes a tick at a time, and a reader that
+     * finds it RUNNING with nobody running it heals it and writes back what it healed, which two readers
+     * can do at once. One temp name between them is one writer's half-written bytes renamed into place by
+     * the other, or a rename with nothing left to rename, and the second of those reaches the catch in
+     * `write`: the tick is lost and an error goes in the log about a record nothing is wrong with.
+     *
+     * A name per write leaves nothing to share. What each writer renames into place is its own whole
+     * record, and the last one to arrive is the one on disk.
+     */
+    @Test
+    fun `two writers of one record never take each other's temp file`() {
+        val store = LoadRecordStore(dir.absolutePath)
+        val id = store.reserve("busy")
+        val record = burstReport(unmatched = 0).copy(id = id)
+        store.write(record)
+        val refused = AtomicInteger()
+        val torn = AtomicReference<Throwable?>()
+        val writing = AtomicBoolean(true)
+        val writers =
+            (1..WRITERS).map { writer ->
+                Thread({
+                    repeat(WRITES_EACH) { n ->
+                        if (!store.write(record.copy(startedAt = writer * 1_000L + n))) refused.incrementAndGet()
+                    }
+                }, "load-record-writer-$writer")
+            }
+        val reader =
+            Thread({
+                while (writing.get()) {
+                    try {
+                        assertNotNull(store.read(id))
+                    } catch (t: Throwable) {
+                        torn.compareAndSet(null, t)
+                        return@Thread
+                    }
+                }
+            }, "load-record-reader")
+
+        reader.start()
+        writers.forEach { it.start() }
+        writers.forEach { it.join() }
+        writing.set(false)
+        reader.join()
+
+        assertEquals(0, refused.get(), "a write could not put its record in place")
+        assertNull(torn.get(), "a reader was handed something that was not one whole record: ${torn.get()}")
+        assertNotNull(store.read(id), "and the record left on disk is one whole record")
+        assertTrue(
+            dir.walkTopDown().none { it.name.endsWith(LoadRecordStore.TEMP_SUFFIX) },
+            "a temp file was left beside the record",
+        )
+    }
+
     private companion object {
         /** Enough turns that a reader lands inside a write, which against the plain write it does at once. */
         const val WRITES = 300
+
+        /** Enough writers of one record, and turns each, that one shared temp name collides at once. */
+        const val WRITERS = 4
+        const val WRITES_EACH = 60
     }
 }

@@ -185,6 +185,10 @@ class ConcurrentPhasesTest {
      * What escapes a phase is every `Throwable` and not [LoadRefused] in particular. In a set none of
      * `LoadRunner`'s own refusals is reachable, because templates, lanes and unseeded names are all judged
      * before phase 1 dials. This plan is handed straight to the runner, which is the one way to get one.
+     *
+     * **And the last record it offered is on disk**, because a set that threw returns nobody a record:
+     * what is left of it is the file. The record writer is closed in the teardown that runs whatever
+     * happened, and it writes whatever it was holding on the way out.
      */
     @Test
     fun `a phase that throws is joined back after every other phase has ended`() {
@@ -192,25 +196,32 @@ class ConcurrentPhasesTest {
         val lanes = lanes(clock)
         val host = FakeHost(clock, lanes)
         val seen = CopyOnWriteArrayList<List<LoadStatus>>()
+        val dir = File.createTempFile("fixtool-set-threw", "").also { it.delete() }
+        try {
+            val store = LoadRecordStore(dir.absolutePath)
+            val refused =
+                assertFailsWith<LoadRefused> {
+                    LoadSetRunner(host, store, clock = clock).run(
+                        setOf(
+                            plan("orders", orders, LoadMatch(11, 11, "8"), perSecond = 200),
+                            plan("broken", unseeded, LoadMatch(131, 131, "S"), perSecond = 500).copy(after = 1),
+                        ),
+                    ) { seen += it.phases.map { p -> p.status } }
+                }
 
-        val refused =
-            assertFailsWith<LoadRefused> {
-                LoadSetRunner(host, clock = clock).run(
-                    setOf(
-                        plan("orders", orders, LoadMatch(11, 11, "8"), perSecond = 200),
-                        plan("broken", unseeded, LoadMatch(131, 131, "S"), perSecond = 500).copy(after = 1),
-                    ),
-                ) { seen += it.phases.map { p -> p.status } }
-            }
-
-        assertTrue(refused.message!!.contains("nobodySeedsThis"), refused.message)
-        assertEquals(
-            listOf(LoadStatus.DONE, LoadStatus.PENDING),
-            seen.last(),
-            "phase 1 ran to its own end while phase 2 was already dead: $seen",
-        )
-        assertEquals(600, lanes.sumOf { lane -> lane.sent.count { it.contains("35=D") } }, "and issued everything it asked for")
-        assertEquals(1, host.releases, "released once, after the join, and not from under the phase still going")
+            assertTrue(refused.message!!.contains("nobodySeedsThis"), refused.message)
+            assertEquals(
+                listOf(LoadStatus.DONE, LoadStatus.PENDING),
+                seen.last(),
+                "phase 1 ran to its own end while phase 2 was already dead: $seen",
+            )
+            assertEquals(600, lanes.sumOf { lane -> lane.sent.count { it.contains("35=D") } }, "and issued everything it asked for")
+            assertEquals(1, host.releases, "released once, after the join, and not from under the phase still going")
+            val onDisk = assertNotNull(store.listRecords().singleOrNull(), "the set that threw left no record at all")
+            assertEquals(seen.last(), onDisk.phases.map { it.status }, "the record on disk is the last one the set offered")
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     /**

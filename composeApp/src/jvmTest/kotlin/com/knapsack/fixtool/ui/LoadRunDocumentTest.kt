@@ -256,6 +256,32 @@ class LoadRunDocumentTest {
         composeTestRule.onNodeWithText("the pacer's own floor", substring = true).assertExists()
     }
 
+    /**
+     * **A cap is drawn as a ceiling, with no floor and nothing red under it.**
+     *
+     * Fed in as a schedule the cap would have been a line every starved second falls under, and a phase
+     * that was waiting on its trigger would have read as a sustained shortfall in red. So the ceiling has
+     * its own key and the floor stays absent, which is what keeps the picture and the CAPPED verdict
+     * saying the same thing.
+     */
+    @Test
+    fun `a capped reactive phase draws its ceiling, and no second under it is red`() {
+        val base = LoadFixtures.burstReport(unmatched = 0)
+        val capped =
+            base.copy(
+                shape = LoadShape.Triggered(cap = 500),
+                issue = base.issue.copy(lastSendAt = base.issue.firstSendAt!! + 600_000),
+                // Half of them well under the cap, which under a schedule would be three hundred red bars.
+                perSecond = (0 until 600).map { LoadReport.Second(it, 500, if (it % 2 == 0) 120 else 498, 4_000) },
+            )
+
+        composeTestRule.setContent { LoadReportView(capped, emptyList(), File("loads/x"), onStop = {}, modifier = Modifier.fillMaxSize()) }
+
+        composeTestRule.onNodeWithTag("load-chart-seconds").assertExists()
+        composeTestRule.onNodeWithText("the ceiling nothing was released above", substring = true).assertExists()
+        composeTestRule.onNodeWithText("the pacer's own floor", substring = true).assertDoesNotExist()
+    }
+
     /** A rate run that ended before its schedule was judged is not a burst, whatever its rate report says. */
     @Test
     fun `a rate run with no rate report says why, instead of calling itself a burst`() {

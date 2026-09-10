@@ -61,6 +61,11 @@ object LoadCharts {
  * guide through both panels, because the eye should connect a throughput dip to its latency spike without
  * being told to.
  *
+ * **A reactive phase's cap is drawn and is not a schedule.** It gets its own line, its own key and no
+ * floor at all. Fed in as a schedule it would have been a line every starved second falls under, and every
+ * one of those seconds would have gone red on a phase that was waiting on its trigger and failing at
+ * nothing. A ceiling is a line to sit under, so nothing under it is behind anything.
+ *
  * Past [MAX_COLUMNS] seconds the columns are ranges, min to max, never a single "worst second": min-of-N
  * on a run with ordinary jitter parks every column under the schedule line and makes a healthy run read
  * as a sustained shortfall.
@@ -70,8 +75,11 @@ object LoadCharts {
 fun PerSecondPanel(report: LoadReport, modifier: Modifier = Modifier) {
     val columns = columnsOf(report.perSecond, MAX_COLUMNS)
     val schedule = (report.shape as? LoadShape.Rate)?.perSecond
+    val ceiling = (report.shape as? LoadShape.Triggered)?.cap
+    // The schedule's and never the ceiling's: this is what paints a second red, and a second under a
+    // ceiling is a second its trigger had less for it than the cap allowed.
     val floor = schedule?.let { floor(it * (1 - Pacer.TOLERANCE)).toInt() }
-    val topMax = maxOf(columns.maxOf { maxOf(it.answeredHigh, it.issuedHigh) }, schedule ?: 0).coerceAtLeast(1)
+    val topMax = maxOf(columns.maxOf { maxOf(it.answeredHigh, it.issuedHigh) }, schedule ?: 0, ceiling ?: 0).coerceAtLeast(1)
     val p95Max = columns.mapNotNull { it.p95High }.maxOrNull()?.coerceAtLeast(1L) ?: 1L
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -149,6 +157,20 @@ fun PerSecondPanel(report: LoadReport, modifier: Modifier = Modifier) {
                 )
             }
 
+            // The ceiling: thinner than a schedule, in its own ink and on a longer dash, because it is a
+            // limit and not a target and the bars are meant to sit anywhere beneath it.
+            if (ceiling != null) {
+                val y = yTop(ceiling)
+                drawLine(halo, Offset(plotLeft, y), Offset(size.width, y), HALO_W)
+                drawLine(
+                    ceilingInk,
+                    Offset(plotLeft, y),
+                    Offset(size.width, y),
+                    CEILING_W,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(CEILING_DASH_ON, CEILING_DASH_OFF)),
+                )
+            }
+
             // p95: a polyline, and only where a second actually had a matched reply to measure.
             var previous: Offset? = null
             columns.forEachIndexed { i, c ->
@@ -162,19 +184,23 @@ fun PerSecondPanel(report: LoadReport, modifier: Modifier = Modifier) {
                 previous = point
             }
         }
-        Axis(report, columns.size, topMax, p95Max, floor)
+        Axis(report, columns.size, topMax, p95Max, floor, ceiling)
     }
 }
 
 /** The two panels' scales and the x axis, said in words rather than drawn as tick labels on a canvas. */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-private fun Axis(report: LoadReport, columns: Int, topMax: Int, p95Max: Long, floor: Int?) {
+@Suppress("LongParameterList")
+private fun Axis(report: LoadReport, columns: Int, topMax: Int, p95Max: Long, floor: Int?, ceiling: Int?) {
     val span = report.issue.spanMs ?: 0
     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth().testTag("load-chart-legend")) {
         Key(bar, "answered per second, 0 to ${LoadReportCodec.fmt(topMax.toLong())}")
         floor?.let { Key(bad, "a second under $it/s, the pacer's floor") }
         report.shape.let { it as? LoadShape.Rate }?.let { Key(scheduleInk, "${it.perSecond}/s issued, the schedule") }
+        // Its own words, because the schedule's would be a claim: nothing asked this phase for a rate, and
+        // a second under the line is a second its trigger had less for it than the cap allowed.
+        ceiling?.let { Key(ceilingInk, "$it/s, the ceiling nothing was released above") }
         Key(warn, "p95 round trip, 0 to ${LoadReportCodec.humanMicros(p95Max)}")
         Text(
             "$columns column${if (columns == 1) "" else "s"} over ${humanDuration(span)}" +
@@ -360,6 +386,9 @@ private val guide = AppTheme.Colors.error.copy(alpha = 0.4f)
 private val halo = Color(0xFF141414)
 private val scheduleInk = Color(0xFFE8E8E8)
 
+/** Cooler and dimmer than the schedule's, because a ceiling is a limit and the bars belong under it. */
+private val ceilingInk = Color(0xFF9AA7B0)
+
 private val BARS_H = 96.dp
 private val P95_H = 46.dp
 private val GAP = 22.dp
@@ -381,6 +410,9 @@ private const val HALO_W = 4f
 private const val KEY_STROKE = 2f
 private const val DASH_ON = 5f
 private const val DASH_OFF = 3f
+private const val CEILING_W = 1f
+private const val CEILING_DASH_ON = 2f
+private const val CEILING_DASH_OFF = 5f
 private const val HALF = 0.5f
 private const val DECADE = 10.0
 private const val PERCENT = 100.0

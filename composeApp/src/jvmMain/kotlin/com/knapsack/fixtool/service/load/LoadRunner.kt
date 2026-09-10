@@ -108,6 +108,8 @@ class LoadRunner(
         // double `discardedBefore` and put two stamp listeners on the one session.
         val all = (lanes + listeners).distinct()
         progress.lanes = lanes.size
+        // A delta over the sessions this phase takes part in, which is this phase's own number only while
+        // it is the only phase on them. See LoadReport.Tool.discarded for what overlap does to it.
         val discardedBefore = all.sumOf { it.discarded() }
 
         val prepareStart = clock.nanoTime()

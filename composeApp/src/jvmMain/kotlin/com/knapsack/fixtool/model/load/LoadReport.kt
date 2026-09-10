@@ -212,7 +212,22 @@ data class LoadReport(
 
     /** **FixTool's own contribution**, which the report shows rather than hides. */
     data class Tool(
-        /** Messages the panes' queues threw away during the run, summed over the participating sessions. */
+        /**
+         * Messages the panes' queues threw away during the run, summed over the participating sessions.
+         *
+         * **A phase's own number, and under overlap it over-reports.** It is a delta: every participating
+         * session's cumulative counter read when the phase starts and again when it ends. Two phases of a
+         * set running at the same time over the same sessions both take a delta that spans the same
+         * discard, so one message thrown away is reported by both and fails both. The counter itself is
+         * also not exact: `FixMessageSession` increments it without a lock, from the receive thread and
+         * from every sending thread, so the true number is at or above what is read here.
+         *
+         * It stays per phase for now on purpose. Moving it to the set means a new field on
+         * [LoadRecord], both directions of the codec and a rule for how a set-level discard fails a set
+         * once no phase carries one, which belongs with the rest of the report's reshaping rather than
+         * beside the change that made the phases concurrent. Nothing a surface accepts overlaps yet, so
+         * nothing reads a doubled number today.
+         */
         val discarded: Long,
         /** Messages the engine accepted that never produced a SEND stamp. */
         val neverLeftSocket: Long,

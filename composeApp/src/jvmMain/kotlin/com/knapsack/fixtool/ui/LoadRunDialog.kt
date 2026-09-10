@@ -584,7 +584,7 @@ fun LoadRunDialogContent(
                             phase.earlier.mapIndexed { i, label -> triggerOption(i + 1, phase.earlier) to (i + 1) },
                             "phase-after",
                         ) { after = it }
-                        Hint("one message per reply that phase is given, at that message's own index.")
+                        Hint("One message per reply that phase is given, at that message's own index.")
                     }
                     FormRow("Speed") {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

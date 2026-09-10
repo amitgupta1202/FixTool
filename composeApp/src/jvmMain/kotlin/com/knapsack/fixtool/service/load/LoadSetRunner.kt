@@ -120,7 +120,15 @@ class LoadSetRunner(
         /**
          * Puts [matcher] in as phase [phase]. Closing stops nothing: the phase keeps its stamps for the
          * length of the set, which is what a late reply needs and what the record re-reads for it.
+         *
+         * **Under one lock, because finding the place and putting it there are two calls.** A
+         * `CopyOnWriteArrayList` makes each of them atomic and neither of them atomic together, so two
+         * phases registering at the same moment can both read the same place and leave the list ordered
+         * `[2, 3, 1]` where the whole point of it is `[3, 2, 1]`. What that costs is a stray charged to
+         * the wrong phase, and where two phases legitimately reuse an id, one phase's fill handed to the
+         * other as a duplicate. Contended once per phase and read without a lock, as it was.
          */
+        @Synchronized
         fun register(phase: Int, matcher: StampMatcher): AutoCloseable {
             val at = registered.indexOfFirst { it.phase < phase }
             registered.add(if (at < 0) registered.size else at, Registered(phase, matcher))

@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.LoadRunDefaults
+import com.knapsack.fixtool.model.LoadShapeChoice
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.ScenarioViewState
 import org.junit.After
@@ -7,6 +9,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * The rail's view-chrome store holds nothing that cannot be regenerated, so its one hard promise is to
@@ -49,5 +52,52 @@ class ScenarioViewStateServiceTest {
     fun `an unknown key is ignored, not fatal`() {
         File(dir, "scenario_view.json").writeText("""{"sortMode":"RECENTLY_MODIFIED","aFieldFromTheFuture":42}""")
         assertEquals(ScenarioSort.RECENTLY_MODIFIED, service().load().sortMode)
+    }
+
+    /**
+     * **A file written before the Shape segment had three options opens on the shape it was saved with.**
+     *
+     * The whole migration: the old file says `"burst": false` and nothing else about the shape, and the
+     * only wrong answer is to reset it to a burst because the new key is absent. Written as raw JSON
+     * rather than through the old data class, because the old data class is gone and the file is what
+     * actually survives an upgrade.
+     */
+    @Test
+    fun `a rate saved before reactive existed still opens as a rate`() {
+        File(dir, "scenario_view.json").writeText(
+            """{"loadRuns":{"lg":{"burst":false,"count":"250","rate":"750","forText":"5m","settle":"5s"}}}""",
+        )
+
+        val defaults = service().load().loadRuns.getValue("lg")
+
+        assertEquals(LoadShapeChoice.RATE, defaults.shape, "a saved rate must not open as a burst")
+        assertEquals("750", defaults.rate)
+        assertEquals("250", defaults.count, "and the burst it is not still keeps its own count")
+    }
+
+    /** The other half of the same file, so the fallback is not read as "everything old is a rate". */
+    @Test
+    fun `a burst saved before reactive existed still opens as a burst`() {
+        File(dir, "scenario_view.json").writeText("""{"loadRuns":{"lg":{"burst":true,"count":"250"}}}""")
+
+        val defaults = service().load().loadRuns.getValue("lg")
+
+        assertEquals(LoadShapeChoice.BURST, defaults.shape)
+    }
+
+    /**
+     * A file this FixTool writes carries both keys, so a downgrade reads the same shape back. The new key
+     * wins on the way in, which is what makes a reactive phase possible at all.
+     */
+    @Test
+    fun `a saved choice round-trips and still says burst or rate to an older reader`() {
+        val defaults = LoadRunDefaults.of(LoadShapeChoice.RATE, count = "250", rate = "750")
+        service().save(ScenarioViewState(loadRuns = mapOf("lg" to defaults)))
+
+        val written = File(dir, "scenario_view.json").readText()
+
+        assertEquals(defaults, service().load().loadRuns.getValue("lg"))
+        assertTrue(written.contains("\"burst\": false"), written)
+        assertTrue(written.contains("\"shapeKind\": \"RATE\""), written)
     }
 }

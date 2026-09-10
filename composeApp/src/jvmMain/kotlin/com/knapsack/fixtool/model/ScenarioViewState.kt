@@ -82,6 +82,23 @@ const val LOAD_SETS_DIALOG_WIDTH = 820f
 const val LOAD_SETS_DIALOG_HEIGHT = 700f
 
 /**
+ * **Which of the Shape segment's three options a load run was last asked for.**
+ *
+ * Its own type rather than the plan's [com.knapsack.fixtool.model.load.LoadShape], because this says which
+ * control was on and not what will be issued: a shape carries a count, a rate or a ceiling, and the whole
+ * point of remembering the choice separately is that the other two options keep the numbers they were
+ * given while they are not the one selected.
+ */
+@Serializable
+enum class LoadShapeChoice {
+    BURST,
+    RATE,
+
+    /** Fires as an earlier phase of a set is answered, so only a phase of a set can ever be this. */
+    REACTIVE,
+}
+
+/**
  * The load dialog's last-used shape for one profile, so reopening it does not reset to 4,000 / 500 / 60s.
  *
  * Per profile, not global: the burst somebody fires at a five-lane RFQ client and the ten-minute rate run
@@ -89,7 +106,14 @@ const val LOAD_SETS_DIALOG_HEIGHT = 700f
  */
 @Serializable
 data class LoadRunDefaults(
-    /** False = a sustained rate. Stored as a flag rather than a shape so a rate's count survives a burst. */
+    /**
+     * **False = a sustained rate**, which is every shape there was before a phase could react to another.
+     *
+     * Still written and still read, because it is the whole migration: a file saved by an older FixTool
+     * carries this and no [shapeKind], and [shape] falls back to it so a saved rate opens as a rate rather
+     * than being reset to a burst. A file this FixTool writes carries both, so a downgrade is owed the same
+     * courtesy. Use [of] rather than setting the two by hand, or they can disagree.
+     */
     val burst: Boolean = true,
     val count: String = "4000",
     val rate: String = "500",
@@ -98,4 +122,43 @@ data class LoadRunDefaults(
     val settle: String = "60s",
     /** Seed names and values in the order the rows were shown. A name with no value seeds nothing. */
     val seed: List<List<String>> = listOf(listOf("run", "")),
-)
+    /**
+     * Null in a file written before there were three options, which is what [burst] then answers.
+     *
+     * Last rather than beside [burst], so that adding it broke nothing that names these six in order.
+     */
+    val shapeKind: LoadShapeChoice? = null,
+) {
+    /** The option the Shape segment opens on: what the file says, or what a file older than it meant. */
+    val shape: LoadShapeChoice
+        get() = shapeKind ?: if (burst) LoadShapeChoice.BURST else LoadShapeChoice.RATE
+
+    companion object {
+        /**
+         * **One choice, both keys**, so [burst] and [shapeKind] can never say different things.
+         *
+         * A reactive choice writes [burst] as true rather than false, because an older FixTool reading it
+         * offers a count with this file's own count already in the field, which is a closer answer than a
+         * rate the phase never asked for. It is a courtesy and nothing more: only a phase of a set can be
+         * reactive and only a single run saves defaults, so no file should ever carry the pair.
+         */
+        @Suppress("LongParameterList")
+        fun of(
+            shape: LoadShapeChoice,
+            count: String = "4000",
+            rate: String = "500",
+            forText: String = "10m",
+            settle: String = "60s",
+            seed: List<List<String>> = listOf(listOf("run", "")),
+        ): LoadRunDefaults =
+            LoadRunDefaults(
+                burst = shape != LoadShapeChoice.RATE,
+                shapeKind = shape,
+                count = count,
+                rate = rate,
+                forText = forText,
+                settle = settle,
+                seed = seed,
+            )
+    }
+}

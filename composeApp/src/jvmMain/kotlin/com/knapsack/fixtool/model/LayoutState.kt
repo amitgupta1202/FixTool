@@ -36,6 +36,14 @@ data class LayoutState(
      * it: a window with a tab that shows its state is a window a user expects to find where they left it.
      */
     val showTracePanel: Boolean = false,
+    /**
+     * The filter row under the pane bar has been asked for.
+     *
+     * Only the *asking*. The row is also on screen whenever the filter is narrowing something, whatever
+     * this says, so what is remembered here is a reader who wants the row open over empty panes and
+     * never the reason the panes are narrow. See `FilterRow`.
+     */
+    val showFilterRow: Boolean = false,
     val terminalVisible: Boolean = false,
     val terminalMinimized: Boolean = false,
     val scenarioDockMinimized: Boolean = false,

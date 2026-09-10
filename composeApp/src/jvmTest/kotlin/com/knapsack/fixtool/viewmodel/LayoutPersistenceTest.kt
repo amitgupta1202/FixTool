@@ -74,6 +74,25 @@ class LayoutPersistenceTest {
         assertFalse(store.load().showTracePanel, "a shut Ledger reads back shut")
     }
 
+    /**
+     * The filter row is remembered like a panel, because being asked for is a preference and preferences
+     * survive a restart. What is *not* remembered is the filter itself, so a fresh launch never opens a
+     * row over panes that nothing is narrowing.
+     */
+    @Test
+    fun `a filter row left open reopens`() {
+        val store = LayoutStateService(customPath = File(testDir, "layout.json").absolutePath)
+        store.save(LayoutState(showFilterRow = true))
+
+        val next = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+        assertTrue(next.showFilterRow.value, "the row was asked for, so it is asked for again")
+        assertTrue(next.layoutState.value.showFilterRow, "and the layout still says so")
+
+        // And the field survives the file in both states: a closed row is written closed, not absent.
+        store.save(LayoutState(showFilterRow = false))
+        assertFalse(store.load().showFilterRow, "a closed row reads back closed")
+    }
+
     @Test
     fun `updateLayout reflects in the layout flow immediately`() {
         val vm = FixMessageViewModel(testSettingsDir = testDir.absolutePath)

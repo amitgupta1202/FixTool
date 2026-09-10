@@ -124,6 +124,29 @@ fun App(
             }
         val followedTrace by viewModel.followedTrace.collectAsState()
         val followedTraceIndex by viewModel.traceIndex.collectAsState()
+
+        /**
+         * The filter row's whole question, and whether it is on screen.
+         *
+         * `shown` is the never-silent rule in one line: asked for, **or** narrowing something. A row
+         * that is narrowing cannot be closed by the funnel, only by its own ✕, which clears first. See
+         * [FilterRow].
+         */
+        val showFilterRow by viewModel.showFilterRow.collectAsState()
+        val filterQuery =
+            remember(globalFilter, followedTrace) {
+                FilterQuery(
+                    global = globalFilter,
+                    followingLabel = followedTrace?.label,
+                    followingSessionCount = followedTrace?.sessionCount ?: 0,
+                    followingMessageCount = followedTrace?.messageCount ?: 0,
+                    followingTruncatedOn = followedTrace?.truncatedSessionTitles.orEmpty(),
+                )
+            }
+        val filterRowShown = filterQuery.shown(showFilterRow)
+        // Bumped by ⌥⌘F so the shortcut lands in the regex field. A row that appeared because something
+        // started narrowing the panes does not take the keyboard off whatever was typing. See [FilterRow].
+        var filterRowFocusTick by remember { mutableStateOf(0) }
         // Null, not empty, when nothing is followed: an empty set would narrow every pane to nothing,
         // and "following an id that has not arrived yet" is a state this app deliberately holds.
         val followedUids = followedTrace?.uids
@@ -305,7 +328,30 @@ fun App(
                 groupByConversation = anySessionGrouped,
                 onToggleGroupByConversation = { viewModel.toggleGroupByConversationAllSessions() },
                 folded = folded,
+                filterQuery = filterQuery,
+                filterRowShown = filterRowShown,
+                onToggleFilterRow = { viewModel.toggleFilterRow() },
             )
+        }
+
+        /**
+         * The filter row, drawn directly under whichever pane bar is on screen, in both layouts.
+         *
+         * A slot for the same reason the view controls are one: the two layouts hand it to two different
+         * bars, and a second copy of this call is a second place for the rule to be got wrong.
+         */
+        val filterRow: @Composable () -> Unit = {
+            if (filterRowShown) {
+                FilterRow(
+                    query = filterQuery,
+                    onRegexChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
+                    onIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
+                    onOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
+                    onUnfollow = { viewModel.unfollow() },
+                    onHide = { viewModel.setShowFilterRow(false) },
+                    focusTick = filterRowFocusTick,
+                )
+            }
         }
 
         Box(
@@ -313,9 +359,20 @@ fun App(
                 modifier
                     .fillMaxSize()
                     .onKeyEvent { event ->
-                        // Handle Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open search
+                        // ⌥⌘F (Ctrl+Alt+F elsewhere) opens the filter row and puts the caret in its
+                        // regex field, because ⌘F is Search all sessions and stays that way. Tested
+                        // before ⌘F below, which is why that branch names the modifier it must not have.
                         if (event.type == KeyEventType.KeyDown &&
                             event.key == Key.F &&
+                            event.isAltPressed &&
+                            (event.isMetaPressed || event.isCtrlPressed)
+                        ) {
+                            viewModel.toggleFilterRow()
+                            if (!showFilterRow) filterRowFocusTick++
+                            true
+                        } else if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.F &&
+                            !event.isAltPressed &&
                             (event.isMetaPressed || event.isCtrlPressed)
                         ) {
                             viewModel.toggleGlobalSearchDialog()
@@ -360,14 +417,6 @@ fun App(
                 Toolbar(
                     connectionProfiles = viewModel.connectionProfiles,
                     isDictionaryValid = isDictionaryValid,
-                    globalFilterRegex = globalFilterRegex,
-                    globalFilterShowIncoming = globalFilterShowIncoming,
-                    globalFilterShowOutgoing = globalFilterShowOutgoing,
-                    followingLabel = followedTrace?.label,
-                    followingSessionCount = followedTrace?.sessionCount ?: 0,
-                    followingMessageCount = followedTrace?.messageCount ?: 0,
-                    followingTruncatedOn = followedTrace?.truncatedSessionTitles.orEmpty(),
-                    onUnfollow = { viewModel.unfollow() },
                     onQuickConnect = { profileId, profile ->
                         viewModel.connectProfile(profileId, profile)
                     },
@@ -380,9 +429,6 @@ fun App(
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },
-                    onGlobalFilterChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
-                    onGlobalFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
-                    onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                     onOpenHelp = { viewModel.toggleHelpDialog() },
                     onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
@@ -533,6 +579,8 @@ fun App(
                                         onScrollToBottom = { scrollToBottomTrigger++ },
                                         viewControls = paneViewControls,
                                     )
+
+                                    filterRow()
 
                                     // The centre is always the sessions now — the scenario editor is a
                                     // bottom dock (see ScenarioDock), not a pane that replaces the grid.
@@ -907,6 +955,7 @@ fun App(
                                             followedUids = followedUids,
                                             followedTraceIds = followedTraceIds,
                                             viewControls = paneViewControls,
+                                            filterRow = filterRow,
                                         )
 
                                         // The bottom slot: Trace panel when open, else pinned results.
@@ -1128,6 +1177,7 @@ fun App(
                                         followedUids = followedUids,
                                         followedTraceIds = followedTraceIds,
                                         viewControls = paneViewControls,
+                                        filterRow = filterRow,
                                     )
 
                                     // The bottom slot: Trace panel when open, else pinned results.
@@ -1262,10 +1312,13 @@ private fun ColumnScope.SplitCentre(
     followedUids: Set<Long>? = null,
     followedTraceIds: Set<String> = emptySet(),
     viewControls: @Composable (folded: Boolean) -> Unit,
+    /** [FilterRow] when it is on screen, directly under the bar, exactly as the tabs layout draws it. */
+    filterRow: @Composable () -> Unit = {},
 ) {
     val connectionPanelOpen by viewModel.showConnectionPanel.collectAsState()
     val splitScope = rememberCoroutineScope()
     SplitViewBar(viewControls = viewControls)
+    filterRow()
     SplitView(
         sessions = viewModel.sessions,
         dictionary = viewModel.dictionary,

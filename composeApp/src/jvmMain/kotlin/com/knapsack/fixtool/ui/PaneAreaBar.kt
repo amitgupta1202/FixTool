@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewArray
@@ -93,16 +95,21 @@ enum class ViewMode(
 }
 
 /**
- * The width the whole set of view controls needs: the three segments, the gap, and `View ▾`.
+ * The width the whole set of view controls needs: the funnel, the three segments, the gaps, and `View ▾`.
  *
- * Added up rather than measured, from the sizes this file actually draws. The Tabs segment is 6dp of
+ * Added up rather than measured, from the sizes this file actually draws. The funnel is 6dp of padding
+ * each side around a 14dp glyph, which is 26dp, and a [CONTROL_GAP] after it. The Tabs segment is 6dp of
  * padding each side, a 14dp glyph, a 4dp gap and a [LABEL_WIDTH] word, which is 56dp. The other two are
  * padding and glyph alone, 26dp each. Two [SEGMENT_GAP] hairlines separate the three. `View ▾` is 8dp of
  * padding each side, a [LABEL_WIDTH] word, a 2dp gap and a 14dp chevron, which is 58dp, and
- * [CONTROL_GAP] sits between it and the group. That comes to **174dp**.
+ * [CONTROL_GAP] sits between it and the group. That comes to **206dp**.
+ *
+ * The funnel is counted in even though it never folds, because it takes the room either way.
  */
 internal val PANE_VIEW_CONTROLS_FULL_WIDTH =
-    (12.dp + 14.dp + 4.dp + LABEL_WIDTH) +
+    (12.dp + 14.dp) +
+        CONTROL_GAP +
+        (12.dp + 14.dp + 4.dp + LABEL_WIDTH) +
         (12.dp + 14.dp) * 2 +
         SEGMENT_GAP * 2 +
         CONTROL_GAP +
@@ -135,9 +142,9 @@ private val MIN_TAB_STRIP_WIDTH = 96.dp
  * anything to its left, and [PANE_VIEW_CONTROLS_FULL_WIDTH] for the controls themselves. Honest by
  * construction, because [TabBar] counts its buttons from the same conditions it draws them under.
  *
- * At its widest, a conversation pane in RAW with all nine of its buttons, that comes to **565dp**. The
- * same bar showing a venue, which draws only Minimize, needs **325dp**, and the split layouts' bar, which
- * has neither tabs nor per-session buttons, needs **186dp**.
+ * At its widest, a conversation pane in RAW with all nine of its buttons, that comes to **597dp**. The
+ * same bar showing a venue, which draws only Minimize, needs **357dp**, and the split layouts' bar, which
+ * has neither tabs nor per-session buttons, needs **218dp**.
  */
 internal fun paneBarFullWidth(
     actionButtons: Int,
@@ -170,6 +177,9 @@ internal fun paneBarFullWidth(
  * @param folded true on a bar too narrow for the segments, computed against [paneBarFullWidth] by the bar
  *   that holds them. The segments go first and `View ▾` stays, because a menu can carry the layout as
  *   three more named rows and nothing else here can be reached at all once it has been clipped away.
+ * @param filterQuery what the filter row is asking of the panes, which is what decides whether its funnel
+ *   is refused. See [FilterRow].
+ * @param filterRowShown whether that row is on screen at all, which is the funnel's own on state
  */
 @Composable
 @Suppress("LongParameterList")
@@ -183,6 +193,9 @@ fun PaneViewControls(
     groupByConversation: Boolean,
     onToggleGroupByConversation: () -> Unit,
     folded: Boolean = false,
+    filterQuery: FilterQuery = FilterQuery(),
+    filterRowShown: Boolean = false,
+    onToggleFilterRow: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -190,9 +203,7 @@ fun PaneViewControls(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(CONTROL_GAP),
     ) {
-        // The funnel goes here, left of the layout group: the filter row is step 3 of the design note
-        // (docs/mockups/toolbar.html) and lands with the regex field, the direction boxes and the
-        // Following chip it opens, not before them.
+        FilterFunnel(query = filterQuery, shown = filterRowShown, onToggle = onToggleFilterRow)
 
         if (!folded) {
             Row(
@@ -220,6 +231,53 @@ fun PaneViewControls(
             groupByConversation = groupByConversation,
             onToggleGroupByConversation = onToggleGroupByConversation,
         )
+    }
+}
+
+/**
+ * **The funnel that opens the filter row, at the left of the view controls.**
+ *
+ * It wears the layout segments' pressed look one step over: a *lighter* ground than the bar behind it,
+ * a full-strength glyph and a hairline border. Lighter, because pressed is read as a raised ground and
+ * the segments get theirs from the group they sit in. This one sits on the bar itself, which is already
+ * `surface`, so a `surface` fill would be a pressed state nobody can see. It never folds: a filter that
+ * cannot be reached is a filter that gets left on.
+ *
+ * **A click while the row is narrowing something does nothing**, and the tooltip says what. Closing is
+ * the ✕ inside the row, which clears before it closes (see [FilterRow]). A funnel that could put the row
+ * away while a regex was still in it would be the one gesture this whole feature exists to prevent.
+ */
+@Composable
+private fun FilterFunnel(
+    query: FilterQuery,
+    shown: Boolean,
+    onToggle: () -> Unit,
+) {
+    val refused = query.isNarrowing
+    val colour = if (shown) AppTheme.Colors.text else AppTheme.Colors.textSecondary
+    AppTooltip(text = query.funnelTooltip) {
+        Box(
+            modifier =
+                Modifier
+                    .height(SEGMENT_HEIGHT)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (shown) AppTheme.Colors.border else Color.Transparent)
+                    .then(if (shown) Modifier.border(1.dp, AppTheme.Colors.borderDark, RoundedCornerShape(4.dp)) else Modifier)
+                    .clickable { if (!refused) onToggle() }
+                    .padding(horizontal = 6.dp)
+                    .semantics {
+                        contentDescription = query.funnelTooltip
+                        selected = shown
+                    }.testTag("filter-row-toggle"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.FilterAlt,
+                contentDescription = null,
+                tint = if (refused) AppTheme.Colors.primary else colour,
+                modifier = Modifier.size(14.dp),
+            )
+        }
     }
 }
 

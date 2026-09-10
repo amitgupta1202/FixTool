@@ -14,6 +14,9 @@ import kotlin.test.assertEquals
  * A narrowing nobody can name is the defect this feature replaces — a regex typed into four boxes,
  * silently dropping the leg it did not know to match. These pin that the chip appears only while
  * following, names the trace and its counts, says which pane lost history, and can be dismissed.
+ *
+ * It rides in the filter row now rather than in the toolbar, beside the regex and the direction boxes it
+ * was always a third of: same chip, same tags, one row down. See [FilterRow].
  */
 class FollowingChipTest {
     @get:Rule
@@ -22,7 +25,7 @@ class FollowingChipTest {
     @Test
     fun `no chip when nothing is followed`() {
         composeTestRule.setContent {
-            Toolbar()
+            FilterRow()
         }
 
         composeTestRule.onNodeWithTag("following-chip").assertDoesNotExist()
@@ -31,10 +34,13 @@ class FollowingChipTest {
     @Test
     fun `the chip names the trace, its sessions and its messages`() {
         composeTestRule.setContent {
-            Toolbar(
-                followingLabel = "RFQ-A1",
-                followingSessionCount = 4,
-                followingMessageCount = 14,
+            FilterRow(
+                query =
+                    FilterQuery(
+                        followingLabel = "RFQ-A1",
+                        followingSessionCount = 4,
+                        followingMessageCount = 14,
+                    ),
             )
         }
 
@@ -46,11 +52,14 @@ class FollowingChipTest {
     @Test
     fun `a head-truncated trace says which pane lost history`() {
         composeTestRule.setContent {
-            Toolbar(
-                followingLabel = "RFQ-A1",
-                followingSessionCount = 1,
-                followingMessageCount = 1,
-                followingTruncatedOn = listOf("LP-1", "LP-2"),
+            FilterRow(
+                query =
+                    FilterQuery(
+                        followingLabel = "RFQ-A1",
+                        followingSessionCount = 1,
+                        followingMessageCount = 1,
+                        followingTruncatedOn = listOf("LP-1", "LP-2"),
+                    ),
             )
         }
 
@@ -63,10 +72,13 @@ class FollowingChipTest {
     fun `the chip's cross unfollows`() {
         var unfollowed = 0
         composeTestRule.setContent {
-            Toolbar(
-                followingLabel = "RFQ-A1",
-                followingSessionCount = 2,
-                followingMessageCount = 5,
+            FilterRow(
+                query =
+                    FilterQuery(
+                        followingLabel = "RFQ-A1",
+                        followingSessionCount = 2,
+                        followingMessageCount = 5,
+                    ),
                 onUnfollow = { unfollowed++ },
             )
         }

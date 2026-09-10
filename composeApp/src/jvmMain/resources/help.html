@@ -2266,23 +2266,30 @@ ${incoming["D"].valueOfTag(38)}
 
     <h2 id="filtering">8. Filtering Messages</h2>
 
-    <p>There are two filters and they compose. The <strong>global filter</strong> in the toolbar applies to
-    every session at once; each session's own <strong>filter row</strong> applies to that pane alone. A
+    <p>There are two filters and they compose. The <strong>global filter</strong> in the filter row applies
+    to every session at once, and each session's own <strong>filter row</strong> applies to that pane alone. A
     message is shown only if it passes <em>both</em> &mdash; so you can narrow every pane to
-    <code>EUR/USD</code> from the toolbar and still keep one pane on <code>35=8</code> of its own.</p>
+    <code>EUR/USD</code> from the row and still keep one pane on <code>35=8</code> of its own.</p>
 
     <h3>The global filter</h3>
+    <p>It has a row of its own, directly under the pane bar and above the panes it narrows. Open it with
+    the <strong>funnel</strong> at the left of the view controls, or with <code>&#8997;&#8984;F</code>
+    (<code>Ctrl+Alt+F</code> off macOS), which puts the caret straight in the box. <code>&#8984;F</code> is
+    still Search all sessions.</p>
     <ul>
-        <li><strong>Regex</strong> &mdash; <em>Filter all sessions (regex)&hellip;</em> in the toolbar.</li>
-        <li><strong>In / Out</strong> &mdash; the two checkboxes beside it, showing or hiding a direction
+        <li><strong>Regex</strong>: <em>Filter all panes (regex)</em>, the box in that row.</li>
+        <li><strong>In / Out</strong>: the two checkboxes beside it, showing or hiding a direction
         across every pane.</li>
-        <li>Clear it by emptying the box and re-checking both.</li>
+        <li><strong>&times;</strong> at the row's right clears the regex, ticks both directions back on,
+        stops following, and only then closes the row.</li>
     </ul>
-    <p>Typing here never touches a pane's own filter: clear the toolbar and every pane is exactly as its
-    owner left it.</p>
+    <p><strong>The row cannot be put away while it is narrowing anything.</strong> The funnel reads as
+    pressed and says why on hover (<em>narrowing: regex</em>), so a pane is never left filtered
+    by a control nobody can see. Typing here never touches a pane's own filter: clear the row and every
+    pane is exactly as its owner left it.</p>
 
     <h3>A session's own filter row</h3>
-    <p>Each pane's funnel icon opens a row with three controls, which are finer than the toolbar's:</p>
+    <p>Each pane's funnel icon opens a row with three controls, which are finer than the global ones:</p>
     <ul>
         <li><strong>Regex:</strong> a pattern (<code>pattern&hellip;</code>).</li>
         <li><strong>MsgType:</strong> a comma-separated list (<code>R,S,AJ&hellip;</code>) &mdash; matched
@@ -4096,7 +4103,7 @@ ${incoming["D"].valueOfTag(38)}
 
     <p><strong>Follow</strong> is on a conversation header, on a message row's right-click menu, and on any
     correlation-id field in the detail panel. One click narrows <em>every</em> session pane to that
-    exchange at once, and a chip in the toolbar names what is being followed:</p>
+    exchange at once, and a chip in the filter row names what is being followed:</p>
 
     <div class="example">
         <p><code>Following RFQ-A1 &middot; 4 sessions &middot; 14 messages</code></p>

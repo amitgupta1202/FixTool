@@ -15,7 +15,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -38,21 +37,6 @@ import kotlinx.coroutines.delay
 fun Toolbar(
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
-    globalFilterRegex: String = "",
-    globalFilterShowIncoming: Boolean = true,
-    globalFilterShowOutgoing: Boolean = true,
-    /**
-     * The followed trace's label, or null when nothing is followed — the chip's whole condition.
-     *
-     * A label rather than a flag plus a lookup: the chip's job is to *name* what every pane is narrowed
-     * to, because a narrowing nobody can name is the silent-filter defect this feature exists to remove.
-     */
-    followingLabel: String? = null,
-    followingSessionCount: Int = 0,
-    followingMessageCount: Int = 0,
-    /** Panes whose ring dropped a message of this trace, by title. See `Traces.Trace.truncatedSessions`. */
-    followingTruncatedOn: List<String> = emptyList(),
-    onUnfollow: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
     /**
@@ -66,9 +50,6 @@ fun Toolbar(
     onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
-    onGlobalFilterChange: ((String) -> Unit)? = null,
-    onGlobalFilterIncomingChange: ((Boolean) -> Unit)? = null,
-    onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
     onCaptureScenario: (() -> Unit)? = null,
@@ -93,181 +74,14 @@ fun Toolbar(
         // Parsed rows, protocol tags and Group by conversation change how every pane *draws* rather than
         // what the workspace does, and a control belongs beside the thing it changes. See
         // [PaneViewControls].
+        //
+        // And the filter with them, into a row of its own under that bar. The regex, the In and Out
+        // boxes and the Following chip are one query over the panes, so they sit against what they
+        // narrow, and a row holding a live filter cannot be put away without clearing it first. What is
+        // left here toggles nothing and narrows nothing. See [FilterRow].
         WorkspaceMenu(state = workspace)
 
         Spacer(modifier = Modifier.weight(1f))
-
-        // The followed trace, named. It sits beside the global filter box rather than replacing it:
-        // they are two filters of different kinds and both are in force, so hiding one while the other
-        // is on would be the app narrowing a view without saying so.
-        if (followingLabel != null) {
-            Row(
-                modifier =
-                    Modifier
-                        .height(28.dp)
-                        .background(AppTheme.Colors.primary, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                        .testTag("following-chip"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    text =
-                        buildString {
-                            append("Following ").append(followingLabel)
-                            append(" · ").append(followingSessionCount).append(" session")
-                            if (followingSessionCount != 1) append("s")
-                            append(" · ").append(followingMessageCount).append(" message")
-                            if (followingMessageCount != 1) append("s")
-                            // What a first row cannot say for itself: this exchange opened before what
-                            // the pane still holds. Better said here than silently absent.
-                            if (followingTruncatedOn.isNotEmpty()) {
-                                append(" · history lost on ").append(followingTruncatedOn.joinToString(", "))
-                            }
-                        },
-                    color = AppTheme.Colors.background,
-                    fontSize = 11.sp,
-                    modifier = Modifier.testTag("following-chip-label"),
-                )
-                Text(
-                    text = "✕",
-                    color = AppTheme.Colors.background,
-                    fontSize = 11.sp,
-                    modifier =
-                        Modifier
-                            .testTag("unfollow-chip")
-                            .clickable { onUnfollow?.invoke() },
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-
-        // Global Filter Text Field
-        if (onGlobalFilterChange != null) {
-            Row(
-                modifier =
-                    Modifier
-                        .height(28.dp)
-                        .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FilterAlt,
-                    contentDescription = "Filter",
-                    tint = if (globalFilterRegex.isNotEmpty()) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-                androidx.compose.foundation.text.BasicTextField(
-                    value = globalFilterRegex,
-                    onValueChange = onGlobalFilterChange,
-                    modifier = Modifier.width(180.dp),
-                    singleLine = true,
-                    textStyle =
-                        androidx.compose.ui.text.TextStyle(
-                            fontSize = 11.sp,
-                            color = AppTheme.Colors.text,
-                        ),
-                    cursorBrush =
-                        androidx.compose.ui.graphics
-                            .SolidColor(AppTheme.Colors.primary),
-                    decorationBox = { innerTextField ->
-                        Box {
-                            if (globalFilterRegex.isEmpty()) {
-                                Text(
-                                    text = "Filter all sessions (regex)...",
-                                    fontSize = 11.sp,
-                                    color = AppTheme.Colors.textSecondary,
-                                )
-                            }
-                            innerTextField()
-                        }
-                    },
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-
-        // Global Filter Direction Checkboxes
-        if (onGlobalFilterIncomingChange != null && onGlobalFilterOutgoingChange != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // Incoming checkbox
-                Row(
-                    modifier =
-                        Modifier
-                            .height(28.dp)
-                            .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                            .clickable { onGlobalFilterIncomingChange(!globalFilterShowIncoming) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Box(
-                        modifier = Modifier.size(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        androidx.compose.material3.Checkbox(
-                            checked = globalFilterShowIncoming,
-                            onCheckedChange = onGlobalFilterIncomingChange,
-                            modifier = Modifier.scale(0.75f),
-                            colors =
-                                androidx.compose.material3.CheckboxDefaults.colors(
-                                    checkedColor = AppTheme.Colors.primary,
-                                    uncheckedColor = AppTheme.Colors.textSecondary,
-                                    checkmarkColor = AppTheme.Colors.surface,
-                                ),
-                        )
-                    }
-                    Text(
-                        text = "In",
-                        fontSize = 11.sp,
-                        color = AppTheme.Colors.text,
-                    )
-                }
-
-                // Outgoing checkbox
-                Row(
-                    modifier =
-                        Modifier
-                            .height(28.dp)
-                            .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                            .clickable { onGlobalFilterOutgoingChange(!globalFilterShowOutgoing) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Box(
-                        modifier = Modifier.size(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        androidx.compose.material3.Checkbox(
-                            checked = globalFilterShowOutgoing,
-                            onCheckedChange = onGlobalFilterOutgoingChange,
-                            modifier = Modifier.scale(0.75f),
-                            colors =
-                                androidx.compose.material3.CheckboxDefaults.colors(
-                                    checkedColor = AppTheme.Colors.primary,
-                                    uncheckedColor = AppTheme.Colors.textSecondary,
-                                    checkmarkColor = AppTheme.Colors.surface,
-                                ),
-                        )
-                    }
-                    Text(
-                        text = "Out",
-                        fontSize = 11.sp,
-                        color = AppTheme.Colors.text,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-        }
 
         // **Quick Connect ▾ — the profile selector, and the demo workspace's home.**
         //

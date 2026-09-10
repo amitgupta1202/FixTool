@@ -267,6 +267,82 @@ class HelpDocTest {
     }
 
     /**
+     * **Every number the report prints has a definition somewhere.**
+     *
+     * The run document has no tooltips — a figure there is a label and a number, and nothing in the
+     * product says what it means. So the guide is the only place `peak outstanding` or `strays` is
+     * defined, and a reader looking at a finished report has nowhere else to go. Each claim below is one
+     * that changes what somebody concludes from a run: whether a figure failed it, what it was measured
+     * between, and which of two figures that sound alike they are looking at.
+     */
+    @Test
+    fun `the load report chapter defines every figure it prints`() {
+        val chapter = html.substringAfter("""id="load-report"""").substringBefore("""id="load-sets"""")
+
+        val claims =
+            mapOf(
+                "answered is the first reply, and what the round trip is measured to" to
+                    "That first reply is also what the round trip is measured to",
+                "unanswered is the bar" to "anything above zero fails the run",
+                "unaddressable is the tool never asking, not the venue not replying" to
+                    "the tool never asked",
+                "issued is three numbers" to "Three numbers, and it stays three numbers",
+                "and completeness is judged over the last of them" to "judged over the last of the three",
+                "a duplicate is a second reply for an id already matched" to "had <em>already</em> been matched",
+                "and is never judged, because one order draws several reports" to
+                    "several ExecutionReports",
+                "late is after the settle window, and answers nothing" to "its request stays unanswered",
+                "a stray is somebody else's traffic on a listening session" to "another client's traffic",
+                "peak outstanding is what the venue was asked to hold at once" to "waiting for an answer at any one moment",
+                "the round trip is socket to socket" to "socket send stamp to socket\n        receive stamp",
+                "drain is the venue still working after the tool stopped" to "after the tool stopped asking",
+                "the lane table exists to find the one bad lane" to "one lane is much worse than the rest",
+                "the tool's own figures fail the run" to "Any of these\n        above zero fails the run",
+                "and what to do about discards" to "Raise the session buffer",
+                "a cap is never a failure" to "CAPPED is never a failure",
+                "a rate shortfall only fails on request" to "strict-rate",
+                "exit 2 means it never started" to "the run never started",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the load report chapter no longer says: $missing")
+    }
+
+    /**
+     * **Every field the run dialog asks for is written down, with the flag that answers it headless.**
+     *
+     * A parameter a reader cannot look up is one they leave at its default for ever. The two that decide
+     * whether the numbers mean anything — the settle window and the store — are the ones worth pinning
+     * hardest, because both are wrong by default for measuring a venue rather than a disk.
+     */
+    @Test
+    fun `the load parameters chapter names every field and its command-line flag`() {
+        val chapter = html.substringAfter("""id="load-parameters"""").substringBefore("""id="load-report"""")
+
+        val claims =
+            mapOf(
+                "the template is required" to "The message to issue",
+                "the profile that issues, and what a lane is" to "Every session it\n                has logged on is a lane",
+                "a one-session profile is one lane" to "opens one session is one lane",
+                "burst and rate" to "issues a count as fast as the lanes carry it",
+                "the settle window, by that name" to "settle window",
+                "nothing is given up before it closes" to "Nothing is given up on before it closes",
+                "the match pair, and that a template with no id is refused" to "carries none is refused",
+                "listening sessions match as fully as issuing ones" to "matched wherever it\n                lands",
+                "capture is what makes a set work against a venue that mints ids" to "mints its own ids",
+                "the seed is rendered once" to "rendered once when the run starts",
+                "the store is why the numbers measure the venue" to "rather than FixTool's file appends",
+                "and that memory needs reset on logon" to "memory store needs Reset on Logon",
+                "the flags that exist only on the command line" to "--strict-rate",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the load parameters chapter no longer says: $missing")
+    }
+
+    /**
      * **The two whole-window session buttons, and the one difference between them.**
      *
      * A reader who takes Close all for a louder Disconnect all loses a pane's messages finding out. The

@@ -13,7 +13,7 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 - **Message Validation**: Validate messages against FIX data dictionaries
 - **Saved Messages**: Save and reuse frequently used message templates, with template expressions (`${uuid}`, `${now+2d}`, `${out.D.11}`) resolved as each message is sent
 - **Session Management**: Manage multiple FIX sessions with connection profiles
-- **Multi-Session Load Testing**: Open up to 100 concurrent sessions from one profile, with per-session identities via `{n}` numbering patterns or comma-separated CompID lists
+- **Multi-Session Profiles**: Open up to 100 concurrent sessions from one profile, with per-session identities via `{n}` numbering patterns or comma-separated CompID lists — these are the lanes a load run issues over
 - **Bulk Send**: Send one message to all logged-on sessions at once, with template expressions re-resolved per session
 
 ### Simulate a counterparty
@@ -31,12 +31,18 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 - **Latency Measurement**: Round trips stamped at the socket rather than in the FIX engine, so the number is the network and the venue — works through TLS, needs no privileges
 - **Cross-Session Trace**: Follow one exchange across every session at once, as a ledger or as swimlanes with the hop times on the arrows
 
+### Load
+
+- **Load Runs**: Issue thousands of messages across a profile's sessions *without waiting for replies*, then account for every reply that lands on any participating session — burst (`--count 4000`) or a rate the run never skips (`--rate 500/s --for 10m`). Round trips are stamped at the socket, and the report separates what the venue failed to answer from what the tool itself failed to issue
+- **Load Sets**: Several runs in order under one seed, as a saved file: ask for 4,000 quotes, hit the first 2,000, pass the other 2,000 — one record, one JUnit file, any phase mutable. A phase keeps named values off its own replies (`117` as `quoteId`), so the next one can address a quote the venue minted itself, and a phase can *react* to an earlier one, issuing per reply as each reply lands so a chain is measured from the first request to the last answer
+- **It brings up what it names**: a run connects every profile its phases issue from or listen on before the first message goes out — acceptors first — so running a saved set is one click from a box with nothing connected
+
 ### Organise and automate
 
 - **Workspaces**: A workspace is a folder holding its own profiles, saved messages, scenarios and session store — commit one beside the code it tests, or hand it to a colleague. Logon passwords stay out of the shareable file. Two bundled examples, an **FX Venue** and an **RFQ Venue** with a load-ready client, open as workspaces of your own
 - **Environments**: A connection is a counterparty *times* an environment, so one profile reaches UAT, QA and DEV without being rewritten three times
 - **AI / MCP Automation**: Let Claude (or any [MCP](https://modelcontextprotocol.io) client) drive FixTool for automated testing — connect sessions, send messages, verify FIX fields, manage templates, and capture screenshots. An MCP server is **embedded in the app** (no extra install). See the [Automation Guide](docs/AUTOMATION.md)
-- **Headless Runs**: `fixtool run` executes scenarios with no UI and a real exit code, writing JUnit XML for CI
+- **Headless Runs**: `fixtool run` executes scenarios and `fixtool load` executes load runs and saved load sets, with no UI and a real exit code, writing JSON and JUnit XML for CI
 
 ## Download
 

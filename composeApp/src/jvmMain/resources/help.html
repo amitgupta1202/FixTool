@@ -786,6 +786,176 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             of every unanswered request beside it and fifty specimen pairs. <code>--json</code> and
             <code>--junit</code> write the report where a build wants it.</li>
     </ul>
+    <h3 id="load-parameters">What a run asks you for</h3>
+    <p>One row per decision, in the order the dialog asks them. A phase of a
+        <a href="#load-sets">load set</a> asks the same questions, less the two the set owns for every
+        phase &mdash; the seed and the store &mdash; plus the two only a phase can answer.</p>
+    <table>
+        <tr><th>Field</th><th>What it decides</th><th>From the command line</th></tr>
+        <tr><td><strong>Label</strong></td>
+            <td>What the run is called in Recent, in the document tab and in the record. Defaults to a
+                sentence built from the template, the shape and the profile.</td>
+            <td>&mdash;</td></tr>
+        <tr><td><strong>Template</strong></td>
+            <td><strong>Required.</strong> The message to issue: a saved message, or the editor's fields
+                when the dialog was opened from the &#9889; Load button. Its <code>${...}</code>
+                expressions are what make each message its own &mdash; see
+                <a href="#message-templates">template expressions</a>. A template with no MsgType is
+                refused.</td>
+            <td>the first argument, a saved message's name or id, or a path to a file</td></tr>
+        <tr><td><strong>Issue on</strong></td>
+            <td><strong>Required.</strong> The initiator profile whose sessions issue. Every session it
+                has logged on is a lane, and messages are dealt across the lanes in turn. A profile that
+                opens one session is one lane, which is what a venue's load account usually is. Not
+                logged on is no longer a refusal: <a href="#load-sets">Run brings it up</a>.</td>
+            <td><code>--profile</code></td></tr>
+        <tr><td><strong>Shape</strong></td>
+            <td><strong>Required.</strong> <em>Burst</em> issues a count as fast as the lanes carry it.
+                <em>Rate</em> issues on a schedule for a duration, and the run never skips a message it
+                could not send on time. A phase of a set has a third, <em>Reactive</em>.</td>
+            <td><code>--count</code>, or <code>--rate 500/s --for 10m</code></td></tr>
+        <tr><td><strong>Reacts to</strong></td>
+            <td>Phase of a set only, and only for a reactive phase: the earlier phase whose replies fire
+                this one. Its count and its message indices are that phase's.</td>
+            <td>in the set file (<code>"after"</code>)</td></tr>
+        <tr><td><strong>Speed</strong></td>
+            <td>A reactive phase's optional ceiling, in messages a second. A line to sit under, never a
+                schedule &mdash; being below it is the trigger having less to give, not a shortfall.</td>
+            <td>in the set file (<code>"cap"</code>)</td></tr>
+        <tr><td><strong>Wait for replies</strong></td>
+            <td>The <strong>settle window</strong>: how long after the last message the run keeps waiting
+                for answers. Nothing is given up on before it closes, and a reply after it is
+                <em>late</em> rather than matched. Default 30s.</td>
+            <td><code>--settle 60s</code></td></tr>
+        <tr><td><strong>Match</strong></td>
+            <td>The tag pair a reply is paired to its request by, and optionally the reply's MsgType:
+                <code>11 &rarr; 11, reply 35=8</code>. Inferred from the template when it carries an
+                obvious correlation tag; a template that carries none is refused, because nothing could
+                be counted.</td>
+            <td><code>--match 11:11</code>, <code>--reply-type 8</code></td></tr>
+        <tr><td><strong>Also listen on</strong></td>
+            <td>Other logged-on profiles whose sessions take part in matching without issuing anything
+                &mdash; a drop copy, or the other side of a two-sided set. A reply is matched wherever it
+                lands, so a reply that comes back on one of these counts exactly as one on the issuing
+                lane does.</td>
+            <td><code>--listen</code>, once per profile</td></tr>
+        <tr><td><strong>Capture</strong></td>
+            <td>Phase of a set only: named tag values kept off each matched reply, at that request's own
+                message index, for a later phase to address &mdash; <code>117 QuoteID</code> as
+                <code>quoteId</code>. This is what lets a set work against a venue that mints its own ids.</td>
+            <td>in the set file (<code>"capture"</code>)</td></tr>
+        <tr><td><strong>Seed</strong></td>
+            <td>Values every message can read as <code>${name}</code>, rendered once when the run starts.
+                A value may be a generator, so a set that runs nightly gets a fresh id each time rather
+                than replaying one machine's characters at the venue for ever.</td>
+            <td><code>--seed run=b7f2</code>, repeatable</td></tr>
+        <tr><td><strong>Store and log</strong></td>
+            <td>The message store and log the lanes use <em>for this run</em>, so the numbers measure the
+                venue's keep-up rather than FixTool's file appends. Memory and None is the pair to want;
+                a memory store needs Reset on Logon, and the dialog says so rather than letting the next
+                logon start at 1. Reconnecting to apply it is a logout and a fresh logon, and the lanes
+                go back to their own config afterwards.</td>
+            <td><code>--store memory --log none</code></td></tr>
+    </table>
+    <p>Three more exist only on the command line: <code>--strict-rate</code> makes a rate shortfall fail
+        the run rather than be reported, and <code>--json</code> and <code>--junit</code> write the report
+        where a build wants it.</p>
+
+    <h3 id="load-report">What the report says</h3>
+    <p>Every figure below is in the run document and in
+        <code>&lt;workspace&gt;/loads/&lt;id&gt;/load.json</code>. Nothing here is inferred: each is
+        counted from the socket stamps of the sessions that took part, which is why the numbers are exact
+        however many messages a pane happens to be holding.</p>
+
+    <p><strong>The verdict, and the two numbers it is about.</strong></p>
+    <table>
+        <tr><th>Figure</th><th>What it means</th></tr>
+        <tr><td><strong>answered</strong></td>
+            <td>Requests whose first reply arrived before the settle window closed. That first reply is
+                also what the round trip is measured to.</td></tr>
+        <tr><td><strong>unanswered</strong></td>
+            <td>Requests that left the socket and never drew a reply carrying their id. <strong>This is
+                the bar</strong>: anything above zero fails the run. Their wire is kept beside the record,
+                so you can read what went out.</td></tr>
+        <tr><td><strong>unaddressable</strong></td>
+            <td>Messages the plan asked for that were never <em>sent</em>, because what they needed was
+                not there: a capture an earlier phase should have filled, or a trigger that never fired
+                for that index. Its own word, because &ldquo;unanswered&rdquo; says the venue did not
+                reply and this says the tool never asked. Both fail.</td></tr>
+    </table>
+
+    <p><strong>The quiet strip</strong> &mdash; reported, and mostly not judged. These are the five that
+        explain the two above.</p>
+    <table>
+        <tr><th>Figure</th><th>What it means</th></tr>
+        <tr><td><strong>issued</strong></td>
+            <td><strong>Three numbers, and it stays three numbers</strong>: <em>requested</em> is what the
+                plan asked for, <em>engine</em> is what QuickFIX/J accepted, <em>socket</em> is what the
+                SEND stamps counted. Completeness is judged over the last of the three, and the gap
+                between the second and the third is the tool's own.</td></tr>
+        <tr><td><strong>duplicates</strong></td>
+            <td>A reply carrying an id that had <em>already</em> been matched. Reported and never judged,
+                because one order legitimately draws several ExecutionReports &mdash; and because the same
+                reply seen on a listening session looks identical to one the venue sent twice.</td></tr>
+        <tr><td><strong>late</strong></td>
+            <td>A reply that did arrive, after the settle window had closed. It answers nothing: its
+                request stays unanswered. In a set the label says which phase it was late to, because a
+                reply to phase 1 commonly lands while phase 2 is running.</td></tr>
+        <tr><td><strong>strays</strong></td>
+            <td>A reply of the right shape carrying an id nothing in this run issued &mdash; another
+                client's traffic, seen because a listening session sees everything on it.</td></tr>
+        <tr><td><strong>peak outstanding</strong></td>
+            <td>The most requests waiting for an answer at any one moment. What the venue was actually
+                asked to hold at once, which a count and a rate together cannot tell you.</td></tr>
+        <tr><td><strong>achieved</strong></td>
+            <td>Messages a second over the issue span &mdash; first send to last send. What the run did,
+                against what a rate asked for.</td></tr>
+        <tr><td><strong>captured</strong></td>
+            <td>How many replies carried each name a phase keeps. Worth seeing when it differs from the
+                number matched: that difference is the venue answering without the tag, and it is what a
+                later phase is about to trip over.</td></tr>
+    </table>
+
+    <p><strong>Round trip and timing.</strong> Every percentile is measured <strong>socket send stamp to
+        socket receive stamp</strong> &mdash; the network and the venue, not FixTool's engine, and the
+        same clock the <a href="#latency">latency panel</a> uses. <em>Elapsed</em> is first send to last
+        matched reply; <em>drain</em> is last send to last matched reply, which is the venue still working
+        after the tool stopped asking. The <strong>per-lane table</strong> gives each lane its own matched,
+        unanswered, duplicates and p50/p95, because the question it answers is whether one lane is much
+        worse than the rest &mdash; which a single population percentile cannot show.</p>
+
+    <p><strong>What FixTool itself contributed</strong>, shown rather than hidden. <strong>Any of these
+        above zero fails the run</strong>, because a number the tool spoiled is not a measurement of a
+        venue.</p>
+    <table>
+        <tr><th>Figure</th><th>What it means</th></tr>
+        <tr><td><strong>discarded</strong></td>
+            <td>Messages the panes' display queues threw away during the run, over the participating
+                sessions. Raise the session buffer, or run with the panes minimized.</td></tr>
+        <tr><td><strong>never left socket</strong></td>
+            <td>Messages the engine accepted that never produced a SEND stamp.</td></tr>
+        <tr><td><strong>issue failures</strong></td>
+            <td>Messages the engine refused outright.</td></tr>
+    </table>
+
+    <p><strong>Three verdicts, and the exit code they add up to.</strong> They are separate because a run
+        where the venue answered everything and the tool could not hold its rate for nineteen seconds has
+        two different things to say.</p>
+    <table>
+        <tr><th>Verdict</th><th>Values</th><th>Fails the run?</th></tr>
+        <tr><td>Completeness</td><td>COMPLETE, UNMATCHED, INCOMPLETE</td>
+            <td>Yes, on anything but COMPLETE</td></tr>
+        <tr><td>Rate</td><td>HELD, SHORTFALL, CAPPED, or not applicable to a burst</td>
+            <td>Only with <code>--strict-rate</code>. CAPPED is never a failure: a reactive phase under
+                its ceiling is waiting on its trigger</td></tr>
+        <tr><td>Tool</td><td>CLEAN, LIMITED</td><td>Yes, on LIMITED</td></tr>
+    </table>
+    <pre><code>fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
+echo $?    # 0 everything answered · 1 unanswered, tool-limited, stopped, or a strict-rate shortfall · 2 it could not run</code></pre>
+    <p>Exit 2 is its own answer on purpose: it means the run never started &mdash; a template that would
+        not compile, a profile nothing answers to &mdash; and a build that cannot tell that from a venue
+        that failed will chase the wrong thing.</p>
+
     <p id="load-sets"><strong>Load sets: several runs in order, under one seed.</strong> Most load proofs against a venue are two
         or three runs that depend on each other. Burst NewOrderSingle, then cancel the same ClOrdIDs. Ask for
         quotes, then order against them. A <strong>load set</strong> is that as a saved file: an ordered list of

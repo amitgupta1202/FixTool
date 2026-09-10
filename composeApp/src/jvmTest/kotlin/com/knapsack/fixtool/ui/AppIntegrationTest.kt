@@ -19,7 +19,8 @@ import kotlin.test.assertTrue
  * App-level UI integration tests for the complete application workflow.
  *
  * Tests the main application components including:
- * - Toolbar functionality (view mode toggle, demo server, settings, buttons)
+ * - Toolbar functionality (demo server, settings, buttons)
+ * - The pane bar's layout segments, which is where the layout control lives now
  * - Connection panel display and interaction
  * - Message editor panel interaction
  * - Message detail panel display
@@ -80,11 +81,7 @@ class AppIntegrationTest {
     fun testToolbarDisplaysAppName() {
         // When: Toolbar is rendered
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-            )
+            Toolbar()
         }
 
         // Then: The toolbar should display app name
@@ -124,18 +121,25 @@ class AppIntegrationTest {
     }
 
     @Test
-    fun testToolbarDisplaysViewModeButton() {
-        // When: Toolbar is rendered
+    fun testPaneBarDisplaysLayoutSegments() {
+        // When: the pane bar's view controls are rendered
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
+            PaneViewControls(
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
+                sessionViewMode = FixMessageSession.ViewMode.PARSED,
+                onToggleGridView = { },
+                hideProtocolTags = true,
+                onToggleHideProtocolTags = { },
+                groupByConversation = false,
+                onToggleGroupByConversation = { },
             )
         }
 
-        // Then: Layout toggle button should be displayed
-        composeTestRule.onNodeWithContentDescription("Toggle Layout").assertExists()
+        // Then: all three layouts are on screen at once, and the one in force reads as pressed
+        composeTestRule.onNodeWithTag(ViewMode.TABS.testTag).assertExists()
+        composeTestRule.onNodeWithTag(ViewMode.SPLIT_HORIZONTAL.testTag).assertIsSelected()
+        composeTestRule.onNodeWithTag(ViewMode.SPLIT_VERTICAL.testTag).assertIsNotSelected()
     }
 
     @Test
@@ -143,9 +147,6 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with settings callback
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 onOpenSettings = { showSettingsDialog = !showSettingsDialog },
             )
         }
@@ -187,9 +188,6 @@ class AppIntegrationTest {
         var captureInvoked = false
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 onCaptureScenario = { captureInvoked = true },
             )
         }
@@ -231,9 +229,6 @@ class AppIntegrationTest {
         // Given: Toolbar with settings dialog initially off
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 onOpenSettings = { showSettingsDialog = !showSettingsDialog },
             )
         }
@@ -250,39 +245,35 @@ class AppIntegrationTest {
     }
 
     @Test
-    fun testViewModeButtonCyclesThroughModes() {
-        // Given: Toolbar with initial view mode
+    fun testLayoutSegmentSelectsItsOwnMode() {
+        // Given: the view controls, with the horizontal split in force
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
+            PaneViewControls(
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
+                sessionViewMode = FixMessageSession.ViewMode.PARSED,
+                onToggleGridView = { },
+                hideProtocolTags = true,
+                onToggleHideProtocolTags = { },
+                groupByConversation = false,
+                onToggleGroupByConversation = { },
             )
         }
-
-        // Initial state: SPLIT_HORIZONTAL
         assertTrue(viewMode == ViewMode.SPLIT_HORIZONTAL, "Initial view mode should be SPLIT_HORIZONTAL")
 
-        // When: Layout button is clicked
-        composeTestRule.onNodeWithContentDescription("Toggle Layout").performClick()
+        // When: the vertical-split segment is clicked
+        composeTestRule.onNodeWithTag(ViewMode.SPLIT_VERTICAL.testTag).performClick()
         composeTestRule.waitForIdle()
 
-        // Then: Should change to SPLIT_VERTICAL
-        assertTrue(viewMode == ViewMode.SPLIT_VERTICAL, "View mode should be SPLIT_VERTICAL after first click")
+        // Then: that is the layout, because a segment names the mode it selects
+        assertTrue(viewMode == ViewMode.SPLIT_VERTICAL, "The vertical-split segment should select SPLIT_VERTICAL")
 
-        // When: Layout button is clicked again
-        composeTestRule.onNodeWithContentDescription("Toggle Layout").performClick()
+        // When: the same segment is clicked again
+        composeTestRule.onNodeWithTag(ViewMode.SPLIT_VERTICAL.testTag).performClick()
         composeTestRule.waitForIdle()
 
-        // Then: Should change to TABS
-        assertTrue(viewMode == ViewMode.TABS, "View mode should be TABS after second click")
-
-        // When: Layout button is clicked again
-        composeTestRule.onNodeWithContentDescription("Toggle Layout").performClick()
-        composeTestRule.waitForIdle()
-
-        // Then: Should cycle back to SPLIT_HORIZONTAL
-        assertTrue(viewMode == ViewMode.SPLIT_HORIZONTAL, "View mode should cycle back to SPLIT_HORIZONTAL")
+        // Then: nothing moves. A segment selects, where the button it replaced cycled on to the next mode.
+        assertTrue(viewMode == ViewMode.SPLIT_VERTICAL, "A second click on the same segment must not advance the layout")
     }
 
     // ========================================
@@ -298,9 +289,6 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with profiles
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 connectionProfiles = profiles,
                 onQuickConnect = { _, _ -> },
             )
@@ -316,9 +304,6 @@ class AppIntegrationTest {
         // When: Toolbar is rendered
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 connectionProfiles = emptyList(),
                 onQuickConnect = { _, _ -> },
             )
@@ -338,9 +323,6 @@ class AppIntegrationTest {
         // When: Toolbar is rendered and dropdown is clicked
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 connectionProfiles = profiles,
                 onQuickConnect = { _, _ -> },
             )
@@ -547,9 +529,6 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with clear all callback
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 onClearAll = { },
             )
         }
@@ -563,9 +542,6 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with add separator callback
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
                 onAddSeparatorToAll = { },
             )
         }

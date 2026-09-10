@@ -4,7 +4,6 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import com.knapsack.fixtool.model.FixMessageSession
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -23,11 +22,7 @@ class FollowingChipTest {
     @Test
     fun `no chip when nothing is followed`() {
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
-            )
+            Toolbar()
         }
 
         composeTestRule.onNodeWithTag("following-chip").assertDoesNotExist()
@@ -37,9 +32,6 @@ class FollowingChipTest {
     fun `the chip names the trace, its sessions and its messages`() {
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
                 followingLabel = "RFQ-A1",
                 followingSessionCount = 4,
                 followingMessageCount = 14,
@@ -55,9 +47,6 @@ class FollowingChipTest {
     fun `a head-truncated trace says which pane lost history`() {
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
                 followingLabel = "RFQ-A1",
                 followingSessionCount = 1,
                 followingMessageCount = 1,
@@ -75,9 +64,6 @@ class FollowingChipTest {
         var unfollowed = 0
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
                 followingLabel = "RFQ-A1",
                 followingSessionCount = 2,
                 followingMessageCount = 5,

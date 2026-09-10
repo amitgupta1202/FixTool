@@ -28,31 +28,19 @@ import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
-import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.coroutines.delay
 
-enum class ViewMode {
-    TABS,
-    SPLIT_HORIZONTAL,
-    SPLIT_VERTICAL,
-}
-
 @Composable
 fun Toolbar(
-    viewMode: ViewMode,
-    onViewModeChange: (ViewMode) -> Unit,
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
-    globalSessionViewMode: FixMessageSession.ViewMode,
     globalFilterRegex: String = "",
     globalFilterShowIncoming: Boolean = true,
     globalFilterShowOutgoing: Boolean = true,
-    hideProtocolTags: Boolean = true,
-    groupByConversation: Boolean = false,
     /**
      * The followed trace's label, or null when nothing is followed — the chip's whole condition.
      *
@@ -65,7 +53,6 @@ fun Toolbar(
     /** Panes whose ring dropped a message of this trace, by title. See `Traces.Trace.truncatedSessions`. */
     followingTruncatedOn: List<String> = emptyList(),
     onUnfollow: (() -> Unit)? = null,
-    onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
     /**
@@ -82,8 +69,6 @@ fun Toolbar(
     onGlobalFilterChange: ((String) -> Unit)? = null,
     onGlobalFilterIncomingChange: ((Boolean) -> Unit)? = null,
     onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
-    onToggleHideProtocolTags: (() -> Unit)? = null,
-    onToggleGroupByConversation: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
     onCaptureScenario: (() -> Unit)? = null,
@@ -103,6 +88,11 @@ fun Toolbar(
         // Order book, Latency, Terminal and Trace are tabs on the stripe of the edge each one opens from,
         // where an open window reads as a pressed tab rather than as a grey icon tinted slightly less
         // grey. See [ToolWindow] and [ToolWindowStripe].
+        //
+        // The four view controls have gone the same way, onto the pane area's own bar. Layout, Raw or
+        // Parsed rows, protocol tags and Group by conversation change how every pane *draws* rather than
+        // what the workspace does, and a control belongs beside the thing it changes. See
+        // [PaneViewControls].
         WorkspaceMenu(state = workspace)
 
         Spacer(modifier = Modifier.weight(1f))
@@ -547,105 +537,6 @@ fun Toolbar(
                 )
             }
         }
-
-        // Layout toggle (cycles through TABS -> SPLIT_HORIZONTAL -> SPLIT_VERTICAL -> TABS)
-        TooltipIconButton(
-            tooltip =
-                when (viewMode) {
-                    ViewMode.TABS -> "Layout: Tabs (click for Horizontal Split)"
-                    ViewMode.SPLIT_HORIZONTAL -> "Layout: Horizontal Split (click for Vertical Split)"
-                    ViewMode.SPLIT_VERTICAL -> "Layout: Vertical Split (click for Tabs)"
-                },
-            onClick = {
-                val newMode =
-                    when (viewMode) {
-                        ViewMode.TABS -> ViewMode.SPLIT_HORIZONTAL
-                        ViewMode.SPLIT_HORIZONTAL -> ViewMode.SPLIT_VERTICAL
-                        ViewMode.SPLIT_VERTICAL -> ViewMode.TABS
-                    }
-                onViewModeChange(newMode)
-            },
-            modifier = tooltipModifier,
-        ) {
-            Icon(
-                imageVector =
-                    when (viewMode) {
-                        ViewMode.TABS -> Icons.Default.Tab
-                        ViewMode.SPLIT_HORIZONTAL -> Icons.Default.ViewAgenda
-                        ViewMode.SPLIT_VERTICAL -> Icons.Default.ViewArray
-                    },
-                contentDescription = "Toggle Layout",
-                tint = AppTheme.Colors.textSecondary,
-                modifier = tooltipIconModifier,
-            )
-        }
-
-        // View toggle (Terminal <-> Grid) - applies to all sessions
-        if (onToggleGridView != null) {
-            TooltipIconButton(
-                tooltip =
-                    when (globalSessionViewMode) {
-                        FixMessageSession.ViewMode.RAW -> "Switch All Sessions to Grid View"
-                        FixMessageSession.ViewMode.PARSED -> "Switch All Sessions to Terminal View"
-                    },
-                onClick = onToggleGridView,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector =
-                        when (globalSessionViewMode) {
-                            FixMessageSession.ViewMode.RAW -> Icons.Default.Apps
-                            // Subject (raw-text lines), not Terminal — the Terminal glyph now belongs to the
-                            // embedded terminal button; this "Terminal View" is really the raw FIX text view.
-                            FixMessageSession.ViewMode.PARSED -> Icons.Default.Subject
-                        },
-                    contentDescription = "Toggle View for All Sessions",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
-        // Hide/Show Protocol Tags Toggle (applies to all sessions)
-        if (onToggleHideProtocolTags != null) {
-            TooltipIconButton(
-                tooltip = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                onClick = onToggleHideProtocolTags,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = if (hideProtocolTags) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
-        // Group the grid by business exchange. Independent of RAW/PARSED above: that says how a row
-        // renders, this says how rows relate, and they compose.
-        if (onToggleGroupByConversation != null) {
-            TooltipIconButton(
-                tooltip =
-                    if (groupByConversation) {
-                        "Conversations: On (click for a flat list)"
-                    } else {
-                        "Conversations: Off (click to group by exchange)"
-                    },
-                onClick = onToggleGroupByConversation,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AccountTree,
-                    contentDescription = "Group by conversation",
-                    tint = AppTheme.Helpers.activeColor(groupByConversation),
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
-        // Visual separator after view mode controls
-        Spacer(modifier = Modifier.width(8.dp))
 
         // Settings button
         if (onOpenSettings != null) {

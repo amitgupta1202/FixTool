@@ -4,7 +4,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import com.knapsack.fixtool.model.FixMessageSession
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -16,7 +15,6 @@ class ToolbarDictionaryValidationTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
-    private var viewMode = ViewMode.SPLIT_HORIZONTAL
     private var settingsClickCount = 0
 
     @Before
@@ -36,9 +34,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onOpenSettings = { settingsClickCount++ },
             )
@@ -60,9 +55,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onOpenSettings = { settingsClickCount++ },
             )
@@ -82,9 +74,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onOpenSettings = { settingsClickCount++ },
             )
@@ -105,9 +94,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onOpenSettings = { settingsClickCount++ },
             )
@@ -129,9 +115,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed with all callbacks
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onOpenSettings = { settingsClickCount++ },
             )
@@ -152,9 +135,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onOpenSettings = { settingsClickCount++ },
             )
@@ -167,9 +147,6 @@ class ToolbarDictionaryValidationTest {
         isDictionaryValid = false
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onOpenSettings = { settingsClickCount++ },
             )
@@ -192,9 +169,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onCaptureScenario = { captureClicked = true },
                 onSearchAllSessions = { searchClicked = true },
@@ -224,9 +198,6 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
                 onCaptureScenario = { captureClicked = true },
                 onSearchAllSessions = { searchClicked = true },
@@ -243,27 +214,5 @@ class ToolbarDictionaryValidationTest {
 
         composeTestRule.onNodeWithContentDescription("Settings").performClick()
         assert(settingsClicked) { "Settings button should work even with invalid dictionary" }
-    }
-
-    @Test
-    fun testToolbar_ViewModeToggle_WorksWithInvalidDictionary() {
-        // Given: Invalid dictionary and view mode toggle
-        val isDictionaryValid = false
-        var viewModeChangeCount = 0
-
-        // When: Toolbar is displayed
-        composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.TABS,
-                onViewModeChange = { viewModeChangeCount++ },
-                isDictionaryValid = isDictionaryValid,
-                onOpenSettings = { },
-            )
-        }
-
-        // Then: Layout toggle should work
-        composeTestRule.onNodeWithContentDescription("Toggle Layout").performClick()
-        assert(viewModeChangeCount == 1) { "Layout toggle should work with invalid dictionary" }
     }
 }

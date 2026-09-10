@@ -7,7 +7,6 @@ import androidx.compose.ui.test.performClick
 import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
-import com.knapsack.fixtool.model.FixMessageSession
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -38,9 +37,6 @@ class ToolbarEnvironmentMenuTest {
         var connected: String? = null
         rule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
                 connectionProfiles = listOf(buySide),
                 onQuickConnect = { id, _ -> connected = id },
             )
@@ -56,9 +52,6 @@ class ToolbarEnvironmentMenuTest {
         var connectedIn: Pair<String, String>? = null
         rule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
                 connectionProfiles = listOf(buySide),
                 onQuickConnect = { _, _ -> },
                 environments = environments,
@@ -80,9 +73,6 @@ class ToolbarEnvironmentMenuTest {
         var connectedAsSaved: String? = null
         rule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
                 connectionProfiles = listOf(buySide),
                 onQuickConnect = { id, _ -> connectedAsSaved = id },
                 environments = environments,
@@ -101,9 +91,6 @@ class ToolbarEnvironmentMenuTest {
     fun `back returns to the profile list`() {
         rule.setContent {
             Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = ViewMode.SPLIT_HORIZONTAL,
-                onViewModeChange = { },
                 connectionProfiles = listOf(buySide),
                 onQuickConnect = { _, _ -> },
                 environments = environments,

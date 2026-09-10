@@ -280,6 +280,34 @@ fun App(
         // One handler for the tab and for its ⌘ digit, so the two doors to a window cannot drift apart.
         val onToggleToolWindow: (ToolWindow) -> Unit = { window -> toggleToolWindow(viewModel, window) }
 
+        val onViewModeChange: (ViewMode) -> Unit = { mode ->
+            viewMode = mode
+            // Persist through defaultLayout — the field that already seeds the initial layout.
+            viewModel.persistViewMode(
+                when (mode) {
+                    ViewMode.TABS -> "tabs"
+                    ViewMode.SPLIT_VERTICAL -> "vertical"
+                    ViewMode.SPLIT_HORIZONTAL -> "horizontal"
+                },
+            )
+        }
+
+        // One slot, both layouts, so the bar cannot say two different things about the same four settings.
+        // `folded` comes from whichever bar is holding it — see [PaneViewControls].
+        val paneViewControls: @Composable (Boolean) -> Unit = { folded ->
+            PaneViewControls(
+                viewMode = viewMode,
+                onViewModeChange = onViewModeChange,
+                sessionViewMode = globalViewMode,
+                onToggleGridView = { viewModel.toggleViewMode() },
+                hideProtocolTags = viewModel.appSettings.hideProtocolTags,
+                onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
+                groupByConversation = anySessionGrouped,
+                onToggleGroupByConversation = { viewModel.toggleGroupByConversationAllSessions() },
+                folded = folded,
+            )
+        }
+
         Box(
             modifier =
                 modifier
@@ -330,32 +358,16 @@ fun App(
                         .background(Color(0xFF1E1E1E)),
             ) {
                 Toolbar(
-                    viewMode = viewMode,
-                    onViewModeChange = { mode ->
-                        viewMode = mode
-                        // Persist through defaultLayout — the field that already seeds the initial layout.
-                        viewModel.persistViewMode(
-                            when (mode) {
-                                ViewMode.TABS -> "tabs"
-                                ViewMode.SPLIT_VERTICAL -> "vertical"
-                                ViewMode.SPLIT_HORIZONTAL -> "horizontal"
-                            },
-                        )
-                    },
                     connectionProfiles = viewModel.connectionProfiles,
                     isDictionaryValid = isDictionaryValid,
-                    globalSessionViewMode = globalViewMode,
                     globalFilterRegex = globalFilterRegex,
                     globalFilterShowIncoming = globalFilterShowIncoming,
                     globalFilterShowOutgoing = globalFilterShowOutgoing,
-                    hideProtocolTags = viewModel.appSettings.hideProtocolTags,
-                    groupByConversation = anySessionGrouped,
                     followingLabel = followedTrace?.label,
                     followingSessionCount = followedTrace?.sessionCount ?: 0,
                     followingMessageCount = followedTrace?.messageCount ?: 0,
                     followingTruncatedOn = followedTrace?.truncatedSessionTitles.orEmpty(),
                     onUnfollow = { viewModel.unfollow() },
-                    onToggleGridView = { viewModel.toggleViewMode() },
                     onQuickConnect = { profileId, profile ->
                         viewModel.connectProfile(profileId, profile)
                     },
@@ -371,8 +383,6 @@ fun App(
                     onGlobalFilterChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
                     onGlobalFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
                     onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
-                    onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
-                    onToggleGroupByConversation = { viewModel.toggleGroupByConversationAllSessions() },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                     onOpenHelp = { viewModel.toggleHelpDialog() },
                     onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
@@ -521,6 +531,7 @@ fun App(
                                         onEditVenueRules = { session -> viewModel.openVenueRules(session) },
                                         isAtBottom = isAtBottom,
                                         onScrollToBottom = { scrollToBottomTrigger++ },
+                                        viewControls = paneViewControls,
                                     )
 
                                     // The centre is always the sessions now — the scenario editor is a
@@ -895,6 +906,7 @@ fun App(
                                             globalFilter = globalFilter,
                                             followedUids = followedUids,
                                             followedTraceIds = followedTraceIds,
+                                            viewControls = paneViewControls,
                                         )
 
                                         // The bottom slot: Trace panel when open, else pinned results.
@@ -1115,6 +1127,7 @@ fun App(
                                         globalFilter = globalFilter,
                                         followedUids = followedUids,
                                         followedTraceIds = followedTraceIds,
+                                        viewControls = paneViewControls,
                                     )
 
                                     // The bottom slot: Trace panel when open, else pinned results.
@@ -1232,6 +1245,9 @@ private fun ScenariosRailDock(
  * The SPLIT layouts' centre: the session grid, and nothing else. The scenario editor used to share this
  * split, which coupled where it appeared to the *session* view mode; it is a bottom dock now (see
  * [ScenarioDock]), so the centre is purely the sessions in both TABS and SPLIT.
+ *
+ * The bar above it is the split layouts' half of the one pane bar: the same height and the same view
+ * controls the tabs row carries, so the four settings sit in one place whichever layout is showing.
  */
 @Composable
 private fun ColumnScope.SplitCentre(
@@ -1245,9 +1261,11 @@ private fun ColumnScope.SplitCentre(
     globalFilter: MessageFilters.Global = MessageFilters.Global.NONE,
     followedUids: Set<Long>? = null,
     followedTraceIds: Set<String> = emptySet(),
+    viewControls: @Composable (folded: Boolean) -> Unit,
 ) {
     val connectionPanelOpen by viewModel.showConnectionPanel.collectAsState()
     val splitScope = rememberCoroutineScope()
+    SplitViewBar(viewControls = viewControls)
     SplitView(
         sessions = viewModel.sessions,
         dictionary = viewModel.dictionary,

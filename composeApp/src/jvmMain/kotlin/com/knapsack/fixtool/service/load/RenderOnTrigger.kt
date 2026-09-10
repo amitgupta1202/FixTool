@@ -44,6 +44,16 @@ class RenderOnTrigger(
     /** What an index nothing fired was missing, in the words the report prints. */
     private val missing: String,
     private val cancelled: () -> Boolean,
+    /**
+     * **Called on the issuing thread each time [next] waits and nothing came**, which is where a reactive
+     * phase spends the whole of its trigger's window.
+     *
+     * A phase publishes progress from the issue path, and a reactive phase can be minutes between two
+     * messages: the live document showed it ISSUING with counts frozen at whatever they were when the
+     * last one went, for the length of its trigger's settle window. The wait is here, so the tick is here.
+     * On the issuing thread and no other, which is what lets the counters it reads stay unsynchronised.
+     */
+    private val onIdle: () -> Unit = {},
     /** Which phase of its set this renders for, 1-based, which is only ever in a thread name. */
     phase: Int = 1,
     depth: Int = DEPTH,
@@ -93,12 +103,18 @@ class RenderOnTrigger(
      * Polled rather than taken so a stopped set is not waiting on a trigger that will not arrive.
      * Stopping is the polled flag it is everywhere else, and a poll interval is nothing to be late for
      * on a queue with nothing in it: an arriving message wakes this the moment it lands.
+     *
+     * Every empty poll is also the phase's chance to say where it is. See [onIdle].
      */
     fun next(): Pacer.Ready? {
         while (true) {
             failure?.let { throw it }
             if (stopped || cancelled()) return null
-            val ready = out.poll(POLL_MS, TimeUnit.MILLISECONDS) ?: continue
+            val ready = out.poll(POLL_MS, TimeUnit.MILLISECONDS)
+            if (ready == null) {
+                onIdle()
+                continue
+            }
             if (ready === END_READY) return null
             return ready
         }

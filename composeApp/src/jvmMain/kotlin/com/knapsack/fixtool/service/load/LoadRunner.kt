@@ -164,6 +164,19 @@ class LoadRunner(
         progress.matcher = matcher
         val listening = listen(matcher, all)
 
+        // A progress tick is due on a clock and not on a message, so one place decides and both the issue
+        // path and a reactive phase's wait for a trigger go through it. On the issuing thread and nowhere
+        // else, which is what lets `lastEmit` and the counters beside it stay unsynchronised.
+        var lastEmit = clock.nanoTime()
+
+        fun emitIfDue() {
+            val now = clock.nanoTime()
+            if (now - lastEmit > PROGRESS_EVERY_NANOS) {
+                lastEmit = now
+                progress.emit(LoadStage.ISSUING)
+            }
+        }
+
         // Each lane renders ahead of its own sends, so a lane's message is not queued behind every other
         // lane's rendering on the pacer thread. See RenderAhead: this is what makes a per-lane number
         // worth showing rather than a picture of the round-robin.
@@ -183,6 +196,9 @@ class LoadRunner(
                     requested = plan.requested,
                     missing = "reply to ${buffer.firedBy ?: "the phase this one reacts to"}",
                     cancelled = cancelled,
+                    // A phase between two triggers is a phase with nothing to publish from, and its
+                    // trigger's window can be a minute long. The wait is in there, so the tick is too.
+                    onIdle = ::emitIfDue,
                     phase = phase,
                 )
             }
@@ -196,7 +212,6 @@ class LoadRunner(
         try {
             progress.emit(LoadStage.ISSUING)
             val handed = AtomicLong()
-            var lastEmit = clock.nanoTime()
 
             // The tail every shape shares: give the engine one rendered message, count what became of it,
             // and emit a progress tick when one is due. A paced phase reaches it with a message it took
@@ -227,11 +242,7 @@ class LoadRunner(
                         }
                     }
                 progress.handed = handed.get()
-                val now = clock.nanoTime()
-                if (now - lastEmit > PROGRESS_EVERY_NANOS) {
-                    lastEmit = now
-                    progress.emit(LoadStage.ISSUING)
-                }
+                emitIfDue()
                 return issued
             }
 

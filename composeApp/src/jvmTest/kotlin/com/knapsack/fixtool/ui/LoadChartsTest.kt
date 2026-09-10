@@ -46,6 +46,45 @@ class LoadChartsTest {
         assertEquals(listOf(1.0), curve.map { it.second })
     }
 
+    /**
+     * **A gridline reads as the round number it is.**
+     *
+     * The percent formatter the legend uses keeps a decimal so that 0.1% and 0.14% are different
+     * numbers; on a decade tick that puts "1.0%" beside "100%" and reads as a measurement rather than as
+     * the line it labels. And the obvious way to trim it — `BigDecimal(pct)` — takes the double's exact
+     * binary value, which turned a tenth of a percent into 0.1000000000000000055511151231257827021%
+     * across the axis. Both are pinned here because both shipped to a screenshot.
+     */
+    @Test
+    fun `a decade tick is a round percentage, without the binary tail`() {
+        val decades = listOf(1.0, 0.1, 0.01, 0.001, 0.0001)
+        assertEquals(listOf("100%", "10%", "1%", "0.1%", "0.01%"), decades.map { decadePercent(it) })
+    }
+
+    /** And a time tick is the number a reader thinks in, where the report's own formatter says "1.00s". */
+    @Test
+    fun `a decade tick on the time axis is 1ms, not 1_0ms`() {
+        val ticks = listOf(500L, 1_000L, 100_000L, 1_000_000L, 100_000_000L)
+        assertEquals(listOf("500µs", "1ms", "100ms", "1s", "100s"), ticks.map { decadeLabel(it) })
+    }
+
+    /**
+     * **Time labels land on numbers a clock has.**
+     *
+     * A 41-second run divided five ways is 8.2, and a step of 9 labelled the axis 0s, 9s, 18s, 27s, 36s:
+     * five correct labels nobody reads a clock in.
+     */
+    @Test
+    fun `a time step is one a reader counts in`() {
+        assertEquals(10, niceStep(9), "41 seconds over five labels")
+        assertEquals(1, niceStep(1))
+        assertEquals(5, niceStep(4))
+        assertEquals(60, niceStep(45))
+        assertEquals(300, niceStep(240))
+        // Past the table, whole minutes rather than a step of 637.
+        assertEquals(660, niceStep(637))
+    }
+
     /** Under the cap, a column is a second. Over it, a column is the range its seconds covered. */
     @Test
     fun `seconds become columns, and a downsampled column is a range and never a worst second`() {

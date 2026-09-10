@@ -207,6 +207,7 @@ fun LoadReportView(
                     QuietStrip(report, frame?.number)
                     Throughput(report, narrow)
                     RoundTrip(report, narrow)
+                    Chain(report, narrow)
                     if (report.unaddressable.isNotEmpty()) UnaddressableTable(report, frame?.number)
                     if (report.unmatched.isNotEmpty()) UnmatchedTable(report, unmatchedWire, narrow, onReveal)
                     Lanes(report, narrow)
@@ -577,6 +578,80 @@ private fun RoundTrip(r: LoadReport, narrow: Boolean) {
             }
             OutstandingCurve(r)
         }
+    }
+}
+
+/**
+ * **What one message cost all the way through**, on the phase a chain ends at and nowhere else.
+ *
+ * Beneath the round trip and in the same card idiom, because it is the same measurement one step wider:
+ * the round trip is this phase asking the venue, and this is every phase of the chain in turn. The two
+ * are never added, which is why they are drawn as two blocks and not as one number.
+ *
+ * The legs are what makes the figure actionable. A chain that has grown slower has grown slower in one
+ * hop, and in one of two ways within it: the venue took longer to answer, or FixTool took longer to turn
+ * that answer into the next request. So each leg shows both, and never their sum.
+ */
+@Composable
+private fun Chain(r: LoadReport, narrow: Boolean) {
+    val chain = r.chain ?: return
+    Section(
+        "Chain",
+        "${LoadReportCodec.fmt(chain.complete)} of ${LoadReportCodec.fmt(chain.requested)} whole · " +
+            "first request to last reply, across ${chain.legs.size} phases",
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(6.dp))
+                    .border(1.dp, AppTheme.Colors.border, RoundedCornerShape(6.dp))
+                    .padding(10.dp)
+                    .testTag("load-chain"),
+        ) {
+            val stats =
+                listOf(
+                    "min" to LoadReportCodec.humanMicros(chain.endToEnd.min),
+                    "p50" to LoadReportCodec.humanMicros(chain.endToEnd.p50),
+                    "p95" to LoadReportCodec.humanMicros(chain.endToEnd.p95),
+                    "p99" to LoadReportCodec.humanMicros(chain.endToEnd.p99),
+                    "max" to LoadReportCodec.humanMicros(chain.endToEnd.max),
+                    "mean" to LoadReportCodec.humanMicros(chain.endToEnd.mean),
+                )
+            stats.chunked(if (narrow) NARROW_STATS else stats.size).forEach { row ->
+                Row(modifier = Modifier.fillMaxWidth()) { row.forEach { (k, v) -> Stat(k, v) } }
+            }
+            chain.legs.forEach { Leg(it) }
+        }
+    }
+}
+
+/** One hop: which phase, how often it was answered, what it waited for and what it cost. */
+@Composable
+private fun Leg(leg: LoadReport.Leg) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "${leg.phase} · ${leg.label}",
+            color = AppTheme.Colors.text,
+            style = AppTheme.Type.meta,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            listOfNotNull(
+                "answered ${LoadReportCodec.fmt(leg.answered)}",
+                // Absent on the first leg, which nothing released and which therefore waited for nothing.
+                leg.handover?.let { "waited ${LoadReportCodec.humanMicros(it.p50)}" },
+                "p50 ${LoadReportCodec.humanMicros(leg.roundTrip.p50)}",
+                "p95 ${LoadReportCodec.humanMicros(leg.roundTrip.p95)}",
+            ).joinToString(" · "),
+            color = AppTheme.Colors.textDisabled,
+            style = AppTheme.Type.meta.copy(fontFamily = FontFamily.Monospace),
+            maxLines = 1,
+            modifier = Modifier.testTag("load-chain-leg-${leg.phase}"),
+        )
     }
 }
 

@@ -579,7 +579,7 @@ object McpTools {
                     "neverLeftSocket, issueFailures}, unmatched:[{id, lane, sentAt}], verdict:{completeness, rate, " +
                     "tool, exitCode}}. Issued is three numbers on purpose: the gap between handedToEngine and " +
                     "leftSocket is FixTool's own. A rate shortfall is a separate verdict and does not fail the run " +
-                    "unless strictRate asked; a reactive phase's cap is a ceiling, so its rate verdict is CAPPED and " +
+                    "unless strictRate asked. A reactive phase's cap is a ceiling, so its rate verdict is CAPPED and " +
                     "nothing promotes it. A phase of a set has no tool.discarded of its own: the set holds the " +
                     "sessions, so the record carries one discarded count for all of them, and it is a lower bound. " +
                     "Pass wait=<ms> (up to 10000) to hold the call; with no load it lists " +

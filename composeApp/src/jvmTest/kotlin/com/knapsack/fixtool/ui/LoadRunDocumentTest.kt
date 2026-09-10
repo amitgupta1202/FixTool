@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.height
 import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.service.RunSetStats
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.service.load.StampMatcher
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -255,6 +256,50 @@ class LoadRunDocumentTest {
         composeTestRule.onNodeWithTag("load-chart-seconds").assertExists()
         composeTestRule.onNodeWithText("the pacer's own floor", substring = true).assertExists()
     }
+
+    /**
+     * **The chain, on the phase it ends at, with a line per hop.**
+     *
+     * The round trip block above it is this phase asking the venue. This is every phase of the chain in
+     * turn, and it is what a three-phase RFQ set could not say at all before: how long a quote request
+     * took from asking to being filled. The two are never added, so they are two blocks.
+     */
+    @Test
+    fun `the phase a chain ends at draws the whole journey, and each hop under it`() {
+        val chain =
+            LoadReport.Chain(
+                legs =
+                    listOf(
+                        LoadReport.Leg(1, "Ask for a quote", handover = null, roundTrip = dist(3_000), answered = 196),
+                        LoadReport.Leg(2, "Quote it", handover = dist(400), roundTrip = dist(2_000), answered = 196),
+                    ),
+                endToEnd = dist(5_400),
+                complete = 196,
+                requested = 200,
+            )
+        val chained = LoadFixtures.burstReport(unmatched = 0).copy(chain = chain)
+
+        composeTestRule.setContent { LoadReportView(chained, emptyList(), File("loads/x"), onStop = {}, modifier = Modifier.fillMaxSize()) }
+
+        composeTestRule.onNodeWithTag("load-chain").assertExists()
+        composeTestRule.onNodeWithText("196 of 200 whole", substring = true).assertExists()
+        composeTestRule.onNodeWithTag("load-chain-leg-1").assertTextContains("answered 196 · p50 3.0ms", substring = true)
+        composeTestRule.onNodeWithTag("load-chain-leg-2").assertTextContains("waited 400µs", substring = true)
+    }
+
+    /** A run that is nobody's chain draws no chain block, which is every single run and every paced set. */
+    @Test
+    fun `a run that ends no chain draws none`() {
+        composeTestRule.setContent {
+            LoadReportView(LoadFixtures.burstReport(unmatched = 0), emptyList(), File("loads/x"), onStop = {}, modifier = Modifier.fillMaxSize())
+        }
+
+        composeTestRule.onNodeWithTag("load-chain").assertDoesNotExist()
+    }
+
+    /** A distribution shaped like a real one, in microseconds, for a block measured where it happens. */
+    private fun dist(us: Long) =
+        RunSetStats.Distribution(p50 = us, p95 = us * 2, max = us * 3, samples = 196, min = us / 2, p99 = us * 2, mean = us)
 
     /**
      * **A cap is drawn as a ceiling, with no floor and nothing red under it.**

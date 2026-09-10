@@ -258,6 +258,28 @@ fun App(
         // The scenario dock is NOT movable content: unlike the terminal (three centre-column call sites), it
         // lives at one stable site beneath the whole layout, so it is never recomposed at a new site.
 
+        /**
+         * **Which tool windows are on screen**, which is what draws a stripe tab pressed.
+         *
+         * A set built from the flags already collected above rather than a ninth piece of state, because
+         * every one of these windows has other doors (a message selection opens the detail panel, a
+         * control-surface `/panel` call opens any of them) and a tab that tracked its own boolean would
+         * disagree with the window it names.
+         */
+        val openToolWindows =
+            buildSet {
+                if (showMessageEditor) add(ToolWindow.EDITOR)
+                if (showScenariosRail) add(ToolWindow.SCENARIOS)
+                if (showDetailPanel) add(ToolWindow.DETAIL)
+                if (showConnectionPanel) add(ToolWindow.CONNECTION)
+                if (showOrderBookPanel) add(ToolWindow.ORDER_BOOK)
+                if (showLatencyPanel) add(ToolWindow.LATENCY)
+                if (TerminalController.visible) add(ToolWindow.TERMINAL)
+                if (tracePanelOpen) add(ToolWindow.TRACE)
+            }
+        // One handler for the tab and for its ⌘ digit, so the two doors to a window cannot drift apart.
+        val onToggleToolWindow: (ToolWindow) -> Unit = { window -> toggleToolWindow(viewModel, window) }
+
         Box(
             modifier =
                 modifier
@@ -283,6 +305,15 @@ fun App(
                             // closes itself. The dialogs above draw over the whole window without a key
                             // handler of their own, so they are named rather than trusted to consume.
                             viewModel.unfollow()
+                            true
+                        } else if (event.type == KeyEventType.KeyDown &&
+                            (event.isMetaPressed || event.isCtrlPressed) &&
+                            ToolWindow.forKey(event.key) != null
+                        ) {
+                            // ⌘1 to ⌘8, in stripe order, doing exactly what the tab does. Meta or Ctrl,
+                            // the pair ⌘F above already accepts, so the shortcut works the same way on
+                            // whichever platform the window is open on.
+                            ToolWindow.forKey(event.key)?.let(onToggleToolWindow)
                             true
                         } else {
                             // esc no longer closes the scenario document: the editor is a bottom dock, not a
@@ -311,11 +342,6 @@ fun App(
                             },
                         )
                     },
-                    showMessageEditor = showMessageEditor,
-                    showDetailPanel = showDetailPanel,
-                    showConnectionPanel = showConnectionPanel,
-                    showLatencyPanel = showLatencyPanel,
-                    showOrderBookPanel = showOrderBookPanel,
                     connectionProfiles = viewModel.connectionProfiles,
                     isDictionaryValid = isDictionaryValid,
                     globalSessionViewMode = globalViewMode,
@@ -324,17 +350,11 @@ fun App(
                     globalFilterShowOutgoing = globalFilterShowOutgoing,
                     hideProtocolTags = viewModel.appSettings.hideProtocolTags,
                     groupByConversation = anySessionGrouped,
-                    tracePanelOpen = tracePanelOpen,
                     followingLabel = followedTrace?.label,
                     followingSessionCount = followedTrace?.sessionCount ?: 0,
                     followingMessageCount = followedTrace?.messageCount ?: 0,
                     followingTruncatedOn = followedTrace?.truncatedSessionTitles.orEmpty(),
                     onUnfollow = { viewModel.unfollow() },
-                    onOpenMessageEditor = { viewModel.toggleMessageEditor() },
-                    onToggleDetailPanel = { viewModel.toggleDetailPanel() },
-                    onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
-                    onToggleLatencyPanel = { viewModel.toggleLatencyPanel() },
-                    onToggleOrderBookPanel = { viewModel.toggleOrderBookPanel() },
                     onToggleGridView = { viewModel.toggleViewMode() },
                     onQuickConnect = { profileId, profile ->
                         viewModel.connectProfile(profileId, profile)
@@ -353,14 +373,10 @@ fun App(
                     onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                     onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
                     onToggleGroupByConversation = { viewModel.toggleGroupByConversationAllSessions() },
-                    onToggleTracePanel = { viewModel.toggleTracePanel() },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                     onOpenHelp = { viewModel.toggleHelpDialog() },
-                    onOpenScenarios = { viewModel.toggleScenariosRail() },
                     onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
                     runControls = { ToolbarRunControls(viewModel) },
-                    showTerminal = TerminalController.visible,
-                    onToggleTerminal = { TerminalController.toggle() },
                 )
 
                 // The load run dialog, opened from the editor's Load button with the editor's fields as the template.
@@ -443,6 +459,11 @@ fun App(
                             val maxWidthPx = with(density) { maxWidth.toPx() }
 
                             Row(modifier = Modifier.fillMaxSize()) {
+                                // The tool-window stripes, on the edges the windows open from. First
+                                // and last child of the layout row, so they frame every panel between
+                                // them. See [ToolWindowStripe].
+                                ToolWindowStripe(edge = ToolWindowEdge.LEFT, open = openToolWindows, onToggle = onToggleToolWindow)
+
                                 ScenariosRailDock(
                                     viewModel = viewModel,
                                     show = showScenariosRail,
@@ -795,6 +816,8 @@ fun App(
                                         }
                                     }
                                 }
+
+                                ToolWindowStripe(edge = ToolWindowEdge.RIGHT, open = openToolWindows, onToggle = onToggleToolWindow)
                             }
                         }
                     }
@@ -819,6 +842,8 @@ fun App(
                                 val maxWidthPx = with(density) { maxWidth.toPx() }
 
                                 Row(modifier = Modifier.fillMaxSize()) {
+                                    ToolWindowStripe(edge = ToolWindowEdge.LEFT, open = openToolWindows, onToggle = onToggleToolWindow)
+
                                     ScenariosRailDock(
                                         viewModel = viewModel,
                                         show = showScenariosRail,
@@ -984,8 +1009,8 @@ fun App(
                                                 },
                                                 onClose = { viewModel.toggleConnectionPanel() },
                                                 selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
-                                            rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
-                                            onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
+                                                rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
+                                                onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
                                                 dictionary = viewModel.dictionary,
                                                 onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
                                                     viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
@@ -1071,55 +1096,63 @@ fun App(
                                             }
                                         }
                                     }
+
+                                    ToolWindowStripe(edge = ToolWindowEdge.RIGHT, open = openToolWindows, onToggle = onToggleToolWindow)
                                 }
                             }
                         } else {
-                            Column(modifier = Modifier.weight(1f)) {
-                                SplitCentre(
-                                    viewModel = viewModel,
-                                    examples = workspaceMenu.examples,
-                                    onOpenExample = workspaceMenu.onOpenExample,
-                                    orientation = splitOrientation,
-                                    globalViewMode = globalViewMode,
-                                    selectedMessage = selectedMessage,
-                                    globalFilter = globalFilter,
-                                    followedUids = followedUids,
-                                    followedTraceIds = followedTraceIds,
-                                )
+                            Row(modifier = Modifier.weight(1f)) {
+                                ToolWindowStripe(edge = ToolWindowEdge.LEFT, open = openToolWindows, onToggle = onToggleToolWindow)
 
-                                // The bottom slot: Trace panel when open, else pinned results.
-                                if (tracePanelOpen || showSearchResultsPane) {
-                                    HeightResizeHandle(
-                                        onDeltaPx = { dy ->
-                                            searchResultsPanelHeight =
-                                                (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
-                                        },
-                                        onDragEnd = { viewModel.updateLayout { it.copy(searchHeightDp = searchResultsPanelHeight.value) } },
+                                Column(modifier = Modifier.weight(1f)) {
+                                    SplitCentre(
+                                        viewModel = viewModel,
+                                        examples = workspaceMenu.examples,
+                                        onOpenExample = workspaceMenu.onOpenExample,
+                                        orientation = splitOrientation,
+                                        globalViewMode = globalViewMode,
+                                        selectedMessage = selectedMessage,
+                                        globalFilter = globalFilter,
+                                        followedUids = followedUids,
+                                        followedTraceIds = followedTraceIds,
                                     )
 
-                                    Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                        if (tracePanelOpen) {
-                                            AppTracePanel(
-                                                viewModel = viewModel,
-                                                rows = traceRows,
-                                                sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
-                                                followingLabel = followedTrace?.label,
-                                                selectedMessage = selectedMessage,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        } else {
-                                            AppSearchResultsPane(
-                                                viewModel = viewModel,
-                                                pinnedSearchResults = pinnedSearchResults,
-                                                selectedMessage = selectedMessage,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
+                                    // The bottom slot: Trace panel when open, else pinned results.
+                                    if (tracePanelOpen || showSearchResultsPane) {
+                                        HeightResizeHandle(
+                                            onDeltaPx = { dy ->
+                                                searchResultsPanelHeight =
+                                                    (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(searchHeightDp = searchResultsPanelHeight.value) } },
+                                        )
+
+                                        Box(modifier = Modifier.height(searchResultsPanelHeight)) {
+                                            if (tracePanelOpen) {
+                                                AppTracePanel(
+                                                    viewModel = viewModel,
+                                                    rows = traceRows,
+                                                    sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
+                                                    followingLabel = followedTrace?.label,
+                                                    selectedMessage = selectedMessage,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            } else {
+                                                AppSearchResultsPane(
+                                                    viewModel = viewModel,
+                                                    pinnedSearchResults = pinnedSearchResults,
+                                                    selectedMessage = selectedMessage,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
                                         }
                                     }
+
+                                    // Docked terminal — bottom of the centre pane (shrinks with side panels).
+                                    terminalSlot()
                                 }
 
-                                // Docked terminal — bottom of the centre pane (shrinks with side panels).
-                                terminalSlot()
+                                ToolWindowStripe(edge = ToolWindowEdge.RIGHT, open = openToolWindows, onToggle = onToggleToolWindow)
                             }
                         }
                     }
@@ -1129,6 +1162,15 @@ fun App(
                 // (unlike the terminal, which stays as wide as the centre pane). It is decoupled from the
                 // session view mode: the same dock in TABS and both SPLITs. Absent when no document is open.
                 ScenarioDock(viewModel)
+
+                // The bottom stripe, at the very foot of the window: Terminal and Trace, the two tool
+                // windows that open across the window rather than beside it. Below the docks, because a
+                // stripe is the frame and not one of the panes it opens.
+                ToolWindowStripe(
+                    edge = ToolWindowEdge.BOTTOM,
+                    open = openToolWindows,
+                    onToggle = onToggleToolWindow,
+                )
             }
 
             // Notification popup overlay in bottom-right corner
@@ -1137,6 +1179,30 @@ fun App(
                 onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
             )
         }
+    }
+}
+
+/**
+ * **What a stripe tab and its ⌘ digit both do.**
+ *
+ * Straight to the toggle the tool window already had, because every one of them is reachable by other
+ * doors too (the control surface's `/panel`, a message selection, following a trace) and a stripe that
+ * kept its own idea of open would be a second answer to a question that has one.
+ */
+private fun toggleToolWindow(
+    viewModel: FixMessageViewModel,
+    window: ToolWindow,
+) {
+    when (window) {
+        ToolWindow.EDITOR -> viewModel.toggleMessageEditor()
+        ToolWindow.SCENARIOS -> viewModel.toggleScenariosRail()
+        ToolWindow.DETAIL -> viewModel.toggleDetailPanel()
+        ToolWindow.CONNECTION -> viewModel.toggleConnectionPanel()
+        ToolWindow.ORDER_BOOK -> viewModel.toggleOrderBookPanel()
+        ToolWindow.LATENCY -> viewModel.toggleLatencyPanel()
+        // The terminal's own controller, not the view model: it is shared with the window host in main.kt.
+        ToolWindow.TERMINAL -> TerminalController.toggle()
+        ToolWindow.TRACE -> viewModel.toggleTracePanel()
     }
 }
 

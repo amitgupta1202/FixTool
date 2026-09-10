@@ -132,13 +132,7 @@ class ToolbarDictionaryValidationTest {
                 globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
-                showMessageEditor = false,
-                showDetailPanel = false,
-                showConnectionPanel = false,
                 isDictionaryValid = isDictionaryValid,
-                onOpenMessageEditor = { },
-                onToggleDetailPanel = { },
-                onToggleConnectionPanel = { },
                 onOpenSettings = { settingsClickCount++ },
             )
         }
@@ -191,9 +185,8 @@ class ToolbarDictionaryValidationTest {
     fun testToolbar_WithValidDictionary_AllButtonsWork() {
         // Given: All toolbar features enabled with valid dictionary
         val isDictionaryValid = true
-        var messageEditorClicked = false
-        var detailPanelClicked = false
-        var connectionPanelClicked = false
+        var captureClicked = false
+        var searchClicked = false
         var settingsClicked = false
 
         // When: Toolbar is displayed
@@ -202,26 +195,19 @@ class ToolbarDictionaryValidationTest {
                 globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
-                showMessageEditor = false,
-                showDetailPanel = false,
-                showConnectionPanel = false,
                 isDictionaryValid = isDictionaryValid,
-                onOpenMessageEditor = { messageEditorClicked = true },
-                onToggleDetailPanel = { detailPanelClicked = true },
-                onToggleConnectionPanel = { connectionPanelClicked = true },
+                onCaptureScenario = { captureClicked = true },
+                onSearchAllSessions = { searchClicked = true },
                 onOpenSettings = { settingsClicked = true },
             )
         }
 
         // Then: All buttons should be clickable
-        composeTestRule.onNodeWithContentDescription("Message Editor").performClick()
-        assert(messageEditorClicked) { "Message editor button should work" }
+        composeTestRule.onNodeWithContentDescription("Capture Scenario").performClick()
+        assert(captureClicked) { "Capture Scenario button should work" }
 
-        composeTestRule.onNodeWithContentDescription("Toggle Message Detail Panel").performClick()
-        assert(detailPanelClicked) { "Detail panel button should work" }
-
-        composeTestRule.onNodeWithContentDescription("Toggle Connection Panel").performClick()
-        assert(connectionPanelClicked) { "Connection panel button should work" }
+        composeTestRule.onNodeWithContentDescription("Search All Sessions").performClick()
+        assert(searchClicked) { "Search All Sessions button should work" }
 
         composeTestRule.onNodeWithContentDescription("Settings").performClick()
         assert(settingsClicked) { "Settings button should work" }
@@ -231,9 +217,8 @@ class ToolbarDictionaryValidationTest {
     fun testToolbar_WithInvalidDictionary_AllButtonsStillWork() {
         // Given: All toolbar features enabled with invalid dictionary
         val isDictionaryValid = false
-        var messageEditorClicked = false
-        var detailPanelClicked = false
-        var connectionPanelClicked = false
+        var captureClicked = false
+        var searchClicked = false
         var settingsClicked = false
 
         // When: Toolbar is displayed
@@ -242,26 +227,19 @@ class ToolbarDictionaryValidationTest {
                 globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
-                showMessageEditor = false,
-                showDetailPanel = false,
-                showConnectionPanel = false,
                 isDictionaryValid = isDictionaryValid,
-                onOpenMessageEditor = { messageEditorClicked = true },
-                onToggleDetailPanel = { detailPanelClicked = true },
-                onToggleConnectionPanel = { connectionPanelClicked = true },
+                onCaptureScenario = { captureClicked = true },
+                onSearchAllSessions = { searchClicked = true },
                 onOpenSettings = { settingsClicked = true },
             )
         }
 
         // Then: All buttons should still be clickable (dictionary validation doesn't disable functionality)
-        composeTestRule.onNodeWithContentDescription("Message Editor").performClick()
-        assert(messageEditorClicked) { "Message editor button should work even with invalid dictionary" }
+        composeTestRule.onNodeWithContentDescription("Capture Scenario").performClick()
+        assert(captureClicked) { "Capture Scenario button should work even with invalid dictionary" }
 
-        composeTestRule.onNodeWithContentDescription("Toggle Message Detail Panel").performClick()
-        assert(detailPanelClicked) { "Detail panel button should work even with invalid dictionary" }
-
-        composeTestRule.onNodeWithContentDescription("Toggle Connection Panel").performClick()
-        assert(connectionPanelClicked) { "Connection panel button should work even with invalid dictionary" }
+        composeTestRule.onNodeWithContentDescription("Search All Sessions").performClick()
+        assert(searchClicked) { "Search All Sessions button should work even with invalid dictionary" }
 
         composeTestRule.onNodeWithContentDescription("Settings").performClick()
         assert(settingsClicked) { "Settings button should work even with invalid dictionary" }

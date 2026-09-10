@@ -45,11 +45,6 @@ enum class ViewMode {
 fun Toolbar(
     viewMode: ViewMode,
     onViewModeChange: (ViewMode) -> Unit,
-    showMessageEditor: Boolean = false,
-    showDetailPanel: Boolean = false,
-    showConnectionPanel: Boolean = false,
-    showLatencyPanel: Boolean = false,
-    showOrderBookPanel: Boolean = false,
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
     globalSessionViewMode: FixMessageSession.ViewMode,
@@ -58,8 +53,6 @@ fun Toolbar(
     globalFilterShowOutgoing: Boolean = true,
     hideProtocolTags: Boolean = true,
     groupByConversation: Boolean = false,
-    /** The Trace panel is on screen. Independent of following: the Ledger lists every trace. */
-    tracePanelOpen: Boolean = false,
     /**
      * The followed trace's label, or null when nothing is followed — the chip's whole condition.
      *
@@ -72,11 +65,6 @@ fun Toolbar(
     /** Panes whose ring dropped a message of this trace, by title. See `Traces.Trace.truncatedSessions`. */
     followingTruncatedOn: List<String> = emptyList(),
     onUnfollow: (() -> Unit)? = null,
-    onOpenMessageEditor: (() -> Unit)? = null,
-    onToggleDetailPanel: (() -> Unit)? = null,
-    onToggleConnectionPanel: (() -> Unit)? = null,
-    onToggleLatencyPanel: (() -> Unit)? = null,
-    onToggleOrderBookPanel: (() -> Unit)? = null,
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
@@ -96,15 +84,11 @@ fun Toolbar(
     onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
     onToggleHideProtocolTags: (() -> Unit)? = null,
     onToggleGroupByConversation: (() -> Unit)? = null,
-    onToggleTracePanel: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
-    onOpenScenarios: (() -> Unit)? = null,
     onCaptureScenario: (() -> Unit)? = null,
     /** Run ▾ and Disconnect all, sat beside Quick Connect. [ToolbarRunControls] is what goes in here. */
     runControls: (@Composable () -> Unit)? = null,
-    showTerminal: Boolean = false,
-    onToggleTerminal: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -115,38 +99,10 @@ fun Toolbar(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Message editor button (controls left panel)
-        if (onOpenMessageEditor != null) {
-            TooltipIconButton(
-                tooltip = if (showMessageEditor) "Message Editor: On (click to hide)" else "Message Editor: Off (click to show)",
-                onClick = onOpenMessageEditor,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.EditNote,
-                    contentDescription = "Message Editor",
-                    tint = toggleActiveColor(showMessageEditor, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
-        // Scenarios button (repeatable scenarios + assertion results)
-        if (onOpenScenarios != null) {
-            TooltipIconButton(
-                tooltip = "Repeatable Scenarios",
-                onClick = onOpenScenarios,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlaylistPlay,
-                    contentDescription = "Repeatable Scenarios",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
+        // The eight tool-window toggles are not here any more. Editor, Scenarios, Detail, Connection,
+        // Order book, Latency, Terminal and Trace are tabs on the stripe of the edge each one opens from,
+        // where an open window reads as a pressed tab rather than as a grey icon tinted slightly less
+        // grey. See [ToolWindow] and [ToolWindowStripe].
         WorkspaceMenu(state = workspace)
 
         Spacer(modifier = Modifier.weight(1f))
@@ -526,25 +482,6 @@ fun Toolbar(
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        // Embedded terminal — a primary action, sat right of Quick Connect: opens a terminal where QA can
-        // run `claude` and watch it drive FixTool over MCP without leaving the app.
-        if (onToggleTerminal != null) {
-            TooltipIconButton(
-                tooltip = if (showTerminal) "Terminal (click to hide)" else "Terminal (click to show)",
-                onClick = onToggleTerminal,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Terminal,
-                    contentDescription = "Terminal",
-                    tint = toggleActiveColor(showTerminal, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
-                    modifier = tooltipIconModifier,
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-
         // Capture scenario — turn the whole flow across all sessions into an editable scenario. It lives with the
         // other all-sessions *actions* (search / separator / clear), not the left pane-toggles: it is a one-shot
         // that opens the editor directly (curation is editing — there is no separate read-only review screen).
@@ -707,48 +644,8 @@ fun Toolbar(
             }
         }
 
-        // The Ledger, next to Group because it is the same relation one level up: Group answers "what
-        // happened to RFQ-A1 on this pane", this answers "what happened to RFQ-A1". A toggle rather
-        // than only a side effect of Follow, so the panel can be read before anything is followed —
-        // which is the point, since which exchanges crossed a session is read off its headers.
-        if (onToggleTracePanel != null) {
-            TooltipIconButton(
-                tooltip =
-                    if (tracePanelOpen) {
-                        "Trace: On (click to hide the Ledger)"
-                    } else {
-                        "Trace: Off (click for every exchange across every session)"
-                    },
-                onClick = onToggleTracePanel,
-                modifier = tooltipModifier.testTag("toggle-trace-panel"),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AltRoute,
-                    contentDescription = "Trace across sessions",
-                    tint = AppTheme.Helpers.activeColor(tracePanelOpen),
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
         // Visual separator after view mode controls
         Spacer(modifier = Modifier.width(8.dp))
-
-        // Connection panel toggle
-        if (onToggleConnectionPanel != null) {
-            TooltipIconButton(
-                tooltip = if (showConnectionPanel) "Connection: On (click to hide)" else "Connection: Off (click to show)",
-                onClick = onToggleConnectionPanel,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ElectricalServices,
-                    contentDescription = "Toggle Connection Panel",
-                    tint = toggleActiveColor(showConnectionPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
 
         // Settings button
         if (onOpenSettings != null) {
@@ -781,67 +678,10 @@ fun Toolbar(
                 )
             }
         }
-
-        // Message detail panel toggle
-        if (onToggleDetailPanel != null) {
-            TooltipIconButton(
-                tooltip = if (showDetailPanel) "Message Detail: On (click to hide)" else "Message Detail: Off (click to show)",
-                onClick = onToggleDetailPanel,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Article,
-                    contentDescription = "Toggle Message Detail Panel",
-                    tint = toggleActiveColor(showDetailPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
-        // The venue's own memory. Offered beside the latency toggle because both answer "what is this
-        // acceptor doing" rather than "what is on the wire", and neither belongs in the message grid.
-        if (onToggleOrderBookPanel != null) {
-            TooltipIconButton(
-                tooltip =
-                    if (showOrderBookPanel) {
-                        "Order Book: On (click to hide)"
-                    } else {
-                        "Order Book: what this venue is holding, per counterparty"
-                    },
-                onClick = onToggleOrderBookPanel,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ListAlt,
-                    contentDescription = "Toggle Order Book",
-                    tint = toggleActiveColor(showOrderBookPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
-        // Latency panel toggle (rightmost)
-        if (onToggleLatencyPanel != null) {
-            TooltipIconButton(
-                tooltip = if (showLatencyPanel) "Latency Stats: On (click to hide)" else "Latency Stats: Off (click to show)",
-                onClick = onToggleLatencyPanel,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Timer,
-                    contentDescription = "Toggle Latency Panel",
-                    tint = toggleActiveColor(showLatencyPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
     }
 }
 
 // Helper functions now take colors as parameters to use AppTheme.Colors
-private fun toggleActiveColor(condition: Boolean, activeColor: Color, inactiveColor: Color) =
-    if (condition) activeColor else inactiveColor
-
 private fun toggleDisabledColor(condition: Boolean, enabledColor: Color, disabledColor: Color) =
     if (condition) enabledColor else disabledColor
 

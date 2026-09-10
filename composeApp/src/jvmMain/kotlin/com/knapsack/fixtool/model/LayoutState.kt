@@ -31,6 +31,11 @@ data class LayoutState(
     val showConnectionPanel: Boolean = false,
     val showLatencyPanel: Boolean = false,
     val showOrderBookPanel: Boolean = false,
+    /**
+     * The Trace panel (the Ledger) is on screen. Here with the other panels now that a stripe tab opens
+     * it: a window with a tab that shows its state is a window a user expects to find where they left it.
+     */
+    val showTracePanel: Boolean = false,
     val terminalVisible: Boolean = false,
     val terminalMinimized: Boolean = false,
     val scenarioDockMinimized: Boolean = false,

@@ -55,6 +55,25 @@ class LayoutPersistenceTest {
         assertFalse(next.showConnectionPanel.value, "the connection panel was closed, so it stays closed")
     }
 
+    /**
+     * The Trace panel is a tool window with a stripe tab like the other seven, so it comes back where it
+     * was left. It was the one panel whose open state lived only in memory, which showed as a tab that
+     * was pressed when the app closed and clear when it opened.
+     */
+    @Test
+    fun `a Trace panel left open reopens`() {
+        val store = LayoutStateService(customPath = File(testDir, "layout.json").absolutePath)
+        store.save(LayoutState(showTracePanel = true))
+
+        val next = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+        assertTrue(next.tracePanelOpen.value, "the Ledger was open, so it reopens")
+        assertTrue(next.layoutState.value.showTracePanel, "and the layout still says so")
+
+        // And the field survives the file, in both states: a shut panel is written shut rather than absent.
+        store.save(LayoutState(showTracePanel = false))
+        assertFalse(store.load().showTracePanel, "a shut Ledger reads back shut")
+    }
+
     @Test
     fun `updateLayout reflects in the layout flow immediately`() {
         val vm = FixMessageViewModel(testSettingsDir = testDir.absolutePath)

@@ -1289,7 +1289,8 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     <h2 id="sending-messages">5. Sending Messages</h2>
 
     <h3>Opening the Message Editor</h3>
-    <p>Click the <strong>Message Editor</strong> button in the toolbar to open the message editor panel.</p>
+    <p>Click the <strong>Editor</strong> tab on the left stripe, or press <code>&#8984;1</code>
+    (<code>Ctrl+1</code> off macOS), to open the message editor panel.</p>
 
     <h3>Building a Message</h3>
     <ol>
@@ -2492,7 +2493,8 @@ ${incoming["D"].valueOfTag(38)}
     </ul>
 
     <h4>Latency Panel</h4>
-    <p>Click the <strong>Timer icon</strong> in the toolbar to open the Latency Panel, which shows:</p>
+    <p>Click the <strong>Latency</strong> tab on the right stripe (<code>&#8984;6</code>) to open the Latency Panel,
+    which shows:</p>
     <ul>
         <li><strong>Source badge</strong> - <em>Socket</em>: hover it to read exactly what the stamp includes and leaves out</li>
         <li><strong>Aggregate Statistics</strong> - Combined stats across all correlation types</li>
@@ -2592,7 +2594,7 @@ ${incoming["D"].valueOfTag(38)}
     <h3>Clearing Statistics</h3>
     <p>To reset latency statistics:</p>
     <ul>
-        <li>Open the Latency Panel (Timer icon in toolbar)</li>
+        <li>Open the Latency Panel (the <strong>Latency</strong> tab on the right stripe, <code>&#8984;6</code>)</li>
         <li>Click the <strong>Clear/Trash</strong> icon button</li>
         <li>This resets all statistics, pending correlations, and history for the current session</li>
     </ul>
@@ -2638,7 +2640,7 @@ ${incoming["D"].valueOfTag(38)}
 
     <h3 id="embedded-terminal">The quickest way in &mdash; the built-in terminal</h3>
 
-    <p>The toolbar's <strong>Terminal</strong> toggle opens a shell docked across the foot of the main
+    <p>The bottom stripe's <strong>Terminal</strong> tab (<code>&#8984;7</code>) opens a shell docked across the foot of the main
     window, the same idiom the scenario editor uses: drag the grip at the top to grow it, and the header's
     <strong>&times;</strong> closes it. It is a real terminal on a real PTY, so a full-screen TUI renders
     and reflows properly.</p>
@@ -2850,8 +2852,9 @@ ${incoming["D"].valueOfTag(38)}
 
     <p><strong>The workflow in the app (capture &rarr; review &rarr; run &rarr; reconcile):</strong>
     scenarios live in the <strong>Scenarios rail</strong> &mdash; a docked pane in the main window you
-    toggle from the toolbar (or with <code>fixtool_panel "scenarios"</code>), so the session grid, detail
-    panel, and rail are all on screen at once. The rail is a <em>test-runner tree</em>: every scenario
+    open with the <strong>Scenarios</strong> tab on the left stripe (<code>&#8984;2</code>, or with
+    <code>fixtool_panel "scenarios"</code>), so the session grid, detail panel, and rail are all on screen
+    at once. The rail is a <em>test-runner tree</em>: every scenario
     expands to its steps, each carrying live <code>&#10003; / &#10007; / &#9656; running / &ndash; not run</code>
     status, with <strong>Run</strong>, edit, duplicate, and delete per scenario.</p>
 
@@ -3701,8 +3704,8 @@ ${incoming["D"].valueOfTag(38)}
 
     <h4>The panel</h4>
 
-    <p>The toolbar's <strong>Order Book</strong> toggle (<em>&ldquo;what this venue is holding, per
-    counterparty&rdquo;</em>) opens a side panel headed <strong>Orders</strong>, against the active session
+    <p>The right stripe's <strong>Order book</strong> tab (<code>&#8984;5</code>) opens a side panel showing
+    what this venue is holding, per counterparty. It is headed <strong>Orders</strong>, against the active session
     &mdash; for a venue, the client pane you are already reading, since a book belongs to a counterparty
     and the pane is what names it. Its title bar names the session and counts what it holds
     (<code>FX Demo Venue &larr; DEMO_CLIENT1 &middot; 1 order &middot; 0 working</code>), and its position
@@ -4106,8 +4109,8 @@ ${incoming["D"].valueOfTag(38)}
 
     <h3 id="trace-panel">The Trace panel &mdash; the Ledger</h3>
 
-    <p>The toolbar's <strong>Trace</strong> toggle (<em>&ldquo;every exchange across every session&rdquo;</em>)
-    opens the <strong>Ledger</strong> at the foot of the window: the grouped grid run over every session at
+    <p>The bottom stripe's <strong>Trace</strong> tab (<code>&#8984;8</code>) opens the <strong>Ledger</strong>
+    at the foot of the window, which is every exchange across every session: the grouped grid run over every session at
     once. Its header counts the whole picture &mdash; <code>8 traces across 2 sessions &middot; 68
     ungrouped</code> &mdash; and <strong>Expand all</strong> / <strong>Collapse all</strong> open every
     trace or shut them.</p>

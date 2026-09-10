@@ -92,37 +92,35 @@ class AppIntegrationTest {
     }
 
     @Test
-    fun testToolbarDisplaysMessageEditorButton() {
-        // When: Toolbar is rendered with message editor callback
+    fun testLeftStripeDisplaysEditorTab() {
+        // When: the left stripe is rendered with the editor shut
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-                showMessageEditor = showMessageEditor,
-                onOpenMessageEditor = { showMessageEditor = !showMessageEditor },
+            ToolWindowStripe(
+                edge = ToolWindowEdge.LEFT,
+                open = emptySet(),
+                onToggle = { showMessageEditor = !showMessageEditor },
             )
         }
 
-        // Then: Message editor button should be displayed
-        composeTestRule.onNodeWithContentDescription("Message Editor").assertExists()
+        // Then: the Editor tab is there, and says it is shut
+        composeTestRule.onNodeWithTag(ToolWindow.EDITOR.testTag).assertExists()
+        composeTestRule.onNodeWithTag(ToolWindow.EDITOR.testTag).assertIsNotSelected()
     }
 
     @Test
-    fun testToolbarDisplaysConnectionButton() {
-        // When: Toolbar is rendered with connection panel callback
+    fun testRightStripeDisplaysConnectionTab() {
+        // When: the right stripe is rendered with the connection panel open
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-                showConnectionPanel = showConnectionPanel,
-                onToggleConnectionPanel = { showConnectionPanel = !showConnectionPanel },
+            ToolWindowStripe(
+                edge = ToolWindowEdge.RIGHT,
+                open = setOf(ToolWindow.CONNECTION),
+                onToggle = { showConnectionPanel = !showConnectionPanel },
             )
         }
 
-        // Then: Connection panel button should be displayed
-        composeTestRule.onNodeWithContentDescription("Toggle Connection Panel").assertExists()
+        // Then: the Connection tab is there, and reads as pressed
+        composeTestRule.onNodeWithTag(ToolWindow.CONNECTION.testTag).assertExists()
+        composeTestRule.onNodeWithTag(ToolWindow.CONNECTION.testTag).assertIsSelected()
     }
 
     @Test
@@ -161,27 +159,26 @@ class AppIntegrationTest {
     // ========================================
 
     @Test
-    fun testMessageEditorButtonTogglesState() {
-        // Given: Toolbar with message editor initially off
+    fun testEditorTabTogglesState() {
+        // Given: the left stripe with the editor initially off
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-                showMessageEditor = showMessageEditor,
-                onOpenMessageEditor = { showMessageEditor = !showMessageEditor },
+            ToolWindowStripe(
+                edge = ToolWindowEdge.LEFT,
+                open = if (showMessageEditor) setOf(ToolWindow.EDITOR) else emptySet(),
+                onToggle = { showMessageEditor = !showMessageEditor },
             )
         }
 
         // Verify initial state
         assertFalse(showMessageEditor, "Message editor should be initially off")
 
-        // When: Message editor button is clicked
-        composeTestRule.onNodeWithContentDescription("Message Editor").performClick()
+        // When: the Editor tab is clicked
+        composeTestRule.onNodeWithTag(ToolWindow.EDITOR.testTag).performClick()
         composeTestRule.waitForIdle()
 
-        // Then: State should toggle
+        // Then: the state toggles, and the tab says so
         assertTrue(showMessageEditor, "Message editor should be shown after click")
+        composeTestRule.onNodeWithTag(ToolWindow.EDITOR.testTag).assertIsSelected()
     }
 
     @Test
@@ -207,27 +204,26 @@ class AppIntegrationTest {
     }
 
     @Test
-    fun testConnectionPanelButtonTogglesState() {
-        // Given: Toolbar with connection panel initially off
+    fun testConnectionTabTogglesState() {
+        // Given: the right stripe with the connection panel initially off
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-                showConnectionPanel = showConnectionPanel,
-                onToggleConnectionPanel = { showConnectionPanel = !showConnectionPanel },
+            ToolWindowStripe(
+                edge = ToolWindowEdge.RIGHT,
+                open = if (showConnectionPanel) setOf(ToolWindow.CONNECTION) else emptySet(),
+                onToggle = { showConnectionPanel = !showConnectionPanel },
             )
         }
 
         // Verify initial state
         assertFalse(showConnectionPanel, "Connection panel should be initially off")
 
-        // When: Connection panel button is clicked
-        composeTestRule.onNodeWithContentDescription("Toggle Connection Panel").performClick()
+        // When: the Connection tab is clicked
+        composeTestRule.onNodeWithTag(ToolWindow.CONNECTION.testTag).performClick()
         composeTestRule.waitForIdle()
 
-        // Then: State should toggle
+        // Then: the state toggles, and the tab says so
         assertTrue(showConnectionPanel, "Connection panel should be shown after click")
+        composeTestRule.onNodeWithTag(ToolWindow.CONNECTION.testTag).assertIsSelected()
     }
 
     @Test
@@ -579,26 +575,25 @@ class AppIntegrationTest {
     }
 
     @Test
-    fun testMessageDetailPanelToggleButton() {
-        // Given: Toolbar with message detail panel callback
+    fun testDetailTabTogglesState() {
+        // Given: the right stripe with the detail panel shut
         composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-                showDetailPanel = showDetailPanel,
-                onToggleDetailPanel = { showDetailPanel = !showDetailPanel },
+            ToolWindowStripe(
+                edge = ToolWindowEdge.RIGHT,
+                open = if (showDetailPanel) setOf(ToolWindow.DETAIL) else emptySet(),
+                onToggle = { showDetailPanel = !showDetailPanel },
             )
         }
 
         // Verify initial state
         assertFalse(showDetailPanel, "Detail panel should be initially off")
 
-        // When: Message detail panel button is clicked
-        composeTestRule.onNodeWithContentDescription("Toggle Message Detail Panel").performClick()
+        // When: the Detail tab is clicked
+        composeTestRule.onNodeWithTag(ToolWindow.DETAIL.testTag).performClick()
         composeTestRule.waitForIdle()
 
-        // Then: State should toggle
+        // Then: the state toggles, and the tab says so
         assertTrue(showDetailPanel, "Detail panel should be shown after click")
+        composeTestRule.onNodeWithTag(ToolWindow.DETAIL.testTag).assertIsSelected()
     }
 }

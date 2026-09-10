@@ -2407,6 +2407,10 @@ class FixMessageViewModel(
 
         // Global search scans off the UI thread, debounced — started once, lives with the ViewModel.
         startGlobalSearchPipeline()
+
+        // A Trace panel restored open needs its ticker, or the Ledger sits empty until somebody follows
+        // something. Last in init, so the dictionary the first refresh reads is the one that was loaded.
+        if (traceFollow.tracePanelOpen.value) startTraceTicker()
     }
 
     private fun loadAppSettings() {
@@ -2433,6 +2437,9 @@ class FixMessageViewModel(
         _showLatencyPanel.value = l.showLatencyPanel
         _showOrderBookPanel.value = l.showOrderBookPanel
         _scenarioDockMinimized.value = l.scenarioDockMinimized
+        // The flag only. The Ledger's rows come from the trace ticker, which is started at the end of
+        // `init` rather than here: refreshing needs the dictionary, and this runs before it is loaded.
+        if (l.showTracePanel) traceFollow.openTracePanel()
     }
 
     /**
@@ -2448,6 +2455,7 @@ class FixMessageViewModel(
         _showConnectionPanel.drop(1).onEach { v -> updateLayout { it.copy(showConnectionPanel = v) } }.launchIn(viewModelScope)
         _showLatencyPanel.drop(1).onEach { v -> updateLayout { it.copy(showLatencyPanel = v) } }.launchIn(viewModelScope)
         _showOrderBookPanel.drop(1).onEach { v -> updateLayout { it.copy(showOrderBookPanel = v) } }.launchIn(viewModelScope)
+        tracePanelOpen.drop(1).onEach { v -> updateLayout { it.copy(showTracePanel = v) } }.launchIn(viewModelScope)
         _scenarioDockMinimized.drop(1).onEach { v -> updateLayout { it.copy(scenarioDockMinimized = v) } }.launchIn(viewModelScope)
     }
 

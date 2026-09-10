@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLong
  * is far inside a two-millisecond budget. If a template ever makes it otherwise, the pacer's lag spans say
  * so, and a render-ahead producer is the follow-on the design note names.
  */
+@Suppress("LongParameterList")
 class LoadRunner(
     private val host: LoadHost,
     private val store: LoadRecordStore? = null,

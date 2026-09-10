@@ -37,7 +37,7 @@ import kotlinx.serialization.json.put
  * Hand-written like the run set's codec, so the shape on disk is the shape the design note shows and a
  * field added later reads back as its absence rather than as an unreadable record.
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass")
 object LoadReportCodec {
     /**
      * **The record on disk: a set with one phase.**
@@ -373,8 +373,10 @@ object LoadReportCodec {
     private fun distributionJson(d: RunSetStats.Distribution): JsonElement =
         RunSetStats.toJson(RunSetStats.Stats(replyLatency = d, wallClock = null))["replyLatency"] ?: JsonNull
 
-    private fun distributionFrom(element: JsonElement?): RunSetStats.Distribution? =
-        (element as? JsonObject)?.let { RunSetStats.fromJson(buildJsonObject { put("replyLatency", it) })?.replyLatency }
+    private fun distributionFrom(element: JsonElement?): RunSetStats.Distribution? {
+        val obj = element as? JsonObject ?: return null
+        return RunSetStats.fromJson(buildJsonObject { put("replyLatency", obj) })?.replyLatency
+    }
 
     private fun rateJson(rate: LoadReport.RateReport): JsonObject =
         buildJsonObject {

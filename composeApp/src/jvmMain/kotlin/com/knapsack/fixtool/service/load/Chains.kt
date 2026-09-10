@@ -45,7 +45,10 @@ internal object Chains {
      */
     private fun paths(planned: LoadSet.Planned): List<List<Int>> {
         val size = planned.phases.size
-        val leaves = (0 until size).filter { trigger(planned, it) != null && (0 until size).none { n -> trigger(planned, n) == it } }
+        val leaves =
+            (0 until size).filter { index ->
+                trigger(planned, index) != null && (0 until size).none { other -> trigger(planned, other) == index }
+            }
         return leaves.map { leaf -> generateSequence(leaf) { trigger(planned, it) }.toList().reversed() }
     }
 
@@ -63,14 +66,24 @@ internal object Chains {
         return at.takeIf { it in 0 until index && !planned.phases[it].muted }
     }
 
-    /** One path's block, or null when nothing travelled it whole and there is nothing to describe. */
+    /**
+     * One path's block, or null when nothing travelled it whole and there is nothing to describe.
+     *
+     * Four ways a chain turns out not to be measurable and one way it is, each said where it is found:
+     * an empty range, a phase with no arrays, a leg with no samples, and a chain nothing completed. A
+     * nullable threaded through the four would be the same four answers with the reasons taken out.
+     */
+    @Suppress("ReturnCount")
     private fun chainOf(planned: LoadSet.Planned, times: ChainTimes, path: List<Int>): LoadReport.Chain? {
         val root = planned.phases[path.first()]
         val from = root.indexFrom
         val to = root.indexTo.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         if (to < from) return null
         val phases = path.map { times[it] ?: return null }
-        val legs = path.indices.map { at -> leg(planned.phases[path[at]], path[at] + 1, phases, at, from, to) ?: return null }
+        val legs =
+            path.indices.map { at ->
+                leg(planned.phases[path[at]], path[at] + 1, phases, at, from, to) ?: return null
+            }
         val end = Samples(to - from + 1)
         for (index in from..to) {
             val started = phases.first().sentAt(index)

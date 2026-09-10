@@ -79,7 +79,8 @@ fun PerSecondPanel(report: LoadReport, modifier: Modifier = Modifier) {
     // The schedule's and never the ceiling's: this is what paints a second red, and a second under a
     // ceiling is a second its trigger had less for it than the cap allowed.
     val floor = schedule?.let { floor(it * (1 - Pacer.TOLERANCE)).toInt() }
-    val topMax = maxOf(columns.maxOf { maxOf(it.answeredHigh, it.issuedHigh) }, schedule ?: 0, ceiling ?: 0).coerceAtLeast(1)
+    val tallest = columns.maxOf { maxOf(it.answeredHigh, it.issuedHigh) }
+    val topMax = maxOf(tallest, schedule ?: 0, ceiling ?: 0).coerceAtLeast(1)
     val p95Max = columns.mapNotNull { it.p95High }.maxOrNull()?.coerceAtLeast(1L) ?: 1L
 
     Column(modifier = modifier.fillMaxWidth()) {

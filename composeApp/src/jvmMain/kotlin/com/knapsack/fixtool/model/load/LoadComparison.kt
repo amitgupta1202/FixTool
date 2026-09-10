@@ -144,7 +144,8 @@ data class LoadComparison(
             val br = b.rate
             val ar = a.rate
             if (br == null && ar == null) return emptyList()
-            val capped = b.verdict.rate == LoadReport.RateVerdict.CAPPED || a.verdict.rate == LoadReport.RateVerdict.CAPPED
+            val ceiling = LoadReport.RateVerdict.CAPPED
+            val capped = b.verdict.rate == ceiling || a.verdict.rate == ceiling
             val verdict =
                 Row(
                     "rate verdict",

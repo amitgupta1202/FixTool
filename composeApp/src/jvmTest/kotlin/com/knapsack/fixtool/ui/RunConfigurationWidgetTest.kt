@@ -22,6 +22,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
+import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
@@ -50,6 +51,7 @@ class RunConfigurationWidgetTest {
 
     private lateinit var viewModel: FixMessageViewModel
     private lateinit var testDir: File
+    private lateinit var previousPaths: WorkspacePaths
 
     @Before
     fun setup() {
@@ -58,11 +60,16 @@ class RunConfigurationWidgetTest {
                 delete()
                 mkdirs()
             }
+        // The installation itself moves into the temp directory, so a test that opens a workspace under it
+        // is opening a real one and the restore below puts the whole global back.
+        previousPaths = WorkspacePaths.current
+        WorkspacePaths.use(testDir.absolutePath)
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
     @After
     fun tearDown() {
+        WorkspacePaths.use(previousPaths)
         testDir.deleteRecursively()
     }
 
@@ -70,6 +77,18 @@ class RunConfigurationWidgetTest {
         composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
         composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
+    }
+
+    /**
+     * A saved scenario set, written to the store and then said out loud.
+     *
+     * The store is not where the widget reads from any more. The ViewModel holds the lists as state, and
+     * every door in the app that writes a set refreshes them on the way past. A test that reaches around
+     * the ViewModel to its store has to do the same, or it has written a file nothing has been told about.
+     */
+    private fun saveRunSet(name: String, scenario: String, repeat: Int) {
+        viewModel.runSetStore.save(SavedRunSet(name, listOf(SavedRunEntry(scenario, repeat = repeat))))
+        viewModel.refreshRunConfigurations()
     }
 
     /** A load set that exists only so the chip and the menu have something to name. */
@@ -116,6 +135,68 @@ class RunConfigurationWidgetTest {
     }
 
     /**
+     * **A set saved anywhere in the window reaches the chip, with nothing clicked.**
+     *
+     * The widget used to read the saved sets inside a `remember` keyed on its own menu opening and on a run
+     * starting, so a set written from the Load sets editor, from the rail, or by the control surface was on
+     * disk and invisible: the chip went on reading `Load run…` and the ▶ went on refusing, until something
+     * unrelated happened to move one of those keys. The lists are the ViewModel's state now, so the save is
+     * what repaints them.
+     */
+    @Test
+    fun `a set saved while the widget is on screen names the chip, with no menu opened`() {
+        composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
+
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load run…")
+        composeTestRule
+            .onNodeWithTag("run-button")
+            .assertIsNotEnabled()
+            .assertContentDescriptionContains("Nothing saved to run", substring = true)
+
+        saveLoadSet("rfq-round-trip", "RFQ round trip", phases = 2)
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("RFQ round trip", substring = true)
+        composeTestRule.onNodeWithTag("run-button").assertIsEnabled()
+    }
+
+    /**
+     * **And opening a workspace that has sets in it flips the chip, which is how this was found.**
+     *
+     * Reported from a real desk: a workspace with load sets was opened and the chip went on reading
+     * `Load run…` from the empty state the window started in. No key the widget remembered on moves when
+     * the stores are re-pointed at another directory, so nothing told it to look again. The set is the
+     * bundled RFQ example's own file rather than one built in the test, so the read that has to survive a
+     * workspace switch is the read the app really does.
+     */
+    @Test
+    fun `opening a workspace that has a load set in it renames the chip`() {
+        val workspace = File(testDir, "workspaces/rfq").apply { mkdirs() }
+        val bundled =
+            requireNotNull(javaClass.getResourceAsStream("/examples/rfq-venue/load-sets/rfq-round-trip.json")) {
+                "the bundled RFQ example should carry a load set"
+            }.use { it.readBytes().decodeToString() }
+        File(workspace, "load-sets").mkdirs()
+        File(workspace, "load-sets/rfq-round-trip.json").writeText(bundled)
+
+        composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load run…")
+
+        viewModel.openWorkspace(workspace).getOrThrow()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("RFQ round trip", substring = true)
+        composeTestRule.onNodeWithTag("run-button").assertIsEnabled()
+
+        // And closing it takes the set back out again, rather than leaving a name the ▶ cannot run.
+        viewModel.closeWorkspace()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load run…")
+        composeTestRule.onNodeWithTag("run-button").assertIsNotEnabled()
+    }
+
+    /**
      * **A row aims the ▶, it does not press it.** The whole point of the widget: a menu of rows that each
      * ran something meant the window said nothing about what would run next, and a click on the wrong row
      * cost a run rather than a correction.
@@ -126,7 +207,7 @@ class RunConfigurationWidgetTest {
         viewModel.scenarioService.save(
             Scenario(id = "sc-1", name = "book-a-trade", steps = listOf(ScenarioStep.Send("35=D|", session = "s"))),
         )
-        viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade", repeat = 3))))
+        saveRunSet("nightly", "book-a-trade", repeat = 3)
         viewModel.refreshScenarios()
 
         openTheMenu()
@@ -149,7 +230,7 @@ class RunConfigurationWidgetTest {
         viewModel.scenarioService.save(
             Scenario(id = "sc-1", name = "book-a-trade", steps = listOf(ScenarioStep.Send("35=D|", session = "s"))),
         )
-        viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade", repeat = 3))))
+        saveRunSet("nightly", "book-a-trade", repeat = 3)
         viewModel.refreshScenarios()
         viewModel.selectRunConfiguration("LOADSET:rfq-round-trip")
 
@@ -177,7 +258,7 @@ class RunConfigurationWidgetTest {
         viewModel.scenarioService.save(
             Scenario(id = "sc-1", name = "book-a-trade", steps = listOf(ScenarioStep.Send("35=D|", session = "s"))),
         )
-        viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade", repeat = 3))))
+        saveRunSet("nightly", "book-a-trade", repeat = 3)
         viewModel.refreshScenarios()
 
         openTheMenu()

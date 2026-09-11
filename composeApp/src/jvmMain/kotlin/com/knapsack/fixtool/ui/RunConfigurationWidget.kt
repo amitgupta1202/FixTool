@@ -387,8 +387,8 @@ fun ToolbarRunConfiguration(
     val layout by viewModel.layoutState.collectAsState()
 
     // Whether the dropdown is open, learned from the menu's own composition rather than owned here: the
-    // widget holds that state, and the reads below want it for the same reason they always did: a set
-    // saved from the rail or written by the control surface is on disk before anything here has changed.
+    // widget holds that state, and the lane count below is worth recounting when the menu that prints it
+    // opens.
     var menuOpen by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var editingLoadSets by remember { mutableStateOf(false) }
@@ -397,12 +397,19 @@ fun ToolbarRunConfiguration(
     // unsaved draft would put "unsaved" in the footer of a set nobody has touched.
     var loadSetToFix by remember { mutableStateOf<String?>(null) }
 
-    val savedSets = remember(menuOpen, activeSet) { viewModel.runSetStore.list() }
-    val loadSets = remember(menuOpen, activeLoad, editingLoadSets) { viewModel.loadSets() }
+    // **The saved sets and the records come from the ViewModel as state, not from a read remembered here.**
+    // They used to be `remember(menuOpen, activeSet, activeLoad, editingLoadSets)` reads of the stores, and
+    // none of those keys moves when a workspace is opened: a workspace with load sets in it came up with the
+    // chip still reading `Load run…` from the empty one before it.
+    val configurations by viewModel.runConfigurations.collectAsState()
+    val savedSets = configurations.runSets
+    val loadSets = configurations.loadSets
+    // Recent is still built here, because a row is a line of menu text and `RecentRun` is this file's
+    // vocabulary rather than the ViewModel's. Keyed on the lists themselves, so it follows them exactly.
     val recent =
-        remember(menuOpen, activeSet, activeLoad) {
+        remember(configurations) {
             RecentRun
-                .merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.listRecords())
+                .merge(configurations.setRecords, configurations.loadRecords)
                 .take(RECENT_RUNS)
         }
     // Counted for a load run, not for a fan-out: every row this menu gates on it is a load, and a load
@@ -416,9 +423,11 @@ fun ToolbarRunConfiguration(
         }
 
     val selectedKey = layout.selectedRunConfiguration
+    // Resolved from the very lists the rows below are drawn from, handed in rather than read again: a
+    // resolver that went back to disk on its own could name a set this menu does not list.
     val selected =
-        remember(selectedKey, loadSets, savedSets, recent) {
-            RunConfiguration.parse(viewModel.resolvedRunConfiguration())
+        remember(selectedKey, configurations) {
+            RunConfiguration.parse(viewModel.resolvedRunConfiguration(configurations))
         }
 
     val displayName =
@@ -533,10 +542,13 @@ fun ToolbarRunConfiguration(
         onRun = start,
         onStop = stop,
         menu = { close ->
-            // The dropdown composes its content only while it is open, so this is the "on open" the reads
-            // above are keyed on, in place of the flag the old menu owned.
+            // The dropdown composes its content only while it is open, so this is the "on open" the lane
+            // count is keyed on, in place of the flag the old menu owned. The re-read beside it is belt
+            // and braces rather than the mechanism: everything that writes a set or a record through the
+            // ViewModel has already said so, and a refresh that finds the same lists emits nothing.
             DisposableEffect(Unit) {
                 menuOpen = true
+                viewModel.refreshRunConfigurations()
                 onDispose { menuOpen = false }
             }
             RunConfigurationsMenu(

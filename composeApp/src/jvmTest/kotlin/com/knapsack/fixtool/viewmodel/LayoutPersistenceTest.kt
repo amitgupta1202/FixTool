@@ -11,7 +11,9 @@ import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.service.LayoutStateService
 import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
+import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.service.load.LoadFixtures
+import com.knapsack.fixtool.service.load.LoadSetStore
 import com.knapsack.fixtool.ui.BottomTab
 import com.knapsack.fixtool.ui.ToolWindow
 import org.junit.After
@@ -208,6 +210,9 @@ class LayoutPersistenceTest {
         vm.loadRecordStore.write(
             LoadRecord.of(report).copy(set = LoadRecord.SetInfo("zulu-last", OnFailure.CONTINUE)),
         )
+        // Written straight to the store, behind the ViewModel's back, so the lists it holds are told here.
+        // Every door in the app goes through a function that says so for itself.
+        vm.refreshRunConfigurations()
         assertEquals("LOADSET:zulu-last", vm.resolvedRunConfiguration())
 
         // And a record naming a set that is no longer saved is skipped rather than offered, the same way a
@@ -219,7 +224,71 @@ class LayoutPersistenceTest {
         // which kind it was, only which file is still there.
         vm.deleteLoadSet("aaa-first")
         vm.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade"))))
+        vm.refreshRunConfigurations()
         assertEquals("RUNSET:nightly", vm.resolvedRunConfiguration())
+    }
+
+    /**
+     * **The lists the run widget draws from are state, and every door that writes one refreshes them.**
+     *
+     * They used to be read by the widget itself, inside `remember` blocks keyed on what the widget could
+     * see: its menu opening, a run starting, the load set editor closing. A workspace being opened moves
+     * none of those, so a workspace with sets in it came up under the previous one's chip, reported from a
+     * desk as a chip still reading `Load run…` with three saved sets behind it. The claim is therefore
+     * about the four writes that matter: a save, a delete, and the re-pointing of the stores.
+     */
+    @Test
+    fun `runConfigurations follows a save, a delete and a workspace open`() {
+        val previousPaths = WorkspacePaths.current
+        WorkspacePaths.use(testDir.absolutePath)
+        try {
+            val vm = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+            assertTrue(vm.savedLoadSetNames().isEmpty(), "a fresh workspace has nothing to run")
+            assertTrue(vm.savedRunSetNames().isEmpty())
+
+            saveLoadSet(vm, "aaa-first")
+            assertEquals(listOf("aaa-first"), vm.savedLoadSetNames(), "a save shows up")
+
+            vm.saveRunSet("nightly", emptyList())
+            assertEquals(listOf("nightly"), vm.savedRunSetNames(), "and so does a run set")
+
+            vm.deleteLoadSet("aaa-first")
+            assertTrue(vm.savedLoadSetNames().isEmpty(), "a delete takes the name back out")
+
+            // A second workspace with a set of its own: the stores are re-pointed at it, and the lists have
+            // to follow or the chip goes on naming a set that is no longer anywhere near the open workspace.
+            val other = File(testDir, "workspaces/other").apply { mkdirs() }
+            LoadSetStore(customDir = File(other, "load-sets").absolutePath).save(
+                LoadSet(
+                    name = "zulu-last",
+                    label = "Zulu last",
+                    phases = listOf(LoadPhaseSpec("Phase 1", "Nothing", "LoadGen", shape = LoadShape.Burst(10))),
+                ),
+            )
+            vm.openWorkspace(other).getOrThrow()
+
+            assertEquals(listOf("zulu-last"), vm.savedLoadSetNames())
+            assertTrue(vm.savedRunSetNames().isEmpty(), "and the previous workspace's set stays behind")
+            assertEquals("LOADSET:zulu-last", vm.resolvedRunConfiguration(), "which is what the chip then names")
+
+            vm.closeWorkspace()
+            assertTrue(vm.savedLoadSetNames().isEmpty(), "closing takes it back out again")
+            assertEquals(listOf("nightly"), vm.savedRunSetNames(), "and Default's own is back")
+        } finally {
+            WorkspacePaths.use(previousPaths)
+        }
+    }
+
+    /** The saved load sets the ViewModel is holding for the run widget, by name. */
+    private fun FixMessageViewModel.savedLoadSetNames(): List<String> {
+        val held = runConfigurations.value
+        return held.loadSets.map { it.name }
+    }
+
+    /** The saved scenario sets the ViewModel is holding for the run widget, by name. */
+    private fun FixMessageViewModel.savedRunSetNames(): List<String> {
+        val held = runConfigurations.value
+        return held.runSets.map { it.name }
     }
 
     private fun saveLoadSet(vm: FixMessageViewModel, name: String) {

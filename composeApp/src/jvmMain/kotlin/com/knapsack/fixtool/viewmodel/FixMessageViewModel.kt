@@ -2417,6 +2417,51 @@ class FixMessageViewModel(
         }
     val loadSetStore by loadSetHolder
 
+    /**
+     * **What ▶ can be pointed at, and what has already run**: the four directories behind the run widget,
+     * read together and held as state.
+     *
+     * The widget used to read them itself, inside `remember` blocks keyed on the things it could see change:
+     * its own menu opening, a run starting, the load set editor closing. None of those keys move when a
+     * *workspace* is opened, so a box with three saved sets in it came up with the chip still reading
+     * `Load run…` from the empty state the previous workspace left behind, and a set saved from the rail was
+     * invisible until something unrelated happened to change. Ownership here turns that around: every door
+     * that writes one of the four says so once, and everything that reads them follows.
+     *
+     * The records stay in their model form rather than as the menu's own rows. `RecentRun` is the toolbar's
+     * vocabulary, and a ViewModel that spoke it would have the dependency running the wrong way.
+     */
+    data class RunConfigurations(
+        val loadSets: List<LoadSet> = emptyList(),
+        val runSets: List<SavedRunSet> = emptyList(),
+        val loadRecords: List<LoadRecord> = emptyList(),
+        val setRecords: List<RunSet> = emptyList(),
+    )
+
+    private val _runConfigurations = MutableStateFlow(RunConfigurations())
+
+    /** The saved sets and the records of what has run. Refreshed by [refreshRunConfigurations]. */
+    val runConfigurations: StateFlow<RunConfigurations> = _runConfigurations.asStateFlow()
+
+    /**
+     * Re-reads the saved sets and the run records from disk.
+     *
+     * Four small directory listings, so it is called on every write rather than being made clever: a set
+     * saved, a set deleted, a run started, a run finished, a workspace opened or closed. A refresh that
+     * finds the same four lists emits nothing, because [RunConfigurations] is a data class and a
+     * `StateFlow` conflates a value equal to the one it holds. That is what makes it safe to call from the
+     * run menu's own open as well.
+     */
+    fun refreshRunConfigurations() {
+        _runConfigurations.value =
+            RunConfigurations(
+                loadSets = loadSetStore.list(),
+                runSets = runSetStore.list(),
+                loadRecords = loadRecordStore.listRecords(),
+                setRecords = runRecordStore.listSets(),
+            )
+    }
+
     // The rail's view-chrome store — a small local JSON beside app_settings.json, never in the scenarios dir.
     private val scenarioViewStateService by lazy {
         ScenarioViewStateService(
@@ -2539,6 +2584,10 @@ class FixMessageViewModel(
 
         // Global search scans off the UI thread, debounced — started once, lives with the ViewModel.
         startGlobalSearchPipeline()
+
+        // What the ▶ can be pointed at. After [restoreLayoutState], which is where the workspace is decided,
+        // so the first read is of the workspace this launch came up in rather than the installation's own.
+        refreshRunConfigurations()
 
         // A Trace panel restored open needs its ticker, or the Ledger sits empty until somebody follows
         // something. Last in init, so the dictionary the first refresh reads is the one that was loaded.
@@ -3540,6 +3589,8 @@ class FixMessageViewModel(
         val starting = reserved.copy(startedAt = System.currentTimeMillis())
         runRecordStore.begin(starting)
         _activeRunSet.value = starting
+        // The set's record is on disk from here, so Recent lists it rather than waiting for it to finish.
+        refreshRunConfigurations()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 runSetHeld(starting, pinned, cancelled = { claim.stop.get() }) { }
@@ -3582,6 +3633,8 @@ class FixMessageViewModel(
         }
         // After the set, not before: the run just finished is the one that must survive the pruning.
         runRecordStore.prune(_appSettings.value.runRecordsKept)
+        // The verdict this set ended on, and whatever the prune took, are both news to Recent.
+        refreshRunConfigurations()
         return done
     }
 
@@ -4238,6 +4291,8 @@ class FixMessageViewModel(
             )
         _activeLoadRun.value = null
         openLoadRun(reserved.id)
+        // The record exists from here on, so Recent can list the run while it is still in flight.
+        refreshRunConfigurations()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 LoadRunner(host, loadRecordStore).run(reserved, cancelled = { claim.stop.get() }) { progress ->
@@ -4256,6 +4311,8 @@ class FixMessageViewModel(
                 // a record still marked running heals to stopped on this read, and a poller sees the truth.
                 _activeLoadRun.value = loadRecordStore.readRecord(reserved.id)
                 loadRecordStore.prune(_appSettings.value.runRecordsKept)
+                // The finished record, and whatever the prune took with it, are both news to Recent.
+                refreshRunConfigurations()
             }
         }
         return reserved
@@ -4384,9 +4441,9 @@ class FixMessageViewModel(
 
     fun loadSet(name: String): LoadSet? = loadSetStore.load(name)
 
-    fun saveLoadSet(set: LoadSet): Boolean = loadSetStore.save(set)
+    fun saveLoadSet(set: LoadSet): Boolean = loadSetStore.save(set).also { refreshRunConfigurations() }
 
-    fun deleteLoadSet(name: String): Boolean = loadSetStore.delete(name)
+    fun deleteLoadSet(name: String): Boolean = loadSetStore.delete(name).also { refreshRunConfigurations() }
 
     /** The workspace as a set's resolver: profiles by id or name, templates by saved name or by path. */
     fun loadSetResolver(): LoadSet.Resolver {
@@ -4507,6 +4564,8 @@ class FixMessageViewModel(
             )
         _activeLoadRun.value = null
         openLoadRun(reserved.id)
+        // As the single run does: the record is there from here, so Recent lists it while it runs.
+        refreshRunConfigurations()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 LoadSetRunner(host, loadRecordStore).run(reserved, cancelled = { claim.stop.get() }) { progress ->
@@ -4523,6 +4582,7 @@ class FixMessageViewModel(
                 release(claim)
                 _activeLoadRun.value = loadRecordStore.readRecord(reserved.id)
                 loadRecordStore.prune(_appSettings.value.runRecordsKept)
+                refreshRunConfigurations()
             }
         }
         return reserved
@@ -4566,21 +4626,25 @@ class FixMessageViewModel(
      * branch that defined it, and a checkout that deleted it for an afternoon should not also lose the
      * choice. The string form is kept here rather than the UI's own type, so the ViewModel does not reach
      * up into a composable's vocabulary to answer a question about two files on disk.
+     *
+     * [configurations] defaults to what [runConfigurations] holds, and the widget hands in the very value
+     * it drew its menu from. Same lists, one answer: a resolver that went back to disk on its own could
+     * name a set the rows beside it do not list.
      */
     @Suppress("ReturnCount")
-    fun resolvedRunConfiguration(): String? {
-        val sets = loadSets()
-        val runSets = runSetStore.list()
+    fun resolvedRunConfiguration(configurations: RunConfigurations = _runConfigurations.value): String? {
+        val sets = configurations.loadSets
+        val runSets = configurations.runSets
         _layoutState.value.selectedRunConfiguration
             ?.takeIf { runConfigurationExists(it, sets, runSets) }
             ?.let { return it }
         // Newest first across both kinds, because "the last thing I ran" does not care which kind it was.
         val recorded =
             (
-                loadRecordStore.listRecords().mapNotNull { record ->
+                configurations.loadRecords.mapNotNull { record ->
                     record.set?.name?.let { "LOADSET:$it" to record.startedAt }
                 } +
-                    runRecordStore.listSets().mapNotNull { set ->
+                    configurations.setRecords.mapNotNull { set ->
                         (set.source as? RunSource.Saved)?.setName?.let { "RUNSET:$it" to set.startedAt }
                     }
             ).sortedByDescending { it.second }
@@ -4612,6 +4676,7 @@ class FixMessageViewModel(
     /** Saves what is on screen as a named set — the thing CI then runs by name. */
     fun saveRunSet(name: String, scenarios: List<Scenario>): Boolean {
         val saved = runSetStore.save(SavedRunSet(name, scenarios.map { SavedRunEntry(it.name) }))
+        refreshRunConfigurations()
         showNotification(
             if (saved) "Saved run set '$name' (${scenarios.size} scenarios)" else "Could not save run set '$name'",
             if (saved) NotificationType.INFO else NotificationType.ERROR,
@@ -5449,6 +5514,10 @@ class FixMessageViewModel(
         loadConnectionProfiles()
         loadEnvironments()
         refreshScenarios()
+        // The saved sets and the records are a workspace's too, and the run widget reads them from here.
+        // Without this the chip kept naming the previous workspace's set, or the empty state a fresh
+        // install came up in, until a run started under it.
+        refreshRunConfigurations()
         _savedMessages.clear()
         loadSavedMessagesForActiveSession()
     }

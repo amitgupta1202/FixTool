@@ -5,7 +5,7 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.20.0] - 2026-09-11
+## [1.20.1] - 2026-09-11
 
 The release where the window says what it is. The toolbar had grown to twenty-odd controls in no
 order, eight of them unlabelled toggles for panels that open somewhere else entirely, and the one
@@ -23,7 +23,9 @@ happens next, and picking from the menu *aims* the button rather than firing it.
 **Connect**, because every other chip in the row is a verb and nothing here is slow. Underneath the
 chrome, two load fixes reported from a desk: a run brings up the venue its lanes dial rather than a
 simulator that shares its port number, and an environment moves the port the connection actually
-dials, not just the one it is labelled with.
+dials, not just the one it is labelled with. This is also the installable 1.20: v1.20.0 was tagged and
+built nothing, on a load test that pinned the order two lanes happened to reach their sockets in, so
+everything in it arrives here.
 
 ### 📝 Changed
 

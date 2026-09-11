@@ -99,10 +99,11 @@ internal data class RunConfiguration(
 /**
  * Why ▶ is dark on a workspace that has never saved anything, said once and shared.
  *
- * It names the door out rather than only the problem: `Load run…` is the chip itself in that state, so the
- * sentence tells a reader that the thing they are hovering is also the way to fix what it says.
+ * Four words, because the door out is a row in the chip's own menu right beside it: the sentence no longer
+ * has to name `Load run…` to send anybody anywhere, and a tooltip that spells out a click the reader is one
+ * chip away from making is longer than the thing it explains.
  */
-internal const val NOTHING_SAVED_TO_RUN = "Nothing is saved to run. Open Load run… to make a configuration."
+internal const val NOTHING_SAVED_TO_RUN = "Nothing saved to run"
 
 /** Why ▶ is dark while something else holds the sessions. The same refusal Disconnect all gives, in its own words. */
 internal const val ANOTHER_RUN_IN_PROGRESS = "Another run is in progress. Wait for it, or stop it first."
@@ -147,15 +148,13 @@ class RunConfigurationShortcut {
  *
  * @param selected what is shown on the chip and named in the run button, or null when nothing is saved.
  * @param displayName a load set's label falling back to its name, or a run set's name. With nothing selected
- *   there is no configuration to name, so this carries the empty chip's hover sentence instead, which is
- *   where the lane count stays readable once the row has folded to a single `Load run…`.
+ *   there is no configuration to name, so the chip names the dialog and this is read only by the run
+ *   button, which in that state is refused and says so.
  * @param running true while the selected configuration itself is running: the button is the stop button.
  * @param refusal non-null disables the run button and is its tooltip. Ignored while [running].
- * @param onEmptyClick the chip's click when nothing is saved: it opens the load run dialog rather than a menu.
- * @param emptyRefusal whether the empty-state chip can be clicked at all, with its refusal as the tooltip
- *   when it cannot.
- * @param menu the dropdown's rows, given the call that closes the menu. Not drawn in the empty state, because
- *   an empty chip is a door to a dialog and a menu with one row in it would be a step in the way.
+ * @param menu the dropdown's rows, given the call that closes the menu. Drawn in **both** states: the rows
+ *   that do not name a configuration are the ones a workspace with nothing saved most needs, since Recent
+ *   and `Load sets…` are how anything gets saved in the first place.
  */
 @Composable
 @Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod")
@@ -167,8 +166,6 @@ internal fun RunConfigurationWidget(
     fold: RunWidgetFold,
     onRun: () -> Unit,
     onStop: () -> Unit,
-    onEmptyClick: () -> Unit,
-    emptyRefusal: String?,
     menu: @Composable (close: () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -186,11 +183,7 @@ internal fun RunConfigurationWidget(
         if (chipMax != null) {
             Box {
                 if (selected == null) {
-                    EmptyRunChip(
-                        hover = emptyRefusal ?: displayName,
-                        enabled = emptyRefusal == null,
-                        onClick = onEmptyClick,
-                    )
+                    EmptyRunChip(onClick = { expanded = true })
                 } else {
                     SelectedRunChip(
                         selected = selected,
@@ -199,19 +192,19 @@ internal fun RunConfigurationWidget(
                         maxWidth = chipMax,
                         onClick = { expanded = true },
                     )
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                        // Wide enough for the widest thing under a row: "on A · Run connects A, B" is a
-                        // sentence, and a menu that ellipsises it on an ordinary two-profile set says nothing.
-                        modifier =
-                            Modifier
-                                .background(AppTheme.Colors.surface)
-                                .widthIn(min = 320.dp)
-                                .testTag("run-config-menu"),
-                    ) {
-                        menu { expanded = false }
-                    }
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    // Wide enough for the widest thing under a row: "on A · Run connects A, B" is a
+                    // sentence, and a menu that ellipsises it on an ordinary two-profile set says nothing.
+                    modifier =
+                        Modifier
+                            .background(AppTheme.Colors.surface)
+                            .widthIn(min = 320.dp)
+                            .testTag("run-config-menu"),
+                ) {
+                    menu { expanded = false }
                 }
             }
             // The hairline of toolbar ground that says the two halves take separate clicks.
@@ -262,38 +255,39 @@ internal fun RunConfigurationWidget(
 }
 
 /**
- * The chip on a workspace with nothing saved: the door to the load run dialog, wearing the dialog's own name.
+ * The chip on a workspace with nothing saved: it names the dialog, because there is no configuration to name.
  *
- * No chevron, because there is no menu behind it. A workspace that has never saved a configuration has
- * nothing to choose between, and a one-item menu in front of a dialog is a step that exists only to be
- * clicked through.
+ * The chevron and the menu behind it are the same as the selected chip's, and for the same reason. Most of
+ * what the menu holds does not name a saved configuration at all: `Load run…` is the door to the dialog,
+ * `Load sets…` is where a set gets written, and Recent is every run this workspace has already finished. A
+ * box that has run things and saved none of them had all three of those on disk and no way in from the
+ * toolbar, so the empty state is the one that needs the menu most rather than the one that can do without it.
+ *
+ * No tooltip: the chip's own word is the answer a tooltip would repeat.
  */
 @Composable
-private fun EmptyRunChip(
-    hover: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    AppTooltip(hover) {
-        Box(
-            modifier =
-                Modifier
-                    .height(RUN_WIDGET_HEIGHT)
-                    .let { if (enabled) it.clickable(onClick = onClick) else it }
-                    .padding(horizontal = 10.dp)
-                    .semantics(mergeDescendants = true) {
-                        if (!enabled) disabled()
-                        contentDescription = hover
-                    }.testTag("run-config"),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Load run…",
-                color = if (enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
-                fontSize = 11.sp,
-                maxLines = 1,
-            )
-        }
+private fun EmptyRunChip(onClick: () -> Unit) {
+    Row(
+        modifier =
+            Modifier
+                .height(RUN_WIDGET_HEIGHT)
+                .clickable(onClick = onClick)
+                .padding(start = 8.dp, end = 2.dp)
+                .testTag("run-config"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Load run…",
+            color = AppTheme.Colors.text,
+            fontSize = 11.sp,
+            maxLines = 1,
+        )
+        Icon(
+            imageVector = Icons.Default.ArrowDropDown,
+            contentDescription = null,
+            tint = AppTheme.Colors.textSecondary,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 
@@ -365,8 +359,11 @@ private fun SelectedRunChip(
  * starts anything, which is also what makes a keyboard shortcut possible, because ⌃R now has one
  * unambiguous answer to "run what?".
  *
- * Both dialogs are hosted here because both are opened from this menu. A `Dialog` is its own window
- * composition and adds nothing to the toolbar's own layout.
+ * Both dialogs are hosted here because both are opened from this menu, and the menu is behind the chip
+ * whether or not anything is saved. A workspace with nothing selected still has runs on disk and a `Load
+ * sets…` to write its first set with, so an empty chip that went straight to the load run dialog would be
+ * shutting the door on both. A `Dialog` is its own window composition and adds nothing to the toolbar's own
+ * layout.
  *
  * @param fold what the row has room for. See [ToolbarFold.runWidget].
  * @param shortcut the window's ⌃R, which this fills in while it is composed and clears when it is not.
@@ -426,7 +423,7 @@ fun ToolbarRunConfiguration(
 
     val displayName =
         when {
-            selected == null -> "Load run…  ${if (lanes.profiles > 0) lanes.sentence else "nothing up yet"}"
+            selected == null -> "Load run…"
             selected.kind == RunConfiguration.Kind.LOAD_SET ->
                 loadSets.firstOrNull { it.name == selected.name }?.let { it.label.ifBlank { it.name } } ?: selected.name
             else -> selected.name
@@ -447,12 +444,6 @@ fun ToolbarRunConfiguration(
         when {
             selected == null -> NOTHING_SAVED_TO_RUN
             scenarioRunning && !running -> ANOTHER_RUN_IN_PROGRESS
-            else -> null
-        }
-    val emptyRefusal =
-        when {
-            issuers == 0 -> "Load run…  nothing up yet"
-            scenarioRunning -> ANOTHER_RUN_IN_PROGRESS
             else -> null
         }
 
@@ -541,8 +532,6 @@ fun ToolbarRunConfiguration(
         fold = fold,
         onRun = start,
         onStop = stop,
-        onEmptyClick = { loading = true },
-        emptyRefusal = emptyRefusal,
         menu = { close ->
             // The dropdown composes its content only while it is open, so this is the "on open" the reads
             // above are keyed on, in place of the flag the old menu owned.

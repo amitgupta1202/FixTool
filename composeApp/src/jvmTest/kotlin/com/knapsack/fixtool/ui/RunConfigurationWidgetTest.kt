@@ -72,7 +72,7 @@ class RunConfigurationWidgetTest {
         composeTestRule.waitForIdle()
     }
 
-    /** A load set that exists only so the chip has something to name, and so the dropdown exists at all. */
+    /** A load set that exists only so the chip and the menu have something to name. */
     private fun saveLoadSet(name: String, label: String, phases: Int = 1) {
         viewModel.saveLoadSet(
             LoadSet(
@@ -87,27 +87,32 @@ class RunConfigurationWidgetTest {
     }
 
     /**
-     * **A fresh workspace has no configuration, so the chip is the door to making one.**
+     * **A fresh workspace has no configuration to name, so the chip names the dialog and still opens the
+     * menu.**
      *
-     * `Load run…` and not an empty name: the one thing a reader can do here is open the dialog, and a chip
-     * that named nothing would be a control asking to be configured before it can be used. There is no
-     * dropdown behind it, because a menu in front of a dialog on a workspace with one choice in it is a
-     * step that exists only to be clicked through. And the ▶ says what it is short of rather than sitting
-     * dark with no reason on it.
+     * `Load run…` and not an empty name: a chip that named nothing would be a control asking to be
+     * configured before it can be used. But the click behind it is the same menu it always was, because
+     * most of what that menu holds does not name a saved configuration: the two dialogs are how anything
+     * gets saved in the first place, and Recent is every run this box has already finished. A chip that
+     * went straight to the load run dialog shut the door on both. And the ▶ says what it is short of rather
+     * than sitting dark with no reason on it.
      */
     @Test
-    fun `an empty workspace names the dialog rather than a configuration`() {
+    fun `an empty workspace names the dialog and still opens its menu`() {
         composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
 
         composeTestRule.onNodeWithTag("run-config").assertIsDisplayed().assertTextContains("Load run…")
         composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("run-config-menu").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("run-config-menu").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("rail-run-load").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("rail-load-sets").assertIsDisplayed()
 
         composeTestRule
             .onNodeWithTag("run-button")
             .assertIsNotEnabled()
-            .assertContentDescriptionContains("Nothing is saved to run", substring = true)
+            .assertContentDescriptionContains("Nothing saved to run", substring = true)
     }
 
     /**
@@ -249,15 +254,15 @@ class RunConfigurationWidgetTest {
     }
 
     /**
-     * Recent is a titled group rather than "Recent ▸" repeated on every row.
+     * **Recent is reachable with nothing saved, as a titled group, and its row says what the run was.**
      *
-     * The fixture saves a load set as well as writing the record, because the dropdown only exists once
-     * something is saved: with nothing saved the chip is a door straight to the load run dialog, and there
-     * is no menu for Recent to be a group in.
+     * Nothing is saved here on purpose: that is the workspace the toolbar used to strand. Runs were on
+     * disk, the chip in front of them was a door straight to the load run dialog, and nothing in the row
+     * led to what had already been run. The title is a group heading rather than "Recent ▸" repeated on
+     * every row, and the row leads with its verdict, then its kind, then the label it was run under.
      */
     @Test
-    fun `a finished run puts Recent in the menu under its own title`() {
-        saveLoadSet("rfq-round-trip", "RFQ round trip")
+    fun `a finished run is a titled Recent group in the menu of a workspace with nothing saved`() {
         val report = LoadFixtures.burstReport(unmatched = 0)
         viewModel.loadRecordStore.write(report)
 
@@ -270,14 +275,9 @@ class RunConfigurationWidgetTest {
             .assertTextContains("✓ ⚡ ${report.label}", substring = true)
     }
 
-    /**
-     * With nothing run there is no group to title, and an empty heading would be furniture. A saved set is
-     * in the fixture for the same reason as above: without one there would be no dropdown to look in.
-     */
+    /** With nothing run there is no group to title, and an empty heading would be furniture. */
     @Test
     fun `Recent is absent until something has run`() {
-        saveLoadSet("rfq-round-trip", "RFQ round trip")
-
         openTheMenu()
 
         composeTestRule.onNodeWithTag("toolbar-recent-group").assertDoesNotExist()
@@ -296,8 +296,6 @@ class RunConfigurationWidgetTest {
                 fold = RunWidgetFold.FULL,
                 onRun = { ran = true },
                 onStop = {},
-                onEmptyClick = {},
-                emptyRefusal = null,
                 menu = {},
             )
         }
@@ -351,8 +349,6 @@ class RunConfigurationWidgetTest {
                 fold = RunWidgetFold.FULL,
                 onRun = {},
                 onStop = { stopped = true },
-                onEmptyClick = {},
-                emptyRefusal = null,
                 menu = {},
             )
         }
@@ -380,8 +376,6 @@ class RunConfigurationWidgetTest {
                 fold = RunWidgetFold.FULL,
                 onRun = {},
                 onStop = {},
-                onEmptyClick = {},
-                emptyRefusal = null,
                 menu = {},
             )
         }

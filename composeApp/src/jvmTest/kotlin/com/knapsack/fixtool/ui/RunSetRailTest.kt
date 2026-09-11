@@ -151,10 +151,8 @@ class RunSetRailTest {
         val scenario = scenario("book-a-trade")
         viewModel.scenarioService.save(scenario)
         viewModel.refreshScenarios()
-        // A saved set so the chip has a dropdown to hold Recent: with nothing saved the chip is a door
-        // straight to the load run dialog. The record below was produced by `RunSets.repeat`, whose source
-        // is Repeat and not Saved, so its Recent row still opens rather than aiming the ▶ at anything.
-        viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade"))))
+        // The record below was produced by `RunSets.repeat`, whose source is Repeat and not Saved, so its
+        // Recent row still opens rather than aiming the ▶ at anything.
         val set = writeFinishedSet(scenario)
 
         composeTestRule.setContent {
@@ -202,10 +200,8 @@ class RunSetRailTest {
         val scenario = scenario("book-a-trade")
         viewModel.scenarioService.save(scenario)
         viewModel.refreshScenarios()
-        // A saved set so the chip has a dropdown to hold Recent: with nothing saved the chip is a door
-        // straight to the load run dialog. The record below was produced by `RunSets.repeat`, whose source
-        // is Repeat and not Saved, so its Recent row still opens rather than aiming the ▶ at anything.
-        viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade"))))
+        // The record below was produced by `RunSets.repeat`, whose source is Repeat and not Saved, so its
+        // Recent row still opens rather than aiming the ▶ at anything.
         val set = writeFinishedSet(scenario)
 
         composeTestRule.setContent {

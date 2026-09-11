@@ -3,10 +3,9 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.assertContentDescriptionContains
-import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -60,23 +59,23 @@ class LoadRunRailTest {
 
     /**
      * **With no saved profile there is nowhere to issue from at all**, which is the one thing a load run
-     * cannot dial its way out of, so the chip stays visible and refused, and says what it is short of
+     * cannot dial its way out of, so the row stays visible and refused, and says what it is short of
      * rather than a bare count of lanes that would read as a number of them.
      *
-     * On a fresh workspace the chip *is* the load run door: nothing is saved, so there is no menu behind it
-     * and the row that used to carry this refusal has nowhere to be drawn.
+     * The row and not the chip: the chip opens the same menu whether or not anything is saved, and the
+     * refusal belongs on the door it refuses rather than on the thing that opens the list of doors.
      */
     @Test
-    fun `the run chip is the Load run door, refused when there is nowhere at all to issue from`() {
+    fun `Load run sits in the run widget's menu, disabled when there is nowhere at all to issue from`() {
         composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
+        composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule
-            .onNodeWithTag("run-config")
+            .onNodeWithTag("rail-run-load")
             .assertIsDisplayed()
-            .assertTextContains("Load run…")
-            .assertHasNoClickAction()
-            .assertContentDescriptionContains("nothing up yet", substring = true)
+            .assertIsNotEnabled()
+            .assertTextContains("Load run…  nothing up yet")
     }
 
     /**
@@ -130,12 +129,18 @@ class LoadRunRailTest {
             }
             composeTestRule.waitForIdle()
 
-            // Nothing is saved here, so the toolbar's half of it is the chip itself: the lane count is
-            // what it says on hover, which is where it stays readable once the row has folded away.
+            // The toolbar's half of it is the Load run row, which is where the count is printed whether or
+            // not anything is saved, so the menu has to be opened to read it.
+            composeTestRule.onNodeWithTag("run-config").performClick()
+            composeTestRule.waitForIdle()
             composeTestRule
-                .onNodeWithTag("run-config")
+                .onNodeWithTag("rail-run-load")
+                .assertIsDisplayed()
                 .assertIsEnabled()
-                .assertContentDescriptionContains("Load run…  2 lanes on 1 profile", substring = true)
+                .assertTextContains("Load run…  2 lanes on 1 profile")
+            // Closed again, or its dropdown would be over the rail the other half of this test clicks.
+            composeTestRule.onNodeWithTag("run-config").performClick()
+            composeTestRule.waitForIdle()
 
             composeTestRule.onNodeWithTag("rail-run-menu").performClick()
             composeTestRule.waitForIdle()
@@ -296,16 +301,8 @@ class LoadRunRailTest {
 
     @Test
     fun `a finished load run is a Recent row that opens its document`() {
-        // A saved set so the chip has a dropdown to hold Recent: with nothing saved the chip is a door
-        // straight to the load run dialog. The record itself carries no `set`, so its row still opens the
-        // document rather than aiming the ▶ at a configuration.
-        viewModel.saveLoadSet(
-            LoadSet(
-                name = "aaa-first",
-                label = "Aaa first",
-                phases = listOf(LoadPhaseSpec("Phase 1", "Nothing", "LoadGen", shape = LoadShape.Burst(10))),
-            ),
-        )
+        // The record carries no `set`, so its row still opens the document rather than aiming the ▶ at a
+        // configuration.
         val report = LoadFixtures.burstReport(unmatched = 0)
         viewModel.loadRecordStore.write(report)
 

@@ -42,8 +42,8 @@ class ToolbarEnvironmentMenuTest {
             )
         }
 
-        rule.onNodeWithTag("quick-connect").performClick()
-        rule.onNodeWithTag("quick-connect-BuySide").performClick()
+        rule.onNodeWithTag("connect").performClick()
+        rule.onNodeWithTag("connect-BuySide").performClick()
         assertEquals("p1", connected)
     }
 
@@ -59,8 +59,8 @@ class ToolbarEnvironmentMenuTest {
             )
         }
 
-        rule.onNodeWithTag("quick-connect").performClick()
-        rule.onNodeWithTag("quick-connect-BuySide").performClick()
+        rule.onNodeWithTag("connect").performClick()
+        rule.onNodeWithTag("connect-BuySide").performClick()
         assertNull(connectedIn, "picking a profile asks for an environment; it must not connect on its own")
 
         rule.onNodeWithText("BuySide in…").assertExists()
@@ -80,8 +80,8 @@ class ToolbarEnvironmentMenuTest {
             )
         }
 
-        rule.onNodeWithTag("quick-connect").performClick()
-        rule.onNodeWithTag("quick-connect-BuySide").performClick()
+        rule.onNodeWithTag("connect").performClick()
+        rule.onNodeWithTag("connect-BuySide").performClick()
         rule.onNodeWithText("As saved (saved.host)").assertExists()
         rule.onNodeWithTag("environment-as-saved").performClick()
         assertEquals("p1", connectedAsSaved)
@@ -98,9 +98,9 @@ class ToolbarEnvironmentMenuTest {
             )
         }
 
-        rule.onNodeWithTag("quick-connect").performClick()
-        rule.onNodeWithTag("quick-connect-BuySide").performClick()
+        rule.onNodeWithTag("connect").performClick()
+        rule.onNodeWithTag("connect-BuySide").performClick()
         rule.onNodeWithTag("environment-back").performClick()
-        rule.onNodeWithTag("quick-connect-BuySide").assertExists()
+        rule.onNodeWithTag("connect-BuySide").assertExists()
     }
 }

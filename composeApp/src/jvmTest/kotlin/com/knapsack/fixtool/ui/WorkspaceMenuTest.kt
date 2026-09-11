@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 /**
  * The workspace switcher: what is open, and the four ways to change it.
  *
- * These items used to be a trailing section in Quick Connect ▾, which is a session control — pick a
+ * These items used to be a trailing section in Connect ▾, which is a session control: pick a
  * profile, it connects. Opening a workspace changes which profiles exist at all, so it now lives
  * where every editor puts the project: top left, showing the name, click to change it.
  */

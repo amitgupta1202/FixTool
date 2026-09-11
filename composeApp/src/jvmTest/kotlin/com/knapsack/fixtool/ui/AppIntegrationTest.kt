@@ -277,7 +277,7 @@ class AppIntegrationTest {
     }
 
     // ========================================
-    // Quick Connect Dropdown Tests
+    // Connect Dropdown Tests
     // ========================================
 
     @Test
@@ -294,9 +294,9 @@ class AppIntegrationTest {
             )
         }
 
-        // Then: Quick Connect dropdown should be displayed. By tag, not by its word: the chip prints
-        // "Quick Connect" while the toolbar is wide enough for it and its glyph alone when it is not.
-        composeTestRule.onNodeWithTag("quick-connect").assertExists()
+        // Then: Connect dropdown should be displayed. By tag, not by its word: the chip prints
+        // "Connect" while the toolbar is wide enough for it and its glyph alone when it is not.
+        composeTestRule.onNodeWithTag("connect").assertExists()
     }
 
     @Test
@@ -310,8 +310,8 @@ class AppIntegrationTest {
             )
         }
 
-        // Then: Quick Connect dropdown should NOT be displayed
-        composeTestRule.onNodeWithTag("quick-connect").assertDoesNotExist()
+        // Then: Connect dropdown should NOT be displayed
+        composeTestRule.onNodeWithTag("connect").assertDoesNotExist()
     }
 
     @Test
@@ -330,7 +330,7 @@ class AppIntegrationTest {
         }
 
         // Click to expand dropdown
-        composeTestRule.onNodeWithTag("quick-connect").performClick()
+        composeTestRule.onNodeWithTag("connect").performClick()
         composeTestRule.waitForIdle()
 
         // Then: Profile names should be visible in dropdown

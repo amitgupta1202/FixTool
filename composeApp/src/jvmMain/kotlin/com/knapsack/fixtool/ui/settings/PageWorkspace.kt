@@ -296,7 +296,7 @@ private fun Environments(context: SettingsContext) {
                 text =
                     "Extracting them adds the environments and changes nothing else: " +
                         "${proposal.replaces.joinToString()} keep working exactly as they do now, and " +
-                        "Quick Connect starts offering the environments as well.",
+                        "Connect starts offering the environments as well.",
                 fontSize = 11.sp,
                 color = AppTheme.Colors.textDisabled,
             )

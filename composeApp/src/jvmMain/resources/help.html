@@ -745,8 +745,8 @@
         lands on any participating session.</p>
     <p>Two doors, one dialog. In the <strong>Message Editor</strong>, the <strong>&#9889; Load</strong> button
         beside Send and Send to All opens the Load run dialog with the editor's fields as the template. In the
-        <strong>toolbar</strong>, <strong>Run &#9662; &rarr; Load run&hellip;</strong> opens the same dialog with a
-        picker over the saved messages. The dialog is one row per decision: the template and which of its tags vary per
+        <strong>toolbar</strong>, the run widget's <strong>&#9662; &rarr; Load run&hellip;</strong> opens the same
+        dialog with a picker over the saved messages. The dialog is one row per decision: the template and which of its tags vary per
         message, the profile whose lanes issue, other logged-on profiles that only listen, burst or rate, the tag
         pair a reply is matched on, the settle window, the seeds, and the store and log for this run. Every
         refusal is a sentence on screen and Run is what refuses. The run opens as a document tab that updates
@@ -754,11 +754,12 @@
         sets, opening the same document over the record afterwards.</p>
     <p><strong>Where the doors are.</strong> Your saved load sets, your saved scenario sets,
         <strong>Load run&hellip;</strong>, <strong>Load sets&hellip;</strong> and <strong>Recent</strong> are all in
-        the <strong>toolbar's Run &#9662;</strong>, beside Quick Connect: each of them runs a saved configuration by
-        name, and none of them has anything to do with which tool window is open. The Scenarios rail's own Run menu
+        the <strong>toolbar's run configuration widget</strong>: each of them names a saved configuration, and none
+        of them has anything to do with which tool window is open. Picking one aims the <strong>&#9654;</strong> at
+        it and <strong>&#9654;</strong> is what runs it. The Scenarios rail's own Run menu
         runs what its list is showing: what is starred, what the filter shows, what is ticked, which scenario has an
         examples table, and a fan-out over sessions. <strong>Save these as a set&hellip;</strong> there names the
-        selection it saves, and is how a scenario set gets into the toolbar's Run &#9662;. From the command line:</p>
+        selection it saves, and is how a scenario set gets into the toolbar's run widget. From the command line:</p>
     <pre><code>fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
 fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed run=c118</code></pre>
     <ul>
@@ -1065,12 +1066,12 @@ echo $?    # 0 everything answered · 1 unanswered, tool-limited, stopped, or a 
         real venue is the usual reason your lanes look like loopback at all &mdash; nothing is brought up
         either: our acceptor could not bind it, and your lanes are already reaching the venue through it. This
         is what keeps a dev set off the UAT simulator saved on the same port number.</p>
-    <p>The
-        <strong>Run &#9662;</strong> row for a set says which profiles it runs on and which of them pressing it
-        will connect, so you can read it before you press it.</p>
+    <p>The run
+        widget's <strong>&#9662;</strong> row for a set says which profiles it runs on and which of them pressing it
+        will connect, so you can read it before you press <strong>&#9654;</strong>.</p>
     <p>The lanes are <strong>left up afterwards</strong>: the run borrowed them, it did not own them, and the
         next set that names them finds them there. <strong>&#10005; Close all</strong> in the toolbar is how a box
-        goes back to nothing &mdash; see <a href="#quick-connect">Quick Connect</a>.</p>
+        goes back to nothing: see <a href="#connect">Connect</a>.</p>
     <p>Sets live in <code>&lt;workspace&gt;/load-sets/&lt;name&gt;.json</code>, beside the records they produce,
         so a set checked in next to the code survives a fresh <code>--home</code>. From a build:</p>
     <pre><code>fixtool load --set rfq-round-trip --seed run=$BUILD_NUMBER --junit reports/rfq.xml
@@ -1082,25 +1083,33 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
         the load profile, or pass <code>--store memory --log none</code>, so the run measures the venue's
         keep-up rather than FixTool's file appends. A memory store needs Reset on Logon.</p>
 
-    <h3 id="quick-connect">Quick Connect</h3>
+    <h3 id="connect">Connect</h3>
 
-    <p><strong>Quick Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
+    <p><strong>Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
     down every saved profile, and picking one connects it. Use the panel when you are <em>authoring</em> a
     profile; use this when you already have one and just want it up.</p>
-    <p>Quick Connect is only about connecting: it lists the profiles in the open workspace, and picking
+    <p>Connect is only about connecting: it lists the profiles in the open workspace, and picking
     one connects it. Changing <em>which</em> workspace you are in is the switcher at the top left &mdash;
     see <a href="#workspaces">Workspaces</a> &mdash; because opening a workspace changes which profiles
     exist at all, and that is a different question from which one to connect.</p>
 
-    <p><strong>Run &#9662;</strong> sits beside it and is the app's one run menu: your saved load sets and
-    scenario sets, each running at once, then <strong>Load run&hellip;</strong>,
-    <strong>Load sets&hellip;</strong> and <strong>Recent</strong>. See
-    <a href="#load-runs">Load runs</a>.</p>
+    <p><strong>Connect &#9662;</strong>, <strong>&#9211; Disconnect all</strong> and
+    <strong>&#10005; Close all</strong> are one group, and everything in it is about sessions: bring one up,
+    take them all down, close every pane. Running things is a group of its own further along the row.</p>
 
-    <p><strong>&#9211; Disconnect all</strong> is the third of the three, and it takes every session down at
+    <p>That group is the <strong>run configuration widget</strong>, and it is a name with a
+    <strong>&#9654;</strong> beside it. The name is the saved load set or scenario set the button will run,
+    so the window always says what happens next; its <strong>&#9662;</strong> lists every saved
+    configuration and picking one <em>aims</em> the button rather than running anything. The choice is
+    remembered between launches. <strong>&#9654;</strong> runs it and becomes <strong>&#9632;</strong> while
+    it runs, <strong>&#8963;R</strong> (Ctrl+R off macOS) does the same from the keyboard, and a button that
+    cannot run says why on hover. <strong>Load run&hellip;</strong> and <strong>Load sets&hellip;</strong>
+    are in the same menu and still open their dialogs. See <a href="#load-runs">Load runs</a>.</p>
+
+    <p><strong>&#9211; Disconnect all</strong> is the second of the three, and it takes every session down at
     once, which is what putting a box back to nothing connected used to mean doing one profile at a time.
     The tooltip says how many sessions it will drop and over how many profiles. <strong>It asks no
-    confirmation</strong>, because a disconnect loses nothing: Quick Connect puts it all back in one click,
+    confirmation</strong>, because a disconnect loses nothing: Connect puts it all back in one click,
     and nothing is cleared on the way out. The venue's orders and quotes stay where <strong>Clear order
     book</strong> can reach them, and the message logs, the run records and the panes are untouched. The one
     case that would lose something is a live load run or set, and there the button is disabled with the
@@ -1127,7 +1136,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     kind of workspace and two ways to get one: <strong>New</strong> makes an empty one,
     <strong>Open</strong> opens a folder you already have or one of the examples FixTool ships.</p>
     <p>All of it is on the <strong>switcher at the top left</strong>, which shows the open workspace by
-    name and holds New, Open, Recent and Close. It is deliberately not in Quick Connect: that menu
+    name and holds New, Open, Recent and Close. It is deliberately not in Connect: that menu
     connects a profile, and opening a workspace changes which profiles there are.</p>
     <p><strong>Default</strong> is <code>~/.fixtool</code> itself. It is a workspace like any other and
     it is where everyone starts, including everyone who installed FixTool before workspaces existed
@@ -1171,7 +1180,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     profiles carrying one counterparty's CompIDs and differing only in an endpoint. Every rule change
     then has to be made three times.</p>
     <p>With environments, a connection is a counterparty <em>times</em> an environment: pick a profile in
-    <strong>Quick Connect &#9662;</strong> and it asks which environment to reach it in. The profile on
+    <strong>Connect &#9662;</strong> and it asks which environment to reach it in. The profile on
     disk is not touched, so choosing UAT does not rewrite it and leave the next person guessing where it
     was last pointed.</p>
     <p><strong>The session qualifier is the environment's name</strong>, and that is load-bearing:
@@ -3203,12 +3212,12 @@ ${incoming["D"].valueOfTag(38)}
         <tr><td><code>Repeat a scenario &times;N&hellip;</code></td><td>The flakiness question. <em>&ldquo;Run one scenario N times and report every iteration.&rdquo;</em></td></tr>
         <tr><td><code>Run examples table&hellip; (N)</code></td><td>One entry per live row of a scenario's table.</td></tr>
         <tr><td><code>Fan out over sessions&hellip; (N)</code></td><td>One lane per session of a multi-session profile, concurrently &mdash; see <a href="#connections">Fanning a scenario out</a>.</td></tr>
-        <tr><td><code>Save these as a set&hellip;</code></td><td>Names the selection it saves, turning what is on screen into the file CI runs, and is how a scenario set gets into the toolbar's <strong>Run &#9662;</strong>.</td></tr>
+        <tr><td><code>Save these as a set&hellip;</code></td><td>Names the selection it saves, turning what is on screen into the file CI runs, and is how a scenario set gets into the toolbar's <strong>run configuration widget</strong>.</td></tr>
     </table>
 
     <p><strong>Every item here reads the list beside it</strong>: what is starred, what the filter shows, what is
     ticked, which scenario has a table. <strong>A saved set by name, a load run, a load set and Recent are in the
-    toolbar's <a href="#quick-connect">Run &#9662;</a></strong>, beside Quick Connect, because none of them is
+    toolbar's <a href="#connect">run configuration widget</a></strong>, because none of them is
     about the scenario list: a saved configuration runs by name whatever the rail happens to be showing, and Recent
     is about records rather than about scenarios, which is also where you look for what a saved thing produced.</p>
 

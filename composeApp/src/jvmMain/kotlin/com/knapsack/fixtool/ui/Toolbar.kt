@@ -26,23 +26,26 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.Environment
-import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.load.LoadRecord
-import com.knapsack.fixtool.model.load.LoadSet
-import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.coroutines.delay
 
 /**
- * **The one row, in four kinds of thing, with the filter down the middle.**
+ * **The one row, in five kinds of thing, with the filter down the middle.**
  *
- * Left to right: where am I (the workspace), what am I looking at (the filter), what is connected (Quick
- * Connect, Run, Disconnect all, Close all), what do I do to every session at once (Capture, Search, Blank
- * line), what is dangerous (Clear all), how do the panes draw (the layout segments and View ▾), and the
- * two the operating system expects at the far right. A 1dp rule separates each group from the next, and
- * every group answers one question.
+ * Left to right: where am I (the workspace), what am I looking at (the filter), what is connected (Connect,
+ * Disconnect all, Close all), what do I do to every session at once (Capture, Search, Blank line), what is
+ * dangerous (Clear all), what runs when I press ▶ (the run configuration widget), how do the panes draw
+ * (the layout segments and View ▾), and the two the operating system expects at the far right. A 1dp rule
+ * separates each group from the next, and every group answers one question.
+ *
+ * The run widget is its own group rather than the fourth chip of the sessions group, which is where `Run ▾`
+ * sat. A menu whose rows each started something is a different kind of thing from a button that connects a
+ * profile, and putting them in one group made the row read as "five ways to make something happen". Now the
+ * sessions group is only about sessions and the widget answers one question of its own, the one an IDE's
+ * run configuration answers: what does ▶ do.
  *
  * Two things came back here after a build spent elsewhere. The filter had a row of its own under a pane
  * bar and the view controls had that bar, which is two lines of pane height for six controls, in a window
@@ -50,14 +53,15 @@ import kotlinx.coroutines.delay
  * row was built for, that a filter must never narrow a view without saying so, is kept by the controls
  * being here always, in the open, rather than by a row that refuses to close.
  *
- * **It never wraps.** When the window is too narrow the chips give up their words for their glyphs, then
- * the layout segments fold into `View ▾`, then the filter shrinks. The workspace, Settings and Help never
- * fold. See [ToolbarFold] for the order and the arithmetic behind it.
+ * **It never wraps.** When the window is too narrow the chips give up their words for their glyphs, the run
+ * widget gives up its kind and then its name, the layout segments fold into `View ▾`, and the filter
+ * shrinks. The workspace, Settings and Help never fold. See [ToolbarFold] for the order and the arithmetic.
  *
- * @param runControls `Run ▾`, `Disconnect all` and `Close all`, which read live session state and own
- *   dialogs. A slot rather than a dozen parameters, because this file has no business knowing a ViewModel.
- *   [ToolbarRunControls] is what goes in here, and it is handed whether the chips have room for their
- *   words.
+ * @param sessionControls `Disconnect all` and `Close all`, which read live session state. A slot rather
+ *   than a dozen parameters, because this file has no business knowing a ViewModel. [ToolbarSessionControls]
+ *   is what goes in here, and it is handed whether the chips have room for their words.
+ * @param runConfiguration the run widget, handed how much of itself it has room to draw.
+ *   [ToolbarRunConfiguration] is what goes in here.
  * @param viewControls [PaneViewControls], the same way, handed whether the row is too narrow for the
  *   layout segments.
  */
@@ -70,7 +74,7 @@ fun Toolbar(
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
     /**
      * The workspace's environments. Empty — which is every workspace until someone extracts some —
-     * leaves Quick Connect exactly as it was: pick a profile and it connects.
+     * leaves Connect exactly as it was: pick a profile and it connects.
      */
     environments: List<Environment> = emptyList(),
     onConnectProfileIn: ((FixConnectionProfile, Environment) -> Unit)? = null,
@@ -88,7 +92,8 @@ fun Toolbar(
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
     onCaptureScenario: (() -> Unit)? = null,
-    runControls: (@Composable (words: Boolean) -> Unit)? = null,
+    sessionControls: (@Composable (words: Boolean) -> Unit)? = null,
+    runConfiguration: (@Composable (RunWidgetFold) -> Unit)? = null,
     viewControls: (@Composable (folded: Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -143,11 +148,11 @@ fun Toolbar(
             Spacer(modifier = Modifier.weight(1f))
             GroupDivider(2)
 
-            // **What is connected.** Quick Connect ▾ picks a profile, Run ▾ runs a saved configuration,
-            // and the other two put the box back to nothing. The three that follow the chip are passed as
-            // one slot, because all three read live session state. See [ToolbarRunControls].
+            // **What is connected.** Connect ▾ picks a profile and the other two put the box back to
+            // nothing. The two that follow the chip are passed as one slot, because both read live session
+            // state. See [ToolbarSessionControls].
             if (onQuickConnect != null && connectionProfiles.isNotEmpty()) {
-                QuickConnectChip(
+                ConnectChip(
                     connectionProfiles = connectionProfiles,
                     onQuickConnect = onQuickConnect,
                     onGetProfileConnectionState = onGetProfileConnectionState,
@@ -157,7 +162,7 @@ fun Toolbar(
                 )
                 Spacer(modifier = Modifier.width(CHIP_GAP))
             }
-            runControls?.invoke(fold.commandWords)
+            sessionControls?.invoke(fold.commandWords)
             GroupDivider(3)
 
             // **What I do to every session at once.**
@@ -184,9 +189,14 @@ fun Toolbar(
             }
             GroupDivider(5)
 
+            // **What ▶ runs.** A name and a button, the way an IDE keeps its run configuration, so the one
+            // question the old `Run ▾` could not answer (what happens next) is answered by the row itself.
+            runConfiguration?.invoke(fold.runWidget)
+            GroupDivider(6)
+
             // **How the panes draw**: the three layout segments and the four named lines behind View ▾.
             viewControls?.invoke(!fold.layoutSegments)
-            GroupDivider(6)
+            GroupDivider(7)
 
             // Settings button
             if (onOpenSettings != null) {
@@ -230,7 +240,12 @@ private val tooltipIconModifier = Modifier.size(20.dp)
 private val CHIP_GAP = 8.dp
 
 /**
- * **Quick Connect ▾ — the profile selector, and the demo workspace's home.**
+ * **Connect ▾: the profile selector, and the demo workspace's home.**
+ *
+ * It was "Quick Connect" for as long as it was the shortcut past the Connection panel, which is a name that
+ * describes how it came to exist rather than what it does. Every other chip in the row is a verb, and this
+ * one is too: it connects a profile. The word "quick" was also the only thing implying there is a slow way,
+ * and the Connection panel is not a slower connect, it is where a profile is authored.
  *
  * Shown even with no saved profiles, because that is the one moment the trailing item matters: a fresh
  * install has nothing to connect to, and the demo is how it gets something. The item sits after the
@@ -239,8 +254,8 @@ private val CHIP_GAP = 8.dp
  * above with their own state dots, so there is no second status light here to disagree with them.
  */
 @Composable
-@Suppress("LongParameterList")
-private fun QuickConnectChip(
+@Suppress("LongParameterList", "LongMethod")
+private fun ConnectChip(
     connectionProfiles: List<FixConnectionProfile>,
     onQuickConnect: (String, FixConnectionProfile) -> Unit,
     onGetProfileConnectionState: ((String) -> FixConnectionState)?,
@@ -261,13 +276,14 @@ private fun QuickConnectChip(
     Box {
         ToolbarChip(
             icon = Icons.Default.PlayArrow,
-            label = "Quick Connect",
+            label = "Connect",
             tint = AppTheme.Colors.text,
             iconTint = AppTheme.Colors.primary,
             onClick = { expanded = true },
-            tag = "quick-connect",
+            tag = "connect",
             chevron = true,
             words = words,
+            tooltip = "Connect a saved profile",
         )
 
         DropdownMenu(
@@ -384,7 +400,7 @@ private fun QuickConnectChip(
                                 pickingEnvironmentFor = profile
                             }
                         },
-                        modifier = Modifier.testTag("quick-connect-${profile.name}"),
+                        modifier = Modifier.testTag("connect-${profile.name}"),
                     )
                 }
             }
@@ -448,6 +464,25 @@ private fun AllSessionsActions(
 }
 
 /**
+ * **What the run configuration widget has room to draw.** Computed by [Toolbar] from [ToolbarFold].
+ *
+ * Its own type rather than a second Boolean on the slot, because the widget folds in two steps of its own
+ * and one of them is a width rather than a flag: the name keeps being worth printing at a narrower chip
+ * long after the kind stopped being worth the room beside it.
+ */
+data class RunWidgetFold(
+    /** Whether the chip prints `· load set` after the name. The first thing the widget gives up. */
+    val kind: Boolean,
+    /** How wide the chip may draw, or null once the widget has folded to the ▶ alone. */
+    val chipMax: Dp?,
+) {
+    companion object {
+        /** Everything drawn, which is what a widget outside the toolbar's own fold should assume. */
+        val FULL = RunWidgetFold(kind = true, chipMax = RUN_CHIP_MAX)
+    }
+}
+
+/**
  * One group boundary: 6dp, a 1dp rule the height of a chip's text, 6dp.
  *
  * Tagged by position so a test can ask that the row is still in its groups. [index] runs left to right
@@ -471,7 +506,9 @@ private fun GroupDivider(index: Int) {
  *
  * Each constant names what has gone by the time it is reached. The words go before anything else because
  * every chip keeps its glyph and gains its label back on hover, so nothing is lost but reading speed. The
- * segments go next, into `View ▾` as `Layout ▸` rows, because a menu can carry them and they cannot be
+ * run widget's kind goes among them, early, because "load set" is the half of that chip a reader can work
+ * out and the name is the half they recognise. The name itself goes much later, and only into a tooltip.
+ * The segments go next, into `View ▾` as `Layout ▸` rows, because a menu can carry them and they cannot be
  * reached at all once they are clipped away. The filter goes last, and only by shrinking: it is the one
  * control here that says what the panes are showing, so it is the one that must stay legible longest.
  * The workspace, Settings and Help never fold.
@@ -481,14 +518,20 @@ private fun GroupDivider(index: Int) {
  * width below which the next thing has to give way.
  */
 internal enum class ToolbarFold {
-    /** Every chip has its word, the layout has its segments, and the filter has room to grow. */
+    /** Every chip has its word, the run chip has its kind, the layout has its segments. */
     NONE,
 
     /** Capture, Search and Blank line are their glyphs. */
     ACTION_WORDS,
 
-    /** And so are Quick Connect, Run, Disconnect all, Close all and Clear all. */
+    /** And the run chip has dropped `· load set`. */
+    RUN_KIND,
+
+    /** And so are Connect, Disconnect all, Close all and Clear all. */
     ALL_WORDS,
+
+    /** And the run chip is gone: the widget is ▶ with the name in its tooltip. */
+    RUN_NAME,
 
     /** And the three layout segments have folded into `View ▾`. */
     SEGMENTS,
@@ -497,18 +540,40 @@ internal enum class ToolbarFold {
     /** Whether Capture, Search and Blank line print their words. */
     val actionWords: Boolean get() = this == NONE
 
-    /** Whether Quick Connect, Run, Disconnect all, Close all and Clear all print theirs. */
-    val commandWords: Boolean get() = this == NONE || this == ACTION_WORDS
+    /** Whether the run chip prints the kind after the name. */
+    val runKind: Boolean get() = ordinal <= ACTION_WORDS.ordinal
+
+    /** Whether Connect, Disconnect all, Close all and Clear all print their words. */
+    val commandWords: Boolean get() = ordinal <= RUN_KIND.ordinal
+
+    /** Whether the run chip is drawn at all, rather than folded into the ▶'s own tooltip. */
+    val runName: Boolean get() = ordinal < RUN_NAME.ordinal
 
     /** Whether the three layout segments are drawn, rather than folded into `View ▾`. */
     val layoutSegments: Boolean get() = this != SEGMENTS
+
+    /** The two facts above as the run widget wants them, with the chip's width rather than a flag. */
+    val runWidget: RunWidgetFold
+        get() =
+            RunWidgetFold(
+                kind = runKind,
+                chipMax =
+                    when {
+                        !runName -> null
+                        runKind -> RUN_CHIP_MAX
+                        commandWords -> RUN_CHIP_MID
+                        else -> RUN_CHIP_MIN
+                    },
+            )
 
     companion object {
         fun forWidth(width: Dp): ToolbarFold =
             when {
                 width >= toolbarFullWidth(NONE) -> NONE
                 width >= toolbarFullWidth(ACTION_WORDS) -> ACTION_WORDS
+                width >= toolbarFullWidth(RUN_KIND) -> RUN_KIND
                 width >= toolbarFullWidth(ALL_WORDS) -> ALL_WORDS
+                width >= toolbarFullWidth(RUN_NAME) -> RUN_NAME
                 else -> SEGMENTS
             }
     }
@@ -552,16 +617,42 @@ private val TOOLBAR_PADDING = 16.dp
 private val WORKSPACE_WIDTH = 180.dp
 private val SYSTEM_GROUP_WIDTH = 64.dp
 
-/** 6dp, a 1dp rule and 6dp, six times over: one boundary after each of the row's first six groups. */
+/** 6dp, a 1dp rule and 6dp, seven times over: one boundary after each of the row's first seven groups. */
 private val GROUP_DIVIDER_WIDTH = 13.dp
+
+/** Wide enough for a set name a reader does not have to hover to know. Past this the name middle-ellipsises. */
+internal val RUN_CHIP_MAX = 180.dp
+
+/** With the kind gone the name has the chip to itself, so it can give up a third of the room. */
+private val RUN_CHIP_MID = 130.dp
+
+/** The last width a name is still worth printing at: about nine characters and an ellipsis. */
+private val RUN_CHIP_MIN = 90.dp
+
+/** The ▶, which never folds: a 16dp glyph with 6dp each side. */
+internal val RUN_BUTTON_WIDTH = 28.dp
+
+/** The hairline of toolbar ground that joins the chip to the button, as the layout segments are joined. */
+internal val RUN_WIDGET_GAP = 1.dp
+
+/** A chip's height, which the widget's two halves share so the joined pair reads as one control. */
+internal val RUN_WIDGET_HEIGHT = 28.dp
+
+/** The chip and the ▶ with the hairline between them, or the ▶ alone once the name has folded away. */
+private fun runWidgetWidth(fold: ToolbarFold): Dp =
+    (fold.runWidget.chipMax?.let { it + RUN_WIDGET_GAP } ?: 0.dp) + RUN_BUTTON_WIDTH
 
 /**
  * The width the row needs to draw itself at a given fold, with the filter at its minimum.
  *
- * At [ToolbarFold.NONE] that is **1573dp**: the padding, the workspace, six dividers, a 200dp filter, the
- * four connect chips with their words, the three action chips with theirs, Clear all, the view controls
- * and the two system icons. Dropping the action words saves 162dp, dropping the rest saves another 332dp,
- * and folding the segments saves the last 116dp.
+ * At [ToolbarFold.NONE] that is **1669dp**: 16dp of padding, a 180dp workspace, seven 13dp dividers, a
+ * 200dp filter, four gaps of 8dp, Connect with its chevron and Disconnect all, Close all and Clear all with
+ * their words (433.5dp), the three action chips with theirs (269.5dp), the run widget at its widest
+ * (209dp), the view controls (174dp) and the two system icons (64dp).
+ *
+ * What each level saves, in order: the action words 161.5dp, the run chip's kind 50dp, the command words
+ * 309.5dp, the run chip itself 91dp, and the layout segments the last 116dp. So the thresholds are
+ * **1669, 1507.5, 1457.5, 1148, 1057 and 941dp**.
  *
  * Every figure here is a floor, not a measurement: the chips are measured by what they draw, so a row
  * that folds a little early wastes a word and one that folds late would wrap, and only one of those is a
@@ -570,176 +661,53 @@ private val GROUP_DIVIDER_WIDTH = 13.dp
 private fun toolbarFullWidth(fold: ToolbarFold): Dp =
     TOOLBAR_PADDING +
         WORKSPACE_WIDTH +
-        GROUP_DIVIDER_WIDTH * 6 +
+        GROUP_DIVIDER_WIDTH * 7 +
         FILTER_MIN_WIDTH +
-        chipWidth("Quick Connect", chevron = true, words = fold.commandWords) +
-        chipWidth("Run", chevron = true, words = fold.commandWords) +
+        chipWidth("Connect", chevron = true, words = fold.commandWords) +
         chipWidth("Disconnect all", words = fold.commandWords) +
         chipWidth("Close all", words = fold.commandWords) +
         chipWidth("Clear all", words = fold.commandWords) +
         chipWidth("Capture", words = fold.actionWords) +
         chipWidth("Search", words = fold.actionWords) +
         chipWidth("Blank line", words = fold.actionWords) +
-        CHIP_GAP * 5 +
+        CHIP_GAP * 4 +
+        runWidgetWidth(fold) +
         (if (fold.layoutSegments) VIEW_CONTROLS_WIDTH else VIEW_MENU_WIDTH) +
         SYSTEM_GROUP_WIDTH
 
 /**
- * **Run ▾ and Disconnect all — the app-level run controls, beside Quick Connect.**
+ * **Disconnect all and Close all: the two whole-window session buttons, after Connect ▾.**
  *
- * Run ▾ is the run-configurations chooser. Every item in it is a *named* door: it runs a saved
- * configuration by name, or opens the chooser that edits them. That is why it is here and not in the
- * Scenarios rail, where it grew: a load set has no steps, no expectations and no bindings, and its only
- * connection to the scenario list was that the menu was already there. The rail keeps the *contextual*
- * doors, the ones that read the list beside them.
+ * `Run ▾` used to lead this group and has left it: it is a run configuration widget of its own now, in its
+ * own group, because choosing what runs and connecting a profile are two different questions and a group
+ * answers one. What is left here is only about sessions, which is why Connect ▾ leads it from [Toolbar]
+ * itself and these two follow: pick a profile, take them all down, close them all.
  *
- * The state is the state the rail computed, through the same stores, the same [Lanes] count and the same
- * ViewModel handlers, so there is one answer to "which sets are saved" and one to "how many lanes are
- * there". Every item keeps the test tag it had in the rail, so the tests moved rather than being rewritten.
- *
- * Both dialogs are hosted here because both are opened from this menu. A `Dialog` is its own window
- * composition and adds nothing to the toolbar's own layout.
+ * Both read live session state through the ViewModel's own offers, so the count in a tooltip and the reason
+ * a button is refused are computed in one place and said the same way on the control surface.
  *
  * @param words false on a toolbar too narrow for the labels, where each chip is its glyph and says its
  *   name on hover. See [ToolbarFold].
  */
 @Composable
-@Suppress("LongMethod")
-fun ToolbarRunControls(
+fun ToolbarSessionControls(
     viewModel: FixMessageViewModel,
     words: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val running by viewModel.scenarioRunning.collectAsState()
-    val activeSet by viewModel.activeRunSet.collectAsState()
     val activeLoad by viewModel.activeLoadRun.collectAsState()
     // Read so that a run starting or finishing recomposes what turns on it: Disconnect all's reason.
     val runningIds by viewModel.runningSetIds.collectAsState()
-    // Which sessions are logged on, observed here so the lane count and Disconnect all's count follow
-    // them. A count remembered on anything coarser reads 0 until something unrelated happens to change.
-    val sessionStates = viewModel.sessions.map { it.connectionState.collectAsState().value }
-
-    var menuOpen by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
-    var editingLoadSets by remember { mutableStateOf(false) }
-    var pendingLoadSet by remember { mutableStateOf<LoadSet?>(null) }
-    // The saved set a refused `Load set ▸` wants fixed. By name, because it is already on disk: opening it
-    // as an unsaved draft would put "unsaved" in the footer of a set nobody has touched.
-    var loadSetToFix by remember { mutableStateOf<String?>(null) }
-
-    // Re-read on every open, because a set saved from the rail or written by the control surface is on
-    // disk before anything in this composition has changed.
-    val savedSets = remember(menuOpen, activeSet) { viewModel.runSetStore.list() }
-    val loadSets = remember(menuOpen, activeLoad, editingLoadSets) { viewModel.loadSets() }
-    val recent =
-        remember(menuOpen, activeSet, activeLoad) {
-            RecentRun
-                .merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.listRecords())
-                .take(RECENT_RUNS)
-        }
-    // Counted for a load run, not for a fan-out: every row this menu gates on it is a load, and a load
-    // issues from one lane as happily as from fifty.
-    val lanes = remember(menuOpen, sessionStates, viewModel.connectionProfiles.size) { Lanes.forLoad(viewModel) }
-    // What "Load run…" needs to be worth opening: a profile that could issue, whether or not it is up.
-    val issuers =
-        remember(menuOpen, viewModel.connectionProfiles.size) {
-            val initiator = FixConnectionConfig.ConnectionType.INITIATOR
-            viewModel.connectionProfiles.count { it.config.connectionType == initiator }
-        }
-
-    if (loading) {
-        LoadRunDialog(
-            viewModel = viewModel,
-            fixedTemplate = null,
-            onDismiss = { loading = false },
-            onRun = { plan ->
-                loading = false
-                viewModel.startLoadRun(plan)
-            },
-            // The path from one burst to a set: tune the burst here, then want the cancel storm after it.
-            onMakeSet = { set ->
-                loading = false
-                pendingLoadSet = set
-                editingLoadSets = true
-            },
-        )
-    }
-    if (editingLoadSets) {
-        LoadSetsDialog(
-            viewModel = viewModel,
-            onDismiss = {
-                editingLoadSets = false
-                pendingLoadSet = null
-                loadSetToFix = null
-            },
-            onRun = { planned ->
-                editingLoadSets = false
-                pendingLoadSet = null
-                loadSetToFix = null
-                viewModel.startLoadSet(planned)
-            },
-            initial = pendingLoadSet,
-            initialName = loadSetToFix,
-        )
-    }
+    // Which sessions are logged on, observed here so Disconnect all's count follows them. A count
+    // remembered on anything coarser reads 0 until something unrelated happens to change.
+    viewModel.sessions.forEach { it.connectionState.collectAsState().value }
 
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(CHIP_GAP),
     ) {
-        Box {
-            ToolbarChip(
-                icon = Icons.Default.PlayCircleOutline,
-                label = "Run",
-                tint = if (running) AppTheme.Colors.textDisabled else AppTheme.Colors.success,
-                onClick = { menuOpen = true },
-                tag = "toolbar-run-menu",
-                chevron = true,
-                words = words,
-            )
-            DropdownMenu(
-                expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
-                // Wide enough for the widest thing under a row: "on A · Run connects A, B" is a sentence,
-                // and a menu that has to ellipsise it on an ordinary two-profile set says nothing useful.
-                modifier = Modifier.background(AppTheme.Colors.surface).widthIn(min = 320.dp),
-            ) {
-                RunConfigurationsMenu(
-                    savedSets = savedSets,
-                    loadSets = loadSets,
-                    recent = recent,
-                    lanes = lanes,
-                    profiles = issuers,
-                    sessionsOf = { viewModel.loadSetSessions(it) },
-                    running = running,
-                    onChose = { menuOpen = false },
-                    onLoadRun = { loading = true },
-                    // A set that would be refused opens the editor **on that set**, rather than
-                    // half-running. "Cannot run now" is a different answer: no lane, or a run already
-                    // holding the sessions, is nothing the file can fix, so it stays a notification.
-                    onRunLoadSet = { name ->
-                        (viewModel.startSavedLoadSet(name) as? FixMessageViewModel.SavedLoadSetRun.Refused)?.let {
-                            loadSetToFix = it.set.name
-                            editingLoadSets = true
-                        }
-                    },
-                    onRunSaved = { name -> viewModel.startSavedRunSet(name) },
-                    onLoadSets = {
-                        loadSetToFix = null
-                        editingLoadSets = true
-                    },
-                    onOpenRecent = { run ->
-                        when (run) {
-                            is RecentRun.Set -> viewModel.focusRunSet(run.id)
-                            is RecentRun.Load -> viewModel.openLoadRun(run.id)
-                        }
-                    },
-                )
-            }
-        }
-
-        // No confirmation. Quick Connect puts everything back in one click, and disconnecting clears no
+        // No confirmation. Connect puts everything back in one click, and disconnecting clears no
         // book: the venue's orders and quotes stay where Clear order book can reach them. The one case
         // that would lose something is a live load run, and there the button is disabled and says why.
         val offer = viewModel.disconnectAllOffer(activeLoad, runningIds)
@@ -766,7 +734,7 @@ fun ToolbarRunControls(
  * disconnected is exactly what it is for.
  *
  * This one **does** ask, and Disconnect all does not, because the difference between them is exactly what
- * cannot be put back: Quick Connect returns the sessions, and nothing returns a pane's messages. It asks
+ * cannot be put back: Connect returns the sessions, and nothing returns a pane's messages. It asks
  * in the button rather than in a dialog — the second click is the confirmation — and it gives up on its
  * own after a few seconds, so an armed button never sits waiting to be pressed by somebody who has
  * forgotten what it is armed for.
@@ -815,102 +783,6 @@ private fun CloseAllChip(
 private const val CLOSE_ALL_ARMED_MS = 5_000L
 
 /**
- * **The run-configurations chooser's rows.**
- *
- * One row per saved load set and per saved scenario set, each running it at once, the chooser-editor under
- * them, and Recent as its own titled group with the verdict first. Every item that cannot be used stays
- * **visible and disabled with its count showing**, because an author cannot tell "no set is saved" from
- * "this feature does not exist" if the item is withheld.
- */
-@Composable
-@Suppress("LongParameterList")
-private fun RunConfigurationsMenu(
-    savedSets: List<SavedRunSet>,
-    loadSets: List<LoadSet>,
-    recent: List<RecentRun>,
-    lanes: Lanes,
-    /** Saved profiles a load run could issue from at all — connected or not, since Run connects them. */
-    profiles: Int,
-    /** What each saved set runs on, and what Run would bring up for it. */
-    sessionsOf: (LoadSet) -> FixMessageViewModel.LoadSetSessions,
-    running: Boolean,
-    onChose: () -> Unit,
-    onLoadRun: () -> Unit,
-    onRunLoadSet: (String) -> Unit,
-    onRunSaved: (String) -> Unit,
-    onLoadSets: () -> Unit,
-    onOpenRecent: (RecentRun) -> Unit,
-) {
-    // The lane sentence fan-out uses: "2" on its own is a count of *profiles* and reads as two lanes, and
-    // a lane is sequential, so fifty sessions give fifty outstanding rather than four thousand.
-    //
-    // **Neither row waits for a lane to be up any more.** A load run dials the profile it is pointed at
-    // and a set dials every profile it names, so a greyed row here would be hiding the door that connects
-    // them. What holds them now is a run already in flight, and — for a load run — having nowhere to issue
-    // from at all.
-    RailMenuItem(
-        "Load run…  ${if (lanes.profiles > 0) lanes.sentence else "nothing up yet"}",
-        enabled = !running && profiles > 0,
-        tag = "rail-run-load",
-    ) {
-        onChose()
-        onLoadRun()
-    }
-    loadSets.forEach { set ->
-        val phases = "${set.phases.size} phase${if (set.phases.size == 1) "" else "s"}"
-        RailMenuItem(
-            "Load set ▸  ${set.label.ifBlank { set.name }}  $phases",
-            enabled = !running,
-            tag = "rail-run-load-set-${set.name}",
-            // Which sessions this one runs on, and which of them the click will connect — the one thing a
-            // set's name has never said, and the reason running a saved set meant opening its file first.
-            sub = sessionsOf(set).sentence,
-        ) {
-            onChose()
-            onRunLoadSet(set.name)
-        }
-    }
-    if (savedSets.isEmpty()) {
-        RailMenuItem("Run set ▸  none saved", enabled = false, tag = "rail-run-set-none") {}
-    } else {
-        savedSets.forEach { set ->
-            val runs = set.entries.sumOf { it.repeat.coerceAtLeast(1) }
-            RailMenuItem(
-                "Run set ▸  ${set.name}  $runs scenario${if (runs == 1) "" else "s"}",
-                enabled = !running,
-                tag = "rail-run-set-${set.name}",
-            ) {
-                onChose()
-                onRunSaved(set.name)
-            }
-        }
-    }
-    HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-    RailMenuItem("Load sets…  ${loadSets.size} saved", enabled = !running, tag = "rail-load-sets") {
-        onChose()
-        onLoadSets()
-    }
-    // A menu about saved things is also where somebody looks for what they produced, and Recent already
-    // merges load runs with scenario sets. A titled group rather than "Recent ▸" on every row: the rows
-    // are a list of records, and the prefix was saying the same word five times over.
-    if (recent.isNotEmpty()) {
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-        Text(
-            "recent",
-            color = AppTheme.Colors.textDisabled,
-            style = AppTheme.Type.meta,
-            modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 2.dp).testTag("toolbar-recent-group"),
-        )
-        recent.forEach { run ->
-            RailMenuItem(run.line, tag = "rail-recent-${run.id}") {
-                onChose()
-                onOpenRecent(run)
-            }
-        }
-    }
-}
-
-/**
  * A 28dp toolbar chip: an icon, a word, and a chevron when it opens a menu.
  *
  * **A chip that has lost its word says it on hover instead**, and one that still has its word and no
@@ -931,7 +803,7 @@ private fun ToolbarChip(
     words: Boolean = true,
     enabled: Boolean = true,
     tooltip: String? = null,
-    /** The glyph's own colour where it says something the word does not, as Quick Connect's green does. */
+    /** The glyph's own colour where it says something the word does not, as Connect's green does. */
     iconTint: Color = tint,
 ) {
     val hover = tooltip ?: label.takeIf { !words }

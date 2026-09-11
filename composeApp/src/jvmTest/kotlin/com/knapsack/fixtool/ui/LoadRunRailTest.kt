@@ -3,9 +3,10 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertContentDescriptionContains
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -30,10 +31,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * **The door to a load run, and Recent's row for one.** The door is the toolbar's Run ▾ rather than the
- * Scenarios rail: a load run is a named configuration, not something that reads the scenario list. It
- * carries the same lane count fan-out does and stays visible and disabled when no profile can supply
- * lanes. A finished load run is a Recent row marked ⚡ that opens the document over its record.
+ * **The door to a load run, and Recent's row for one.** The door is the toolbar's run configuration widget
+ * rather than the Scenarios rail: a load run is a named configuration, not something that reads the
+ * scenario list. It carries the same lane count fan-out does and says what it is short of when no profile
+ * can supply lanes. A finished load run is a Recent row marked ⚡ that opens the document over its record.
  */
 class LoadRunRailTest {
     @get:Rule
@@ -59,21 +60,23 @@ class LoadRunRailTest {
 
     /**
      * **With no saved profile there is nowhere to issue from at all**, which is the one thing a load run
-     * cannot dial its way out of — so the row stays visible and disabled, and says what it is short of
+     * cannot dial its way out of, so the chip stays visible and refused, and says what it is short of
      * rather than a bare count of lanes that would read as a number of them.
+     *
+     * On a fresh workspace the chip *is* the load run door: nothing is saved, so there is no menu behind it
+     * and the row that used to carry this refusal has nowhere to be drawn.
      */
     @Test
-    fun `Load run sits in the toolbar's Run menu, disabled when there is nowhere at all to issue from`() {
-        composeTestRule.setContent { ToolbarRunControls(viewModel) }
-
-        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+    fun `the run chip is the Load run door, refused when there is nowhere at all to issue from`() {
+        composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
         composeTestRule.waitForIdle()
 
         composeTestRule
-            .onNodeWithTag("rail-run-load")
+            .onNodeWithTag("run-config")
             .assertIsDisplayed()
-            .assertIsNotEnabled()
-            .assertTextContains("Load run…  nothing up yet")
+            .assertTextContains("Load run…")
+            .assertHasNoClickAction()
+            .assertContentDescriptionContains("nothing up yet", substring = true)
     }
 
     /**
@@ -94,7 +97,7 @@ class LoadRunRailTest {
         try {
             composeTestRule.setContent {
                 Column {
-                    ToolbarRunControls(viewModel)
+                    ToolbarRunConfiguration(viewModel)
                     ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
                 }
             }
@@ -127,15 +130,12 @@ class LoadRunRailTest {
             }
             composeTestRule.waitForIdle()
 
-            composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
-            composeTestRule.waitForIdle()
+            // Nothing is saved here, so the toolbar's half of it is the chip itself: the lane count is
+            // what it says on hover, which is where it stays readable once the row has folded away.
             composeTestRule
-                .onNodeWithTag("rail-run-load")
-                .assertIsDisplayed()
+                .onNodeWithTag("run-config")
                 .assertIsEnabled()
-                .assertTextContains("Load run…  2 lanes on 1 profile")
-            composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
-            composeTestRule.waitForIdle()
+                .assertContentDescriptionContains("Load run…  2 lanes on 1 profile", substring = true)
 
             composeTestRule.onNodeWithTag("rail-run-menu").performClick()
             composeTestRule.waitForIdle()
@@ -234,19 +234,22 @@ class LoadRunRailTest {
                 ),
             )
 
-            composeTestRule.setContent { ToolbarRunControls(viewModel) }
+            composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
             viewModel.connectProfile(profile.id, profile)
             composeTestRule.waitUntil(25_000) {
                 viewModel.getProfileSessions(profile.id).count { it.connectionState.value == FixConnectionState.LOGGED_ON } == 2
             }
             composeTestRule.waitForIdle()
 
-            composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+            // The row aims the ▶ and the ▶ is what runs it, so this takes both clicks where it took one.
+            composeTestRule.onNodeWithTag("run-config").performClick()
             composeTestRule.waitForIdle()
             composeTestRule
-                .onNodeWithTag("rail-run-load-set-zulu-broken")
+                .onNodeWithTag("run-config-zulu-broken")
                 .assertIsEnabled()
                 .performClick()
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("run-button").performClick()
             composeTestRule.waitForIdle()
 
             composeTestRule.onNodeWithTag("load-sets-dialog").assertIsDisplayed()
@@ -293,11 +296,21 @@ class LoadRunRailTest {
 
     @Test
     fun `a finished load run is a Recent row that opens its document`() {
+        // A saved set so the chip has a dropdown to hold Recent: with nothing saved the chip is a door
+        // straight to the load run dialog. The record itself carries no `set`, so its row still opens the
+        // document rather than aiming the ▶ at a configuration.
+        viewModel.saveLoadSet(
+            LoadSet(
+                name = "aaa-first",
+                label = "Aaa first",
+                phases = listOf(LoadPhaseSpec("Phase 1", "Nothing", "LoadGen", shape = LoadShape.Burst(10))),
+            ),
+        )
         val report = LoadFixtures.burstReport(unmatched = 0)
         viewModel.loadRecordStore.write(report)
 
-        composeTestRule.setContent { ToolbarRunControls(viewModel) }
-        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+        composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
+        composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule

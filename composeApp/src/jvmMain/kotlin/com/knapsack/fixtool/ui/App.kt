@@ -249,6 +249,10 @@ fun App(
             )
         }
 
+        // ⌃R's target. Remembered here, beside the rest of this window's own UI state, because the key
+        // handler below is at the window level and the widget that knows what to run is in the toolbar.
+        val runShortcut = remember { RunConfigurationShortcut() }
+
         // A slot on the toolbar rather than a dozen more parameters, and `folded` comes from the toolbar,
         // which is the only thing that knows how much room the row has left. See [PaneViewControls].
         val paneViewControls: @Composable (Boolean) -> Unit = { folded ->
@@ -278,6 +282,17 @@ fun App(
                         ) {
                             viewModel.toggleGlobalSearchDialog()
                             true // Consume the event
+                        } else if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.R &&
+                            (event.isMetaPressed || event.isCtrlPressed)
+                        ) {
+                            // ⌃R runs or stops whatever the toolbar's run widget is pointed at, which is
+                            // the whole reason the widget names one thing rather than listing five. Meta or
+                            // Ctrl, the pair ⌘F above and ⌘1 to ⌘8 below already accept, so the shortcut
+                            // works the same way on whichever platform the window is open on. It is the
+                            // widget's own answer that is returned: a window with nothing composed to act
+                            // on lets the key fall through rather than swallowing it.
+                            runShortcut.fire()
                         } else if (event.type == KeyEventType.KeyDown &&
                             event.key == Key.Escape &&
                             followedTrace != null &&
@@ -338,7 +353,8 @@ fun App(
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                     onOpenHelp = { viewModel.toggleHelpDialog() },
                     onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
-                    runControls = { words -> ToolbarRunControls(viewModel, words = words) },
+                    sessionControls = { words -> ToolbarSessionControls(viewModel, words = words) },
+                    runConfiguration = { fold -> ToolbarRunConfiguration(viewModel, fold, shortcut = runShortcut) },
                     viewControls = paneViewControls,
                 )
 

@@ -81,6 +81,16 @@ data class LayoutState(
      */
     val paneMinimized: Map<String, Boolean> = emptyMap(),
     /**
+     * The run configuration the ▶ runs, as `LOADSET:<name>` or `RUNSET:<name>`.
+     *
+     * View state and not a setting, for the reason this file's header gives: it is machine-written as the
+     * user picks from a menu, not edited on a settings page. Null means nothing has been picked yet, and
+     * the widget falls back to the most recent run's configuration. A name that no longer answers to a
+     * saved set falls back the same way rather than being pruned, because a set can come back with the
+     * branch that defined it.
+     */
+    val selectedRunConfiguration: String? = null,
+    /**
      * The project workspace open at last exit, so the app comes back where it was left. Empty means
      * the installation's own directory, which is where a fresh install keeps everything.
      *

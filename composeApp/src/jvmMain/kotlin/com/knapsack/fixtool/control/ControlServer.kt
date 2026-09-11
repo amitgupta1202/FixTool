@@ -2705,7 +2705,7 @@ class ControlServer(
      * **Everything down in one call**, the control surface's half of the toolbar's Disconnect all.
      *
      * It asks nothing first, because a disconnect loses nothing: the books, the records and the panes all
-     * survive one, and Quick Connect puts the sessions back. The one thing that would be lost is a load
+     * survive one, and Connect puts the sessions back. The one thing that would be lost is a load
      * run's own measurements, so a live run or set refuses in the sentence the toolbar's tooltip carries.
      *
      * **Nothing connected is a 200 with `sessions: 0`, not a refusal.** "Make sure nothing is up" is a

@@ -4547,6 +4547,68 @@ class FixMessageViewModel(
         return startRunSet(planned.set)
     }
 
+    /** Remember which configuration the ▶ runs. Null clears it back to the default rule. */
+    fun selectRunConfiguration(key: String?) {
+        updateLayout { it.copy(selectedRunConfiguration = key) }
+    }
+
+    /**
+     * **The configuration the run widget shows**, which is the one that was picked when it still exists
+     * and the best default when it does not.
+     *
+     * A fresh workspace has picked nothing, and a window whose ▶ says "nothing" on a workspace with three
+     * saved sets in it would be a control asking to be configured before it can be used. So the rule falls
+     * back rather than empties: what was picked, then what was run last, then the first thing saved. The
+     * middle step is the one that matters in practice, because the run somebody made ten minutes ago is
+     * almost always the run they want again, and it survives a restart where the in-memory answer would not.
+     *
+     * A pick that no longer names a saved set is **not** cleared, only ignored: a set comes back with the
+     * branch that defined it, and a checkout that deleted it for an afternoon should not also lose the
+     * choice. The string form is kept here rather than the UI's own type, so the ViewModel does not reach
+     * up into a composable's vocabulary to answer a question about two files on disk.
+     */
+    @Suppress("ReturnCount")
+    fun resolvedRunConfiguration(): String? {
+        val sets = loadSets()
+        val runSets = runSetStore.list()
+        _layoutState.value.selectedRunConfiguration
+            ?.takeIf { runConfigurationExists(it, sets, runSets) }
+            ?.let { return it }
+        // Newest first across both kinds, because "the last thing I ran" does not care which kind it was.
+        val recorded =
+            (
+                loadRecordStore.listRecords().mapNotNull { record ->
+                    record.set?.name?.let { "LOADSET:$it" to record.startedAt }
+                } +
+                    runRecordStore.listSets().mapNotNull { set ->
+                        (set.source as? RunSource.Saved)?.setName?.let { "RUNSET:$it" to set.startedAt }
+                    }
+            ).sortedByDescending { it.second }
+        recorded.firstOrNull { runConfigurationExists(it.first, sets, runSets) }?.let { return it.first }
+        sets.firstOrNull()?.let { return "LOADSET:${it.name}" }
+        runSets.firstOrNull()?.let { return "RUNSET:${it.name}" }
+        return null
+    }
+
+    /**
+     * Whether a `KIND:name` key still names a file on disk.
+     *
+     * The prefixes are spelled here rather than imported from the UI's own `RunConfiguration`: they are the
+     * persisted form, and a model that reached into a composable to read one would have the dependency
+     * running the wrong way. Split on the first colon only, because a set's name is a file name and nothing
+     * stops one containing a colon.
+     */
+    private fun runConfigurationExists(key: String, sets: List<LoadSet>, runSets: List<SavedRunSet>): Boolean {
+        val colon = key.indexOf(':')
+        if (colon <= 0 || colon == key.lastIndex) return false
+        val name = key.substring(colon + 1)
+        return when (key.substring(0, colon)) {
+            "LOADSET" -> sets.any { it.name == name }
+            "RUNSET" -> runSets.any { it.name == name }
+            else -> false
+        }
+    }
+
     /** Saves what is on screen as a named set — the thing CI then runs by name. */
     fun saveRunSet(name: String, scenarios: List<Scenario>): Boolean {
         val saved = runSetStore.save(SavedRunSet(name, scenarios.map { SavedRunEntry(it.name) }))
@@ -5826,7 +5888,7 @@ class FixMessageViewModel(
      *
      * The second half of Disconnect all, and the half a load run needs: fifty lanes leave fifty panes, and
      * putting a box back to nothing meant closing them one at a time. Disconnect all leaves them there on
-     * purpose — the logs are still readable and Quick Connect puts the sessions back — so this is the
+     * purpose (the logs are still readable and Connect puts the sessions back), so this is the
      * separate act of saying you are finished with them.
      *
      * It counts **panes**, not connected sessions: a pane left over from a run that has already been

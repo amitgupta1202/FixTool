@@ -1038,8 +1038,8 @@ internal data class Lanes(
 
         /**
          * What a load run can issue from, which includes the one-session profile a venue's load accounts
-         * usually are. The Run menu enables its load rows off this, so the window offers the set that
-         * `fixtool load --set` would run rather than greying it out.
+         * usually are. The run widget's menu enables its load rows off this, so the window offers the set
+         * that `fixtool load --set` would run rather than greying it out.
          */
         fun forLoad(viewModel: FixMessageViewModel): Lanes = counted(viewModel) { viewModel.loadLanes(it) }
 
@@ -1067,12 +1067,26 @@ internal sealed interface RecentRun {
     /** The row as the menu prints it. */
     val line: String
 
+    /**
+     * The saved configuration this record was produced by, or null for a run that was never saved as one.
+     *
+     * A name, not a promise: a record outlives the file it names, so whether that file is still on disk is
+     * the caller's question and is answered where the saved lists are in scope. That is what decides
+     * whether a Recent row aims the ▶ at the configuration or opens the record it came from.
+     */
+    val configuration: RunConfiguration?
+
     data class Set(
         val set: RunSet,
     ) : RecentRun {
         override val id: String get() = set.id
         override val startedAt: Long get() = set.startedAt
         override val line: String get() = "${mark(set.status == RunSetStatus.PASSED)} ▦ ${set.label}  (${set.passed}/${set.total})"
+        override val configuration: RunConfiguration?
+            get() =
+                (set.source as? RunSource.Saved)?.setName?.let {
+                    RunConfiguration(RunConfiguration.Kind.RUN_SET, it)
+                }
     }
 
     /**
@@ -1084,6 +1098,8 @@ internal sealed interface RecentRun {
     ) : RecentRun {
         override val id: String get() = record.id
         override val startedAt: Long get() = record.startedAt
+        override val configuration: RunConfiguration?
+            get() = record.set?.name?.let { RunConfiguration(RunConfiguration.Kind.LOAD_SET, it) }
         override val line: String
             get() {
                 val passed = record.exitCode == LoadReport.EXIT_PASSED
@@ -1120,9 +1136,9 @@ internal sealed interface RecentRun {
  *
  * Every item left here reads the rail: what is starred, what the filter shows, what is ticked, which
  * scenario carries a table, which profiles could supply lanes. The *named* doors that used to sit among
- * them — Load run…, Load set ▸, Run set ▸, Load sets… and Recent — moved to the toolbar's Run ▾, which is
- * about saved configurations and is independent of which tool window happens to be open. Thirteen items
- * of four kinds became seven of one.
+ * them (Load run…, Load set ▸, Run set ▸, Load sets… and Recent) moved to the toolbar's run configuration
+ * widget, which is about saved configurations and is independent of which tool window happens to be open.
+ * Thirteen items of four kinds became seven of one.
  *
  * Every item that cannot be used stays **visible and disabled with its count showing**, because an author
  * cannot tell "there is nothing starred" from "this feature does not exist" if the item is withheld.

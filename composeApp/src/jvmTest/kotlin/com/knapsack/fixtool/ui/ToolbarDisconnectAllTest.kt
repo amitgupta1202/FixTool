@@ -25,7 +25,7 @@ import kotlin.test.assertEquals
 /**
  * **Disconnect all, and its three states.**
  *
- * No confirmation: Quick Connect puts everything back in one click and nothing is lost, so a dialog would
+ * No confirmation: Connect puts everything back in one click and nothing is lost, so a dialog would
  * only be a step to click through. The count is in the tooltip because it is the number that decides
  * whether you meant to press it, and the two refusals say *why* rather than leaving a dead button to
  * explain itself. The reason is in the semantics as well as the hover bubble: a Compose tooltip exists
@@ -55,7 +55,7 @@ class ToolbarDisconnectAllTest {
 
     @Test
     fun `with nothing connected the button is disabled and says so`() {
-        composeTestRule.setContent { ToolbarRunControls(viewModel) }
+        composeTestRule.setContent { ToolbarSessionControls(viewModel) }
 
         composeTestRule
             .onNodeWithTag("toolbar-disconnect-all")
@@ -94,7 +94,7 @@ class ToolbarDisconnectAllTest {
                         ),
                 )
             viewModel.saveConnectionProfile(profile)
-            composeTestRule.setContent { ToolbarRunControls(viewModel) }
+            composeTestRule.setContent { ToolbarSessionControls(viewModel) }
             viewModel.connectProfile(profile.id, profile)
             composeTestRule.waitUntil(25_000) {
                 viewModel.getProfileSessions(profile.id).count { it.connectionState.value == FixConnectionState.LOGGED_ON } == 2

@@ -25,7 +25,7 @@ import kotlin.test.assertEquals
  *
  * The half Disconnect all deliberately leaves undone: a fifty-lane load set leaves fifty panes, and
  * putting a box back to nothing meant closing them one at a time. It asks, where Disconnect all does not,
- * because the difference between the two is exactly what cannot be put back — Quick Connect returns the
+ * because the difference between the two is exactly what cannot be put back: Connect returns the
  * sessions, and nothing returns a pane's messages.
  *
  * It counts **panes**, not connected sessions. A pane left over from a run that has already been
@@ -57,7 +57,7 @@ class ToolbarCloseAllTest {
 
     @Test
     fun `with no pane open the button is disabled and says so`() {
-        composeTestRule.setContent { ToolbarRunControls(viewModel) }
+        composeTestRule.setContent { ToolbarSessionControls(viewModel) }
 
         composeTestRule
             .onNodeWithTag("toolbar-close-all")
@@ -92,7 +92,7 @@ class ToolbarCloseAllTest {
                     ),
             )
         viewModel.saveConnectionProfile(profile)
-        composeTestRule.setContent { ToolbarRunControls(viewModel) }
+        composeTestRule.setContent { ToolbarSessionControls(viewModel) }
         viewModel.connectProfile(profile.id, profile)
         composeTestRule.waitUntil(25_000) { viewModel.sessions.size == 2 }
         composeTestRule.waitForIdle()

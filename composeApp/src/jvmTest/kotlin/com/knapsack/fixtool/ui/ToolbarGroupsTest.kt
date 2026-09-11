@@ -2,7 +2,9 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -19,10 +21,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * **The toolbar is four kinds of thing in six groups, and it never wraps.**
+ * **The toolbar is five kinds of thing in seven groups, and it never wraps.**
  *
  * The row it replaces had twenty four buttons in five kinds arranged in none of them: Terminal inside the
- * connect group because it was added next to Quick Connect, Settings and Help splitting the panel toggles
+ * connect group because it was added next to Connect, Settings and Help splitting the panel toggles
  * into two runs, and Clear all, the only control that destroys anything, between Add blank line and
  * Layout with no divider on either side. Every button was an unlabelled glyph.
  *
@@ -46,7 +48,7 @@ class ToolbarGroupsTest {
     fun `every action chip prints its word while there is room for it`() {
         render(width = 1700.dp)
 
-        composeTestRule.onNodeWithTag("quick-connect").assertTextContains("Quick Connect")
+        composeTestRule.onNodeWithTag("connect").assertTextContains("Connect")
         composeTestRule.onNodeWithTag("toolbar-capture").assertTextContains("Capture")
         composeTestRule.onNodeWithTag("toolbar-search").assertTextContains("Search")
         composeTestRule.onNodeWithTag("toolbar-blank-line").assertTextContains("Blank line")
@@ -57,7 +59,7 @@ class ToolbarGroupsTest {
     fun `a rule separates each group from the next`() {
         render(width = 1700.dp)
 
-        (1..6).forEach { n ->
+        (1..7).forEach { n ->
             composeTestRule.onNodeWithTag("toolbar-divider-$n").assertExists()
         }
     }
@@ -73,11 +75,11 @@ class ToolbarGroupsTest {
         val afterWorkspace = composeTestRule.onNodeWithTag("toolbar-divider-1").getUnclippedBoundsInRoot()
         val filter = composeTestRule.onNodeWithTag("toolbar-filter").getUnclippedBoundsInRoot()
         val beforeConnect = composeTestRule.onNodeWithTag("toolbar-divider-2").getUnclippedBoundsInRoot()
-        val quickConnect = composeTestRule.onNodeWithTag("quick-connect").getUnclippedBoundsInRoot()
+        val connect = composeTestRule.onNodeWithTag("connect").getUnclippedBoundsInRoot()
 
         assertLeftToRight(afterWorkspace.left, filter.left)
         assertLeftToRight(filter.right, beforeConnect.left)
-        assertLeftToRight(beforeConnect.left, quickConnect.left)
+        assertLeftToRight(beforeConnect.left, connect.left)
     }
 
     /** The dangerous one is alone between two rules, which is the only reason those two rules are there. */
@@ -114,21 +116,52 @@ class ToolbarGroupsTest {
             .assertContentDescriptionContains("Add blank line to all panes")
     }
 
-    /** And the words come back in the order the note folds them: the actions first, the rest after. */
+    /**
+     * The run widget is its own group, between the dangerous one and the view controls, because "what runs
+     * when I press ▶" is a question of its own and not a fourth way to connect something.
+     */
     @Test
-    fun `the fold order is the actions' words, then every word, then the segments`() {
+    fun `the run widget sits between Clear all and the view controls`() {
+        render(width = 1700.dp)
+
+        val before = composeTestRule.onNodeWithTag("toolbar-divider-5").getUnclippedBoundsInRoot()
+        val widget = composeTestRule.onNodeWithTag("run-config").getUnclippedBoundsInRoot()
+        val after = composeTestRule.onNodeWithTag("toolbar-divider-6").getUnclippedBoundsInRoot()
+
+        assertLeftToRight(before.left, widget.left)
+        assertLeftToRight(widget.right, after.left)
+    }
+
+    /**
+     * And the words come back in the order the note folds them: the actions first, the run chip's kind,
+     * then every remaining word, then the run chip itself, and only then the segments.
+     */
+    @Test
+    fun `the fold order runs from the action words to the layout segments`() {
         assertEquals(true, ToolbarFold.NONE.actionWords)
+        assertEquals(true, ToolbarFold.NONE.runKind)
         assertEquals(true, ToolbarFold.NONE.commandWords)
+        assertEquals(true, ToolbarFold.NONE.runName)
         assertEquals(true, ToolbarFold.NONE.layoutSegments)
 
         assertEquals(false, ToolbarFold.ACTION_WORDS.actionWords, "Capture, Search and Blank line go first")
-        assertEquals(true, ToolbarFold.ACTION_WORDS.commandWords)
-        assertEquals(true, ToolbarFold.ACTION_WORDS.layoutSegments)
+        assertEquals(true, ToolbarFold.ACTION_WORDS.runKind)
 
-        assertEquals(false, ToolbarFold.ALL_WORDS.commandWords, "then Quick Connect, Run and the rest")
-        assertEquals(true, ToolbarFold.ALL_WORDS.layoutSegments)
+        assertEquals(false, ToolbarFold.RUN_KIND.runKind, "then the run chip drops '· load set'")
+        assertEquals(true, ToolbarFold.RUN_KIND.commandWords)
+
+        assertEquals(false, ToolbarFold.ALL_WORDS.commandWords, "then Connect, Disconnect all and the rest")
+        assertEquals(true, ToolbarFold.ALL_WORDS.runName, "the name is still worth a narrower chip")
+
+        assertEquals(false, ToolbarFold.RUN_NAME.runName, "then the chip goes, leaving the ▶ and a tooltip")
+        assertEquals(null, ToolbarFold.RUN_NAME.runWidget.chipMax)
+        assertEquals(true, ToolbarFold.RUN_NAME.layoutSegments)
 
         assertEquals(false, ToolbarFold.SEGMENTS.layoutSegments, "and only then the layout segments")
+
+        // The two widths the tests either side of this one turn on, asserted where the arithmetic is.
+        assertEquals(ToolbarFold.NONE, ToolbarFold.forWidth(1700.dp), "everything fits at 1700dp")
+        assertEquals(ToolbarFold.SEGMENTS, ToolbarFold.forWidth(900.dp), "and nothing but the filter at 900dp")
     }
 
     private fun assertLeftToRight(
@@ -150,6 +183,9 @@ class ToolbarGroupsTest {
                     onClearAll = { },
                     onOpenSettings = { },
                     onOpenHelp = { },
+                    // A stub, not the real widget: this is a test about arrangement, and the real one reads
+                    // a ViewModel and a workspace on disk to decide what it draws. See RunConfigurationWidgetTest.
+                    runConfiguration = { Box(Modifier.size(120.dp, 28.dp).testTag("run-config")) },
                 )
             }
         }

@@ -61,7 +61,7 @@ fun NoSessionsPlaceholder(
             Text(
                 text =
                     if (hasProfiles) {
-                        "Reconnect a profile from Quick Connect in the toolbar, or open another workspace."
+                        "Reconnect a profile from Connect in the toolbar, or open another workspace."
                     } else {
                         "Open a workspace, or take a bundled example, copied into a workspace of your own: " +
                             "a venue whose rules you can read, clients pointed at it, message templates and " +

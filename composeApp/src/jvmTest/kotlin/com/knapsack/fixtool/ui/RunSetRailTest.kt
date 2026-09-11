@@ -84,7 +84,7 @@ class RunSetRailTest {
 
         composeTestRule.setContent {
             Column {
-                ToolbarRunControls(viewModel)
+                ToolbarRunConfiguration(viewModel)
                 ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
@@ -101,17 +101,17 @@ class RunSetRailTest {
         composeTestRule.onNodeWithTag("rail-save-set").assertIsEnabled().assertTextContains("Save these as a set…")
 
         // And the named doors are gone from here: seven items of one kind, not thirteen of four.
-        composeTestRule.onNodeWithTag("rail-run-set-nightly").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("run-config-nightly").assertDoesNotExist()
         composeTestRule.onNodeWithTag("rail-run-load").assertDoesNotExist()
         composeTestRule.onNodeWithTag("rail-load-sets").assertDoesNotExist()
 
         composeTestRule.onNodeWithTag("rail-run-menu").performClick()
         composeTestRule.waitForIdle()
 
-        // A saved set carries its own size, so "run nightly" is not a leap of faith.
-        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+        // A saved set carries its own size, so aiming the ▶ at nightly is not a leap of faith.
+        composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("rail-run-set-nightly").assertIsDisplayed().assertIsEnabled()
+        composeTestRule.onNodeWithTag("run-config-nightly").assertIsDisplayed().assertIsEnabled()
     }
 
     /**
@@ -151,18 +151,22 @@ class RunSetRailTest {
         val scenario = scenario("book-a-trade")
         viewModel.scenarioService.save(scenario)
         viewModel.refreshScenarios()
+        // A saved set so the chip has a dropdown to hold Recent: with nothing saved the chip is a door
+        // straight to the load run dialog. The record below was produced by `RunSets.repeat`, whose source
+        // is Repeat and not Saved, so its Recent row still opens rather than aiming the ▶ at anything.
+        viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade"))))
         val set = writeFinishedSet(scenario)
 
         composeTestRule.setContent {
             Column {
-                ToolbarRunControls(viewModel)
+                ToolbarRunConfiguration(viewModel)
                 ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
         composeTestRule.waitForIdle()
         // Recent reaches a set the app has since been restarted out of — the records are on disk
         // precisely so the answer does not depend on the process that produced it.
-        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+        composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("rail-recent-${set.id}").performClick()
         composeTestRule.waitForIdle()
@@ -198,16 +202,20 @@ class RunSetRailTest {
         val scenario = scenario("book-a-trade")
         viewModel.scenarioService.save(scenario)
         viewModel.refreshScenarios()
+        // A saved set so the chip has a dropdown to hold Recent: with nothing saved the chip is a door
+        // straight to the load run dialog. The record below was produced by `RunSets.repeat`, whose source
+        // is Repeat and not Saved, so its Recent row still opens rather than aiming the ▶ at anything.
+        viewModel.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade"))))
         val set = writeFinishedSet(scenario)
 
         composeTestRule.setContent {
             Column {
-                ToolbarRunControls(viewModel)
+                ToolbarRunConfiguration(viewModel)
                 ScenariosRail(viewModel, modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("toolbar-run-menu").performClick()
+        composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("rail-recent-${set.id}").performClick()
         composeTestRule.waitForIdle()

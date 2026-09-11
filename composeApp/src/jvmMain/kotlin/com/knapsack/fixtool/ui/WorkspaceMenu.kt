@@ -32,8 +32,8 @@ import java.io.File
 /**
  * **The workspace switcher, where the app's name used to sit.**
  *
- * These items lived in Quick Connect ▾ for one release-that-never-shipped, and they were in the wrong
- * menu. Quick Connect is a *session* control — pick a profile, it connects — and opening a workspace
+ * These items lived in Connect ▾ for one release-that-never-shipped, and they were in the wrong
+ * menu. Connect is a *session* control (pick a profile, it connects) and opening a workspace
  * changes which profiles exist at all. One dropdown mixing "connect this" with "replace everything"
  * asks the reader to hold two scopes at once.
  *

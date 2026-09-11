@@ -3,7 +3,15 @@
 package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.LayoutState
+import com.knapsack.fixtool.model.load.LoadPhaseSpec
+import com.knapsack.fixtool.model.load.LoadRecord
+import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.service.LayoutStateService
+import com.knapsack.fixtool.service.SavedRunEntry
+import com.knapsack.fixtool.service.SavedRunSet
+import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.ui.BottomTab
 import com.knapsack.fixtool.ui.ToolWindow
 import org.junit.After
@@ -145,6 +153,83 @@ class LayoutPersistenceTest {
         vm.updateLayout { it.copy(railRatio = 0.4f) }
         // The in-memory layout updates at once (a composable reading it recomposes); the disk write is debounced.
         assertEquals(0.4f, vm.layoutState.value.railRatio)
+    }
+
+    /**
+     * **What the ▶ is pointed at survives a restart**, which is the whole reason it is written down: the
+     * run somebody made before lunch is almost always the run they want after it, and an answer held only
+     * in memory would put every relaunch back on whatever the default rule picked.
+     */
+    @Test
+    fun `the selected run configuration comes back on the next launch`() {
+        val first = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+        saveLoadSet(first, "rfq-round-trip")
+        first.selectRunConfiguration("LOADSET:rfq-round-trip")
+        // The VM's own save is debounced, so the file is written here rather than waited for.
+        store().save(first.layoutState.value)
+
+        val next = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+        assertEquals("LOADSET:rfq-round-trip", next.layoutState.value.selectedRunConfiguration)
+        assertEquals("LOADSET:rfq-round-trip", next.resolvedRunConfiguration())
+    }
+
+    /**
+     * **The default rule falls back rather than emptying.**
+     *
+     * A window whose ▶ said "nothing" on a workspace with three saved sets in it would be a control asking
+     * to be configured before it can be used, so the rule has three more answers after the pick: the last
+     * thing that was run, then the first thing that was saved, then nothing at all. And a pick naming a set
+     * that is no longer on disk falls through the same way rather than being cleared, because a set comes
+     * back with the branch that defined it.
+     */
+    @Test
+    fun `the default run configuration is the pick, then the last run, then the first saved`() {
+        val vm = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+        assertNull(vm.resolvedRunConfiguration(), "nothing saved and nothing run is the one honest null")
+
+        saveLoadSet(vm, "aaa-first")
+        assertEquals("LOADSET:aaa-first", vm.resolvedRunConfiguration(), "one saved set is the default")
+
+        saveLoadSet(vm, "zulu-last")
+        vm.selectRunConfiguration("LOADSET:zulu-last")
+        assertEquals("LOADSET:zulu-last", vm.resolvedRunConfiguration(), "and a pick beats the default")
+
+        vm.selectRunConfiguration("LOADSET:deleted-on-another-branch")
+        assertEquals(
+            "LOADSET:aaa-first",
+            vm.resolvedRunConfiguration(),
+            "a pick naming nothing on disk falls through to the rule under it",
+        )
+
+        // A record naming a saved set beats the first one saved, because "what I ran last" is the better
+        // guess at "what I want to run next" on any workspace with more than one set in it.
+        vm.selectRunConfiguration(null)
+        val report = LoadFixtures.burstReport(unmatched = 0)
+        vm.loadRecordStore.write(
+            LoadRecord.of(report).copy(set = LoadRecord.SetInfo("zulu-last", OnFailure.CONTINUE)),
+        )
+        assertEquals("LOADSET:zulu-last", vm.resolvedRunConfiguration())
+
+        // And a record naming a set that is no longer saved is skipped rather than offered, the same way a
+        // stale pick is: a Recent row can name a file that went with the branch it was written on.
+        vm.deleteLoadSet("zulu-last")
+        assertEquals("LOADSET:aaa-first", vm.resolvedRunConfiguration())
+
+        // A scenario set is in the running for the same slot when nothing else is: the rule does not care
+        // which kind it was, only which file is still there.
+        vm.deleteLoadSet("aaa-first")
+        vm.runSetStore.save(SavedRunSet("nightly", listOf(SavedRunEntry("book-a-trade"))))
+        assertEquals("RUNSET:nightly", vm.resolvedRunConfiguration())
+    }
+
+    private fun saveLoadSet(vm: FixMessageViewModel, name: String) {
+        vm.saveLoadSet(
+            LoadSet(
+                name = name,
+                label = name,
+                phases = listOf(LoadPhaseSpec("Phase 1", "Nothing", "LoadGen", shape = LoadShape.Burst(10))),
+            ),
+        )
     }
 
     @Test

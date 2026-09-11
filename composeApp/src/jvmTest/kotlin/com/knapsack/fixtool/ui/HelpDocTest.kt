@@ -274,7 +274,7 @@ class HelpDocTest {
      */
     @Test
     fun `the load sets chapter states what a reactive phase is for`() {
-        val chapter = html.substringAfter("""id="load-sets"""").substringBefore("""<h3 id="quick-connect"""")
+        val chapter = html.substringAfter("""id="load-sets"""").substringBefore("""<h3 id="connect"""")
 
         val claims =
             mapOf(
@@ -311,7 +311,7 @@ class HelpDocTest {
      */
     @Test
     fun `the load sets chapter states what a run brings up before it dials`() {
-        val chapter = html.substringAfter("""id="load-sets"""").substringBefore("""<h3 id="quick-connect"""")
+        val chapter = html.substringAfter("""id="load-sets"""").substringBefore("""<h3 id="connect"""")
 
         val claims =
             mapOf(
@@ -444,7 +444,7 @@ class HelpDocTest {
      */
     @Test
     fun `the toolbar chapter states what Close all takes away and that it asks`() {
-        val chapter = html.substringAfter("""id="quick-connect"""").substringBefore("""<h3 id="workspaces"""")
+        val chapter = html.substringAfter("""id="connect"""").substringBefore("""<h3 id="workspaces"""")
 
         val claims =
             mapOf(
@@ -507,7 +507,7 @@ class HelpDocTest {
                 "a workspace is a folder, and there is one kind" to "There is one",
                 "New makes an empty one and Open opens a folder or an example" to
                     "<strong>New</strong> makes an empty one",
-                "the switcher is at the top left, not in Quick Connect" to "switcher at the top left",
+                "the switcher is at the top left, not in Connect" to "switcher at the top left",
                 "Default is ~/.fixtool and nothing moved on upgrade" to "nothing had to move on upgrade",
                 "Default cannot be closed and is not in Recent" to "never appears in Recent",
                 "an example is copied out because the bundle cannot be edited in place" to

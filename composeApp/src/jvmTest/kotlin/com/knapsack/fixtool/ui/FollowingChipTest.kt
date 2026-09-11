@@ -15,8 +15,8 @@ import kotlin.test.assertEquals
  * silently dropping the leg it did not know to match. These pin that the chip appears only while
  * following, names the trace and its counts, says which pane lost history, and can be dismissed.
  *
- * It rides in the filter row now rather than in the toolbar, beside the regex and the direction boxes it
- * was always a third of: same chip, same tags, one row down. See [FilterRow].
+ * It rides in the middle of the toolbar, beside the regex and the direction boxes it was always a third
+ * of: same chip, same tags, no row of its own. See [ToolbarFilter].
  */
 class FollowingChipTest {
     @get:Rule
@@ -25,7 +25,7 @@ class FollowingChipTest {
     @Test
     fun `no chip when nothing is followed`() {
         composeTestRule.setContent {
-            FilterRow()
+            ToolbarFilter()
         }
 
         composeTestRule.onNodeWithTag("following-chip").assertDoesNotExist()
@@ -34,7 +34,7 @@ class FollowingChipTest {
     @Test
     fun `the chip names the trace, its sessions and its messages`() {
         composeTestRule.setContent {
-            FilterRow(
+            ToolbarFilter(
                 query =
                     FilterQuery(
                         followingLabel = "RFQ-A1",
@@ -52,7 +52,7 @@ class FollowingChipTest {
     @Test
     fun `a head-truncated trace says which pane lost history`() {
         composeTestRule.setContent {
-            FilterRow(
+            ToolbarFilter(
                 query =
                     FilterQuery(
                         followingLabel = "RFQ-A1",
@@ -72,7 +72,7 @@ class FollowingChipTest {
     fun `the chip's cross unfollows`() {
         var unfollowed = 0
         composeTestRule.setContent {
-            FilterRow(
+            ToolbarFilter(
                 query =
                     FilterQuery(
                         followingLabel = "RFQ-A1",

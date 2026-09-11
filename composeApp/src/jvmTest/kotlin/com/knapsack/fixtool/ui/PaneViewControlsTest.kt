@@ -1,26 +1,33 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.FixMessageSession
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
- * **The pane bar's view controls: the layout segments, the View menu, and what each row calls.**
+ * **The toolbar's view controls: the layout segments, the View menu, and what each row calls.**
  *
- * These controls are the only door to the four settings now. The toolbar's cycling Layout button and its
- * three all-sessions toggles are gone, so a row that stops calling its toggle here is a setting nobody can
- * reach at all, and these are the tests that stop that happening.
+ * These controls are the only door to the four settings. The cycling Layout button and the three
+ * all-sessions toggles it sat beside are both gone, so a row that stops calling its toggle here is a
+ * setting nobody can reach at all, and these are the tests that stop that happening.
+ *
+ * They are rendered through [Toolbar] rather than on their own, because the toolbar is what decides
+ * whether the segments are drawn at all: it measures its own width and folds them into `View ▾` when
+ * there is no room. A test that called [PaneViewControls] directly would be testing a `folded` flag it
+ * had set itself.
  *
  * The radio pair gets the most attention because it is the one place a wrong call is worse than no call:
  * [PaneViewControls]'s `onToggleGridView` is a *flip* of the all-sessions mode, so picking the mode that
@@ -31,17 +38,14 @@ class PaneViewControlsTest {
     val composeTestRule = createComposeRule()
 
     /** Wide enough that nothing folds, so a test about the segments is about the segments. */
-    private val wideBar = 600.dp
+    private val wideToolbar = 1700.dp
 
-    /**
-     * Narrower than [paneBarFullWidth] for a bar with no tabs and no per-session buttons, which is 186dp.
-     * Asserted rather than assumed in the fold test below, so the premise cannot rot.
-     */
-    private val narrowBar = 180.dp
+    /** Narrow enough that the segments have gone into the menu. Asserted, not assumed, in the fold test. */
+    private val narrowToolbar = 900.dp
 
     @Test
     fun `the three layouts are three segments, and only the one in force reads as pressed`() {
-        renderControls(viewMode = ViewMode.SPLIT_HORIZONTAL)
+        renderToolbar(viewMode = ViewMode.SPLIT_HORIZONTAL)
 
         composeTestRule.onNodeWithTag(ViewMode.TABS.testTag).assertIsNotSelected()
         composeTestRule.onNodeWithTag(ViewMode.SPLIT_HORIZONTAL.testTag).assertIsSelected()
@@ -51,7 +55,7 @@ class PaneViewControlsTest {
     @Test
     fun `clicking a segment asks for that layout and no other`() {
         val chosen = mutableListOf<ViewMode>()
-        renderControls(viewMode = ViewMode.TABS, onViewModeChange = { chosen += it })
+        renderToolbar(viewMode = ViewMode.TABS, onViewModeChange = { chosen += it })
 
         composeTestRule.onNodeWithTag(ViewMode.SPLIT_VERTICAL.testTag).performClick()
         composeTestRule.waitForIdle()
@@ -61,7 +65,7 @@ class PaneViewControlsTest {
 
     @Test
     fun `View opens on all four settings at once`() {
-        renderControls()
+        renderToolbar()
 
         composeTestRule.onNodeWithTag("view-menu").performClick()
         composeTestRule.waitForIdle()
@@ -74,7 +78,7 @@ class PaneViewControlsTest {
 
     @Test
     fun `the row-mode pair marks whichever mode every pane is drawing`() {
-        renderControls(sessionViewMode = FixMessageSession.ViewMode.PARSED)
+        renderToolbar(sessionViewMode = FixMessageSession.ViewMode.PARSED)
         composeTestRule.onNodeWithTag("view-menu").performClick()
         composeTestRule.waitForIdle()
 
@@ -84,7 +88,7 @@ class PaneViewControlsTest {
 
     @Test
     fun `the row-mode pair marks RAW when RAW is what the panes are drawing`() {
-        renderControls(sessionViewMode = FixMessageSession.ViewMode.RAW)
+        renderToolbar(sessionViewMode = FixMessageSession.ViewMode.RAW)
         composeTestRule.onNodeWithTag("view-menu").performClick()
         composeTestRule.waitForIdle()
 
@@ -95,7 +99,7 @@ class PaneViewControlsTest {
     @Test
     fun `picking the other row mode flips every pane, and the menu closes on the answer`() {
         var flips = 0
-        renderControls(sessionViewMode = FixMessageSession.ViewMode.PARSED, onToggleGridView = { flips++ })
+        renderToolbar(sessionViewMode = FixMessageSession.ViewMode.PARSED, onToggleGridView = { flips++ })
 
         composeTestRule.onNodeWithTag("view-menu").performClick()
         composeTestRule.waitForIdle()
@@ -109,7 +113,7 @@ class PaneViewControlsTest {
     @Test
     fun `picking the row mode already in force calls nothing`() {
         var flips = 0
-        renderControls(sessionViewMode = FixMessageSession.ViewMode.PARSED, onToggleGridView = { flips++ })
+        renderToolbar(sessionViewMode = FixMessageSession.ViewMode.PARSED, onToggleGridView = { flips++ })
 
         composeTestRule.onNodeWithTag("view-menu").performClick()
         composeTestRule.waitForIdle()
@@ -126,7 +130,7 @@ class PaneViewControlsTest {
     @Test
     fun `Hide protocol tags toggles its setting and leaves the menu open`() {
         var toggles = 0
-        renderControls(onToggleHideProtocolTags = { toggles++ })
+        renderToolbar(onToggleHideProtocolTags = { toggles++ })
 
         composeTestRule.onNodeWithTag("view-menu").performClick()
         composeTestRule.waitForIdle()
@@ -140,7 +144,7 @@ class PaneViewControlsTest {
     @Test
     fun `Group by conversation toggles its setting and leaves the menu open`() {
         var toggles = 0
-        renderControls(onToggleGroupByConversation = { toggles++ })
+        renderToolbar(onToggleGroupByConversation = { toggles++ })
 
         composeTestRule.onNodeWithTag("view-menu").performClick()
         composeTestRule.waitForIdle()
@@ -151,39 +155,15 @@ class PaneViewControlsTest {
         composeTestRule.onNodeWithTag("view-hide-tags").assertExists()
     }
 
-    /** The split layouts get the same controls through their own bar, which is the point of the slot. */
-    @Test
-    fun `the split layouts' bar carries the same controls`() {
-        composeTestRule.setContent {
-            Box(modifier = Modifier.width(wideBar)) {
-                SplitViewBar { folded ->
-                    PaneViewControls(
-                        viewMode = ViewMode.SPLIT_VERTICAL,
-                        onViewModeChange = { },
-                        sessionViewMode = FixMessageSession.ViewMode.PARSED,
-                        onToggleGridView = { },
-                        hideProtocolTags = true,
-                        onToggleHideProtocolTags = { },
-                        groupByConversation = false,
-                        onToggleGroupByConversation = { },
-                        folded = folded,
-                    )
-                }
-            }
-        }
-
-        composeTestRule.onNodeWithTag("split-view-bar").assertExists()
-        composeTestRule.onNodeWithTag("view-menu").assertExists()
-        composeTestRule.onNodeWithTag(ViewMode.SPLIT_VERTICAL.testTag).assertIsSelected()
-    }
-
     /**
      * The fold rule, from the wide side: with room for everything the segments are drawn, so the narrow
      * test below is pinned against a threshold that does something rather than one that folds always.
      */
     @Test
-    fun `a bar with room for them draws the three segments`() {
-        renderSplitBar(width = wideBar, viewMode = ViewMode.TABS)
+    fun `a toolbar with room for them draws the three segments`() {
+        assertEquals(ToolbarFold.NONE, ToolbarFold.forWidth(wideToolbar), "this test means nothing above the fold")
+
+        renderToolbar(width = wideToolbar, viewMode = ViewMode.TABS)
 
         composeTestRule.onNodeWithTag(ViewMode.TABS.testTag).assertExists()
         composeTestRule.onNodeWithTag(ViewMode.SPLIT_HORIZONTAL.testTag).assertExists()
@@ -191,18 +171,19 @@ class PaneViewControlsTest {
     }
 
     /**
-     * And from the narrow side. The segments go first and `View ▾` stays, because the layout can be three
-     * more rows in a menu and nothing here can be reached at all once it has been clipped away.
+     * And from the narrow side. The segments go before `View ▾` does, because the layout can be three more
+     * rows in a menu and nothing here can be reached at all once it has been clipped away.
      */
     @Test
-    fun `a bar too narrow for the segments folds them into the View menu and keeps View`() {
-        assertTrue(
-            paneBarFullWidth(actionButtons = 0, showsTabs = false) > narrowBar,
-            "this test only means anything below the fold threshold, and $narrowBar was not below it",
+    fun `a toolbar too narrow for the segments folds them into the View menu and keeps View`() {
+        assertEquals(
+            ToolbarFold.SEGMENTS,
+            ToolbarFold.forWidth(narrowToolbar),
+            "this test only means anything below the segments' threshold, and $narrowToolbar was not below it",
         )
 
         val chosen = mutableListOf<ViewMode>()
-        renderSplitBar(width = narrowBar, viewMode = ViewMode.TABS, onViewModeChange = { chosen += it })
+        renderToolbar(width = narrowToolbar, viewMode = ViewMode.TABS, onViewModeChange = { chosen += it })
 
         composeTestRule.onNodeWithTag(ViewMode.TABS.testTag).assertDoesNotExist()
         composeTestRule.onNodeWithTag(ViewMode.SPLIT_HORIZONTAL.testTag).assertDoesNotExist()
@@ -222,11 +203,12 @@ class PaneViewControlsTest {
     }
 
     /**
-     * The regression the weighted, scrolling tab strip guards: the tabs are measured last, so however many
-     * panes are open the view controls keep their natural width instead of being pushed off the right edge.
+     * The regression the weighted, scrolling tab strip guards, which outlived the view controls it was
+     * first written for: the tabs are measured last, so however many panes are open the per-session
+     * buttons keep their natural width instead of being pushed off the right edge.
      */
     @Test
-    fun `many open panes cannot push the View menu off the tab bar`() {
+    fun `many open panes cannot push the per-session buttons off the tab bar`() {
         val sessions = (1..8).map { FixMessageSession(id = "s$it", title = "Session $it") }
         composeTestRule.setContent {
             Box(modifier = Modifier.width(420.dp)) {
@@ -239,28 +221,17 @@ class PaneViewControlsTest {
                     onToggleWrapText = { },
                     onConnect = { },
                     onDisconnect = { },
-                    viewControls = { folded ->
-                        PaneViewControls(
-                            viewMode = ViewMode.TABS,
-                            onViewModeChange = { },
-                            sessionViewMode = FixMessageSession.ViewMode.PARSED,
-                            onToggleGridView = { },
-                            hideProtocolTags = true,
-                            onToggleHideProtocolTags = { },
-                            groupByConversation = false,
-                            onToggleGroupByConversation = { },
-                            folded = folded,
-                        )
-                    },
                 )
             }
         }
 
-        composeTestRule.onNodeWithTag("view-menu").assertExists()
+        composeTestRule.onNodeWithContentDescription("Minimize Pane").assertExists()
     }
 
-    /** The controls on their own, at a width nothing folds at. */
-    private fun renderControls(
+    /** The controls as the window draws them: in the toolbar, at a width that decides the fold. */
+    @Suppress("LongParameterList")
+    private fun renderToolbar(
+        width: Dp = wideToolbar,
         viewMode: ViewMode = ViewMode.TABS,
         onViewModeChange: (ViewMode) -> Unit = { },
         sessionViewMode: FixMessageSession.ViewMode = FixMessageSession.ViewMode.PARSED,
@@ -269,42 +240,22 @@ class PaneViewControlsTest {
         onToggleGroupByConversation: () -> Unit = { },
     ) {
         composeTestRule.setContent {
-            Box(modifier = Modifier.width(wideBar)) {
-                PaneViewControls(
-                    viewMode = viewMode,
-                    onViewModeChange = onViewModeChange,
-                    sessionViewMode = sessionViewMode,
-                    onToggleGridView = onToggleGridView,
-                    hideProtocolTags = true,
-                    onToggleHideProtocolTags = onToggleHideProtocolTags,
-                    groupByConversation = false,
-                    onToggleGroupByConversation = onToggleGroupByConversation,
+            Box(modifier = Modifier.requiredWidth(width)) {
+                Toolbar(
+                    viewControls = { folded ->
+                        PaneViewControls(
+                            viewMode = viewMode,
+                            onViewModeChange = onViewModeChange,
+                            sessionViewMode = sessionViewMode,
+                            onToggleGridView = onToggleGridView,
+                            hideProtocolTags = true,
+                            onToggleHideProtocolTags = onToggleHideProtocolTags,
+                            groupByConversation = false,
+                            onToggleGroupByConversation = onToggleGroupByConversation,
+                            folded = folded,
+                        )
+                    },
                 )
-            }
-        }
-    }
-
-    /** The split layouts' bar at a chosen width, which is what decides the fold. */
-    private fun renderSplitBar(
-        width: androidx.compose.ui.unit.Dp,
-        viewMode: ViewMode,
-        onViewModeChange: (ViewMode) -> Unit = { },
-    ) {
-        composeTestRule.setContent {
-            Box(modifier = Modifier.width(width)) {
-                SplitViewBar { folded ->
-                    PaneViewControls(
-                        viewMode = viewMode,
-                        onViewModeChange = onViewModeChange,
-                        sessionViewMode = FixMessageSession.ViewMode.PARSED,
-                        onToggleGridView = { },
-                        hideProtocolTags = true,
-                        onToggleHideProtocolTags = { },
-                        groupByConversation = false,
-                        onToggleGroupByConversation = { },
-                        folded = folded,
-                    )
-                }
             }
         }
     }

@@ -2119,16 +2119,6 @@ class FixMessageViewModel(
     val globalFilterShowOutgoing: StateFlow<Boolean> = _globalFilterShowOutgoing.asStateFlow()
 
     /**
-     * **The filter row has been asked for**, which is not the same as being on screen.
-     *
-     * The row is drawn whenever this is true *or* the filter is narrowing anything, so nothing here can
-     * put a live filter out of sight. See `FilterRow` for the rule and `LayoutState.showFilterRow` for
-     * where it is remembered.
-     */
-    private val _showFilterRow = MutableStateFlow(false)
-    val showFilterRow: StateFlow<Boolean> = _showFilterRow.asStateFlow()
-
-    /**
      * **The one followed trace, and the cross-session grouping behind it.**
      *
      * App-level, unlike grouping and collapse, which are per session — see [TraceFollow] for why that
@@ -2447,7 +2437,6 @@ class FixMessageViewModel(
         _showLatencyPanel.value = l.showLatencyPanel
         _showOrderBookPanel.value = l.showOrderBookPanel
         _scenarioDockMinimized.value = l.scenarioDockMinimized
-        _showFilterRow.value = l.showFilterRow
         // The flag only. The Ledger's rows come from the trace ticker, which is started at the end of
         // `init` rather than here: refreshing needs the dictionary, and this runs before it is loaded.
         if (l.showTracePanel) traceFollow.openTracePanel()
@@ -2468,7 +2457,6 @@ class FixMessageViewModel(
         _showOrderBookPanel.drop(1).onEach { v -> updateLayout { it.copy(showOrderBookPanel = v) } }.launchIn(viewModelScope)
         tracePanelOpen.drop(1).onEach { v -> updateLayout { it.copy(showTracePanel = v) } }.launchIn(viewModelScope)
         _scenarioDockMinimized.drop(1).onEach { v -> updateLayout { it.copy(scenarioDockMinimized = v) } }.launchIn(viewModelScope)
-        _showFilterRow.drop(1).onEach { v -> updateLayout { it.copy(showFilterRow = v) } }.launchIn(viewModelScope)
     }
 
     /**
@@ -6545,16 +6533,6 @@ class FixMessageViewModel(
 
     fun setGlobalFilterShowOutgoing(show: Boolean) {
         _globalFilterShowOutgoing.value = show
-    }
-
-    /** Ask for the filter row, or stop asking. What it is asking about is [showFilterRow]. */
-    fun setShowFilterRow(show: Boolean) {
-        _showFilterRow.value = show
-    }
-
-    /** The funnel and ⌥⌘F, which are the same door. */
-    fun toggleFilterRow() {
-        _showFilterRow.value = !_showFilterRow.value
     }
 
     /**

@@ -126,13 +126,12 @@ fun App(
         val followedTraceIndex by viewModel.traceIndex.collectAsState()
 
         /**
-         * The filter row's whole question, and whether it is on screen.
+         * The whole question the filter asks of every pane, as the toolbar draws it.
          *
-         * `shown` is the never-silent rule in one line: asked for, **or** narrowing something. A row
-         * that is narrowing cannot be closed by the funnel, only by its own ✕, which clears first. See
-         * [FilterRow].
+         * One value rather than three, because the regex, the two directions and the followed trace are
+         * one query. It is on the toolbar at all times, which is what keeps it from going silent. See
+         * [ToolbarFilter].
          */
-        val showFilterRow by viewModel.showFilterRow.collectAsState()
         val filterQuery =
             remember(globalFilter, followedTrace) {
                 FilterQuery(
@@ -143,10 +142,6 @@ fun App(
                     followingTruncatedOn = followedTrace?.truncatedSessionTitles.orEmpty(),
                 )
             }
-        val filterRowShown = filterQuery.shown(showFilterRow)
-        // Bumped by ⌥⌘F so the shortcut lands in the regex field. A row that appeared because something
-        // started narrowing the panes does not take the keyboard off whatever was typing. See [FilterRow].
-        var filterRowFocusTick by remember { mutableStateOf(0) }
         // Null, not empty, when nothing is followed: an empty set would narrow every pane to nothing,
         // and "following an id that has not arrived yet" is a state this app deliberately holds.
         val followedUids = followedTrace?.uids
@@ -315,8 +310,8 @@ fun App(
             )
         }
 
-        // One slot, both layouts, so the bar cannot say two different things about the same four settings.
-        // `folded` comes from whichever bar is holding it — see [PaneViewControls].
+        // A slot on the toolbar rather than a dozen more parameters, and `folded` comes from the toolbar,
+        // which is the only thing that knows how much room the row has left. See [PaneViewControls].
         val paneViewControls: @Composable (Boolean) -> Unit = { folded ->
             PaneViewControls(
                 viewMode = viewMode,
@@ -328,30 +323,7 @@ fun App(
                 groupByConversation = anySessionGrouped,
                 onToggleGroupByConversation = { viewModel.toggleGroupByConversationAllSessions() },
                 folded = folded,
-                filterQuery = filterQuery,
-                filterRowShown = filterRowShown,
-                onToggleFilterRow = { viewModel.toggleFilterRow() },
             )
-        }
-
-        /**
-         * The filter row, drawn directly under whichever pane bar is on screen, in both layouts.
-         *
-         * A slot for the same reason the view controls are one: the two layouts hand it to two different
-         * bars, and a second copy of this call is a second place for the rule to be got wrong.
-         */
-        val filterRow: @Composable () -> Unit = {
-            if (filterRowShown) {
-                FilterRow(
-                    query = filterQuery,
-                    onRegexChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
-                    onIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
-                    onOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
-                    onUnfollow = { viewModel.unfollow() },
-                    onHide = { viewModel.setShowFilterRow(false) },
-                    focusTick = filterRowFocusTick,
-                )
-            }
         }
 
         Box(
@@ -359,20 +331,10 @@ fun App(
                 modifier
                     .fillMaxSize()
                     .onKeyEvent { event ->
-                        // ⌥⌘F (Ctrl+Alt+F elsewhere) opens the filter row and puts the caret in its
-                        // regex field, because ⌘F is Search all sessions and stays that way. Tested
-                        // before ⌘F below, which is why that branch names the modifier it must not have.
+                        // ⌘F is Search all sessions. The filter has no shortcut of its own any more: it
+                        // is on the toolbar, in the open, so there is nothing for one to summon.
                         if (event.type == KeyEventType.KeyDown &&
                             event.key == Key.F &&
-                            event.isAltPressed &&
-                            (event.isMetaPressed || event.isCtrlPressed)
-                        ) {
-                            viewModel.toggleFilterRow()
-                            if (!showFilterRow) filterRowFocusTick++
-                            true
-                        } else if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.F &&
-                            !event.isAltPressed &&
                             (event.isMetaPressed || event.isCtrlPressed)
                         ) {
                             viewModel.toggleGlobalSearchDialog()
@@ -426,13 +388,19 @@ fun App(
                     workspace = workspaceMenu,
                     environments = viewModel.environments,
                     onConnectProfileIn = { profile, environment -> viewModel.connectProfileIn(profile, environment) },
+                    filter = filterQuery,
+                    onFilterRegexChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
+                    onFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
+                    onFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
+                    onUnfollow = { viewModel.unfollow() },
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                     onOpenHelp = { viewModel.toggleHelpDialog() },
                     onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
-                    runControls = { ToolbarRunControls(viewModel) },
+                    runControls = { words -> ToolbarRunControls(viewModel, words = words) },
+                    viewControls = paneViewControls,
                 )
 
                 // The load run dialog, opened from the editor's Load button with the editor's fields as the template.
@@ -577,10 +545,7 @@ fun App(
                                         onEditVenueRules = { session -> viewModel.openVenueRules(session) },
                                         isAtBottom = isAtBottom,
                                         onScrollToBottom = { scrollToBottomTrigger++ },
-                                        viewControls = paneViewControls,
                                     )
-
-                                    filterRow()
 
                                     // The centre is always the sessions now — the scenario editor is a
                                     // bottom dock (see ScenarioDock), not a pane that replaces the grid.
@@ -954,8 +919,6 @@ fun App(
                                             globalFilter = globalFilter,
                                             followedUids = followedUids,
                                             followedTraceIds = followedTraceIds,
-                                            viewControls = paneViewControls,
-                                            filterRow = filterRow,
                                         )
 
                                         // The bottom slot: Trace panel when open, else pinned results.
@@ -1176,8 +1139,6 @@ fun App(
                                         globalFilter = globalFilter,
                                         followedUids = followedUids,
                                         followedTraceIds = followedTraceIds,
-                                        viewControls = paneViewControls,
-                                        filterRow = filterRow,
                                     )
 
                                     // The bottom slot: Trace panel when open, else pinned results.
@@ -1296,8 +1257,9 @@ private fun ScenariosRailDock(
  * split, which coupled where it appeared to the *session* view mode; it is a bottom dock now (see
  * [ScenarioDock]), so the centre is purely the sessions in both TABS and SPLIT.
  *
- * The bar above it is the split layouts' half of the one pane bar: the same height and the same view
- * controls the tabs row carries, so the four settings sit in one place whichever layout is showing.
+ * Nothing sits above it. The split layouts had a bar of their own for one build, carrying the view
+ * controls and the filter row under it, which cost two lines of pane height to hold six controls that
+ * are on the toolbar in both layouts now. See [Toolbar].
  */
 @Composable
 private fun ColumnScope.SplitCentre(
@@ -1311,14 +1273,9 @@ private fun ColumnScope.SplitCentre(
     globalFilter: MessageFilters.Global = MessageFilters.Global.NONE,
     followedUids: Set<Long>? = null,
     followedTraceIds: Set<String> = emptySet(),
-    viewControls: @Composable (folded: Boolean) -> Unit,
-    /** [FilterRow] when it is on screen, directly under the bar, exactly as the tabs layout draws it. */
-    filterRow: @Composable () -> Unit = {},
 ) {
     val connectionPanelOpen by viewModel.showConnectionPanel.collectAsState()
     val splitScope = rememberCoroutineScope()
-    SplitViewBar(viewControls = viewControls)
-    filterRow()
     SplitView(
         sessions = viewModel.sessions,
         dictionary = viewModel.dictionary,

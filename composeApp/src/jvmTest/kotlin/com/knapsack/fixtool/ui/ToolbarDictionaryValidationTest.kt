@@ -2,6 +2,7 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Before
@@ -177,10 +178,10 @@ class ToolbarDictionaryValidationTest {
         }
 
         // Then: All buttons should be clickable
-        composeTestRule.onNodeWithContentDescription("Capture Scenario").performClick()
+        composeTestRule.onNodeWithTag("toolbar-capture").performClick()
         assert(captureClicked) { "Capture Scenario button should work" }
 
-        composeTestRule.onNodeWithContentDescription("Search All Sessions").performClick()
+        composeTestRule.onNodeWithTag("toolbar-search").performClick()
         assert(searchClicked) { "Search All Sessions button should work" }
 
         composeTestRule.onNodeWithContentDescription("Settings").performClick()
@@ -206,10 +207,10 @@ class ToolbarDictionaryValidationTest {
         }
 
         // Then: All buttons should still be clickable (dictionary validation doesn't disable functionality)
-        composeTestRule.onNodeWithContentDescription("Capture Scenario").performClick()
+        composeTestRule.onNodeWithTag("toolbar-capture").performClick()
         assert(captureClicked) { "Capture Scenario button should work even with invalid dictionary" }
 
-        composeTestRule.onNodeWithContentDescription("Search All Sessions").performClick()
+        composeTestRule.onNodeWithTag("toolbar-search").performClick()
         assert(searchClicked) { "Search All Sessions button should work even with invalid dictionary" }
 
         composeTestRule.onNodeWithContentDescription("Settings").performClick()

@@ -193,10 +193,10 @@ class AppIntegrationTest {
         }
 
         // Then: the capture button is present (next to the Scenarios button)...
-        composeTestRule.onNodeWithContentDescription("Capture Scenario").assertExists()
+        composeTestRule.onNodeWithTag("toolbar-capture").assertExists()
 
         // ...and clicking it fires the callback that routes straight to the editor.
-        composeTestRule.onNodeWithContentDescription("Capture Scenario").performClick()
+        composeTestRule.onNodeWithTag("toolbar-capture").performClick()
         composeTestRule.waitForIdle()
         assertTrue(captureInvoked, "Capture Scenario button should invoke onCaptureScenario")
     }
@@ -294,8 +294,9 @@ class AppIntegrationTest {
             )
         }
 
-        // Then: Quick Connect dropdown should be displayed
-        composeTestRule.onNodeWithText("Quick Connect").assertExists()
+        // Then: Quick Connect dropdown should be displayed. By tag, not by its word: the chip prints
+        // "Quick Connect" while the toolbar is wide enough for it and its glyph alone when it is not.
+        composeTestRule.onNodeWithTag("quick-connect").assertExists()
     }
 
     @Test
@@ -310,7 +311,7 @@ class AppIntegrationTest {
         }
 
         // Then: Quick Connect dropdown should NOT be displayed
-        composeTestRule.onNodeWithText("Quick Connect").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("quick-connect").assertDoesNotExist()
     }
 
     @Test
@@ -329,7 +330,7 @@ class AppIntegrationTest {
         }
 
         // Click to expand dropdown
-        composeTestRule.onNodeWithText("Quick Connect").performClick()
+        composeTestRule.onNodeWithTag("quick-connect").performClick()
         composeTestRule.waitForIdle()
 
         // Then: Profile names should be visible in dropdown
@@ -534,7 +535,7 @@ class AppIntegrationTest {
         }
 
         // Then: Clear all button should be displayed
-        composeTestRule.onNodeWithContentDescription("Clear All").assertExists()
+        composeTestRule.onNodeWithTag("toolbar-clear-all").assertExists()
     }
 
     @Test
@@ -547,7 +548,7 @@ class AppIntegrationTest {
         }
 
         // Then: Add separator button should be displayed
-        composeTestRule.onNodeWithContentDescription("Blank Line").assertExists()
+        composeTestRule.onNodeWithTag("toolbar-blank-line").assertExists()
     }
 
     @Test

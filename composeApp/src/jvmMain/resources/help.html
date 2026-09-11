@@ -1222,7 +1222,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
         </tr>
     </table>
 
-    <p>Both live under <strong>View &#9662;</strong> at the right end of the pane bar, as
+    <p>Both live under <strong>View &#9662;</strong> at the right of the toolbar, as
     <em>Parsed rows</em> and <em>Raw rows</em>, and the switch applies to every session at once. The three
     segments beside it choose the <strong>layout</strong> the panes are arranged in: tabs, split across, or
     split down.</p>
@@ -1260,8 +1260,8 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
         back.</li>
         <li><strong>Per session, like the filter.</strong> Each pane folds independently &mdash; a
         both-sides test legitimately shows the same exchange from both chairs, and folding it in one
-        pane must not fold the other. <strong>Group by conversation</strong> in <strong>View &#9662;</strong> on the pane
-        bar is the bulk switch for every session at once.</li>
+        pane must not fold the other. <strong>Group by conversation</strong> in <strong>View &#9662;</strong> on the
+        toolbar is the bulk switch for every session at once.</li>
         <li><strong>Nothing is hidden.</strong> Messages carrying no correlation id &mdash; heartbeats,
         logons, anything the loaded dictionary cannot place &mdash; sit in an <strong>Ungrouped</strong>
         group at the bottom, counted, never dropped.</li>
@@ -2266,27 +2266,25 @@ ${incoming["D"].valueOfTag(38)}
 
     <h2 id="filtering">8. Filtering Messages</h2>
 
-    <p>There are two filters and they compose. The <strong>global filter</strong> in the filter row applies
-    to every session at once, and each session's own <strong>filter row</strong> applies to that pane alone. A
-    message is shown only if it passes <em>both</em> &mdash; so you can narrow every pane to
-    <code>EUR/USD</code> from the row and still keep one pane on <code>35=8</code> of its own.</p>
+    <p>There are two filters and they compose. The <strong>global filter</strong> in the middle of the
+    toolbar applies to every session at once, and each session's own <strong>filter row</strong> applies to
+    that pane alone. A message is shown only if it passes <em>both</em>, so you can narrow every pane
+    to <code>EUR/USD</code> from the toolbar and still keep one pane on <code>35=8</code> of its own.</p>
 
     <h3>The global filter</h3>
-    <p>It has a row of its own, directly under the pane bar and above the panes it narrows. Open it with
-    the <strong>funnel</strong> at the left of the view controls, or with <code>&#8997;&#8984;F</code>
-    (<code>Ctrl+Alt+F</code> off macOS), which puts the caret straight in the box. <code>&#8984;F</code> is
-    still Search all sessions.</p>
+    <p>It sits in the middle of the toolbar, between the workspace and the connect controls, and it is
+    always there.</p>
     <ul>
-        <li><strong>Regex</strong>: <em>Filter all panes (regex)</em>, the box in that row.</li>
+        <li><strong>Regex</strong>: <em>Filter all panes (regex)</em>, the box in the middle of the row.</li>
         <li><strong>In / Out</strong>: the two checkboxes beside it, showing or hiding a direction
         across every pane.</li>
-        <li><strong>&times;</strong> at the row's right clears the regex, ticks both directions back on,
-        stops following, and only then closes the row.</li>
+        <li>Clear it by emptying the box, ticking both directions back on, and dismissing the
+        <strong>Following</strong> chip with its own <strong>&times;</strong>.</li>
     </ul>
-    <p><strong>The row cannot be put away while it is narrowing anything.</strong> The funnel reads as
-    pressed and says why on hover (<em>narrowing: regex</em>), so a pane is never left filtered
-    by a control nobody can see. Typing here never touches a pane's own filter: clear the row and every
-    pane is exactly as its owner left it.</p>
+    <p><strong>It cannot narrow a pane without saying so.</strong> There is nothing to open and nothing to
+    put away: the pattern is in its box and the ticks are on their boxes, in the open, so a pane is never
+    left filtered by a control nobody can see. Typing here never touches a pane's own filter: clear the
+    toolbar and every pane is exactly as its owner left it.</p>
 
     <h3>A session's own filter row</h3>
     <p>Each pane's funnel icon opens a row with three controls, which are finer than the global ones:</p>
@@ -4103,7 +4101,7 @@ ${incoming["D"].valueOfTag(38)}
 
     <p><strong>Follow</strong> is on a conversation header, on a message row's right-click menu, and on any
     correlation-id field in the detail panel. One click narrows <em>every</em> session pane to that
-    exchange at once, and a chip in the filter row names what is being followed:</p>
+    exchange at once, and a chip in the toolbar's filter names what is being followed:</p>
 
     <div class="example">
         <p><code>Following RFQ-A1 &middot; 4 sessions &middot; 14 messages</code></p>

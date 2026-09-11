@@ -1,15 +1,10 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewArray
@@ -46,9 +40,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixMessageSession
-
-/** One bar height in both layouts, which is what the tabs row already measures with its 28dp buttons. */
-internal val PANE_BAR_HEIGHT = 32.dp
 
 /** A segment is a tab's height without a tab's chrome, so the group sits inside the bar rather than filling it. */
 private val SEGMENT_HEIGHT = 22.dp
@@ -95,91 +86,50 @@ enum class ViewMode(
 }
 
 /**
- * The width the whole set of view controls needs: the funnel, the three segments, the gaps, and `View ▾`.
+ * `View ▾` on its own: 8dp of padding each side, a [LABEL_WIDTH] word, a 2dp gap and a 14dp chevron.
  *
- * Added up rather than measured, from the sizes this file actually draws. The funnel is 6dp of padding
- * each side around a 14dp glyph, which is 26dp, and a [CONTROL_GAP] after it. The Tabs segment is 6dp of
- * padding each side, a 14dp glyph, a 4dp gap and a [LABEL_WIDTH] word, which is 56dp. The other two are
- * padding and glyph alone, 26dp each. Two [SEGMENT_GAP] hairlines separate the three. `View ▾` is 8dp of
- * padding each side, a [LABEL_WIDTH] word, a 2dp gap and a 14dp chevron, which is 58dp, and
- * [CONTROL_GAP] sits between it and the group. That comes to **206dp**.
- *
- * The funnel is counted in even though it never folds, because it takes the room either way.
+ * This is what the view controls still measure once the segments have folded into the menu, which is the
+ * last thing the toolbar gives up. See [ToolbarFold].
  */
-internal val PANE_VIEW_CONTROLS_FULL_WIDTH =
-    (12.dp + 14.dp) +
-        CONTROL_GAP +
-        (12.dp + 14.dp + 4.dp + LABEL_WIDTH) +
+internal val VIEW_MENU_WIDTH = (16.dp + LABEL_WIDTH + 2.dp + 14.dp)
+
+/**
+ * The width the whole set of view controls needs: the three segments, their gaps, and `View ▾`.
+ *
+ * Added up rather than measured, from the sizes this file actually draws. The Tabs segment is 6dp of
+ * padding each side, a 14dp glyph, a 4dp gap and a [LABEL_WIDTH] word, which is 56dp. The other two are
+ * padding and glyph alone, 26dp each. Two [SEGMENT_GAP] hairlines separate the three, and a [CONTROL_GAP]
+ * sits between the group and the menu. That comes to **174dp**.
+ */
+internal val VIEW_CONTROLS_WIDTH =
+    (12.dp + 14.dp + 4.dp + LABEL_WIDTH) +
         (12.dp + 14.dp) * 2 +
         SEGMENT_GAP * 2 +
         CONTROL_GAP +
-        (16.dp + LABEL_WIDTH + 2.dp + 14.dp)
-
-/** 6dp each side, from the pane bar's own padding, which both layouts' bars share. */
-private val PANE_BAR_HORIZONTAL_PADDING = 12.dp
-
-/** One per-session action button and the 2dp of air beside it, as the tabs row draws them. */
-private val ACTION_BUTTON_WIDTH = 30.dp
-
-/** The 6dp, 1dp rule and 6dp that separate the per-session actions from the view controls. */
-private val DIVIDER_GROUP_WIDTH = 13.dp
+        VIEW_MENU_WIDTH
 
 /**
- * The narrowest tab strip still worth reading: the room the fold rule keeps clear for the tabs.
+ * **The four view controls, at the right of the toolbar.**
  *
- * The same job [SessionPanelHeader]'s 72dp title floor does, a little wider because a strip holds a name
- * and a close button rather than a name alone. [TabBar]'s strip scrolls, so this is not the width every
- * tab needs: it is the width the rule keeps clear so that at least one of them is on screen.
- */
-private val MIN_TAB_STRIP_WIDTH = 96.dp
-
-/**
- * The width a pane bar needs before its layout segments have to fold into `View ▾`.
- *
- * Added up rather than measured, in the spirit of [SessionPanelHeader]'s own fold threshold: the bar's
- * own padding, a floor of [MIN_TAB_STRIP_WIDTH] for the tabs when there are tabs, one
- * [ACTION_BUTTON_WIDTH] for every per-session button that would be drawn, the divider group when there is
- * anything to its left, and [PANE_VIEW_CONTROLS_FULL_WIDTH] for the controls themselves. Honest by
- * construction, because [TabBar] counts its buttons from the same conditions it draws them under.
- *
- * At its widest, a conversation pane in RAW with all nine of its buttons, that comes to **597dp**. The
- * same bar showing a venue, which draws only Minimize, needs **357dp**, and the split layouts' bar, which
- * has neither tabs nor per-session buttons, needs **218dp**.
- */
-internal fun paneBarFullWidth(
-    actionButtons: Int,
-    showsTabs: Boolean,
-): Dp =
-    PANE_BAR_HORIZONTAL_PADDING +
-        (if (showsTabs) MIN_TAB_STRIP_WIDTH else 0.dp) +
-        ACTION_BUTTON_WIDTH * actionButtons +
-        (if (showsTabs || actionButtons > 0) DIVIDER_GROUP_WIDTH else 0.dp) +
-        PANE_VIEW_CONTROLS_FULL_WIDTH
-
-/**
- * **The four view controls, at the right end of the pane area's own bar.**
- *
- * These say how every pane *draws*, not what the workspace does, which is why they left the row of
- * app-level buttons: the layout, whether a row is raw FIX or parsed fields, whether the session envelope
- * is shown, and whether rows fold into business exchanges. One composable, called from the tabs bar in
- * TABS and from [SplitViewBar] in the two split layouts, so the bar cannot say two different things about
- * the same four settings.
+ * These say how every pane *draws*: the layout, whether a row is raw FIX or parsed fields, whether the
+ * session envelope is shown, and whether rows fold into business exchanges. They had a bar of their own
+ * above the panes for one build, which is where a control beside the thing it changes belongs in the
+ * abstract and where nothing else was, so the whole bar was a line of pane height holding two controls.
+ * Screen is the scarcer thing. The toolbar already has a right end, and these are what an application
+ * keeps there.
  *
  * The segmented group's ground is [AppTheme.Colors.border] and the pressed segment is
- * [AppTheme.Colors.surface]. The bar itself is `surface`, so a pressed segment can only read as pressed
- * against a lighter group ground: the same relation the toolbar's chips already have to the toolbar.
+ * [AppTheme.Colors.surface]. The toolbar itself is `surface`, so a pressed segment can only read as
+ * pressed against a lighter group ground: the same relation the toolbar's chips already have to it.
  *
  * `View ▾` carries no tooltip. It is the one control here that says its own name, and a tooltip repeating
  * a visible label is noise.
  *
  * @param onToggleGridView a *flip* of the all-sessions row mode, so the radio pair only calls it when the
  *   chosen mode differs from [sessionViewMode]
- * @param folded true on a bar too narrow for the segments, computed against [paneBarFullWidth] by the bar
- *   that holds them. The segments go first and `View ▾` stays, because a menu can carry the layout as
- *   three more named rows and nothing else here can be reached at all once it has been clipped away.
- * @param filterQuery what the filter row is asking of the panes, which is what decides whether its funnel
- *   is refused. See [FilterRow].
- * @param filterRowShown whether that row is on screen at all, which is the funnel's own on state
+ * @param folded true on a toolbar too narrow for the segments, computed by [Toolbar] against
+ *   [VIEW_CONTROLS_WIDTH]. The segments go before the menu, because a menu can carry the layout as three
+ *   more named rows and nothing else here can be reached at all once it has been clipped away.
  */
 @Composable
 @Suppress("LongParameterList")
@@ -193,9 +143,6 @@ fun PaneViewControls(
     groupByConversation: Boolean,
     onToggleGroupByConversation: () -> Unit,
     folded: Boolean = false,
-    filterQuery: FilterQuery = FilterQuery(),
-    filterRowShown: Boolean = false,
-    onToggleFilterRow: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -203,8 +150,6 @@ fun PaneViewControls(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(CONTROL_GAP),
     ) {
-        FilterFunnel(query = filterQuery, shown = filterRowShown, onToggle = onToggleFilterRow)
-
         if (!folded) {
             Row(
                 modifier =
@@ -231,53 +176,6 @@ fun PaneViewControls(
             groupByConversation = groupByConversation,
             onToggleGroupByConversation = onToggleGroupByConversation,
         )
-    }
-}
-
-/**
- * **The funnel that opens the filter row, at the left of the view controls.**
- *
- * It wears the layout segments' pressed look one step over: a *lighter* ground than the bar behind it,
- * a full-strength glyph and a hairline border. Lighter, because pressed is read as a raised ground and
- * the segments get theirs from the group they sit in. This one sits on the bar itself, which is already
- * `surface`, so a `surface` fill would be a pressed state nobody can see. It never folds: a filter that
- * cannot be reached is a filter that gets left on.
- *
- * **A click while the row is narrowing something does nothing**, and the tooltip says what. Closing is
- * the ✕ inside the row, which clears before it closes (see [FilterRow]). A funnel that could put the row
- * away while a regex was still in it would be the one gesture this whole feature exists to prevent.
- */
-@Composable
-private fun FilterFunnel(
-    query: FilterQuery,
-    shown: Boolean,
-    onToggle: () -> Unit,
-) {
-    val refused = query.isNarrowing
-    val colour = if (shown) AppTheme.Colors.text else AppTheme.Colors.textSecondary
-    AppTooltip(text = query.funnelTooltip) {
-        Box(
-            modifier =
-                Modifier
-                    .height(SEGMENT_HEIGHT)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(if (shown) AppTheme.Colors.border else Color.Transparent)
-                    .then(if (shown) Modifier.border(1.dp, AppTheme.Colors.borderDark, RoundedCornerShape(4.dp)) else Modifier)
-                    .clickable { if (!refused) onToggle() }
-                    .padding(horizontal = 6.dp)
-                    .semantics {
-                        contentDescription = query.funnelTooltip
-                        selected = shown
-                    }.testTag("filter-row-toggle"),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Default.FilterAlt,
-                contentDescription = null,
-                tint = if (refused) AppTheme.Colors.primary else colour,
-                modifier = Modifier.size(14.dp),
-            )
-        }
     }
 }
 
@@ -336,7 +234,7 @@ private fun LayoutSegment(
 private fun ViewMenu(
     viewMode: ViewMode,
     onViewModeChange: (ViewMode) -> Unit,
-    /** True on a folded bar, where the layout has no segments and arrives here as three more rows. */
+    /** True on a folded toolbar, where the layout has no segments and arrives here as three more rows. */
     showLayoutRows: Boolean,
     sessionViewMode: FixMessageSession.ViewMode,
     onToggleGridView: () -> Unit,
@@ -388,8 +286,8 @@ private fun ViewMenu(
                         mark = ViewMark.CHECK,
                         tag = "view-${mode.testTag}",
                     ) {
-                        // A layout pick is a radio pick, and the bar this menu hangs off is about to
-                        // relayout underneath it, so the menu closes either way.
+                        // A layout pick is a radio pick, and the panes under this menu are about to
+                        // relayout, so the menu closes either way.
                         expanded = false
                         onViewModeChange(mode)
                     }
@@ -488,47 +386,4 @@ private fun ViewMenuRow(
                     selected = on
                 }.testTag(tag),
     )
-}
-
-/**
- * **The split layouts' half of the one pane bar.**
- *
- * The same top rule and the same height as the tabs row, so switching layout does not move the controls
- * up or down by a pixel. Its left side is deliberately empty: [SplitView] already draws the
- * [MinimizedStrip] for the split layouts, and a second strip here would be a second answer to the same
- * question.
- *
- * It measures its own width rather than the space left over, and for the reason [TabBar] does: a `Row`
- * hands a non-weighted child a shrinking constraint that the child then overflows anyway, so the fold has
- * to be decided before the controls are laid out at all.
- *
- * @param viewControls [PaneViewControls], passed as a slot rather than as eight parameters, because this
- *   file has no business knowing a ViewModel and the tabs bar takes the very same slot
- */
-@Composable
-fun SplitViewBar(
-    modifier: Modifier = Modifier,
-    viewControls: @Composable (folded: Boolean) -> Unit,
-) {
-    Column(modifier = modifier) {
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            // No tabs and no per-session buttons on this bar, so the only thing it has to fit is the
-            // controls themselves.
-            val folded = maxWidth < paneBarFullWidth(actionButtons = 0, showsTabs = false)
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(PANE_BAR_HEIGHT)
-                        .background(AppTheme.Colors.surface)
-                        .padding(horizontal = 6.dp)
-                        .testTag("split-view-bar"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(modifier = Modifier.weight(1f))
-                viewControls(folded)
-            }
-        }
-    }
 }

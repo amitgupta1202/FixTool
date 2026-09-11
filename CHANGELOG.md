@@ -5,7 +5,25 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.20.0] - 2026-09-11
+
+The release where the window says what it is. The toolbar had grown to twenty-odd controls in no
+order, eight of them unlabelled toggles for panels that open somewhere else entirely, and the one
+control that started something was a menu of five rows where a mis-click cost a run rather than a
+correction. Those eight toggles are tool-window stripes now, down the edge each panel opens from, so
+the button sits where its window appears and an open window reads as a pressed tab. Everything that
+opens across the bottom — the terminal, the Ledger, a pinned search, an open scenario — is a tab in
+one full-width dock at one height, and a stripe group shows one window at a time, which is three
+panels at most instead of eight. What is left on the toolbar is in groups that each answer one
+question — where am I, what am I looking at, what is connected, what do I do to every session at
+once, what is dangerous, how do the panes draw — the global filter takes the middle and can no longer
+go silent, and the chips wear their words. **Run ▾ is a run configuration widget**, the shape an IDE
+uses: the name of the saved set on the toolbar with a ▶ beside it, so the window always says what
+happens next, and picking from the menu *aims* the button rather than firing it. Quick Connect is
+**Connect**, because every other chip in the row is a verb and nothing here is slow. Underneath the
+chrome, two load fixes reported from a desk: a run brings up the venue its lanes dial rather than a
+simulator that shares its port number, and an environment moves the port the connection actually
+dials, not just the one it is labelled with.
 
 ### 📝 Changed
 
@@ -23,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A click on the global filter's `In` or `Out` toggles it once, wherever it lands.** The word and the tick answered separately, so a click that hit the box itself was counted twice and the direction came back on under the pointer, which reads as a checkbox that does nothing. The whole chip is the click target now and the box inside it is drawn rather than clickable.
 - **A load run brings up the venue its lanes dial, and not a simulator that shares its port number.** Reported from a desk: a set naming two dev profiles opened four sessions, and the other two were the UAT simulators saved on the same two port numbers. Every step of it was ordinary. A dev venue reached through a forwarded local port makes its lanes look like loopback — which is what `socketConnectHost` calls the usual case, and the only reason the far-end rule looks at them at all — and that rule then took *an acceptor saved on that port number* as proof the venue was one of ours, picking whichever sorted first by name. A port number is not an identity: a desk's workspace is one counterparty copied per environment, so matching on one picks an environment out of a hat, and the run's own *Connecting …* notification was the first anyone heard of it. Three things have to agree now before a profile a set never named is dialled — the lanes dial loopback, a saved acceptor binds the port they dial, and that acceptor is **the session those lanes address**: its SenderCompID is the counterparty they name, and it would accept who they say they are. Two profiles answering to all of that is no answer, and neither is brought up. And when something **already holds the port**, nothing is: our acceptor's bind would be refused, and a held forwarded port is the lanes reaching the real venue through it already. The port each side is matched on is the one the engine uses — `SocketConnectPort` where it is set, which is the field the comparison skipped on the client's side while reading its equivalent on the acceptor's. The case the rule exists for is unchanged: the bundled RFQ venue example's load client still brings up its venue, and first.
 - **An environment moves the port the connection actually dials.** *Connect in ▸ UAT* set `port` and left `socketConnectPort` alone, and `SocketConnectPort=${socketConnectPort.ifBlank { port }}` is the line QuickFIX/J is handed — so a profile carrying both, an imported one or one whose panel-edited port moved while the advanced field stayed, went to the new environment's host on the old environment's port. The dialled port follows the named port, as the dialled host already followed the named host, and an environment extracted from a profile is read off the port that profile dials.
+- **The saved-set list has a seam you can drag, and the editor beside it wraps.** The list of saved load sets was a hard-coded 190dp beside a painted divider with no gesture on it, so a set whose label ran past it was ellipsised with no way to read it — *EUR/USD both sides, ov…* above *EUR/USD one side, morn…* is a list you cannot pick from, which is the one job the column has. It is a `WidthResizeHandle` now, the 1px line in a 6dp grab zone every other seam in the window already uses, the width remembered on release and held as its own number rather than a share of the dialog, because a label does not get longer because the window did. Widening it means the editor gives way, and live verification moved that floor twice: at 360dp the Seed row clipped **+ add**, which is the only way to add a seed, and sizing the floor to what that row needed on one line capped the list at barely more than the 190 it replaced. The Seed row is a FlowRow now, the run dialog's own idiom for chips, so the editor wraps instead of clipping and the list reaches 440dp on a default dialog. A window narrowed after the fact borrows from the dragged pane rather than squeezing its neighbour, and gives back what it borrowed when it widens again.
+
+### 📖 Documentation
+
+- **One order, end to end, replayed against the bundled venue.** The order book chapter explained every rule and named no order. Every illustration was a fragment — three cancel outcomes in the abstract, one arithmetic snippet — and nothing followed a single order from `35=D` to done, so the mechanism had to be assembled out of prose. **Watching it work** walks one order through the FX Venue example, so it is replayed rather than read: acked and filled twice with its trail as a table, the same cancel refused three ways by what the book holds, the unattributed counter earning its place, and a replace that keeps its OrderID beside one that does not. A walkthrough making claims about an example's own rules can rot from either end, and the end nobody sees is the JSON, where the diff is a data file and the damage is in a chapter nobody opened — so `HelpDocTest` reads both: ten phrases in the guide, six facts out of the venue profile.
 
 ## [1.19.0] - 2026-09-10
 

@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
@@ -10,8 +11,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.dragAndDrop
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.width
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -19,6 +23,7 @@ import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
 import com.knapsack.fixtool.model.LOAD_DIALOG_WIDTH
 import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_HEIGHT
 import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_WIDTH
+import com.knapsack.fixtool.model.LOAD_SETS_LIST_WIDTH
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.load.LoadMatch
@@ -493,6 +498,74 @@ class LoadSetsDialogTest {
             LOAD_DIALOG_WIDTH to LOAD_DIALOG_HEIGHT,
             viewModel.loadDialogSize(),
             "the two dialogs keep their own size, so one drag does not resize the other",
+        )
+    }
+
+    /**
+     * The seam beside the saved-set list moves, and what it moves is the list.
+     *
+     * It was a `VerticalDivider` — a painted line with no gesture on it at all — so a set whose label ran
+     * past 190dp was ellipsised with no way to read it, which is the one thing the column exists to let
+     * you do. Measured on a row rather than the column, because the rows fill it and a row is what the
+     * reader is actually trying to read.
+     */
+    @Test
+    fun `the seam drags, and the saved-set list follows it`() {
+        viewModel.saveLoadSet(roundTrip)
+
+        show()
+
+        val before = composeTestRule.onNodeWithTag("load-sets-row-round-trip").getUnclippedBoundsInRoot().width
+
+        composeTestRule.onNodeWithTag("load-sets-divider").performMouseInput {
+            dragAndDrop(center, center + Offset(140f, 0f))
+        }
+        composeTestRule.waitForIdle()
+
+        val after = composeTestRule.onNodeWithTag("load-sets-row-round-trip").getUnclippedBoundsInRoot().width
+        assertTrue(after > before, "dragging the seam right must widen the saved-set list: $before -> $after")
+    }
+
+    /** The width outlives the dialog, or the drag has to be repeated every time Load sets… is opened. */
+    @Test
+    fun `the saved-set list opens at the width the seam was last left at`() {
+        assertEquals(LOAD_SETS_LIST_WIDTH, viewModel.loadSetsListWidth())
+
+        viewModel.rememberLoadSetsListWidth(280f)
+
+        assertEquals(280f, viewModel.loadSetsListWidth())
+        assertEquals(
+            LOAD_SETS_DIALOG_WIDTH to LOAD_SETS_DIALOG_HEIGHT,
+            viewModel.loadSetsDialogSize(),
+            "the seam is not the window: widening the list must not claim to have resized the dialog",
+        )
+    }
+
+    /**
+     * The two ends of the clamp, and the reason the asked-for width is kept rather than the fitted one.
+     *
+     * A dialog dragged narrow has to take the space from the list — squeezing the editor instead is how a
+     * two-field row starts wrapping — but taking it permanently would mean every temporary narrowing cost
+     * the reader the width they set. So the bound is applied on the way out, over a width that remembers.
+     */
+    @Test
+    fun `the list is held between its own minimum and the editor's`() {
+        assertEquals(SET_LIST_MIN, boundedPaneWidth(40.dp, 900.dp, SET_LIST_MIN, SET_EDITOR_MIN), "below the minimum, the list is the minimum")
+        assertEquals(300.dp, boundedPaneWidth(300.dp, 900.dp, SET_LIST_MIN, SET_EDITOR_MIN), "between the two bounds, what was asked for")
+        assertEquals(
+            900.dp - SET_EDITOR_MIN,
+            boundedPaneWidth(880.dp, 900.dp, SET_LIST_MIN, SET_EDITOR_MIN),
+            "past the ceiling, the list stops where the editor's minimum starts",
+        )
+        assertEquals(
+            SET_LIST_MIN,
+            boundedPaneWidth(300.dp, 300.dp, SET_LIST_MIN, SET_EDITOR_MIN),
+            "a pane too narrow for both gives the minimum rather than a negative width",
+        )
+        assertEquals(
+            300.dp,
+            boundedPaneWidth(300.dp, 0.dp, SET_LIST_MIN, SET_EDITOR_MIN),
+            "before the row is measured there is nothing to clamp against, and one narrow frame would jump",
         )
     }
 

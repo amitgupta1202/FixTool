@@ -67,6 +67,14 @@ data class ScenarioViewState(
      */
     val loadSetsDialogWidth: Float? = null,
     val loadSetsDialogHeight: Float? = null,
+    /**
+     * How wide the saved-set list is, in dp, or null until somebody drags the seam.
+     *
+     * Its own number rather than a share of [loadSetsDialogWidth]: what the list has to fit is a set's
+     * label, which does not get longer because the window did. A ratio would re-truncate the names every
+     * time the dialog was widened for the editor's sake, which is the reverse of what the drag was for.
+     */
+    val loadSetsListWidth: Float? = null,
 )
 
 /** What the Load run dialog opens at before anybody has resized it. Twenty percent up from 640 by 580. */
@@ -80,6 +88,9 @@ const val LOAD_SETS_DIALOG_WIDTH = 820f
 
 /** Four sections and three phase rows fit at this height, which 620 could not do without scrolling. */
 const val LOAD_SETS_DIALOG_HEIGHT = 700f
+
+/** The saved-set list's width in dp before anybody drags the seam beside it. */
+const val LOAD_SETS_LIST_WIDTH = 190f
 
 /**
  * **Which of the Shape segment's three options a load run was last asked for.**

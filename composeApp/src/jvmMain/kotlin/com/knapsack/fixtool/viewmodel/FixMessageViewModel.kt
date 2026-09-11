@@ -32,6 +32,7 @@ import com.knapsack.fixtool.model.LOAD_DIALOG_HEIGHT
 import com.knapsack.fixtool.model.LOAD_DIALOG_WIDTH
 import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_HEIGHT
 import com.knapsack.fixtool.model.LOAD_SETS_DIALOG_WIDTH
+import com.knapsack.fixtool.model.LOAD_SETS_LIST_WIDTH
 import com.knapsack.fixtool.model.LoadRunDefaults
 import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.SendReason
@@ -328,6 +329,12 @@ class FixMessageViewModel(
     /** Remembers the size the sets editor was last left at. */
     fun rememberLoadSetsDialogSize(width: Float, height: Float) =
         mutateViewState { it.copy(loadSetsDialogWidth = width, loadSetsDialogHeight = height) }
+
+    /** How wide the sets editor's saved-set list was last dragged to, in dp. */
+    fun loadSetsListWidth(): Float = _scenarioViewState.value.loadSetsListWidth ?: LOAD_SETS_LIST_WIDTH
+
+    /** Remembers the width the seam was let go at, so the next open shows the names it was widened for. */
+    fun rememberLoadSetsListWidth(width: Float) = mutateViewState { it.copy(loadSetsListWidth = width) }
 
     /** The load set the editor was last on, when it is still saved. */
     fun lastLoadSet(): LoadSet? = _scenarioViewState.value.lastLoadSet?.let { loadSet(it) }

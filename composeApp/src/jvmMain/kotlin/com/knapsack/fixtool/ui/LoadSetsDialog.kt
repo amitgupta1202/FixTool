@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -18,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +38,8 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -217,7 +219,20 @@ fun LoadSetsDialogContent(
                     }
                 },
     ) {
-        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        // The seam is draggable and the width outlives the dialog, because the list holds a set's *label*
+        // and 190dp ellipsised most of them — "Round trip, both si…" beside "Round trip, one si…" is a
+        // list you cannot pick from, which is the one job the column has.
+        val density = LocalDensity.current
+        var paneWidth by remember { mutableStateOf(0.dp) }
+        var listWidth by remember { mutableStateOf(viewModel.loadSetsListWidth().dp) }
+        val shownListWidth = boundedPaneWidth(listWidth, paneWidth, SET_LIST_MIN, SET_EDITOR_MIN)
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .onSizeChanged { paneWidth = with(density) { it.width.toDp() } },
+        ) {
             SetList(
                 saved = saved,
                 selected = draft.name,
@@ -235,9 +250,19 @@ fun LoadSetsDialogContent(
                     saved = viewModel.loadSets()
                     select(saved.firstOrNull() ?: blankSet(viewModel))
                 },
-                modifier = Modifier.fillMaxHeight().width(SET_LIST_WIDTH),
+                modifier = Modifier.fillMaxHeight().width(shownListWidth),
             )
-            VerticalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+            // The delta is applied to the *live* state rather than to the width just drawn: the gesture
+            // block is captured once, so a lambda closing over the drawn value would keep re-applying
+            // every event to the width the seam started at. See [WidthResizeHandle].
+            WidthResizeHandle(
+                onDeltaPx = { dx ->
+                    val wanted = listWidth + with(density) { dx.toDp() }
+                    listWidth = boundedPaneWidth(wanted, paneWidth, SET_LIST_MIN, SET_EDITOR_MIN)
+                },
+                onDragEnd = { viewModel.rememberLoadSetsListWidth(listWidth.value) },
+                modifier = Modifier.testTag("load-sets-divider"),
+            )
             SetEditor(
                 draft = draft,
                 problems = problems,
@@ -403,9 +428,14 @@ private fun SetEditor(
         ) {
             FormRow("Seed") {
                 seedRows.forEachIndexed { index, (name, value) ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                    // Wraps rather than clips, which is the run dialog's own idiom for a row of chips.
+                    // A plain Row lost "+ add" off the right edge once the editor was narrow — and "+ add"
+                    // is the only way to get a second seed, so the row was not merely tight, it was short
+                    // a control. Now the seam can be dragged anywhere and the editor reflows.
+                    FlowRow(
+                        itemVerticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         SlimField(
                             name,
@@ -773,7 +803,20 @@ private fun freeName(base: String, saved: List<LoadSet>): String {
  */
 private const val SEED_GENERATOR = "\${uuid:4}"
 private const val DEFAULT_COUNT = 4_000
-private val SET_LIST_WIDTH = 190.dp
+/** Narrower than this and the row is a lightning bolt and a phase count with no room for a name. */
+internal val SET_LIST_MIN = 120.dp
+
+/**
+ * What the editor beside it needs to stay usable: [LABEL_COLUMN] and its gap, one [SEED_FIELD], and the
+ * widest single chip, with the section's gutters around them.
+ *
+ * Deliberately *not* the width the Seed row needs to fit on one line, which is a shade over 540dp. Sizing
+ * the floor to that capped the list at barely more than the fixed 190dp it replaced — the drag then could
+ * not do the one thing it was added for. The row wraps instead, so the editor gets narrower gracefully and
+ * the reader gets the width they asked for.
+ */
+internal val SET_EDITOR_MIN = 380.dp
+
 
 /** The name and value fields, at the width the run dialog's Seed row gives them. */
 private val SEED_FIELD = 88.dp

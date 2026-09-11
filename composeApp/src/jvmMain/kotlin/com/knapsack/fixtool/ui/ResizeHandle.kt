@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.awt.Cursor
 
@@ -72,3 +73,21 @@ fun HeightResizeHandle(onDeltaPx: (Float) -> Unit, onDragEnd: () -> Unit = {}, m
         Box(Modifier.height(1.dp).fillMaxWidth().background(AppTheme.Separators.color))
     }
 }
+
+/**
+ * The width a dragged pane is actually drawn at: [wanted], held at [min] and at whatever leaves the pane
+ * beside it [otherMin] of the [available] space.
+ *
+ * The clamp belongs on the way *out* rather than on the way in, so the caller can keep the width that was
+ * asked for. A window narrowed after the fact then borrows from the dragged pane instead of squeezing its
+ * neighbour, and widening the window again gives back what was borrowed.
+ *
+ * An [available] of zero is the frame before the row has been measured: there is nothing to clamp against
+ * yet, and clamping to [min] would draw one narrow frame and then jump.
+ */
+fun boundedPaneWidth(wanted: Dp, available: Dp, min: Dp, otherMin: Dp): Dp =
+    if (available <= 0.dp) {
+        wanted.coerceAtLeast(min)
+    } else {
+        wanted.coerceIn(min, maxOf(min, available - otherMin))
+    }

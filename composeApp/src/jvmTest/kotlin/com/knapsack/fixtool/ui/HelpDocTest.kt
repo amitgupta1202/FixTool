@@ -1,10 +1,18 @@
 package com.knapsack.fixtool.ui
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
 import javax.swing.JEditorPane
 import javax.swing.text.Element
 import javax.swing.text.html.HTML
 import javax.swing.text.html.HTMLDocument
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -104,6 +112,66 @@ class HelpDocTest {
         val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the acceptor chapter no longer says: $missing")
+    }
+
+    /**
+     * **The walkthrough and the example it walks through, pinned to each other.**
+     *
+     * Every step of `#order-book-walkthrough` is a claim about the bundled FX venue's own rules, so it can
+     * go stale from either end: someone rewrites the prose, or someone edits the example out from under
+     * it. The second is the one no reviewer sees — the diff is a JSON file, the damage is in a chapter
+     * nobody opened. So the first half below reads the guide and the second reads
+     * `examples/fx-venue`, and a reader who follows the steps gets what the page promised only while both
+     * still hold.
+     */
+    @Test
+    fun `the order book walkthrough matches the example it walks through`() {
+        val section =
+            html.substringAfter("""id="order-book-walkthrough"""").substringBefore("""<h3 id="quote-book"""")
+
+        val says =
+            mapOf(
+                "it names the pane a book belongs to" to "FX Demo Venue &larr; DEMO_CLIENT1",
+                "the order is acked and then filled twice" to "an ack, then two fills 250ms apart",
+                "the row is the trail under it" to "the row is the four lines beneath it, folded",
+                "a cancel for a finished order is refused" to "Too late to cancel",
+                "and the refusal's tags come off the book" to "\${order.ordStatus}",
+                "a cancel for an order nobody placed is unknown" to "102=1",
+                "which the unattributed counter then shows" to "1 unattributed",
+                "a replace of a working order keeps the OrderID" to "keeps the same OrderID",
+                "a replace that beats the ack does not" to "the replacement gets a new one",
+                "a queued fill outlives the cancel before it" to "Why a canceled order can still fill",
+            )
+        val missing = says.filterValues { it.flat() !in section.flat() }.keys
+        assertTrue(missing.isEmpty(), "the order book walkthrough no longer says: $missing")
+
+        val rules = fxVenueRules()
+
+        assertEquals(
+            setOf("unknown", "pending", "working", "done"),
+            rules.filter { it.msgType == "F" }.map { it.whenOrder }.toSet(),
+            "the walkthrough says the venue answers a cancel by what the book holds, and picks the 'done' rule",
+        )
+        assertTrue(
+            rules.any { it.msgType == "F" && it.whenOrder == "done" && it.sends("Too late to cancel") },
+            "the walkthrough quotes 'Too late to cancel' as the answer for a finished order",
+        )
+        assertTrue(
+            rules.any { it.msgType == "F" && it.whenOrder == "unknown" && it.sends("102=1") },
+            "the walkthrough quotes 102=1 as the answer for an order the book never held",
+        )
+        assertTrue(
+            rules.any { it.msgType == "G" && it.whenOrder == "working" && it.sends("37=\${order.orderId}") },
+            "the walkthrough says a replace of a working order keeps the OrderID; no rule does that any more",
+        )
+        assertTrue(
+            rules.any { it.msgType == "G" && it.whenOrder == null && it.sends("37=\${req.uuid}") },
+            "the walkthrough says a replace that arrives before the ack gets a new OrderID; no rule does that",
+        )
+        assertTrue(
+            rules.any { it.msgType == "D" && it.templates.size == 3 && it.delays == listOf(250, 250) },
+            "the walkthrough says a limit order is acked and then filled twice, 250ms apart",
+        )
     }
 
     /**
@@ -542,6 +610,46 @@ class HelpDocTest {
      * the assertion is about the words.
      */
     private fun String.flat(): String = replace(Regex("""\s+"""), " ")
+
+    /** One rule of the bundled FX venue, reduced to the four things the walkthrough makes claims about. */
+    private class ExampleRule(
+        val msgType: String?,
+        val whenOrder: String?,
+        val templates: List<String>,
+        val delays: List<Int>,
+    ) {
+        fun sends(fragment: String): Boolean = templates.any { fragment in it }
+    }
+
+    /**
+     * The venue's rules as the bundled example actually ships them — read from the resource the copy is
+     * made from, not from a workspace, so the test is about what a new reader gets.
+     */
+    private fun fxVenueRules(): List<ExampleRule> {
+        val json =
+            HelpDocTest::class.java
+                .getResourceAsStream("/examples/fx-venue/connection_profiles.json")!!
+                .bufferedReader()
+                .readText()
+        val venue =
+            Json
+                .parseToJsonElement(json)
+                .jsonObject["profiles"]!!
+                .jsonArray
+                .first { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull == "FX Demo Venue" }
+                .jsonObject
+        val rules = venue["config"]!!.jsonObject["acceptorResponseRules"]!!.jsonArray
+        return rules.map { element ->
+            val rule = element.jsonObject
+            val steps: List<JsonElement> = rule["steps"]?.jsonArray ?: emptyList()
+            ExampleRule(
+                msgType = rule["whenMsgType"]?.jsonPrimitive?.contentOrNull,
+                whenOrder = rule["whenOrder"]?.jsonPrimitive?.contentOrNull,
+                templates = steps.map { it.jsonObject["template"]?.jsonPrimitive?.contentOrNull.orEmpty() },
+                delays = steps.mapNotNull { it.jsonObject["delayMillis"]?.jsonPrimitive?.intOrNull },
+            )
+        }
+    }
 
     /** Loaded exactly as `HelpDialog` loads it, so the ids under test are the ones the app can reach. */
     private fun parsedIds(): Set<String> {

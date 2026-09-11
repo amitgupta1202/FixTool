@@ -3683,6 +3683,9 @@ ${incoming["D"].valueOfTag(38)}
         never accumulated as they arrive.</li>
     </ol>
 
+    <p>If you would rather see it than read it, <a href="#order-book-walkthrough">Watching it work</a> at the
+    end of this chapter drives all of it against the bundled example, one message at a time.</p>
+
     <p>The book is fed from <strong>the wire</strong>, not from the rules engine, so a reply you typed by
     hand moves it exactly as a rule's reply does. And where a report you sent carries <code>14</code> or
     <code>151</code>, <strong>those are the values booked</strong> &mdash; the fold never prefers its own
@@ -3833,6 +3836,81 @@ ${incoming["D"].valueOfTag(38)}
         <strong>Clear order book</strong> scenario step is the run boundary that fixes it &mdash; see
         <a href="#assertions">Automated Verification &amp; Scenarios</a>. Capture writes one for you when
         it authors a both-sides flow.
+    </div>
+
+    <h3 id="order-book-walkthrough">Watching it work &mdash; one order, end to end</h3>
+
+    <p>Everything above in one sitting, against the bundled <a href="#demo-server">FX Venue example</a>, so
+    you can replay it rather than read it. Open the example, connect <strong>Demo Client 1</strong>, select
+    the <code>FX Demo Venue &larr; DEMO_CLIENT1</code> pane &mdash; the book belongs to the counterparty,
+    so that pane and not the venue's own tab &mdash; and switch the <strong>Order Book</strong> toggle on.</p>
+
+    <p><strong>1. Place an order.</strong> Send from the client:</p>
+
+    <div class="example">
+        <p><code>35=D|11=DEMO-A1|55=EUR/USD|54=1|38=1000000|40=2|44=1.08990|60=&hellip;|</code></p>
+    </div>
+
+    <p>One rule matches and answers in three steps: an ack, then two fills 250ms apart. Expand
+    <code>DEMO-A1</code> in the panel and its trail reads:</p>
+
+    <table>
+        <tr><th>What touched the order</th><th>The order after it</th></tr>
+        <tr><td><code>35=D</code> received &mdash; order received</td><td><code>pending</code> &middot; cum &mdash; &middot; leaves 1000000</td></tr>
+        <tr><td><code>150=0</code> sent &mdash; ack</td><td><code>working</code> &middot; cum 0 &middot; leaves 1000000</td></tr>
+        <tr><td><code>150=F</code> sent &mdash; fill 500000</td><td><code>working</code> &middot; cum 500000 &middot; leaves 500000</td></tr>
+        <tr><td><code>150=F</code> sent &mdash; fill 500000</td><td><code>done</code> &middot; cum 1000000 &middot; leaves 0</td></tr>
+    </table>
+
+    <p>None of those numbers was accumulated as it arrived: the row is the four lines beneath it, folded.
+    Click a trail line to select that message in the grid and read the bytes that produced it.</p>
+
+    <p><strong>2. Cancel it.</strong> The order is finished, so of the venue's four cancel rules the
+    <code>done</code> one matches:</p>
+
+    <div class="example">
+        <p><code>35=F|11=CXL-2|41=DEMO-A1|&hellip;</code> &rarr;<br>
+        <code>35=9|11=CXL-2|37=7d0b9cb2&hellip;|39=2|41=DEMO-A1|58=Too late to cancel|102=0|</code></p>
+    </div>
+
+    <p>Tags <code>37</code> and <code>39</code> came out of the book, through
+    <code>${order.orderId}</code> and <code>${order.ordStatus}</code>. A venue with no memory has nothing
+    to put in them, which is exactly why a stateless rule has to answer every cancel the same way.</p>
+
+    <p><strong>3. Cancel an order nobody placed.</strong> The same message shape against a different book
+    state picks a different rule:</p>
+
+    <div class="example">
+        <p><code>35=F|11=CXL-1|41=GHOST-1|&hellip;</code> &rarr;<br>
+        <code>35=9|11=CXL-1|37=NONE|39=8|41=GHOST-1|58=Unknown order|102=1|</code></p>
+    </div>
+
+    <p>Now watch the panel footer: it reads <strong>1 unattributed</strong>. That reject names an order the
+    book has never held, so the book files it &mdash; <em>&ldquo;names 11=CXL-1, which this book has never
+    seen&rdquo;</em> &mdash; instead of dropping it. Here that is correct, because there really is no such
+    order; the value of the counter is that it reads the same way when it is <em>not</em>.</p>
+
+    <p><strong>4. Replace one, twice.</strong> Send an order, wait for its ack, then a <code>35=G</code>
+    naming it in <code>41</code>. Then do it again on a fresh order, sending the <code>35=G</code>
+    immediately so it arrives before the ack. Two replace rules, read by the book, answer differently:</p>
+
+    <table>
+        <tr><th>The order was</th><th>The rule sends</th><th>What the client sees</th></tr>
+        <tr><td><code>working</code></td><td><code>37=${order.orderId}</code></td><td>the replacement keeps the same OrderID</td></tr>
+        <tr><td><code>pending</code></td><td><code>37=${req.uuid}</code></td><td>the replacement gets a new one</td></tr>
+    </table>
+
+    <p>Both chains link either way &mdash; the superseded row reads <code>replaced &rarr; &lt;the new
+    id&gt;</code> and the new row carries the quantities forward. Only the identity differs, and only
+    because a rule you can read said so.</p>
+
+    <div class="tip">
+        <strong>Why a canceled order can still fill.</strong> A reply's later steps are scheduled when its
+        trigger matches, so a cancel or a replace arriving afterwards does not retract fills already
+        queued: cancel <code>DEMO-B1</code> a moment after placing it and its trail reads <em>canceled</em>
+        and then two fills. That is the example's rules rather than the book &mdash; and the book showing
+        it is the point. It records what the venue really sent, including where the venue contradicted
+        itself, because the client's view is the view under test.
     </div>
 
     <h3 id="quote-book">What the venue remembers: the quote book</h3>

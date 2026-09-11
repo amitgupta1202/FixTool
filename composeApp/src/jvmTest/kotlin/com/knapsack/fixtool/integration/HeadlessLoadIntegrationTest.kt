@@ -287,7 +287,18 @@ class HeadlessLoadIntegrationTest {
         val (code, out, err) = load("--count", "30", "--seed", "run=b2", "--settle", "2s", "--junit", junit.absolutePath, "--json", jsonFile.absolutePath)
 
         assertEquals(1, code, "stdout:\n$out\nstderr:\n$err")
-        assertTrue(out.contains("unmatched            2   ORD-b2-7 (lane 2) · ORD-b2-13 (lane 3)"), out)
+        // Both are named, each attributed to the lane its index round-robins onto. Which of the two is
+        // named *first* is a race, not a rule: the unmatched are ordered by the microsecond each request
+        // left its own lane's socket, stamped on that lane's own thread, so index 7 leaving before index
+        // 13 is the usual interleaving of five lanes rather than something this run guarantees. A
+        // two-core runner reversed the pair and failed a release build on it. What is pinned instead is
+        // the count, the lane each id belongs to, and that every rendering of this run - the summary,
+        // the JSON, the JUnit file and the wire evidence - tells the same story in the same order.
+        val swallowed = listOf("ORD-b2-7 (lane 2)", "ORD-b2-13 (lane 3)")
+        assertTrue(swallowed.all { out.contains(it) }, out)
+        val named = swallowed.sortedBy { out.indexOf(it) }
+        val ids = named.map { it.substringBefore(" (") }
+        assertTrue(out.contains("unmatched            2   " + named.joinToString(" · ")), out)
         assertTrue(out.contains("UNMATCHED    2 of 30 unanswered within 2s"), out)
         assertTrue(err.contains("settle closed with 2 pending"), err)
         // --json writes the record, the same shape as the file on disk and GET /loads/<id>, so the
@@ -295,15 +306,16 @@ class HeadlessLoadIntegrationTest {
         val json = Json.parseToJsonElement(jsonFile.readText()).jsonObject
         assertEquals(LoadReportCodec.SCHEMA, json["schema"]!!.jsonPrimitive.int)
         val phase = json["phases"]!!.jsonArray.single().jsonObject
-        assertEquals(listOf("ORD-b2-7", "ORD-b2-13"), phase["unmatched"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content })
+        assertEquals(ids, phase["unmatched"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content })
         assertEquals(1, json["exitCode"]!!.jsonPrimitive.int, "the set-level exit code is what a build reads now")
         val xml = junit.readText()
         assertTrue(xml.contains("failures=\"1\""), xml)
-        assertTrue(xml.contains("2 of 30 unanswered within 2s: ORD-b2-7 (lane 2), ORD-b2-13 (lane 3)"), xml)
+        assertTrue(xml.contains("2 of 30 unanswered within 2s: " + named.joinToString(", ")), xml)
         val (id, _) = onlyRecord()
         val wire = File(File(home, "loads/$id"), LoadReport.Evidence.forPhase(1).unmatched).readLines()
         assertEquals(2, wire.size)
-        assertTrue(wire[0].contains("11=ORD-b2-7"), wire[0])
+        assertTrue(wire[0].contains("11=${ids[0]}"), wire[0])
+        assertTrue(wire[1].contains("11=${ids[1]}"), wire[1])
     }
 
     @Test

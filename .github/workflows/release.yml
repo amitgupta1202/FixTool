@@ -56,6 +56,20 @@ jobs:
         # released for exactly this: two tests, three attempts each, HeadlessException every time.
         run: xvfb-run --auto-servernum ./gradlew allTests
 
+      # The log of a failed run names the test and the line and nothing else: the assertion message,
+      # which for these tests is the whole of the output being asserted on, lives in the report. Without
+      # it a CI-only failure has to be guessed at from the source. Failure only, so a green run uploads
+      # nothing.
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: |
+            composeApp/build/reports/tests/
+            composeApp/build/test-results/
+          retention-days: 5
+
   # Build Windows installer
   build-windows:
     name: Build Windows Installer

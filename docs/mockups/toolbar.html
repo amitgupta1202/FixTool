@@ -531,6 +531,25 @@
   .awrap { width: max-content; min-width: 100%; }
   .tbar.amend { flex-wrap: nowrap; }
   .tbar.amend .filter { flex: 1 1 auto; min-width: 152px; max-width: none; }
+
+  /* The run configuration widget: a chip naming the selection, joined to the button that runs it.
+     Styled on its own, not through .tbar, because it is also drawn outside the row with its menu open. */
+  .runw { display: inline-flex; align-items: center; flex: none; font-family: var(--sans); }
+
+  .runw .tb {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px;
+    background: var(--app-surface); border: 1px solid var(--app-border2); color: var(--app-text);
+    font-size: 11.5px; white-space: nowrap;
+  }
+
+  .runw .tb.sel { border-radius: 3px 0 0 3px; border-right: none; }
+  .runw .tb.go { color: var(--app-good); border-color: #47603a; border-radius: 0 3px 3px 0; padding: 3px 9px; }
+  .runw .k { font-family: var(--mono); font-size: 10px; color: var(--app-dim); }
+  .runw .chev { color: var(--app-dim); font-size: 9px; }
+
+  .menu .mi .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu .mi .mk.ok { color: var(--app-good); }
+  .menu .mi .mk.no { color: var(--app-bad); }
   .stripe .sp { flex: 1; }
 
   .dock { border-top: 1px solid var(--app-rule); }
@@ -1053,7 +1072,7 @@
     the product, two rows was the wrong trade, and the toolbar's middle, emptied by those same three steps, was
     the zero-row home the note had walked past. The bottom stripe hung under the window without a frame around it
     and did not know about the other bottom docks. And a stripe tab is a minimise, so the docks' own minimise
-    chevrons had become a second way to do one thing. Five amendments follow.</p>
+    chevrons had become a second way to do one thing. Six amendments follow, the sixth from a second review.</p>
 
   <h3>The toolbar takes the filter and the view controls back.</h3>
 
@@ -1069,8 +1088,7 @@
             <span class="cbox on"><i></i>In</span>
             <span class="cbox on"><i></i>Out</span>
             <span class="vsep"></span>
-            <span class="tb go">▶ Quick Connect <span class="chev">▾</span></span>
-            <span class="tb open">▷ Run <span class="chev">▾</span></span>
+            <span class="tb go">▶ Connect <span class="chev">▾</span></span>
             <span class="tb">⏻ Disconnect all <span class="k">10</span></span>
             <span class="tb">✕ Close all</span>
             <span class="vsep"></span>
@@ -1079,6 +1097,11 @@
             <span class="tb">＋ Blank line</span>
             <span class="vsep"></span>
             <span class="tb risk">🗑 Clear all</span>
+            <span class="vsep"></span>
+            <span class="runw">
+              <span class="tb sel">RFQ round trip <span class="k">· load set</span> <span class="chev">▾</span></span>
+              <span class="tb go">▶</span>
+            </span>
             <span class="vsep"></span>
             <span class="seg"><span class="on">▭ Tabs</span><span>⇆</span><span>⇅</span></span>
             <span class="tb">View <span class="chev">▾</span></span>
@@ -1214,6 +1237,91 @@
       results, now replaces the group's current window rather than adding to it.</figcaption>
   </figure>
 
+  <h3>Connect, a sessions group, and a run configuration widget.</h3>
+
+  <p>The user's second review named three things. Quick Connect is just Connect: the menu picks a profile and
+    connects it, and the chevron already says there is a choice to make. Connect, Disconnect all and Close all
+    are one group about sessions, and Run does not belong in it. And "Run" is confusing because the word names a
+    verb while the menu runs three kinds of thing (a one-off load run, a saved load set, a saved scenario set),
+    so no noun renames it honestly: "Load" would lie about scenario sets. IntelliJ's answer is the run
+    configuration widget, a chip that names the selected configuration with a ▶ beside it, and that is what the
+    toolbar gets.</p>
+
+  <figure>
+    <div class="screen">
+      <div class="xscroll">
+        <div class="awrap">
+          <div class="tbar amend">
+            <span class="tb">FixTool <span class="chev">▾</span></span>
+            <span class="vsep"></span>
+            <span class="chip on">⇄ Following RFQ 7f3a · 3 panes · 41 msgs ✕</span>
+            <span class="filter">Filter all panes (regex)…</span>
+            <span class="cbox on"><i></i>In</span>
+            <span class="cbox on"><i></i>Out</span>
+            <span class="vsep"></span>
+            <span class="tb go">▶ Connect <span class="chev">▾</span></span>
+            <span class="tb">⏻ Disconnect all <span class="k">10</span></span>
+            <span class="tb">✕ Close all</span>
+            <span class="vsep"></span>
+            <span class="tb">⏺ Capture</span>
+            <span class="tb">⌕ Search</span>
+            <span class="tb">＋ Blank line</span>
+            <span class="vsep"></span>
+            <span class="tb risk">🗑 Clear all</span>
+            <span class="vsep"></span>
+            <span class="runw">
+              <span class="tb sel">RFQ round trip <span class="k">· load set</span> <span class="chev">▾</span></span>
+              <span class="tb go">▶</span>
+            </span>
+            <span class="vsep"></span>
+            <span class="seg"><span class="on">▭ Tabs</span><span>⇆</span><span>⇅</span></span>
+            <span class="tb">View <span class="chev">▾</span></span>
+            <span class="vsep"></span>
+            <span class="ic">⚙</span>
+            <span class="ic">?</span>
+          </div>
+        </div>
+      </div>
+      <div class="scrollhint">the whole row at full size, scrolled rather than scaled down · the widget's group
+        sits at the right end, redrawn below with its menu open</div>
+      <div class="mrow" style="padding:11px 10px 14px;gap:20px;flex-wrap:wrap">
+        <div style="display:flex;flex-direction:column;align-items:flex-start;gap:6px;flex:none">
+          <span class="runw">
+            <span class="tb sel">RFQ round trip <span class="k">· load set</span> <span class="chev">▾</span></span>
+            <span class="tb go">▶</span>
+          </span>
+          <div class="menu" style="width:330px">
+            <div class="mi"><span class="mk blank">●</span><span class="nm">Load run…</span><span class="ct">5 lanes on 2 profiles</span></div>
+            <div class="mi on"><span class="mk">●</span><span class="nm">RFQ round trip</span><span class="ct">load set · 3 phases</span></div>
+            <div class="mi"><span class="mk blank">●</span><span class="nm">NOS then cancel</span><span class="ct">load set · 2 phases</span></div>
+            <div class="mi"><span class="mk blank">●</span><span class="nm">nightly</span><span class="ct">scenario set · 12 scenarios</span></div>
+            <div class="sep"></div>
+            <div class="mi"><span class="mk blank">●</span><span class="nm">Load sets…</span><span class="ct">2 saved</span></div>
+            <div class="sep"></div>
+            <div class="grp">recent</div>
+            <div class="mi"><span class="mk ok">✓</span><span class="nm">⚡ RFQ round trip (3) · RFQ Load Client</span><span class="ct">3/3</span></div>
+            <div class="mi"><span class="mk no">✗</span><span class="nm">⚡ RFQ round trip (3) · RFQ Load Client</span><span class="ct">1/3</span></div>
+            <div class="mi"><span class="mk ok">✓</span><span class="nm">▦ nightly (12)</span><span class="ct">12/12</span></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;min-width:230px">
+          <span class="tip">Run RFQ round trip · ⌃R</span>
+          <span class="tip no">Stop RFQ round trip</span>
+          <span class="tip no">Cannot run · no session is logged on</span>
+          <span class="tip">Load run…</span>
+          <span class="sub" style="max-width:250px;line-height:1.45">what the chip reads when nothing is
+            saved</span>
+        </div>
+      </div>
+    </div>
+    <figcaption>The dropdown selects, the ▶ runs, ⌃R is IntelliJ's shortcut, and while the selection runs the ▶
+      is a ■ that stops it. Recent rows select the configuration the record came from. The selection persists in
+      the view-state store and defaults to the most recent run. The chip names what will run, which is the whole
+      point: nobody asks what Run will run. The widget sits in its own group right of Clear all, roughly where
+      IntelliJ keeps its run widget. This amends the 2026-09-08 run-menu note: its menu is the same list, its
+      rows now select rather than run, and the one door that ran them is the ▶.</figcaption>
+  </figure>
+
   <h3>Step 4 pulled forward.</h3>
 
   <p>The labelled chips and the four groups were sequenced after the pane-grammar build because the renames
@@ -1249,7 +1357,7 @@
     <li><b>Amendment build.</b> Filter and view controls onto the toolbar with the chips and groups, then the
       stripes: bottom stripe removed, side stripes full height, Terminal, Trace and Documents at the bottom of
       the left stripe as the three tabs of one bottom dock, one window per stripe group, dock chevrons
-      removed.
+      removed. Second review: Connect, the sessions group, the run configuration widget.
       <span class="where">Toolbar.kt · ToolWindowStripe.kt · the pane tab bar</span></li>
   </ol>
 
@@ -1327,6 +1435,17 @@
         workspace?</div>
       <div class="a"><strong>Superseded.</strong> There is no filter row. The filter is always on the
         toolbar.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Connect, not Quick Connect.</div>
+      <div class="a"><strong>Connect.</strong> The menu picks a profile and connects it. Quick said nothing the
+        chevron did not already say.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>A run configuration widget, not a Run menu.</div>
+      <div class="a"><strong>The widget.</strong> The menu runs three kinds of thing, so no noun names it. The
+        chip names the selected configuration, the ▶ runs it, ⌃R is the shortcut, and while it runs the ▶ is a
+        ■. IntelliJ's widget, in IntelliJ's place.</div>
     </div>
     <div>
       <div class="q"><span class="tag dec">decided</span>IntelliJ's arrangement is the default answer.</div>

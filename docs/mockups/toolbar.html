@@ -525,6 +525,28 @@
   .wins li { display: flex; justify-content: space-between; gap: 0.7rem; line-height: 1.5; }
   .wins .kb { font-family: var(--mono); font-size: 0.76rem; color: var(--faint); }
 
+  /* ---------- new here: the amendment ---------- */
+
+  /* Full size, not scaled: the amended row is read as the app draws it, so it scrolls instead. */
+  .awrap { width: max-content; min-width: 100%; }
+  .tbar.amend { flex-wrap: nowrap; }
+  .tbar.amend .filter { flex: 1 1 auto; min-width: 152px; max-width: none; }
+  .stripe .sp { flex: 1; }
+
+  .dock { border-top: 1px solid var(--app-rule); }
+
+  .dockarea {
+    background: var(--app-bg);
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    text-align: center;
+    font-size: 10px;
+    color: var(--app-dim);
+  }
+
   /* ---------- prose furniture ---------- */
 
   .callout {
@@ -708,7 +730,8 @@
       Clear all and Close all, alone between two dividers, the second of them arming on its first click.
       Settings and Help sit at the far right on their own, where an application has always kept them. Nothing in
       this row toggles anything, so nothing in this row needs an on state, which frees the pressed look entirely
-      for the stripes.</figcaption>
+      for the stripes. Amended after the first build: the filter and the view controls also live here, see the
+      amendment below.</figcaption>
   </figure>
 
   <h2>Tool-window stripes</h2>
@@ -810,7 +833,8 @@
       already a bottom dock, and the Trace already opens in a slot under the message grid, so the stripes finish
       something the app has started three times in three different ways. Keyboard is ⌘1 to ⌘8 in stripe order,
       printed in each tooltip so the shortcut is learned by hovering rather than by reading the
-      help.</figcaption>
+      help. Amended after the first build: the bottom stripe was removed, Terminal and Trace moved to the bottom
+      end of the left stripe, see the amendment below.</figcaption>
   </figure>
 
   <div class="wins">
@@ -1022,6 +1046,181 @@
       items and the same handlers.</figcaption>
   </figure>
 
+  <h2>Amended after the first build</h2>
+
+  <p>Steps 1 to 3 were built and the user ran the app. Two rows had appeared above the panes: the pane bar with
+    the view controls in split layout, and the filter row while anything was filtering. On a tool whose panes are
+    the product, two rows was the wrong trade, and the toolbar's middle, emptied by those same three steps, was
+    the zero-row home the note had walked past. The bottom stripe hung under the window without a frame around it
+    and did not know about the other bottom docks. And a stripe tab is a minimise, so the docks' own minimise
+    chevrons had become a second way to do one thing. Five amendments follow.</p>
+
+  <h3>The toolbar takes the filter and the view controls back.</h3>
+
+  <figure>
+    <div class="screen">
+      <div class="xscroll">
+        <div class="awrap">
+          <div class="tbar amend">
+            <span class="tb">FixTool <span class="chev">▾</span></span>
+            <span class="vsep"></span>
+            <span class="chip on">⇄ Following RFQ 7f3a · 3 panes · 41 msgs ✕</span>
+            <span class="filter">Filter all panes (regex)…</span>
+            <span class="cbox on"><i></i>In</span>
+            <span class="cbox on"><i></i>Out</span>
+            <span class="vsep"></span>
+            <span class="tb go">▶ Quick Connect <span class="chev">▾</span></span>
+            <span class="tb open">▷ Run <span class="chev">▾</span></span>
+            <span class="tb">⏻ Disconnect all <span class="k">10</span></span>
+            <span class="tb">✕ Close all</span>
+            <span class="vsep"></span>
+            <span class="tb">⏺ Capture</span>
+            <span class="tb">⌕ Search</span>
+            <span class="tb">＋ Blank line</span>
+            <span class="vsep"></span>
+            <span class="tb risk">🗑 Clear all</span>
+            <span class="vsep"></span>
+            <span class="seg"><span class="on">▭ Tabs</span><span>⇆</span><span>⇅</span></span>
+            <span class="tb">View <span class="chev">▾</span></span>
+            <span class="vsep"></span>
+            <span class="ic">⚙</span>
+            <span class="ic">?</span>
+          </div>
+        </div>
+      </div>
+      <div class="scrollhint">the whole row at full size, scrolled rather than scaled down</div>
+    </div>
+    <figcaption>The filter sits centred and flexible in the middle, always visible, which is what never-silent
+      means when there is no row to close. The layout segments and View ▾ sit right of the actions. Nothing is
+      above the panes but the tab bar the tabs layout always had, and the split layout has no bar at all, so the
+      pane bar no longer exists. The kind rule survives as a reading rule, not a placement rule: a view modifier
+      still looks different from an action, it just shares the one bar with it. The sections "The view controls,
+      on the panes" and "The filter row" above describe what was built and then reverted, kept for the record.
+      ⌥⌘F goes with the row.</figcaption>
+  </figure>
+
+  <h3>No bottom stripe.</h3>
+
+  <figure>
+    <div class="screen win">
+      <div class="frame" style="height:344px">
+        <div class="stripe left">
+          <span class="vtab on"><span>Editor</span></span>
+          <span class="vtab"><span>Scenarios</span></span>
+          <span class="sp"></span>
+          <span class="vtab"><span>Terminal</span></span>
+          <span class="vtab on"><span>Trace</span></span>
+          <span class="vtab"><span>Documents</span></span>
+        </div>
+        <div class="mid">
+          <div class="midrow">
+            <div class="pan ed">
+              <div class="pt">Editor</div>
+              <div class="pl">35</div>
+              <div class="pv">R QuoteRequest</div>
+              <div class="pl">55</div>
+              <div class="pv">GBP/USD</div>
+            </div>
+            <div class="msgarea">
+              <div class="tbr">
+                <span class="st on">RFQ Client</span>
+                <span class="st">Venue</span>
+              </div>
+              <div class="grid">
+                <div class="gr"><span class="ts">09:41:02.118</span><span class="dr o">→</span><span class="tg">35=R</span><span class="nm">QuoteRequest</span><span class="id">RFQ-A1</span></div>
+                <div class="gr"><span class="ts">09:41:02.121</span><span class="dr i">←</span><span class="tg">35=S</span><span class="nm">Quote</span><span class="id">RFQ-A1</span></div>
+                <div class="gr"><span class="ts">09:41:04.902</span><span class="dr o">→</span><span class="tg">35=D</span><span class="nm">NewOrderSingle</span><span class="id">RFQ-A1</span></div>
+                <div class="gr"><span class="ts">09:41:04.907</span><span class="dr i">←</span><span class="tg">35=8</span><span class="nm">ExecReport New</span><span class="id">RFQ-A1</span></div>
+              </div>
+            </div>
+            <div class="pan det">
+              <div class="pt">Detail</div>
+              <div class="pl">35 MsgType</div>
+              <div class="pv">8 ExecReport</div>
+              <div class="pl">31 LastPx</div>
+              <div class="pv">1.27415</div>
+            </div>
+          </div>
+          <div class="dock">
+            <div class="tbr">
+              <span class="st">Terminal</span>
+              <span class="st on">Trace</span>
+              <span class="st">Search results</span>
+              <span class="st">RFQ round trip •</span>
+              <span class="st">Load run 14:02</span>
+            </div>
+            <div class="dockarea">one dock, one height, one tab strip, the full width between the
+              stripes</div>
+          </div>
+        </div>
+        <div class="stripe right">
+          <span class="vtab on"><span>Detail</span></span>
+          <span class="vtab"><span>Connection</span></span>
+          <span class="vtab"><span>Order book</span></span>
+          <span class="vtab"><span>Latency</span></span>
+        </div>
+      </div>
+      <div class="tips">
+        <span class="tip">Terminal · ⌘7</span>
+        <span class="tip">Trace · ⌘8</span>
+        <span class="tip">Documents · no digit yet</span>
+      </div>
+    </div>
+    <figcaption>IntelliJ's new UI has no bottom stripe, bottom tool windows put their tabs at the bottom end of a
+      side stripe, and that is what removes the hanging bar. Everything at the bottom, the terminal, the trace,
+      pinned search results and the scenario documents, is a tab in one dock inside the two side stripes, so a
+      load run report or a scenario editor opening at the bottom lands in the same frame and at the same height
+      as everything else. The dock takes the full width between the stripes, IntelliJ's default, so the terminal,
+      the trace and a load report all get the whole window's width, which the trace never had in the centre
+      column. Their three stripe tabs sit at the bottom end of the left stripe: clicking one opens
+      the dock on that tab, clicking the active one hides the dock, which is how IntelliJ's bottom tool windows
+      share one area. The trade is that the trace and a document are no longer visible at the same time, and the
+      dock can split in two later if a workflow needs both. Shortcuts unchanged, ⌘7 Terminal, ⌘8 Trace.
+      Documents has no digit yet, its tab is present while a document is open.</figcaption>
+  </figure>
+
+  <h3>The stripe tab is the minimise.</h3>
+
+  <figure>
+    <div class="screen narrow">
+      <div class="tips">
+        <span class="tip">Terminal: chevron gone, ⌘7 or its stripe tab hides the dock</span>
+        <span class="tip">Documents: chevron gone, its stripe tab hides the dock</span>
+      </div>
+    </div>
+    <figcaption>Two docks carried a minimise chevron that collapsed them to a header row. With a tab on the
+      stripe there is no reason to keep a header row on screen, hiding is the minimise, and restoring is the same
+      tab. The per-pane minimise inside a session header is a different gesture (one session out of the way, the
+      others stay) and stays.</figcaption>
+  </figure>
+
+  <h3>One window per stripe group.</h3>
+
+  <figure>
+    <div class="screen narrow">
+      <div class="tips">
+        <span class="tip">Left: Editor | Scenarios, one shown</span>
+        <span class="tip">Right: Detail | Connection | Order book | Latency, one shown</span>
+      </div>
+    </div>
+    <figcaption>IntelliJ shows one tool window per stripe group and a click on another tab replaces it. Applied
+      here, the left stripe's top group is Editor or Scenarios, one at a time, the right stripe is Detail,
+      Connection, Order book or Latency, one at a time, and the left stripe's bottom group is the one bottom
+      dock, already one at a time by being tabs. So at most one panel on the left, one on the right and one at
+      the bottom, three widths instead of eight, and no state where four right-hand panels squeeze the grid to a
+      strip. The cost is that Editor beside Scenarios and Detail beside Order book stop being simultaneous,
+      neither is a dependency in the code, and a group can split in two later if a pairing proves daily. Whatever
+      opens a panel programmatically, the Rules button opening Connection, a follow opening Trace, pinning search
+      results, now replaces the group's current window rather than adding to it.</figcaption>
+  </figure>
+
+  <h3>Step 4 pulled forward.</h3>
+
+  <p>The labelled chips and the four groups were sequenced after the pane-grammar build because the renames
+    wanted the pane nouns. The labels do not, and an unlabelled icon row was the first thing the user saw as
+    unfinished, so the chips, the dividers and the sentence-case tooltips landed with the amendment. The renames
+    that touch pane twins still follow the grammar build.</p>
+
   <h2>Order of work</h2>
 
   <ol class="steps">
@@ -1032,20 +1231,26 @@
       <code>Toolbar.kt</code> and their parameters go with them. A pure move with no behaviour change, and the
       biggest visual win of the five.
       <span class="where">Toolbar.kt, the eight TooltipIconButton toggles · a new ToolWindowStripe.kt</span></li>
-    <li><b>View controls.</b> The segmented layout control and <code>View ▾</code> on the tab bar. The four view
+    <li><b>View controls</b> (built, then folded into the toolbar by the amendment). The segmented layout
+      control and <code>View ▾</code> on the tab bar. The four view
       parameters leave <code>Toolbar.kt</code>. The cycling behaviour goes with the button that cycled.
       <span class="where">Toolbar.kt:615 (Layout) to :713 (Group) · the pane tab bar</span></li>
-    <li><b>Filter row.</b> The regex field, the In and Out boxes and the Following chip move to a row in the
+    <li><b>Filter row</b> (built, then folded into the toolbar by the amendment). The regex field, the In and Out boxes and the Following chip move to a row in the
       message area, with the never-silent rule: forced open while narrowing, and closing clears and unfollows.
       The filter parameters leave <code>Toolbar.kt</code>.
       <span class="where">Toolbar.kt:151 (following chip) to :330 (Out) · Escape already unfollows</span></li>
-    <li><b>Toolbar regroup and rename.</b> What is left gets the four divider groups, one noun per tooltip, and
+    <li><b>Toolbar regroup and rename</b> (pulled forward into the amendment). What is left gets the four divider groups, one noun per tooltip, and
       the shortened signature. Fifty-five parameters is not a design, it is a record of what was added when.
       <span class="where">Toolbar.kt, the parameter list and the Row body</span></li>
     <li><b>Menu bar.</b> A Compose Desktop <code>MenuBar</code> mirroring every action above, built from the same
       action list the toolbar and the stripes read, so no item is defined twice and no item can drift. The help
       page's toolbar section and <code>AUTOMATION.md</code> are updated in this commit, not later.
       <span class="where">main.kt window scope · docs/AUTOMATION.md · the help content</span></li>
+    <li><b>Amendment build.</b> Filter and view controls onto the toolbar with the chips and groups, then the
+      stripes: bottom stripe removed, side stripes full height, Terminal, Trace and Documents at the bottom of
+      the left stripe as the three tabs of one bottom dock, one window per stripe group, dock chevrons
+      removed.
+      <span class="where">Toolbar.kt · ToolWindowStripe.kt · the pane tab bar</span></li>
   </ol>
 
   <h2>Decisions</h2>
@@ -1059,9 +1264,8 @@
     </div>
     <div>
       <div class="q"><span class="tag dec">decided</span>Trace goes on the bottom stripe.</div>
-      <div class="a"><strong>Bottom.</strong> It already opens under the message grid, and it is a list across
-        sessions rather than a detail of one, which is the same shape as a console. Nothing about it wants a side
-        of the window.</div>
+      <div class="a"><strong>Superseded.</strong> There is no bottom stripe. Trace is a tab in the one bottom
+        dock, with its stripe tab at the bottom end of the left stripe.</div>
     </div>
     <div>
       <div class="q"><span class="tag dec">decided</span>Toggle state is a pressed tab, not a tint.</div>
@@ -1083,9 +1287,9 @@
         menu bar gives it a home and a shortcut.</div>
     </div>
     <div>
-      <div class="q"><span class="tag asm">assumed</span>⌘1 to ⌘8 for tool windows, ⌘⇧F for the filter row.</div>
-      <div class="a">IntelliJ's numbering, in stripe order, left then right then bottom. ⌘F stays Search all
-        sessions, which it already is.</div>
+      <div class="q"><span class="tag asm">assumed</span>⌘1 to ⌘8 for tool windows.</div>
+      <div class="a">IntelliJ's numbering, in stripe order, left then right then the bottom of the left stripe.
+        ⌘F stays Search all sessions, which it already is.</div>
     </div>
     <div>
       <div class="q"><span class="tag asm">assumed</span>One noun per tool window.</div>
@@ -1095,11 +1299,39 @@
         whole explanation.</div>
     </div>
     <div>
-      <div class="q"><span class="tag open">open</span>Does the filter row show by default in a fresh
+      <div class="q"><span class="tag dec">decided</span>Real estate beats the kind rule.</div>
+      <div class="a"><strong>Placement follows the row count.</strong> A rule that costs a permanent row above
+        the panes loses to the empty middle of a bar that already exists.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Two stripes, not three.</div>
+      <div class="a"><strong>The bottom edge belongs to the docks themselves.</strong> Their tabs live at the
+        bottom end of the side stripes, IntelliJ's arrangement.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>One bottom dock.</div>
+      <div class="a"><strong>Everything at the bottom is a tab in it.</strong> Tools and documents alike, one
+        height, one tab strip. Full width between the stripes, the side windows end above it.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>One window per stripe group.</div>
+      <div class="a"><strong>IntelliJ's rule.</strong> A tab click replaces the group's window, and the layout
+        store keeps three selections instead of eight flags.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Hide is the only minimise for a dock.</div>
+      <div class="a"><strong>One gesture per outcome.</strong></div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>Does the filter row show by default in a fresh
         workspace?</div>
-      <div class="a">Default in this note: hidden until asked for, and forced open while narrowing. The
-        alternative is always visible, which is one row of grid gone on every screen for a control most sessions
-        never touch.</div>
+      <div class="a"><strong>Superseded.</strong> There is no filter row. The filter is always on the
+        toolbar.</div>
+    </div>
+    <div>
+      <div class="q"><span class="tag dec">decided</span>IntelliJ's arrangement is the default answer.</div>
+      <div class="a"><strong>Where a layout question has an IntelliJ answer, that is the answer</strong> unless a
+        FixTool-specific reason is written down here.</div>
     </div>
     <div>
       <div class="q"><span class="tag open">open</span>Should the stripes hide when nothing is open?</div>

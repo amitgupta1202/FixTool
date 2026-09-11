@@ -93,7 +93,7 @@ class AppIntegrationTest {
         // When: the left stripe is rendered with the editor shut
         composeTestRule.setContent {
             ToolWindowStripe(
-                edge = ToolWindowEdge.LEFT,
+                side = StripeSide.LEFT,
                 open = emptySet(),
                 onToggle = { showMessageEditor = !showMessageEditor },
             )
@@ -109,7 +109,7 @@ class AppIntegrationTest {
         // When: the right stripe is rendered with the connection panel open
         composeTestRule.setContent {
             ToolWindowStripe(
-                edge = ToolWindowEdge.RIGHT,
+                side = StripeSide.RIGHT,
                 open = setOf(ToolWindow.CONNECTION),
                 onToggle = { showConnectionPanel = !showConnectionPanel },
             )
@@ -164,7 +164,7 @@ class AppIntegrationTest {
         // Given: the left stripe with the editor initially off
         composeTestRule.setContent {
             ToolWindowStripe(
-                edge = ToolWindowEdge.LEFT,
+                side = StripeSide.LEFT,
                 open = if (showMessageEditor) setOf(ToolWindow.EDITOR) else emptySet(),
                 onToggle = { showMessageEditor = !showMessageEditor },
             )
@@ -206,7 +206,7 @@ class AppIntegrationTest {
         // Given: the right stripe with the connection panel initially off
         composeTestRule.setContent {
             ToolWindowStripe(
-                edge = ToolWindowEdge.RIGHT,
+                side = StripeSide.RIGHT,
                 open = if (showConnectionPanel) setOf(ToolWindow.CONNECTION) else emptySet(),
                 onToggle = { showConnectionPanel = !showConnectionPanel },
             )
@@ -556,7 +556,7 @@ class AppIntegrationTest {
         // Given: the right stripe with the detail panel shut
         composeTestRule.setContent {
             ToolWindowStripe(
-                edge = ToolWindowEdge.RIGHT,
+                side = StripeSide.RIGHT,
                 open = if (showDetailPanel) setOf(ToolWindow.DETAIL) else emptySet(),
                 onToggle = { showDetailPanel = !showDetailPanel },
             )

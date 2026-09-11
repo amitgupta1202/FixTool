@@ -98,6 +98,7 @@ import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.ui.BottomTab
 import com.knapsack.fixtool.ui.CaptureReviewState
 import com.knapsack.fixtool.ui.DiffStepRef
 import com.knapsack.fixtool.ui.DiffStepSlot
@@ -110,6 +111,8 @@ import com.knapsack.fixtool.ui.RepairedStep
 import com.knapsack.fixtool.ui.RunFailureContext
 import com.knapsack.fixtool.ui.ScenarioDoc
 import com.knapsack.fixtool.ui.ScenarioDraft
+import com.knapsack.fixtool.ui.StripeGroup
+import com.knapsack.fixtool.ui.ToolWindow
 import com.knapsack.fixtool.ui.diff.DiffSide
 import com.knapsack.fixtool.ui.diff.DiffViewerSession
 import com.knapsack.fixtool.ui.diff.DiffViewerState
@@ -524,20 +527,6 @@ class FixMessageViewModel(
     val activeDocumentId: StateFlow<String?> = _activeDocumentId.asStateFlow()
 
     /**
-     * Is the scenario dock collapsed to its header row? Snapshot state so the dock's own chevron and every
-     * surface that opens a document read one source of truth. Like the terminal's `minimized`, but with one
-     * rule that makes it usable: it is **cleared by opening or focusing any document** (see [openDocument] and
-     * [focusDocument]), so clicking a step in the rail — or a document tab — always brings the editor back, at
-     * that document. See `ScenarioDock`.
-     */
-    private val _scenarioDockMinimized = MutableStateFlow(false)
-    val scenarioDockMinimized: StateFlow<Boolean> = _scenarioDockMinimized.asStateFlow()
-
-    fun toggleScenarioDockMinimized() {
-        _scenarioDockMinimized.value = !_scenarioDockMinimized.value
-    }
-
-    /**
      * The workbench layout — panel sizes, which panels are open, dock heights. View state, not settings, so it
      * has its own store ([layoutStateService], `layout.json`), the sibling of the rail's `scenario_view.json`.
      * Composables read [layoutState] to seed panel sizes and write back through [updateLayout] on drag end.
@@ -562,14 +551,12 @@ class FixMessageViewModel(
     /** Back to the sessions — what clicking a session tab means. Leaves the documents open. */
     fun showSessions() {
         _activeDocumentId.value = null
+        if (_bottomTab.value is BottomTab.Document) selectBottom(null)
     }
 
+    /** Focus a document, which means putting the dock on its tab, the dock's only door to a document. */
     fun focusDocument(id: String) {
-        if (_openDocuments.value.any { it.id == id }) {
-            _activeDocumentId.value = id
-            // Focusing a document restores the dock — see [_scenarioDockMinimized].
-            _scenarioDockMinimized.value = false
-        }
+        if (_openDocuments.value.any { it.id == id }) selectBottom(BottomTab.Document(id))
     }
 
     /** The document's own state, coming back from the composable that is editing it. See [ScenarioDoc]. */
@@ -632,6 +619,11 @@ class FixMessageViewModel(
         _openDocuments.value = remaining
         closing?.scenarioId?.let { dropDraftIfUnviewed(it) }
         if (_activeDocumentId.value == id) _activeDocumentId.value = remaining.lastOrNull()?.id
+        // Closing the tab the dock is on moves it to the neighbour, and closing the last one hides the
+        // dock: there is nothing left in the documents group to fall back to.
+        if (_bottomTab.value == BottomTab.Document(id)) {
+            selectBottom(remaining.lastOrNull()?.let { BottomTab.Document(it.id) })
+        }
         if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
     }
 
@@ -728,9 +720,9 @@ class FixMessageViewModel(
             } else {
                 _openDocuments.value + doc
             }
-        _activeDocumentId.value = doc.id
-        // Opening a document restores the dock — see [_scenarioDockMinimized].
-        _scenarioDockMinimized.value = false
+        // Opening a document shows the dock on its tab, whatever the dock was showing before: opening a
+        // document is a request to look at it.
+        selectBottom(BottomTab.Document(doc.id))
     }
 
     /**
@@ -2093,7 +2085,13 @@ class FixMessageViewModel(
     private val _globalSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
     val globalSearchResults: StateFlow<List<SearchResult>> = _globalSearchResults.asStateFlow()
 
-    // Search results pane (persistent search results at bottom of screen)
+    /**
+     * **Are search results pinned?** Which is not the same question as "is the dock showing them".
+     *
+     * Pinning gives the results a tab in the bottom dock, and the tab stays in the strip while they are
+     * pinned even when the dock is showing something else. Tying this to the selected tab instead made
+     * looking at another tab the only way to lose a search, with no way back to it.
+     */
     private val _showSearchResultsPane = MutableStateFlow(false)
     val showSearchResultsPane: StateFlow<Boolean> = _showSearchResultsPane.asStateFlow()
 
@@ -2135,6 +2133,140 @@ class FixMessageViewModel(
 
     /** Ledger or Lanes — one panel, two drawings of the same rows. See [TraceRendering]. */
     val traceRendering: StateFlow<TraceRendering> get() = traceFollow.traceRendering
+
+    // ---- The stripe groups: one window on the left, one on the right, one tab at the bottom -----------
+
+    /**
+     * **The window showing in the left stripe's top group**, or null when neither is.
+     *
+     * IntelliJ's rule, applied here: a group shows one tool window, and a click on another tab in the same
+     * group replaces it. The eight booleans that used to say this are still published below, mirrored from
+     * these three selections, so every existing caller (the control surface, the panels' own close
+     * buttons, the tests) goes on asking the question it already asked.
+     */
+    private val _leftWindow = MutableStateFlow<ToolWindow?>(null)
+    val leftWindow: StateFlow<ToolWindow?> = _leftWindow.asStateFlow()
+
+    private val _rightWindow = MutableStateFlow<ToolWindow?>(null)
+    val rightWindow: StateFlow<ToolWindow?> = _rightWindow.asStateFlow()
+
+    /** What the one bottom dock is showing, or null when it is hidden. See [BottomTab] and `BottomDock`. */
+    private val _bottomTab = MutableStateFlow<BottomTab?>(null)
+    val bottomTab: StateFlow<BottomTab?> = _bottomTab.asStateFlow()
+
+    /**
+     * What the dock was showing before the search results took it, so unpinning them goes back rather than
+     * to a tab nobody asked for. Null when the results were pinned onto a hidden dock, and then unpinning
+     * hides it again.
+     */
+    private var tabBeforeSearchResults: BottomTab? = null
+
+    /** Put [window] on screen, replacing whatever its group was showing. */
+    fun show(window: ToolWindow) {
+        when (window.group) {
+            StripeGroup.LEFT_TOP -> selectLeft(window)
+            StripeGroup.RIGHT -> selectRight(window)
+            // Trace goes the long way round, because opening the Ledger also has to start its ticker.
+            StripeGroup.LEFT_BOTTOM ->
+                if (window == ToolWindow.TRACE) openTracePanel() else selectBottom(bottomTabFor(window) ?: return)
+        }
+    }
+
+    /** Take [window] off screen, if it is the one its group is showing. */
+    fun hide(window: ToolWindow) {
+        if (showing(window)) {
+            when (window.group) {
+                StripeGroup.LEFT_TOP -> selectLeft(null)
+                StripeGroup.RIGHT -> selectRight(null)
+                StripeGroup.LEFT_BOTTOM -> selectBottom(null)
+            }
+        }
+    }
+
+    /**
+     * **What a stripe tab and its ⌘ digit both do**: hide the window if it is the one showing, otherwise
+     * show it in place of whatever its group is showing.
+     */
+    fun toggle(window: ToolWindow) {
+        if (showing(window)) hide(window) else show(window)
+    }
+
+    /** Is [window] the one its group is showing? This is exactly what draws its stripe tab pressed. */
+    fun showing(window: ToolWindow): Boolean =
+        when (window.group) {
+            StripeGroup.LEFT_TOP -> _leftWindow.value == window
+            StripeGroup.RIGHT -> _rightWindow.value == window
+            // Documents is pressed for whichever document is showing, because it names them all.
+            StripeGroup.LEFT_BOTTOM -> bottomTabIs(window)
+        }
+
+    private fun bottomTabIs(window: ToolWindow): Boolean =
+        when (window) {
+            ToolWindow.TERMINAL -> _bottomTab.value is BottomTab.Terminal
+            ToolWindow.TRACE -> _bottomTab.value is BottomTab.Trace
+            ToolWindow.DOCUMENTS -> _bottomTab.value is BottomTab.Document
+            else -> false
+        }
+
+    /** Which dock tab a bottom-group stripe tab opens. Documents opens the active one, or the first. */
+    private fun bottomTabFor(window: ToolWindow): BottomTab? =
+        when (window) {
+            ToolWindow.TERMINAL -> BottomTab.Terminal
+            ToolWindow.TRACE -> BottomTab.Trace
+            ToolWindow.DOCUMENTS ->
+                (activeDocument ?: _openDocuments.value.firstOrNull())?.let { BottomTab.Document(it.id) }
+            else -> null
+        }
+
+    /**
+     * The one place the left group changes, and the one place the booleans it replaced are written.
+     *
+     * Mirrored rather than derived with `map`, because every caller of `showMessageEditor.value` expects
+     * the answer in the same breath as the change, and a flow assembled by a coroutine would still be saying
+     * "closed" on the line after the editor opened.
+     */
+    private fun selectLeft(window: ToolWindow?) {
+        _leftWindow.value = window
+        _showMessageEditor.value = window == ToolWindow.EDITOR
+        _showScenariosRail.value = window == ToolWindow.SCENARIOS
+    }
+
+    private fun selectRight(window: ToolWindow?) {
+        _rightWindow.value = window
+        _showDetailPanel.value = window == ToolWindow.DETAIL
+        _showConnectionPanel.value = window == ToolWindow.CONNECTION
+        _showOrderBookPanel.value = window == ToolWindow.ORDER_BOOK
+        _showLatencyPanel.value = window == ToolWindow.LATENCY
+    }
+
+    /**
+     * The one place the dock's tab changes.
+     *
+     * The Ledger's ticker is driven off [TraceFollow]'s own flag, so leaving the Trace tab has to tell it:
+     * a ticker still refreshing an index nobody is drawing is work done for no reader.
+     */
+    private fun selectBottom(tab: BottomTab?) {
+        if (tab is BottomTab.SearchResults && _bottomTab.value !is BottomTab.SearchResults) {
+            tabBeforeSearchResults = _bottomTab.value
+        }
+        _bottomTab.value = tab
+        if (tab is BottomTab.Document) _activeDocumentId.value = tab.id
+        if (tab is BottomTab.Trace) traceFollow.openTracePanel() else traceFollow.closeTracePanel()
+    }
+
+    /** What a click on one of the dock's own tabs does. A document tab goes through [focusDocument]. */
+    fun showBottomTab(tab: BottomTab) {
+        when (tab) {
+            is BottomTab.Document -> focusDocument(tab.id)
+            is BottomTab.Trace -> openTracePanel()
+            else -> selectBottom(tab)
+        }
+    }
+
+    /** Hide the dock, whatever it is showing. The stripe tab is the minimise, so this is all a hide is. */
+    fun hideBottomDock() {
+        selectBottom(null)
+    }
 
     /** Runs only while something is followed or the panel is open; see [startTraceTicker]. */
     private var traceTicker: Job? = null
@@ -2427,20 +2559,23 @@ class FixMessageViewModel(
 
     /** Load the persisted layout and bring the panel-visibility flags back to how they were left. */
     private fun restoreLayoutState() {
-        val l = layoutStateService.load()
+        // Migrated on the way in, so a file written before the stripe groups comes back as three selections
+        // and is written back in that shape by the first change. See [LayoutState.migrated].
+        val l = layoutStateService.load().migrated()
         _layoutState.value = l
         l.openWorkspace.takeIf { it.isNotBlank() && File(it).isDirectory }?.let { WorkspacePaths.open(it) }
-        _showScenariosRail.value = l.showScenariosRail
-        _showDetailPanel.value = l.showDetailPanel
-        _showMessageEditor.value = l.showMessageEditor
-        _showConnectionPanel.value = l.showConnectionPanel
-        _showLatencyPanel.value = l.showLatencyPanel
-        _showOrderBookPanel.value = l.showOrderBookPanel
-        _scenarioDockMinimized.value = l.scenarioDockMinimized
-        // The flag only. The Ledger's rows come from the trace ticker, which is started at the end of
-        // `init` rather than here: refreshing needs the dictionary, and this runs before it is loaded.
-        if (l.showTracePanel) traceFollow.openTracePanel()
+        selectLeft(windowNamed(l.leftWindow, StripeGroup.LEFT_TOP))
+        selectRight(windowNamed(l.rightWindow, StripeGroup.RIGHT))
+        // A document tab names a document this launch has not opened, so it is not restorable: the dock
+        // comes back on a tool tab or hidden. The Ledger's rows come from the trace ticker, which is
+        // started at the end of `init` rather than here, because refreshing needs the dictionary and this runs
+        // before it is loaded, so this sets the tab and nothing else.
+        selectBottom(BottomTab.parse(l.bottomTab)?.takeIf { it !is BottomTab.Document })
     }
+
+    /** The window that name means, if it is one this build has and it belongs in [group]. */
+    private fun windowNamed(name: String?, group: StripeGroup): ToolWindow? =
+        ToolWindow.entries.firstOrNull { it.name == name && it.group == group }
 
     /**
      * Persist the panel-visibility flags whenever they change, by whatever path — a toolbar toggle, a message
@@ -2449,14 +2584,9 @@ class FixMessageViewModel(
      * so startup does not write back exactly what it loaded — only real changes are persisted.
      */
     private fun observeLayoutVisibility() {
-        _showScenariosRail.drop(1).onEach { v -> updateLayout { it.copy(showScenariosRail = v) } }.launchIn(viewModelScope)
-        _showDetailPanel.drop(1).onEach { v -> updateLayout { it.copy(showDetailPanel = v) } }.launchIn(viewModelScope)
-        _showMessageEditor.drop(1).onEach { v -> updateLayout { it.copy(showMessageEditor = v) } }.launchIn(viewModelScope)
-        _showConnectionPanel.drop(1).onEach { v -> updateLayout { it.copy(showConnectionPanel = v) } }.launchIn(viewModelScope)
-        _showLatencyPanel.drop(1).onEach { v -> updateLayout { it.copy(showLatencyPanel = v) } }.launchIn(viewModelScope)
-        _showOrderBookPanel.drop(1).onEach { v -> updateLayout { it.copy(showOrderBookPanel = v) } }.launchIn(viewModelScope)
-        tracePanelOpen.drop(1).onEach { v -> updateLayout { it.copy(showTracePanel = v) } }.launchIn(viewModelScope)
-        _scenarioDockMinimized.drop(1).onEach { v -> updateLayout { it.copy(scenarioDockMinimized = v) } }.launchIn(viewModelScope)
+        _leftWindow.drop(1).onEach { w -> updateLayout { it.copy(leftWindow = w?.name) } }.launchIn(viewModelScope)
+        _rightWindow.drop(1).onEach { w -> updateLayout { it.copy(rightWindow = w?.name) } }.launchIn(viewModelScope)
+        _bottomTab.drop(1).onEach { t -> updateLayout { it.copy(bottomTab = t?.key) } }.launchIn(viewModelScope)
     }
 
     /**
@@ -2791,9 +2921,11 @@ class FixMessageViewModel(
 
     fun selectMessage(message: FixMessage?) {
         _selectedMessage.value = message
-        // Auto-show detail panel when a message is selected
-        if (message != null && !_showDetailPanel.value) {
-            _showDetailPanel.value = true
+        // Auto-show the detail panel when a message is selected, but only onto an empty right stripe.
+        // The right group shows one window now, so the old unconditional open would throw the order book
+        // or the connection form off screen on every click in the grid, which is not what a click means.
+        if (message != null && _rightWindow.value == null) {
+            show(ToolWindow.DETAIL)
         }
         // Auto-select the tab/session that contains this message
         if (message != null) {
@@ -2849,7 +2981,7 @@ class FixMessageViewModel(
     }
 
     fun toggleDetailPanel() {
-        _showDetailPanel.value = !_showDetailPanel.value
+        toggle(ToolWindow.DETAIL)
     }
 
     /**
@@ -2863,7 +2995,7 @@ class FixMessageViewModel(
     }
 
     fun toggleMessageEditor() {
-        _showMessageEditor.value = !_showMessageEditor.value
+        toggle(ToolWindow.EDITOR)
     }
 
     /**
@@ -2879,7 +3011,7 @@ class FixMessageViewModel(
      */
     fun openVenueRules(session: FixMessageSession) {
         val profileId = profileIdForSession(session) ?: return
-        _showConnectionPanel.value = true
+        show(ToolWindow.CONNECTION)
         _connectionPanelSelection.value = profileId
         _rulesExpandRequest.value = profileId
     }
@@ -2892,7 +3024,7 @@ class FixMessageViewModel(
     }
 
     fun toggleConnectionPanel() {
-        _showConnectionPanel.value = !_showConnectionPanel.value
+        toggle(ToolWindow.CONNECTION)
     }
 
     fun toggleHideProtocolTags() {
@@ -2909,7 +3041,7 @@ class FixMessageViewModel(
     }
 
     fun toggleScenariosRail() {
-        _showScenariosRail.value = !_showScenariosRail.value
+        toggle(ToolWindow.SCENARIOS)
     }
 
     /**
@@ -3687,7 +3819,7 @@ class FixMessageViewModel(
      * `POST /panel {"panel":"editor"}` drives, so the link and the control surface open the same thing.
      */
     fun bringEditorForward() {
-        if (!_showMessageEditor.value) toggleMessageEditor()
+        show(ToolWindow.EDITOR)
         runCatching {
             val title = com.knapsack.fixtool.control.ControlServer.MAIN_WINDOW_TITLE
             val windows = java.awt.Window.getWindows()
@@ -4813,7 +4945,7 @@ class FixMessageViewModel(
         }
 
     fun toggleOrderBookPanel() {
-        _showOrderBookPanel.value = !_showOrderBookPanel.value
+        toggle(ToolWindow.ORDER_BOOK)
     }
 
     /**
@@ -4832,7 +4964,7 @@ class FixMessageViewModel(
     }
 
     fun toggleLatencyPanel() {
-        _showLatencyPanel.value = !_showLatencyPanel.value
+        toggle(ToolWindow.LATENCY)
     }
 
     fun toggleGlobalSearchDialog() {
@@ -4845,14 +4977,27 @@ class FixMessageViewModel(
     }
 
     fun pinSearchResults() {
-        // Pin current search results to the pane and show it
+        // Pin the current search results and put the dock on them.
         _pinnedSearchResults.value = _globalSearchResults.value
         _showSearchResultsPane.value = true
+        selectBottom(BottomTab.SearchResults)
     }
 
+    /**
+     * Unpin the results, and give the dock back whatever it was showing before they took it.
+     *
+     * A document that has since been closed is not a tab to go back to, so that case hides the dock, which
+     * is also the answer for results pinned onto a dock that was hidden to begin with.
+     */
     fun closeSearchResultsPane() {
-        _showSearchResultsPane.value = false
         _pinnedSearchResults.value = emptyList()
+        _showSearchResultsPane.value = false
+        if (_bottomTab.value is BottomTab.SearchResults) {
+            val previous = tabBeforeSearchResults
+            val stillThere = previous !is BottomTab.Document || _openDocuments.value.any { it.id == previous.id }
+            selectBottom(previous.takeIf { stillThere })
+        }
+        tabBeforeSearchResults = null
     }
 
     /**
@@ -6162,7 +6307,7 @@ class FixMessageViewModel(
         _editorValidationErrors.clear()
         _editorState.value = MessageEditorState.New
         _editorTarget.value = EditorTarget.ReplyStep(profileId, ruleIndex, stepIndex, template)
-        _showMessageEditor.value = true
+        show(ToolWindow.EDITOR)
     }
 
     /**
@@ -6295,7 +6440,7 @@ class FixMessageViewModel(
         _editorSelectedIndices.add(0)
         _editorValidationErrors.clear()
         _editorState.value = MessageEditorState.New
-        _showMessageEditor.value = true
+        show(ToolWindow.EDITOR)
         return true
     }
 
@@ -6544,7 +6689,7 @@ class FixMessageViewModel(
      */
     fun follow(id: String) {
         traceFollow.follow(id)
-        traceFollow.openTracePanel()
+        selectBottom(BottomTab.Trace)
         refreshTraces()
         startTraceTicker()
     }
@@ -6554,17 +6699,18 @@ class FixMessageViewModel(
     }
 
     fun openTracePanel() {
-        traceFollow.openTracePanel()
+        selectBottom(BottomTab.Trace)
         refreshTraces()
         startTraceTicker()
     }
 
+    /** The Ledger's own ×: hide the dock, and leave the follow alone, as the chip's × does. */
     fun closeTracePanel() {
-        traceFollow.closeTracePanel()
+        if (_bottomTab.value is BottomTab.Trace) selectBottom(null) else traceFollow.closeTracePanel()
     }
 
     fun toggleTracePanel() {
-        if (traceFollow.tracePanelOpen.value) closeTracePanel() else openTracePanel()
+        toggle(ToolWindow.TRACE)
     }
 
     fun toggleTrace(key: TraceKey) = traceFollow.toggleTrace(key)

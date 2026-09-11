@@ -2252,14 +2252,16 @@ ${incoming["D"].valueOfTag(38)}
         <li>Click <strong>Open in Search Window</strong> to pin results</li>
     </ol>
 
-    <h3>Search Results Pane</h3>
-    <p>The search results pane shows all matches in a persistent grid:</p>
+    <h3>Search results</h3>
+    <p>Pinned results show all matches in a persistent grid:</p>
     <ul>
-        <li>Appears at the bottom of the window</li>
+        <li>Opens as a <strong>Search results</strong> tab in the <a href="#bottom-dock">bottom dock</a>,
+        counted in the tab's own label</li>
         <li>Shows session name, time, direction, message type, and matched content</li>
         <li>Click any result to navigate to that message in its session</li>
-        <li>Resizable and stays open while you work</li>
-        <li>Close with the X button when done</li>
+        <li>Resizable, and stays pinned while you work on another tab</li>
+        <li>The tab's <strong>&times;</strong> unpins the results, and the dock goes back to whatever it was
+        showing before</li>
     </ul>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
@@ -2648,10 +2650,12 @@ ${incoming["D"].valueOfTag(38)}
 
     <h3 id="embedded-terminal">The quickest way in &mdash; the built-in terminal</h3>
 
-    <p>The bottom stripe's <strong>Terminal</strong> tab (<code>&#8984;7</code>) opens a shell docked across the foot of the main
-    window, the same idiom the scenario editor uses: drag the grip at the top to grow it, and the header's
-    <strong>&times;</strong> closes it. It is a real terminal on a real PTY, so a full-screen TUI renders
-    and reflows properly.</p>
+    <p>The <strong>Terminal</strong> tab at the foot of the left stripe (<code>&#8984;7</code>) opens a shell
+    in the <a href="#bottom-dock">bottom dock</a>, across the whole width of the window: drag the grip at the
+    top to grow it, and the same tab (or <code>&#8984;7</code> again) hides it. Hiding is all a minimize is
+    here, and it leaves the shell running: a <code>claude</code> session survives being put away and
+    comes back where you left it. It is a real terminal on a real PTY, so a full-screen TUI renders and
+    reflows properly.</p>
 
     <p>Its point is what it puts in the environment. <strong>The running control endpoint is injected into
     the shell</strong>, so a <code>claude</code> you launch in here already targets <em>this</em> FixTool
@@ -2880,17 +2884,23 @@ ${incoming["D"].valueOfTag(38)}
         when the answer is git rather than the app.</li>
     </ul>
 
-    <p>Scenario documents &mdash; the flow editor, capture review and a run set's record &mdash; open in a
-    <strong>dock across the foot of the window</strong>, full width beneath the sessions, the same
-    tool-window idiom the <a href="#embedded-terminal">terminal</a> uses. Every open document sits behind
-    its own tab strip. Drag its top edge to resize; the chevron <strong>minimizes it to its header</strong>
-    without tearing it out of composition, so the scroll position and the field you were typing in survive
-    a glance away. Opening or focusing any document &mdash; clicking a step in the rail, following a failure,
-    opening a capture &mdash; restores it and lands on that step. With no documents open the dock is absent
-    entirely.</p>
+    <p id="bottom-dock">Scenario documents (the flow editor, capture review and a run set's record)
+    open as tabs in the <strong>one dock across the foot of the window</strong>, full width between
+    the stripes and beneath the sessions. Everything that opens at the bottom is a tab in it: the
+    <a href="#embedded-terminal">terminal</a>, the <a href="#trace-panel">Ledger</a>, pinned search results
+    and every open document, one height and one tab strip. Drag its top edge to resize.</p>
+
+    <p>There is no minimize chevron. The stripe tab <em>is</em> the minimize: the
+    <strong>Documents</strong> tab at the foot of the left stripe hides the dock and brings it back, and
+    nothing is torn out of composition while it is away, so the scroll position and the field you were
+    typing in survive a glance elsewhere. Opening or focusing any document, by clicking a step in the
+    rail, following a failure or opening a capture, shows the dock on that document, at that step. The
+    Documents tab is on the stripe only while a document is open.</p>
 
     <p>The point of the dock is what it is <em>not</em>: it is no longer a pane inside the session split, so
-    the editor no longer moves or resizes as a side effect of the view mode you happen to be in.</p>
+    the editor no longer moves or resizes as a side effect of the view mode you happen to be in. The trade
+    is that one bottom thing shows at a time: the Ledger and a scenario editor are two tabs of one
+    area, not two areas.</p>
     <ol>
         <li><strong>Work a flow normally</strong> &mdash; connect and send/receive messages across one
         or more sessions (e.g. an RFQ: QuoteRequest out, Quote back; or an order and its
@@ -4117,8 +4127,8 @@ ${incoming["D"].valueOfTag(38)}
 
     <h3 id="trace-panel">The Trace panel &mdash; the Ledger</h3>
 
-    <p>The bottom stripe's <strong>Trace</strong> tab (<code>&#8984;8</code>) opens the <strong>Ledger</strong>
-    at the foot of the window, which is every exchange across every session: the grouped grid run over every session at
+    <p>The <strong>Trace</strong> tab at the foot of the left stripe (<code>&#8984;8</code>) opens the
+    <strong>Ledger</strong> in the <a href="#bottom-dock">bottom dock</a>, which is every exchange across every session: the grouped grid run over every session at
     once. Its header counts the whole picture &mdash; <code>8 traces across 2 sessions &middot; 68
     ungrouped</code> &mdash; and <strong>Expand all</strong> / <strong>Collapse all</strong> open every
     trace or shut them.</p>

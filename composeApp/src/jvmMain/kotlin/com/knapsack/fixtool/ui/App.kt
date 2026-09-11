@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.knapsack.fixtool.model.EditorTarget
@@ -20,15 +19,10 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.ReplyShape
-import com.knapsack.fixtool.service.TraceLanes
-import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.settings.WorkspaceSettings
-import com.knapsack.fixtool.ui.terminal.TerminalController
-import com.knapsack.fixtool.ui.terminal.TerminalDockSlot
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
-import com.knapsack.fixtool.viewmodel.TraceRendering
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,8 +73,6 @@ fun App(
         val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
         val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
         val globalSearchResults by viewModel.globalSearchResults.collectAsState()
-        val showSearchResultsPane by viewModel.showSearchResultsPane.collectAsState()
-        val pinnedSearchResults by viewModel.pinnedSearchResults.collectAsState()
         val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
         // Native folder dialogs suspend, and the Open workspace item is a menu click.
         val workspaceScope = rememberCoroutineScope()
@@ -155,34 +147,7 @@ fun App(
                     ?.ids
                     .orEmpty()
             }
-        val tracePanelOpen by viewModel.tracePanelOpen.collectAsState()
-        val expandedTraces by viewModel.expandedTraces.collectAsState()
-        val ungroupedTracesExpanded by viewModel.ungroupedTracesExpanded.collectAsState()
 
-        /**
-         * The Ledger's rows, rebuilt only when something it draws from changed.
-         *
-         * The index is republished on the trace ticker and is a new object only when some pane's
-         * snapshot actually changed (`TraceFollow` memoises on snapshot identity), so this memo is quiet
-         * while the app is — and does no work at all while the panel is shut, because the index is null.
-         */
-        val traceRows =
-            remember(followedTraceIndex, expandedTraces, ungroupedTracesExpanded, followedTrace?.anchorId) {
-                val index = followedTraceIndex
-                if (index == null) {
-                    emptyList()
-                } else {
-                    TraceRows.build(
-                        snapshots = index.snapshots,
-                        sessionTitles = index.sessionTitles,
-                        grouping = index.grouping,
-                        dictionary = viewModel.getDictionaryAdapter(),
-                        expanded = expandedTraces,
-                        ungroupedExpanded = ungroupedTracesExpanded,
-                        followedAnchor = followedTrace?.anchorId,
-                    )
-                }
-            }
         val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
         val showOrderBookPanel by viewModel.showOrderBookPanel.collectAsState()
         val showScenariosRail by viewModel.showScenariosRail.collectAsState()
@@ -205,7 +170,7 @@ fun App(
                 kotlinx.coroutines.flow.combine(flows) { flags -> flags.any { on -> on } }
             }
         }.collectAsState(initial = viewModel.anySessionGroupedByConversation())
-        // Documents live in the scenario dock now (see ScenarioDock), not in the session centre, so the
+        // Documents live in the bottom dock now (see BottomDock), not in the session centre, so the
         // layout no longer tracks the active document or its tabs at this level.
 
         // Load saved messages when active session changes
@@ -242,61 +207,35 @@ fun App(
         var detailPanelSplitRatio by remember { mutableStateOf(savedLayout.detailRatio) }
         var editorPanelSplitRatio by remember { mutableStateOf(savedLayout.editorRatio) }
         var connectionPanelSplitRatio by remember { mutableStateOf(savedLayout.connectionRatio) }
-        var searchResultsPanelHeight by remember { mutableStateOf(savedLayout.searchHeightDp.dp) }
         var latencyPanelSplitRatio by remember { mutableStateOf(savedLayout.latencyRatio) }
         var orderBookSplitRatio by remember { mutableStateOf(savedLayout.orderBookRatio) }
 
-        // Bring the terminal back the way it was left, and persist changes to it thereafter. The height
-        // rides through the dock slot below; visible/minimized live on the (global) TerminalController.
-        LaunchedEffect(Unit) {
-            TerminalController.restore(savedLayout.terminalVisible, savedLayout.terminalMinimized)
-            TerminalController.onChange = {
-                viewModel.updateLayout {
-                    it.copy(terminalVisible = TerminalController.visible, terminalMinimized = TerminalController.minimized)
-                }
-            }
-        }
-
-        // The docked terminal is hosted as *movable* content. TABS and the two SPLIT branches each place
-        // it at a different call site, and closing the last side panel switches SPLIT branches. Composed
-        // three times, that switch would dispose one instance and create another — tearing down the PTY
-        // and killing a running `claude` session. movableContentOf moves the single terminal node between
-        // call sites instead, so the widget, its PTY and the session survive; TerminalPanel's onDispose
-        // then only fires on a real close (the terminal is hidden, or the app exits).
-        val terminalSlot =
-            remember {
-                movableContentOf {
-                    TerminalDockSlot(
-                        automationControlPort = viewModel.appSettings.automationControlPort,
-                        initialHeightDp = savedLayout.terminalHeightDp,
-                        onHeightPersist = { h -> viewModel.updateLayout { it.copy(terminalHeightDp = h) } },
-                    )
-                }
-            }
-        // The scenario dock is NOT movable content: unlike the terminal (three centre-column call sites), it
-        // lives at one stable site beneath the whole layout, so it is never recomposed at a new site.
+        val leftWindow by viewModel.leftWindow.collectAsState()
+        val rightWindow by viewModel.rightWindow.collectAsState()
+        val bottomTab by viewModel.bottomTab.collectAsState()
+        val openDocuments by viewModel.openDocuments.collectAsState()
 
         /**
          * **Which tool windows are on screen**, which is what draws a stripe tab pressed.
          *
-         * A set built from the flags already collected above rather than a ninth piece of state, because
-         * every one of these windows has other doors (a message selection opens the detail panel, a
-         * control-surface `/panel` call opens any of them) and a tab that tracked its own boolean would
-         * disagree with the window it names.
+         * Read off the three group selections rather than kept as state of its own, because every one of
+         * these windows has other doors (a message selection opens the detail panel, a control-surface
+         * `/panel` call opens any of them) and a tab that tracked its own boolean would disagree with the
+         * window it names.
          */
         val openToolWindows =
             buildSet {
-                if (showMessageEditor) add(ToolWindow.EDITOR)
-                if (showScenariosRail) add(ToolWindow.SCENARIOS)
-                if (showDetailPanel) add(ToolWindow.DETAIL)
-                if (showConnectionPanel) add(ToolWindow.CONNECTION)
-                if (showOrderBookPanel) add(ToolWindow.ORDER_BOOK)
-                if (showLatencyPanel) add(ToolWindow.LATENCY)
-                if (TerminalController.visible) add(ToolWindow.TERMINAL)
-                if (tracePanelOpen) add(ToolWindow.TRACE)
+                leftWindow?.let(::add)
+                rightWindow?.let(::add)
+                when (bottomTab) {
+                    is BottomTab.Terminal -> add(ToolWindow.TERMINAL)
+                    is BottomTab.Trace -> add(ToolWindow.TRACE)
+                    is BottomTab.Document -> add(ToolWindow.DOCUMENTS)
+                    else -> Unit
+                }
             }
         // One handler for the tab and for its ⌘ digit, so the two doors to a window cannot drift apart.
-        val onToggleToolWindow: (ToolWindow) -> Unit = { window -> toggleToolWindow(viewModel, window) }
+        val onToggleToolWindow: (ToolWindow) -> Unit = { window -> viewModel.toggle(window) }
 
         val onViewModeChange: (ViewMode) -> Unit = { mode ->
             viewMode = mode
@@ -476,725 +415,605 @@ fun App(
                     )
                 }
 
-                when (viewMode) {
-                    ViewMode.TABS -> {
-                        // All panels in same row: scenarios rail, editor, tabs, detail
-                        BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                            val maxWidthPx = with(density) { maxWidth.toPx() }
+                // **The window's main row: a stripe, the content, a stripe.** Both stripes run the full
+                // content height, and the centre column is the session area over the one bottom dock, so
+                // the dock spans the whole width between the stripes and the side windows end above it,
+                // which is IntelliJ's default arrangement.
+                Row(modifier = Modifier.weight(1f)) {
+                    ToolWindowStripe(
+                        side = StripeSide.LEFT,
+                        open = openToolWindows,
+                        onToggle = onToggleToolWindow,
+                        documentsOpen = openDocuments.isNotEmpty(),
+                    )
 
-                            Row(modifier = Modifier.fillMaxSize()) {
-                                // The tool-window stripes, on the edges the windows open from. First
-                                // and last child of the layout row, so they frame every panel between
-                                // them. See [ToolWindowStripe].
-                                ToolWindowStripe(edge = ToolWindowEdge.LEFT, open = openToolWindows, onToggle = onToggleToolWindow)
+                    Column(modifier = Modifier.weight(1f)) {
+                        when (viewMode) {
+                            ViewMode.TABS -> {
+                                // All panels in same row: scenarios rail, editor, tabs, detail
+                                BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                                    val maxWidthPx = with(density) { maxWidth.toPx() }
 
-                                ScenariosRailDock(
-                                    viewModel = viewModel,
-                                    show = showScenariosRail,
-                                    ratio = scenariosRailSplitRatio,
-                                    maxWidthPx = maxWidthPx,
-                                    onDeltaPx = { dx ->
-                                        scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
-                                    },
-                                    onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
-                                )
-
-                                // Leftmost panel - Message editor (if shown)
-                                if (showMessageEditor) {
-                                    Box(
-                                        modifier =
-                                            Modifier.width(
-                                                with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
-                                            ),
-                                    ) {
-                                        AppMessageEditorPanel(
+                                    Row(modifier = Modifier.fillMaxSize()) {
+                                        ScenariosRailDock(
                                             viewModel = viewModel,
-                                            savedMessages = savedMessages,
-                                            currentProfileId = currentProfileId,
-                                            editorState = editorState,
-                                            editorPanelSplitRatio = editorPanelSplitRatio,
-                                            onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
-                                            modifier = Modifier.fillMaxSize(),
+                                            show = showScenariosRail,
+                                            ratio = scenariosRailSplitRatio,
+                                            maxWidthPx = maxWidthPx,
+                                            onDeltaPx = { dx ->
+                                                scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
                                         )
-                                    }
 
-                                    // Resizable divider for editor panel
-                                    WidthResizeHandle(
-                                        onDeltaPx = { dx ->
-                                            editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
-                                        },
-                                        onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
-                                    )
-                                }
-
-                                // Center panel - Tabs and Message display
-                                Column(modifier = Modifier.weight(1f)) {
-                                    var isAtBottom by remember { mutableStateOf(true) }
-                                    var scrollToBottomTrigger by remember { mutableStateOf(0) }
-
-                                    TabBar(
-                                        sessions = viewModel.sessions,
-                                        activeSession = viewModel.activeSession,
-                                        viewMode = globalViewMode,
-                                        onTabClick = { session -> viewModel.setActiveSessionByObject(session) },
-                                        onCloseTab = { session -> viewModel.closeSession(session) },
-                                        onToggleWrapText = { session -> session.toggleWrapText() },
-                                        onConnect = { session -> session.reconnect() },
-                                        onDisconnect = { session -> session.disconnect() },
-                                        onMinimize = { session, on -> viewModel.setSessionMinimized(session, on) },
-                                        onEditVenueRules = { session -> viewModel.openVenueRules(session) },
-                                        isAtBottom = isAtBottom,
-                                        onScrollToBottom = { scrollToBottomTrigger++ },
-                                    )
-
-                                    // The centre is always the sessions now — the scenario editor is a
-                                    // bottom dock (see ScenarioDock), not a pane that replaces the grid.
-                                    viewModel.activeSession?.let { session ->
-                                        // Minimizing does not move the editor's target — silently
-                                        // pointing a loaded order at a different counterparty is how a
-                                        // tester sends to the wrong venue. So the active session can be
-                                        // one that is in the strip, and the centre says so instead of
-                                        // drawing a pane that is not there.
-                                        val activeMinimized by session.minimized.collectAsState()
-                                        if (activeMinimized) {
+                                        // Leftmost panel - Message editor (if shown)
+                                        if (showMessageEditor) {
                                             Box(
-                                                modifier = Modifier.weight(1f).fillMaxSize(),
-                                                contentAlignment = Alignment.Center,
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
+                                                    ),
                                             ) {
-                                                Text(
-                                                    text = "${session.title} is minimized. Click its chip above to bring it back.",
-                                                    color = AppTheme.Colors.textDisabled,
-                                                    fontSize = 12.sp,
+                                                AppMessageEditorPanel(
+                                                    viewModel = viewModel,
+                                                    savedMessages = savedMessages,
+                                                    currentProfileId = currentProfileId,
+                                                    editorState = editorState,
+                                                    editorPanelSplitRatio = editorPanelSplitRatio,
+                                                    onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
+                                                    modifier = Modifier.fillMaxSize(),
                                                 )
                                             }
-                                            return@let
-                                        }
 
-                                        val messages by session.messages.collectAsState()
-                                        val wrapText by session.wrapText.collectAsState()
-                                        val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
-                                        val latencyTrackingEnabled by session.latencyTrackingEnabled.collectAsState()
-
-                                        if (session.isVenue) {
-                                            // Nothing to grid: a venue's traffic all belongs to its
-                                            // clients, and each of them has a tab.
-                                            AcceptorOverviewPane(
-                                                venue = session,
-                                                clients = viewModel.sessions.filter { it.isClientOf(session) },
-                                                onFocusClient = { client -> viewModel.setActiveSessionByObject(client) },
-                                                onEditRules = { viewModel.openVenueRules(session) },
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                            return@let
-                                        }
-
-                                        // The TABS layout filters now. Its filter button toggled this
-                                        // panel and the grid below never applied it, so a pane filtered
-                                        // in split view and not in tabs — one function decides both now
-                                        // (see MessageFilters and SessionFilterBar).
-                                        val filterVisible by session.filterVisible.collectAsState()
-                                        if (filterVisible) SessionFilterBar(session)
-                                        val paneFilters =
-                                            MessageFilters.Pane(
-                                                regex = session.filterRegex.collectAsState().value,
-                                                showIncoming = session.filterShowIncoming.collectAsState().value,
-                                                showOutgoing = session.filterShowOutgoing.collectAsState().value,
-                                                showSeparator = session.filterShowSeparator.collectAsState().value,
-                                                messageTypes = session.filterMessageTypes.collectAsState().value,
-                                            )
-                                        val filteredMessages =
-                                            remember(messages, paneFilters, globalFilter, followedUids) {
-                                                MessageFilters.apply(messages, paneFilters, globalFilter, followedUids)
-                                            }
-
-                                        FixMessageDisplay(
-                                            messages = filteredMessages,
-                                            viewMode = globalViewMode,
-                                            dictionary = viewModel.dictionary,
-                                            wrapText = wrapText,
-                                            selectedMessage = selectedMessage,
-                                            recentlySentMessageTimestamp = recentlySentMessageTimestamp,
-                                            assertionResults = viewModel.assertionResults,
-                                            onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
-                                            onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },
-                                            showDetailPanel = false,
-                                            hideProtocolTags = viewModel.appSettings.hideProtocolTags,
-                                            gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                            appSettings = viewModel.appSettings,
-                                            showLatencyColumn = latencyTrackingEnabled && viewModel.appSettings.showLatencyColumn,
-                                            getLatencyForMessage =
-                                                if (latencyTrackingEnabled) {
-                                                    { rawMessage ->
-                                                        session.getLatencyForMessage(rawMessage)
-                                                    }
-                                                } else {
-                                                    null
+                                            // Resizable divider for editor panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
                                                 },
-                                            latencyWarningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
-                                            latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
-                                            onAtBottomChanged = { isAtBottom = it },
-                                            scrollToBottomTrigger = scrollToBottomTrigger,
-                                            groupByConversation = session.groupByConversation.collectAsState().value,
-                                            collapsedConversations = session.collapsedConversations.collectAsState().value,
-                                            onToggleConversation = { key -> session.toggleConversationCollapsed(key) },
-                                            followedTraceIds = followedTraceIds,
-                                            onFollowTrace = { id -> viewModel.follow(id) },
-                                            onUnfollowTrace = { viewModel.unfollow() },
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                    } ?: NoSessionsPlaceholder(
-                                        hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
-                                        examples = workspaceMenu.examples,
-                                        onOpenExample = workspaceMenu.onOpenExample,
-                                        onOpenWorkspace = browseForWorkspace,
-                                        onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
-                                        modifier = Modifier.weight(1f).fillMaxSize(),
-                                    )
+                                                onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
+                                            )
+                                        }
 
-                                    // The bottom slot: the Trace panel when it is open, otherwise the
-                                    // pinned search results. One slot, because they answer the same
-                                    // shape of question over the same rows and stacking them would
-                                    // leave the grid a strip.
-                                    if (tracePanelOpen || showSearchResultsPane) {
-                                        HeightResizeHandle(
-                                            onDeltaPx = { dy ->
-                                                searchResultsPanelHeight =
-                                                    (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
-                                            },
-                                            onDragEnd = { viewModel.updateLayout { it.copy(searchHeightDp = searchResultsPanelHeight.value) } },
-                                        )
+                                        // Center panel - Tabs and Message display
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            var isAtBottom by remember { mutableStateOf(true) }
+                                            var scrollToBottomTrigger by remember { mutableStateOf(0) }
 
-                                        Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                            if (tracePanelOpen) {
-                                                AppTracePanel(
-                                                    viewModel = viewModel,
-                                                    rows = traceRows,
-                                                    sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
-                                                    followingLabel = followedTrace?.label,
+                                            TabBar(
+                                                sessions = viewModel.sessions,
+                                                activeSession = viewModel.activeSession,
+                                                viewMode = globalViewMode,
+                                                onTabClick = { session -> viewModel.setActiveSessionByObject(session) },
+                                                onCloseTab = { session -> viewModel.closeSession(session) },
+                                                onToggleWrapText = { session -> session.toggleWrapText() },
+                                                onConnect = { session -> session.reconnect() },
+                                                onDisconnect = { session -> session.disconnect() },
+                                                onMinimize = { session, on -> viewModel.setSessionMinimized(session, on) },
+                                                onEditVenueRules = { session -> viewModel.openVenueRules(session) },
+                                                isAtBottom = isAtBottom,
+                                                onScrollToBottom = { scrollToBottomTrigger++ },
+                                            )
+
+                                            // The centre is always the sessions now — the scenario editor is a
+                                            // bottom dock (see BottomDock), not a pane that replaces the grid.
+                                            viewModel.activeSession?.let { session ->
+                                                // Minimizing does not move the editor's target — silently
+                                                // pointing a loaded order at a different counterparty is how a
+                                                // tester sends to the wrong venue. So the active session can be
+                                                // one that is in the strip, and the centre says so instead of
+                                                // drawing a pane that is not there.
+                                                val activeMinimized by session.minimized.collectAsState()
+                                                if (activeMinimized) {
+                                                    Box(
+                                                        modifier = Modifier.weight(1f).fillMaxSize(),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Text(
+                                                            text = "${session.title} is minimized. Click its chip above to bring it back.",
+                                                            color = AppTheme.Colors.textDisabled,
+                                                            fontSize = 12.sp,
+                                                        )
+                                                    }
+                                                    return@let
+                                                }
+
+                                                val messages by session.messages.collectAsState()
+                                                val wrapText by session.wrapText.collectAsState()
+                                                val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
+                                                val latencyTrackingEnabled by session.latencyTrackingEnabled.collectAsState()
+
+                                                if (session.isVenue) {
+                                                    // Nothing to grid: a venue's traffic all belongs to its
+                                                    // clients, and each of them has a tab.
+                                                    AcceptorOverviewPane(
+                                                        venue = session,
+                                                        clients = viewModel.sessions.filter { it.isClientOf(session) },
+                                                        onFocusClient = { client -> viewModel.setActiveSessionByObject(client) },
+                                                        onEditRules = { viewModel.openVenueRules(session) },
+                                                        modifier = Modifier.weight(1f),
+                                                    )
+                                                    return@let
+                                                }
+
+                                                // The TABS layout filters now. Its filter button toggled this
+                                                // panel and the grid below never applied it, so a pane filtered
+                                                // in split view and not in tabs — one function decides both now
+                                                // (see MessageFilters and SessionFilterBar).
+                                                val filterVisible by session.filterVisible.collectAsState()
+                                                if (filterVisible) SessionFilterBar(session)
+                                                val paneFilters =
+                                                    MessageFilters.Pane(
+                                                        regex = session.filterRegex.collectAsState().value,
+                                                        showIncoming = session.filterShowIncoming.collectAsState().value,
+                                                        showOutgoing = session.filterShowOutgoing.collectAsState().value,
+                                                        showSeparator = session.filterShowSeparator.collectAsState().value,
+                                                        messageTypes = session.filterMessageTypes.collectAsState().value,
+                                                    )
+                                                val filteredMessages =
+                                                    remember(messages, paneFilters, globalFilter, followedUids) {
+                                                        MessageFilters.apply(messages, paneFilters, globalFilter, followedUids)
+                                                    }
+
+                                                FixMessageDisplay(
+                                                    messages = filteredMessages,
+                                                    viewMode = globalViewMode,
+                                                    dictionary = viewModel.dictionary,
+                                                    wrapText = wrapText,
                                                     selectedMessage = selectedMessage,
-                                                    modifier = Modifier.fillMaxSize(),
+                                                    recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                                                    assertionResults = viewModel.assertionResults,
+                                                    onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
+                                                    onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },
+                                                    showDetailPanel = false,
+                                                    hideProtocolTags = viewModel.appSettings.hideProtocolTags,
+                                                    gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                                    appSettings = viewModel.appSettings,
+                                                    showLatencyColumn = latencyTrackingEnabled && viewModel.appSettings.showLatencyColumn,
+                                                    getLatencyForMessage =
+                                                        if (latencyTrackingEnabled) {
+                                                            { rawMessage ->
+                                                                session.getLatencyForMessage(rawMessage)
+                                                            }
+                                                        } else {
+                                                            null
+                                                        },
+                                                    latencyWarningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+                                                    latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+                                                    onAtBottomChanged = { isAtBottom = it },
+                                                    scrollToBottomTrigger = scrollToBottomTrigger,
+                                                    groupByConversation = session.groupByConversation.collectAsState().value,
+                                                    collapsedConversations = session.collapsedConversations.collectAsState().value,
+                                                    onToggleConversation = { key -> session.toggleConversationCollapsed(key) },
+                                                    followedTraceIds = followedTraceIds,
+                                                    onFollowTrace = { id -> viewModel.follow(id) },
+                                                    onUnfollowTrace = { viewModel.unfollow() },
+                                                    modifier = Modifier.weight(1f),
                                                 )
-                                            } else {
-                                                AppSearchResultsPane(
+                                            } ?: NoSessionsPlaceholder(
+                                                hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
+                                                examples = workspaceMenu.examples,
+                                                onOpenExample = workspaceMenu.onOpenExample,
+                                                onOpenWorkspace = browseForWorkspace,
+                                                onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
+                                                modifier = Modifier.weight(1f).fillMaxSize(),
+                                            )
+                                        }
+
+                                        // Message detail panel (if shown)
+                                        if (showDetailPanel) {
+                                            // Resizable divider for detail panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                AppMessageDetailPanel(
                                                     viewModel = viewModel,
-                                                    pinnedSearchResults = pinnedSearchResults,
                                                     selectedMessage = selectedMessage,
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
                                             }
                                         }
-                                    }
 
-                                    // Docked terminal — bottom of the centre pane, so it's only as
-                                    // wide as the message area (shrinks when side panels open).
-                                    terminalSlot()
-                                }
+                                        // Rightmost panel - Connection panel (if shown)
+                                        if (showConnectionPanel) {
+                                            // Resizable divider for connection panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
+                                            )
 
-                                // Message detail panel (if shown)
-                                if (showDetailPanel) {
-                                    // Resizable divider for detail panel
-                                    WidthResizeHandle(
-                                        onDeltaPx = { dx ->
-                                            detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
-                                        },
-                                        onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
-                                    )
-
-                                    Box(
-                                        modifier =
-                                            Modifier.width(
-                                                with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
-                                            ),
-                                    ) {
-                                        AppMessageDetailPanel(
-                                            viewModel = viewModel,
-                                            selectedMessage = selectedMessage,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                }
-
-                                // Rightmost panel - Connection panel (if shown)
-                                if (showConnectionPanel) {
-                                    // Resizable divider for connection panel
-                                    WidthResizeHandle(
-                                        onDeltaPx = { dx ->
-                                            connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
-                                        },
-                                        onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
-                                    )
-
-                                    Box(
-                                        modifier =
-                                            Modifier.width(
-                                                with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
-                                            ),
-                                    ) {
-                                        ConnectionPanel(
-                                            profiles = viewModel.connectionProfiles,
-                                            sessions = viewModel.sessions,
-                                            onConnect = { profileId, profile ->
-                                                viewModel.connectProfile(
-                                                    profileId,
-                                                    profile,
-                                                )
-                                            },
-                                            onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
-                                            onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
-                                            onDeleteProfile = { profileId ->
-                                                viewModel.deleteConnectionProfile(profileId)
-                                            },
-                                            onCloneProfile = { profile -> viewModel.cloneConnectionProfile(profile) },
-                                            onGetProfileSession = { profileId ->
-                                                viewModel.getProfileSession(profileId)
-                                            },
-                                            onGetProfileSessions = { profileId ->
-                                                viewModel.getProfileSessions(profileId)
-                                            },
-                                            onClose = { viewModel.toggleConnectionPanel() },
-                                            selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
-                                            rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
-                                            onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
-                                            dictionary = viewModel.dictionary,
-                                            onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
-                                                viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
-                                            },
-                                            replyStepApply = viewModel.pendingReplyStepApply,
-                                            onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
-                                            editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                }
-
-                                // The venue's own memory, beside the counterparty's messages.
-                                if (showOrderBookPanel) {
-                                    WidthResizeHandle(
-                                        onDeltaPx = { dx ->
-                                            orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
-                                        },
-                                        onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
-                                    )
-
-                                    Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
-                                        AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                                    }
-                                }
-
-                                // Latency panel (if shown)
-                                if (showLatencyPanel) {
-                                    // Resizable divider for latency panel
-                                    WidthResizeHandle(
-                                        onDeltaPx = { dx ->
-                                            latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
-                                        },
-                                        onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
-                                    )
-
-                                    Box(
-                                        modifier =
-                                            Modifier.width(
-                                                with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
-                                            ),
-                                    ) {
-                                        viewModel.activeSession?.let { session ->
-                                            val latencyTrackingService = session.getLatencyTrackingService()
-
-                                            if (latencyTrackingService != null) {
-                                                val statistics by latencyTrackingService.statistics.collectAsState()
-                                                val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
-                                                val recentPairs by latencyTrackingService.recentPairs.collectAsState()
-
-                                                LatencyPanel(
-                                                    statistics = statistics,
-                                                    aggregateStatistics = aggregateStatistics,
-                                                    recentPairs = recentPairs,
-                                                    warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
-                                                    criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
-                                                    onClear = { session.clearLatencyStatistics() },
-                                                    onClose = { viewModel.toggleLatencyPanel() },
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                ConnectionPanel(
+                                                    profiles = viewModel.connectionProfiles,
+                                                    sessions = viewModel.sessions,
+                                                    onConnect = { profileId, profile ->
+                                                        viewModel.connectProfile(
+                                                            profileId,
+                                                            profile,
+                                                        )
+                                                    },
+                                                    onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
+                                                    onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
+                                                    onDeleteProfile = { profileId ->
+                                                        viewModel.deleteConnectionProfile(profileId)
+                                                    },
+                                                    onCloneProfile = { profile -> viewModel.cloneConnectionProfile(profile) },
+                                                    onGetProfileSession = { profileId ->
+                                                        viewModel.getProfileSession(profileId)
+                                                    },
+                                                    onGetProfileSessions = { profileId ->
+                                                        viewModel.getProfileSessions(profileId)
+                                                    },
+                                                    onClose = { viewModel.toggleConnectionPanel() },
+                                                    selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
+                                                    rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
+                                                    onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
+                                                    dictionary = viewModel.dictionary,
+                                                    onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
+                                                        viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
+                                                    },
+                                                    replyStepApply = viewModel.pendingReplyStepApply,
+                                                    onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
+                                                    editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
-                                            } else {
-                                                // Latency tracking not enabled for this session
-                                                Box(
+                                            }
+                                        }
+
+                                        // The venue's own memory, beside the counterparty's messages.
+                                        if (showOrderBookPanel) {
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
+                                            )
+
+                                            Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
+                                                AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                                            }
+                                        }
+
+                                        // Latency panel (if shown)
+                                        if (showLatencyPanel) {
+                                            // Resizable divider for latency panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                viewModel.activeSession?.let { session ->
+                                                    val latencyTrackingService = session.getLatencyTrackingService()
+
+                                                    if (latencyTrackingService != null) {
+                                                        val statistics by latencyTrackingService.statistics.collectAsState()
+                                                        val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
+                                                        val recentPairs by latencyTrackingService.recentPairs.collectAsState()
+
+                                                        LatencyPanel(
+                                                            statistics = statistics,
+                                                            aggregateStatistics = aggregateStatistics,
+                                                            recentPairs = recentPairs,
+                                                            warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+                                                            criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+                                                            onClear = { session.clearLatencyStatistics() },
+                                                            onClose = { viewModel.toggleLatencyPanel() },
+                                                            modifier = Modifier.fillMaxSize(),
+                                                        )
+                                                    } else {
+                                                        // Latency tracking not enabled for this session
+                                                        Box(
+                                                            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
+                                                            contentAlignment = Alignment.Center,
+                                                        ) {
+                                                            Text(
+                                                                text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
+                                                                color = AppTheme.Colors.textDisabled,
+                                                                fontSize = 12.sp,
+                                                            )
+                                                        }
+                                                    }
+                                                } ?: Box(
                                                     modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
                                                     contentAlignment = Alignment.Center,
                                                 ) {
                                                     Text(
-                                                        text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
+                                                        text = "No active session",
                                                         color = AppTheme.Colors.textDisabled,
                                                         fontSize = 12.sp,
                                                     )
                                                 }
                                             }
-                                        } ?: Box(
-                                            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                text = "No active session",
-                                                color = AppTheme.Colors.textDisabled,
-                                                fontSize = 12.sp,
-                                            )
                                         }
                                     }
                                 }
-
-                                ToolWindowStripe(edge = ToolWindowEdge.RIGHT, open = openToolWindows, onToggle = onToggleToolWindow)
-                            }
-                        }
-                    }
-
-                    ViewMode.SPLIT_HORIZONTAL, ViewMode.SPLIT_VERTICAL -> {
-                        val splitOrientation =
-                            if (viewMode == ViewMode.SPLIT_HORIZONTAL) {
-                                SplitOrientation.HORIZONTAL
-                            } else {
-                                SplitOrientation.VERTICAL
                             }
 
-                        // Wrap content in split pane if the rail, detail panel, message editor, connection panel, or latency panel is shown
-                        if (showScenariosRail ||
-                            showDetailPanel ||
-                            showMessageEditor ||
-                            showConnectionPanel ||
-                            showLatencyPanel ||
-                            showOrderBookPanel
-                        ) {
-                            BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                                val maxWidthPx = with(density) { maxWidth.toPx() }
-
-                                Row(modifier = Modifier.fillMaxSize()) {
-                                    ToolWindowStripe(edge = ToolWindowEdge.LEFT, open = openToolWindows, onToggle = onToggleToolWindow)
-
-                                    ScenariosRailDock(
-                                        viewModel = viewModel,
-                                        show = showScenariosRail,
-                                        ratio = scenariosRailSplitRatio,
-                                        maxWidthPx = maxWidthPx,
-                                        onDeltaPx = { dx ->
-                                            scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
-                                        },
-                                        onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
-                                    )
-
-                                    // Leftmost panel - Message editor (if shown)
-                                    if (showMessageEditor) {
-                                        Box(
-                                            modifier =
-                                                Modifier.width(
-                                                    with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
-                                                ),
-                                        ) {
-                                            AppMessageEditorPanel(
-                                                viewModel = viewModel,
-                                                savedMessages = savedMessages,
-                                                currentProfileId = currentProfileId,
-                                                editorState = editorState,
-                                                editorPanelSplitRatio = editorPanelSplitRatio,
-                                                onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        }
-
-                                        // Resizable divider for editor panel
-                                        WidthResizeHandle(
-                                            onDeltaPx = { dx ->
-                                                editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
-                                            },
-                                            onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
-                                        )
+                            ViewMode.SPLIT_HORIZONTAL, ViewMode.SPLIT_VERTICAL -> {
+                                val splitOrientation =
+                                    if (viewMode == ViewMode.SPLIT_HORIZONTAL) {
+                                        SplitOrientation.HORIZONTAL
+                                    } else {
+                                        SplitOrientation.VERTICAL
                                     }
 
-                                    // Center panel - the sessions (the scenario editor is the bottom dock now)
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        SplitCentre(
-                                            viewModel = viewModel,
-                                            examples = workspaceMenu.examples,
-                                            onOpenExample = workspaceMenu.onOpenExample,
-                                            orientation = splitOrientation,
-                                            globalViewMode = globalViewMode,
-                                            selectedMessage = selectedMessage,
-                                            globalFilter = globalFilter,
-                                            followedUids = followedUids,
-                                            followedTraceIds = followedTraceIds,
-                                        )
+                                // Wrap content in split pane if the rail, detail panel, message editor, connection panel, or latency panel is shown
+                                if (showScenariosRail ||
+                                    showDetailPanel ||
+                                    showMessageEditor ||
+                                    showConnectionPanel ||
+                                    showLatencyPanel ||
+                                    showOrderBookPanel
+                                ) {
+                                    BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                                        val maxWidthPx = with(density) { maxWidth.toPx() }
 
-                                        // The bottom slot: Trace panel when open, else pinned results.
-                                        if (tracePanelOpen || showSearchResultsPane) {
-                                            HeightResizeHandle(
-                                                onDeltaPx = { dy ->
-                                                    searchResultsPanelHeight =
-                                                        (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
+                                        Row(modifier = Modifier.fillMaxSize()) {
+                                            ScenariosRailDock(
+                                                viewModel = viewModel,
+                                                show = showScenariosRail,
+                                                ratio = scenariosRailSplitRatio,
+                                                maxWidthPx = maxWidthPx,
+                                                onDeltaPx = { dx ->
+                                                    scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
                                                 },
-                                                onDragEnd = {
-                                                    viewModel.updateLayout {
-                                                        it.copy(
-                                                            searchHeightDp = searchResultsPanelHeight.value,
-                                                        )
-                                                    }
-                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
                                             )
 
-                                            Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                                if (tracePanelOpen) {
-                                                    AppTracePanel(
+                                            // Leftmost panel - Message editor (if shown)
+                                            if (showMessageEditor) {
+                                                Box(
+                                                    modifier =
+                                                        Modifier.width(
+                                                            with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
+                                                        ),
+                                                ) {
+                                                    AppMessageEditorPanel(
                                                         viewModel = viewModel,
-                                                        rows = traceRows,
-                                                        sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
-                                                        followingLabel = followedTrace?.label,
-                                                        selectedMessage = selectedMessage,
+                                                        savedMessages = savedMessages,
+                                                        currentProfileId = currentProfileId,
+                                                        editorState = editorState,
+                                                        editorPanelSplitRatio = editorPanelSplitRatio,
+                                                        onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
-                                                } else {
-                                                    AppSearchResultsPane(
+                                                }
+
+                                                // Resizable divider for editor panel
+                                                WidthResizeHandle(
+                                                    onDeltaPx = { dx ->
+                                                        editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                    },
+                                                    onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
+                                                )
+                                            }
+
+                                            // Center panel - the sessions (the scenario editor is the bottom dock now)
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                SplitCentre(
+                                                    viewModel = viewModel,
+                                                    examples = workspaceMenu.examples,
+                                                    onOpenExample = workspaceMenu.onOpenExample,
+                                                    orientation = splitOrientation,
+                                                    globalViewMode = globalViewMode,
+                                                    selectedMessage = selectedMessage,
+                                                    globalFilter = globalFilter,
+                                                    followedUids = followedUids,
+                                                    followedTraceIds = followedTraceIds,
+                                                )
+                                            }
+
+                                            // Message detail panel (if shown)
+                                            if (showDetailPanel) {
+                                                // Resizable divider for detail panel
+                                                WidthResizeHandle(
+                                                    onDeltaPx = { dx ->
+                                                        detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                    },
+                                                    onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
+                                                )
+
+                                                Box(
+                                                    modifier =
+                                                        Modifier.width(
+                                                            with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
+                                                        ),
+                                                ) {
+                                                    AppMessageDetailPanel(
                                                         viewModel = viewModel,
-                                                        pinnedSearchResults = pinnedSearchResults,
                                                         selectedMessage = selectedMessage,
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
                                                 }
                                             }
-                                        }
 
-                                        // Docked terminal — bottom of the centre pane (shrinks with side panels).
-                                        terminalSlot()
-                                    }
+                                            // Rightmost panel - Connection panel (if shown)
+                                            if (showConnectionPanel) {
+                                                // Resizable divider for connection panel
+                                                WidthResizeHandle(
+                                                    onDeltaPx = { dx ->
+                                                        connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                    },
+                                                    onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
+                                                )
 
-                                    // Message detail panel (if shown)
-                                    if (showDetailPanel) {
-                                        // Resizable divider for detail panel
-                                        WidthResizeHandle(
-                                            onDeltaPx = { dx ->
-                                                detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
-                                            },
-                                            onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
-                                        )
-
-                                        Box(
-                                            modifier =
-                                                Modifier.width(
-                                                    with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
-                                                ),
-                                        ) {
-                                            AppMessageDetailPanel(
-                                                viewModel = viewModel,
-                                                selectedMessage = selectedMessage,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        }
-                                    }
-
-                                    // Rightmost panel - Connection panel (if shown)
-                                    if (showConnectionPanel) {
-                                        // Resizable divider for connection panel
-                                        WidthResizeHandle(
-                                            onDeltaPx = { dx ->
-                                                connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
-                                            },
-                                            onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
-                                        )
-
-                                        Box(
-                                            modifier =
-                                                Modifier.width(
-                                                    with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
-                                                ),
-                                        ) {
-                                            ConnectionPanel(
-                                                profiles = viewModel.connectionProfiles,
-                                                sessions = viewModel.sessions,
-                                                onConnect = { profileId, profile ->
-                                                    viewModel.connectProfile(
-                                                        profileId,
-                                                        profile,
-                                                    )
-                                                },
-                                                onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
-                                                onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
-                                                onDeleteProfile = { profileId ->
-                                                    viewModel.deleteConnectionProfile(
-                                                        profileId,
-                                                    )
-                                                },
-                                                onCloneProfile = { profile ->
-                                                    viewModel.cloneConnectionProfile(profile)
-                                                },
-                                                onGetProfileSession = { profileId ->
-                                                    viewModel.getProfileSession(
-                                                        profileId,
-                                                    )
-                                                },
-                                                onGetProfileSessions = { profileId ->
-                                                    viewModel.getProfileSessions(
-                                                        profileId,
-                                                    )
-                                                },
-                                                onClose = { viewModel.toggleConnectionPanel() },
-                                                selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
-                                                rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
-                                                onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
-                                                dictionary = viewModel.dictionary,
-                                                onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
-                                                    viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
-                                                },
-                                                replyStepApply = viewModel.pendingReplyStepApply,
-                                                onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
-                                                editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        }
-                                    }
-
-                                    // The venue's own memory, beside the counterparty's messages.
-                                    if (showOrderBookPanel) {
-                                        WidthResizeHandle(
-                                            onDeltaPx = { dx ->
-                                                orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
-                                            },
-                                            onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
-                                        )
-
-                                        Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
-                                            AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                                        }
-                                    }
-
-                                    // Latency panel (if shown)
-                                    if (showLatencyPanel) {
-                                        // Resizable divider for latency panel
-                                        WidthResizeHandle(
-                                            onDeltaPx = { dx ->
-                                                latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
-                                            },
-                                            onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
-                                        )
-
-                                        Box(
-                                            modifier =
-                                                Modifier.width(
-                                                    with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
-                                                ),
-                                        ) {
-                                            viewModel.activeSession?.let { session ->
-                                                val latencyTrackingService = session.getLatencyTrackingService()
-
-                                                if (latencyTrackingService != null) {
-                                                    val statistics by latencyTrackingService.statistics.collectAsState()
-                                                    val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
-                                                    val recentPairs by latencyTrackingService.recentPairs.collectAsState()
-
-                                                    LatencyPanel(
-                                                        statistics = statistics,
-                                                        aggregateStatistics = aggregateStatistics,
-                                                        recentPairs = recentPairs,
-                                                        warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
-                                                        criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
-                                                        onClear = { session.clearLatencyStatistics() },
-                                                        onClose = { viewModel.toggleLatencyPanel() },
+                                                Box(
+                                                    modifier =
+                                                        Modifier.width(
+                                                            with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
+                                                        ),
+                                                ) {
+                                                    ConnectionPanel(
+                                                        profiles = viewModel.connectionProfiles,
+                                                        sessions = viewModel.sessions,
+                                                        onConnect = { profileId, profile ->
+                                                            viewModel.connectProfile(
+                                                                profileId,
+                                                                profile,
+                                                            )
+                                                        },
+                                                        onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
+                                                        onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
+                                                        onDeleteProfile = { profileId ->
+                                                            viewModel.deleteConnectionProfile(
+                                                                profileId,
+                                                            )
+                                                        },
+                                                        onCloneProfile = { profile ->
+                                                            viewModel.cloneConnectionProfile(profile)
+                                                        },
+                                                        onGetProfileSession = { profileId ->
+                                                            viewModel.getProfileSession(
+                                                                profileId,
+                                                            )
+                                                        },
+                                                        onGetProfileSessions = { profileId ->
+                                                            viewModel.getProfileSessions(
+                                                                profileId,
+                                                            )
+                                                        },
+                                                        onClose = { viewModel.toggleConnectionPanel() },
+                                                        selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
+                                                        rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
+                                                        onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
+                                                        dictionary = viewModel.dictionary,
+                                                        onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
+                                                            viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
+                                                        },
+                                                        replyStepApply = viewModel.pendingReplyStepApply,
+                                                        onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
+                                                        editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
-                                                } else {
-                                                    // Latency tracking not enabled for this session
-                                                    Box(
+                                                }
+                                            }
+
+                                            // The venue's own memory, beside the counterparty's messages.
+                                            if (showOrderBookPanel) {
+                                                WidthResizeHandle(
+                                                    onDeltaPx = { dx ->
+                                                        orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
+                                                    },
+                                                    onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
+                                                )
+
+                                                Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
+                                                    AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                                                }
+                                            }
+
+                                            // Latency panel (if shown)
+                                            if (showLatencyPanel) {
+                                                // Resizable divider for latency panel
+                                                WidthResizeHandle(
+                                                    onDeltaPx = { dx ->
+                                                        latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
+                                                    },
+                                                    onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
+                                                )
+
+                                                Box(
+                                                    modifier =
+                                                        Modifier.width(
+                                                            with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
+                                                        ),
+                                                ) {
+                                                    viewModel.activeSession?.let { session ->
+                                                        val latencyTrackingService = session.getLatencyTrackingService()
+
+                                                        if (latencyTrackingService != null) {
+                                                            val statistics by latencyTrackingService.statistics.collectAsState()
+                                                            val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
+                                                            val recentPairs by latencyTrackingService.recentPairs.collectAsState()
+
+                                                            LatencyPanel(
+                                                                statistics = statistics,
+                                                                aggregateStatistics = aggregateStatistics,
+                                                                recentPairs = recentPairs,
+                                                                warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+                                                                criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+                                                                onClear = { session.clearLatencyStatistics() },
+                                                                onClose = { viewModel.toggleLatencyPanel() },
+                                                                modifier = Modifier.fillMaxSize(),
+                                                            )
+                                                        } else {
+                                                            // Latency tracking not enabled for this session
+                                                            Box(
+                                                                modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
+                                                                contentAlignment = Alignment.Center,
+                                                            ) {
+                                                                Text(
+                                                                    text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
+                                                                    color = AppTheme.Colors.textDisabled,
+                                                                    fontSize = 12.sp,
+                                                                )
+                                                            }
+                                                        }
+                                                    } ?: Box(
                                                         modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
                                                         contentAlignment = Alignment.Center,
                                                     ) {
                                                         Text(
-                                                            text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
+                                                            text = "No active session",
                                                             color = AppTheme.Colors.textDisabled,
                                                             fontSize = 12.sp,
                                                         )
                                                     }
                                                 }
-                                            } ?: Box(
-                                                modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Text(
-                                                    text = "No active session",
-                                                    color = AppTheme.Colors.textDisabled,
-                                                    fontSize = 12.sp,
-                                                )
                                             }
                                         }
                                     }
-
-                                    ToolWindowStripe(edge = ToolWindowEdge.RIGHT, open = openToolWindows, onToggle = onToggleToolWindow)
-                                }
-                            }
-                        } else {
-                            Row(modifier = Modifier.weight(1f)) {
-                                ToolWindowStripe(edge = ToolWindowEdge.LEFT, open = openToolWindows, onToggle = onToggleToolWindow)
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    SplitCentre(
-                                        viewModel = viewModel,
-                                        examples = workspaceMenu.examples,
-                                        onOpenExample = workspaceMenu.onOpenExample,
-                                        orientation = splitOrientation,
-                                        globalViewMode = globalViewMode,
-                                        selectedMessage = selectedMessage,
-                                        globalFilter = globalFilter,
-                                        followedUids = followedUids,
-                                        followedTraceIds = followedTraceIds,
-                                    )
-
-                                    // The bottom slot: Trace panel when open, else pinned results.
-                                    if (tracePanelOpen || showSearchResultsPane) {
-                                        HeightResizeHandle(
-                                            onDeltaPx = { dy ->
-                                                searchResultsPanelHeight =
-                                                    (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
-                                            },
-                                            onDragEnd = { viewModel.updateLayout { it.copy(searchHeightDp = searchResultsPanelHeight.value) } },
-                                        )
-
-                                        Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                            if (tracePanelOpen) {
-                                                AppTracePanel(
-                                                    viewModel = viewModel,
-                                                    rows = traceRows,
-                                                    sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
-                                                    followingLabel = followedTrace?.label,
-                                                    selectedMessage = selectedMessage,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
-                                            } else {
-                                                AppSearchResultsPane(
-                                                    viewModel = viewModel,
-                                                    pinnedSearchResults = pinnedSearchResults,
-                                                    selectedMessage = selectedMessage,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
-                                            }
+                                } else {
+                                    Row(modifier = Modifier.weight(1f)) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            SplitCentre(
+                                                viewModel = viewModel,
+                                                examples = workspaceMenu.examples,
+                                                onOpenExample = workspaceMenu.onOpenExample,
+                                                orientation = splitOrientation,
+                                                globalViewMode = globalViewMode,
+                                                selectedMessage = selectedMessage,
+                                                globalFilter = globalFilter,
+                                                followedUids = followedUids,
+                                                followedTraceIds = followedTraceIds,
+                                            )
                                         }
                                     }
-
-                                    // Docked terminal — bottom of the centre pane (shrinks with side panels).
-                                    terminalSlot()
                                 }
-
-                                ToolWindowStripe(edge = ToolWindowEdge.RIGHT, open = openToolWindows, onToggle = onToggleToolWindow)
                             }
                         }
+
+                        // Everything that opens across the foot of the window: the terminal, the Ledger,
+                        // pinned search results and the open documents, as tabs of one dock. See [BottomDock].
+                        BottomDock(viewModel)
                     }
+
+                    ToolWindowStripe(side = StripeSide.RIGHT, open = openToolWindows, onToggle = onToggleToolWindow)
                 }
-
-                // The scenario editor dock — full width, beneath everything, so it spans the whole window
-                // (unlike the terminal, which stays as wide as the centre pane). It is decoupled from the
-                // session view mode: the same dock in TABS and both SPLITs. Absent when no document is open.
-                ScenarioDock(viewModel)
-
-                // The bottom stripe, at the very foot of the window: Terminal and Trace, the two tool
-                // windows that open across the window rather than beside it. Below the docks, because a
-                // stripe is the frame and not one of the panes it opens.
-                ToolWindowStripe(
-                    edge = ToolWindowEdge.BOTTOM,
-                    open = openToolWindows,
-                    onToggle = onToggleToolWindow,
-                )
             }
 
             // Notification popup overlay in bottom-right corner
@@ -1203,30 +1022,6 @@ fun App(
                 onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
             )
         }
-    }
-}
-
-/**
- * **What a stripe tab and its ⌘ digit both do.**
- *
- * Straight to the toggle the tool window already had, because every one of them is reachable by other
- * doors too (the control surface's `/panel`, a message selection, following a trace) and a stripe that
- * kept its own idea of open would be a second answer to a question that has one.
- */
-private fun toggleToolWindow(
-    viewModel: FixMessageViewModel,
-    window: ToolWindow,
-) {
-    when (window) {
-        ToolWindow.EDITOR -> viewModel.toggleMessageEditor()
-        ToolWindow.SCENARIOS -> viewModel.toggleScenariosRail()
-        ToolWindow.DETAIL -> viewModel.toggleDetailPanel()
-        ToolWindow.CONNECTION -> viewModel.toggleConnectionPanel()
-        ToolWindow.ORDER_BOOK -> viewModel.toggleOrderBookPanel()
-        ToolWindow.LATENCY -> viewModel.toggleLatencyPanel()
-        // The terminal's own controller, not the view model: it is shared with the window host in main.kt.
-        ToolWindow.TERMINAL -> TerminalController.toggle()
-        ToolWindow.TRACE -> viewModel.toggleTracePanel()
     }
 }
 
@@ -1255,7 +1050,7 @@ private fun ScenariosRailDock(
 /**
  * The SPLIT layouts' centre: the session grid, and nothing else. The scenario editor used to share this
  * split, which coupled where it appeared to the *session* view mode; it is a bottom dock now (see
- * [ScenarioDock]), so the centre is purely the sessions in both TABS and SPLIT.
+ * [BottomDock]), so the centre is purely the sessions in both TABS and SPLIT.
  *
  * Nothing sits above it. The split layouts had a bar of their own for one build, carrying the view
  * controls and the filter row under it, which cost two lines of pane height to hold six controls that
@@ -1634,91 +1429,6 @@ private fun AppOrderBookPanel(viewModel: FixMessageViewModel, modifier: Modifier
         onClear = { session!!.clearOrderBook() },
         onClose = { viewModel.toggleOrderBookPanel() },
         onOpenMessage = { uid -> viewModel.selectMessageByUid(uid) },
-        modifier = modifier,
-    )
-}
-
-/**
- * Helper composable that renders the SearchResultsPane with all common configuration.
- * This is extracted to avoid duplication between TABS and SPLIT layout modes.
- */
-@Composable
-private fun AppSearchResultsPane(
-    viewModel: FixMessageViewModel,
-    pinnedSearchResults: List<FixMessageViewModel.SearchResult>,
-    selectedMessage: FixMessage?,
-    modifier: Modifier = Modifier,
-) {
-    SearchResultsPane(
-        searchResults = pinnedSearchResults,
-        selectedMessage = selectedMessage,
-        dictionary = viewModel.dictionary,
-        appSettings = viewModel.appSettings,
-        onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
-        onClose = { viewModel.closeSearchResultsPane() },
-        modifier = modifier,
-    )
-}
-
-/**
- * The Ledger with everything it needs wired to the one app-level follow state, so all three layouts
- * mount the same panel rather than three configurations of it.
- */
-@Composable
-private fun AppTracePanel(
-    viewModel: FixMessageViewModel,
-    rows: List<TraceRows.Row>,
-    sessionTitles: List<String>,
-    followingLabel: String?,
-    selectedMessage: FixMessage?,
-    modifier: Modifier = Modifier,
-) {
-    val rendering by viewModel.traceRendering.collectAsState()
-    val index by viewModel.traceIndex.collectAsState()
-    val followed by viewModel.followedTrace.collectAsState()
-    val anchor = followed?.anchorId
-
-    /**
-     * The followed trace as lanes, built only while Lanes is the drawing on screen.
-     *
-     * Keyed on the same index generation `rows` is, so the two renderings can never be one tick apart —
-     * and gated on the rendering so a reader on the Ledger pays nothing for the picture they are not
-     * looking at.
-     */
-    val lanes =
-        remember(index, anchor, rendering) {
-            if (rendering != TraceRendering.LANES) {
-                null
-            } else {
-                val current = index
-                current
-                    ?.grouping
-                    ?.traces
-                    ?.firstOrNull { anchor != null && anchor in it.ids }
-                    ?.let { TraceLanes.build(it, current.snapshots, current.sessionTitles, current.sessionRoles) }
-            }
-        }
-
-    TracePanel(
-        rows = rows,
-        sessionTitles = sessionTitles,
-        selectedMessage = selectedMessage,
-        dictionary = viewModel.dictionary,
-        appSettings = viewModel.appSettings,
-        followingLabel = followingLabel,
-        rendering = rendering,
-        lanes = lanes,
-        onSetRendering = { viewModel.setTraceRendering(it) },
-        onToggleTrace = { key -> viewModel.toggleTrace(key) },
-        onToggleUngrouped = { viewModel.toggleUngroupedTraces() },
-        // The keys of what is on screen right now, not of some index the panel is not drawing — see
-        // TraceFollow.expandAll.
-        onExpandAll = { viewModel.expandAllTraces(rows.filterIsInstance<TraceRows.Row.Header>().map { it.key }) },
-        onCollapseAll = { viewModel.collapseAllTraces() },
-        onFollow = { id -> viewModel.follow(id) },
-        onUnfollow = { viewModel.unfollow() },
-        onSelectMember = { located, message -> viewModel.navigateToTraceMember(located.session, message) },
-        onClose = { viewModel.closeTracePanel() },
         modifier = modifier,
     )
 }

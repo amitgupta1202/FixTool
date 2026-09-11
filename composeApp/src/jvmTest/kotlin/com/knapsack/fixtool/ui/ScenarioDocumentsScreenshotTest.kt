@@ -17,7 +17,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -180,7 +179,7 @@ class ScenarioDocumentsScreenshotTest {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth())
                 }
             }
-            ScenarioDock(viewModel)
+            BottomDock(viewModel)
         }
     }
 
@@ -426,39 +425,42 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.setContent { MainWindow() }
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("scenario-dock").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("bottom-dock").assertIsDisplayed()
         // The editor's own tab, in the dock's strip — and its body, since it opens expanded.
         composeTestRule.onNodeWithTag("doc-tab-${ScenarioDoc.editorId(scenario.id)}").assertIsDisplayed()
         composeTestRule.onNodeWithTag("scenario-name").assertIsDisplayed()
         assertEquals(ScenarioDoc.editorId(scenario.id), viewModel.activeDocumentId.value)
-        assertTrue(!viewModel.scenarioDockMinimized.value, "it opens expanded")
+        assertEquals(BottomTab.Document(ScenarioDoc.editorId(scenario.id)), viewModel.bottomTab.value)
         snapshot("dock_editor_open.png")
     }
 
     /**
-     * Minimize is what makes the dock usable — collapse it to its header when you want the sessions to
-     * yourself. And the rule that makes minimize usable in turn: clicking a step in the rail is
-     * `openScenarioEditor(focusStep=…)`, and that must bring the editor straight back, at that step. Without
-     * the restore, a minimized dock would swallow every subsequent click into the rail.
+     * **Hiding the dock is the minimise**, and the stripe tab is how it is done. The chevron that used to
+     * collapse the dock to a header row is gone, because a tab that already hides it made the chevron a
+     * second way to do one thing. And the rule that makes hiding usable: clicking a step in the rail is
+     * `openScenarioEditor(focusStep=…)`, and that must bring the editor straight back, at that step.
+     * Without the restore, a hidden dock would swallow every subsequent click into the rail.
      */
     @Test
-    fun `minimize collapses the dock, and opening a step restores it`() {
+    fun `the stripe tab hides the dock, and opening a step brings it back`() {
         stageFailedRun()
         viewModel.openScenarioEditor(scenario)
         composeTestRule.setContent { MainWindow() }
         composeTestRule.waitForIdle()
 
-        // Minimize: the flag flips and the chevron becomes a Restore affordance.
-        composeTestRule.onNodeWithTag("scenario-dock-minimize").performClick()
+        viewModel.toggle(ToolWindow.DOCUMENTS)
         composeTestRule.waitForIdle()
-        assertTrue(viewModel.scenarioDockMinimized.value, "the dock is minimized")
-        composeTestRule.onNodeWithContentDescription("Restore Edit Scenario").assertIsDisplayed()
+        assertEquals(null, viewModel.bottomTab.value, "the dock is hidden")
+        composeTestRule.onNodeWithTag("scenario-name").assertDoesNotExist()
 
-        // A rail step click (openScenarioEditor with a focusStep) restores the dock, at that step.
+        // A rail step click (openScenarioEditor with a focusStep) brings the dock back, at that step.
         viewModel.openScenarioEditor(scenario, focusStep = 2)
         composeTestRule.waitForIdle()
-        assertTrue(!viewModel.scenarioDockMinimized.value, "opening a step restored the dock")
-        composeTestRule.onNodeWithContentDescription("Minimize Edit Scenario").assertIsDisplayed()
+        assertEquals(
+            BottomTab.Document(ScenarioDoc.editorId(scenario.id)),
+            viewModel.bottomTab.value,
+            "opening a step brought the dock back on that document",
+        )
         composeTestRule.onNodeWithTag("scenario-name").assertIsDisplayed()
         snapshot("dock_restore_on_step.png")
     }

@@ -99,7 +99,7 @@ fun TabBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Tab items. Scenario documents no longer share this strip — they live in the scenario dock
-            // (see [ScenarioDock]), so a session tab is active on identity alone.
+            // (see [BottomDock]), so a session tab is active on identity alone.
             //
             // The tabs are the flexible part of this bar, which is why the strip is the weighted child and
             // the per-session actions are not. A Row measures its unweighted children first and hands the

@@ -4,10 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,60 +32,58 @@ import androidx.compose.ui.unit.sp
 /** The side stripes are as wide as one line of text plus its padding, which is all a rotated label needs. */
 private val SIDE_STRIPE_WIDTH = 26.dp
 
-/** The bottom stripe is one row of small tabs, the height a console tab bar has always been. */
-private val BOTTOM_STRIPE_HEIGHT = 24.dp
-
 /** The mark on the outer edge of a pressed tab. Two device-independent pixels, read from across the room. */
 private val PRESSED_BAR = 2.dp
 
 /**
- * **One edge's tool-window tabs.**
+ * **One side's tool-window tabs.**
  *
- * The button now sits where its window appears, and an open window is a pressed tab rather than a grey
- * icon tinted slightly less grey. The three stripes are three calls to this one composable, differing only
- * in [edge], because the edge is data on [ToolWindow] and the tab list is a filter over it.
+ * The button sits where its window appears, and an open window is a pressed tab rather than a grey icon
+ * tinted slightly less grey. Two stripes, both running the full height of the content: the left carries
+ * [StripeGroup.LEFT_TOP] at the top and [StripeGroup.LEFT_BOTTOM] at the foot, with a weighted gap between
+ * them, and the right carries [StripeGroup.RIGHT]. There is no bottom stripe: the bottom edge belongs to
+ * the dock itself, and its tabs live at the foot of the left stripe, which is IntelliJ's arrangement.
  *
  * The stripe stays on screen with nothing open. It is how a reader finds the windows at all, and 26dp on
  * an edge is a cheap price for the app saying what it can show.
  *
  * @param open the windows currently on screen, which is what draws a tab pressed
  * @param onToggle what a tab does, which is exactly what its ⌘ digit does (see App's key handler)
+ * @param documentsOpen whether any document is open, which is the only thing the Documents tab is for
  */
 @Composable
 fun ToolWindowStripe(
-    edge: ToolWindowEdge,
+    side: StripeSide,
     open: Set<ToolWindow>,
     onToggle: (ToolWindow) -> Unit,
     modifier: Modifier = Modifier,
+    documentsOpen: Boolean = false,
 ) {
-    val windows = ToolWindow.on(edge)
-    if (edge == ToolWindowEdge.BOTTOM) {
-        Row(
-            modifier =
-                modifier
-                    .fillMaxWidth()
-                    .height(BOTTOM_STRIPE_HEIGHT)
-                    .background(AppTheme.Colors.background)
-                    .padding(horizontal = 4.dp)
-                    .testTag("tool-window-stripe-bottom"),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            windows.forEach { window -> StripeTab(window, window in open, onToggle) }
-        }
-    } else {
-        Column(
-            modifier =
-                modifier
-                    .fillMaxHeight()
-                    .width(SIDE_STRIPE_WIDTH)
-                    .background(AppTheme.Colors.background)
-                    .padding(vertical = 4.dp)
-                    .testTag(if (edge == ToolWindowEdge.LEFT) "tool-window-stripe-left" else "tool-window-stripe-right"),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            windows.forEach { window -> StripeTab(window, window in open, onToggle) }
+    val groups = StripeGroup.entries.filter { it.side == side }
+    Column(
+        modifier =
+            modifier
+                .fillMaxHeight()
+                .width(SIDE_STRIPE_WIDTH)
+                .background(AppTheme.Colors.background)
+                .padding(vertical = 4.dp)
+                .testTag(if (side == StripeSide.LEFT) "tool-window-stripe-left" else "tool-window-stripe-right"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        groups.forEachIndexed { index, group ->
+            // The gap that pushes the second group to the foot of the stripe. Weighted rather than a fixed
+            // spacer, so the bottom group sits on the bottom edge at any window height.
+            if (index > 0) Spacer(modifier = Modifier.weight(1f))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ToolWindow.inGroup(group).forEach { window ->
+                    // Documents names the open documents, so with none open there is nothing to name.
+                    if (window == ToolWindow.DOCUMENTS && !documentsOpen) return@forEach
+                    StripeTab(window, window in open, onToggle)
+                }
+            }
         }
     }
 }
@@ -109,7 +105,7 @@ private fun StripeTab(
     val tab =
         Modifier
             .background(if (open) AppTheme.Colors.surface else Color.Transparent)
-            .pressedBar(window.edge, open)
+            .pressedBar(window.group.side, open)
             .clickable { onToggle(window) }
             .semantics {
                 contentDescription = window.tooltip
@@ -118,42 +114,26 @@ private fun StripeTab(
             }.testTag(window.testTag)
 
     AppTooltip(text = window.tooltip) {
-        if (window.edge == ToolWindowEdge.BOTTOM) {
-            Row(
-                modifier = tab.padding(horizontal = 6.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Icon(
-                    imageVector = window.icon,
-                    contentDescription = null,
-                    tint = colour,
-                    modifier = Modifier.size(12.dp),
-                )
-                Text(text = window.title, color = colour, fontSize = 11.sp, maxLines = 1)
-            }
-        } else {
-            Column(
-                modifier = tab.padding(vertical = 6.dp, horizontal = 3.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Icon(
-                    imageVector = window.icon,
-                    contentDescription = null,
-                    tint = colour,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    text = window.title,
-                    color = colour,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    // Left reads bottom to top and right reads top to bottom, as IntelliJ's stripes do:
-                    // each label turns towards the window it opens.
-                    modifier = Modifier.alongStripe(clockwise = window.edge == ToolWindowEdge.RIGHT),
-                )
-            }
+        Column(
+            modifier = tab.padding(vertical = 6.dp, horizontal = 3.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                imageVector = window.icon,
+                contentDescription = null,
+                tint = colour,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = window.title,
+                color = colour,
+                fontSize = 11.sp,
+                maxLines = 1,
+                // Left reads bottom to top and right reads top to bottom, as IntelliJ's stripes do:
+                // each label turns towards the window it opens.
+                modifier = Modifier.alongStripe(clockwise = window.group.side == StripeSide.RIGHT),
+            )
         }
     }
 }
@@ -165,7 +145,7 @@ private fun StripeTab(
  * tall the tab is, and a `fillMaxHeight` there measures the whole stripe.
  */
 private fun Modifier.pressedBar(
-    edge: ToolWindowEdge,
+    side: StripeSide,
     open: Boolean,
 ): Modifier =
     if (!open) {
@@ -174,10 +154,9 @@ private fun Modifier.pressedBar(
         drawBehind {
             val thickness = PRESSED_BAR.toPx()
             val bar =
-                when (edge) {
-                    ToolWindowEdge.LEFT -> Offset.Zero to Size(thickness, size.height)
-                    ToolWindowEdge.RIGHT -> Offset(size.width - thickness, 0f) to Size(thickness, size.height)
-                    ToolWindowEdge.BOTTOM -> Offset(0f, size.height - thickness) to Size(size.width, thickness)
+                when (side) {
+                    StripeSide.LEFT -> Offset.Zero to Size(thickness, size.height)
+                    StripeSide.RIGHT -> Offset(size.width - thickness, 0f) to Size(thickness, size.height)
                 }
             drawRect(color = AppTheme.Colors.primary, topLeft = bar.first, size = bar.second)
         }

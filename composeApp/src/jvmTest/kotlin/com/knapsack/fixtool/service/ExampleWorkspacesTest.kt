@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.service.load.LoadSetStore
@@ -903,6 +904,29 @@ class ExampleWorkspacesTest {
             "the set this example ships would be refused before it ran",
         )
         assertEquals(4_000L, set.plan(resolver, emptyMap(), id = "check").phases.sumOf { it.requested })
+    }
+
+    /**
+     * **The same round trip in two shapes**, which is the clearest place in the build to see what a
+     * reactive phase buys: the burst set lifts nothing until every quote has settled, and the reactive one
+     * lifts each quote as it lands. A reactive phase reads only what its trigger kept, and `quoteId` and
+     * `offer` are exactly that — so this also pins that the conversion stayed legal.
+     */
+    @Test
+    fun `the fixed-income desk ships the round trip as a burst and as a reactive set`() {
+        val workspace = openFiRfqInTemp()
+        val store = LoadSetStore(File(workspace, "load-sets").absolutePath)
+        val reactive = assertNotNull(store.load("fi-rfq-reactive"), "the reactive set did not come across")
+
+        assertEquals(listOf("Quote", "Lift"), reactive.phases.map { it.label })
+        assertTrue(reactive.phases[0].shape is LoadShape.Burst, "the quotes are still asked for at once")
+        assertTrue(reactive.phases[1].shape is LoadShape.Triggered, "the lift reacts: ${reactive.phases[1].shape}")
+        assertEquals(1, reactive.phases[1].after, "it reacts to the phase that asked for the quotes")
+        assertEquals(
+            emptyList(),
+            reactive.problems(resolve = exampleResolver(workspace), surface = LoadPlan.Surface.CLI),
+            "a reactive phase may read only what its trigger kept, and this one reads quoteId and offer",
+        )
     }
 
     @Test

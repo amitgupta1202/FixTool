@@ -1,0 +1,49 @@
+{
+    "schema": 1,
+    "name": "fi-rfq-reactive",
+    "label": "FI RFQ reactive — lift each quote as it lands",
+    "seed": {
+        "run": "${uuid:4}"
+    },
+    "storeAndLog": {
+        "store": "MEMORY",
+        "log": "NONE"
+    },
+    "onFailure": "STOP",
+    "phases": [
+        {
+            "label": "Quote",
+            "template": "FI RFQ Load QuoteRequest",
+            "profile": "FI RFQ Load Client",
+            "match": {
+                "requestTag": 131,
+                "replyTag": 131,
+                "replyType": "S"
+            },
+            "shape": {
+                "kind": "burst",
+                "count": 2000
+            },
+            "settleMs": 30000,
+            "capture": {
+                "quoteId": 117,
+                "offer": 133
+            }
+        },
+        {
+            "label": "Lift",
+            "template": "FI RFQ Load Lift",
+            "profile": "FI RFQ Load Client",
+            "match": {
+                "requestTag": 11,
+                "replyTag": 11,
+                "replyType": "8"
+            },
+            "shape": {
+                "kind": "triggered"
+            },
+            "after": 1,
+            "settleMs": 30000
+        }
+    ]
+}

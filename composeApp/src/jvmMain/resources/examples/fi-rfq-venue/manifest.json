@@ -1,13 +1,14 @@
 {
   "id": "fi-rfq-venue",
   "displayName": "Fixed Income RFQ Desk",
-  "summary": "A US Treasury request-for-quote desk: the same QuoteRequest, Quote, QuoteResponse negotiation as the FX RFQ venue, in a bond desk's vocabulary. Issues by CUSIP with coupon and maturity, levels quoted in 32nds and yield, sized in millions of nominal, settling T+1. A disclosed side is quoted one way; cover and done-away are answered rather than refused. Two clients, a load-ready client, templates, two scenarios that run green, and a two-phase load set.",
+  "summary": "A US Treasury request-for-quote desk: the same QuoteRequest, Quote, QuoteResponse negotiation as the FX RFQ venue, in a bond desk's vocabulary. Issues by CUSIP with coupon and maturity, levels quoted in 32nds and yield, sized in millions of nominal, settling T+1. A disclosed side is quoted one way; cover and done-away are answered rather than refused. Two clients, a load-ready client, templates, two scenarios that run green, and two load sets of the same round trip \u2014 one bursting each phase, one lifting each quote the moment it lands.",
   "defaultWorkspaceName": "Fixed Income RFQ",
   "files": [
     "connection_profiles.json",
     "saved_messages.json",
     "scenarios/two-way-lift--demo-sce.json",
     "scenarios/one-way-done-away--demo-sce.json",
-    "load-sets/fi-rfq-round-trip.json"
+    "load-sets/fi-rfq-round-trip.json",
+    "load-sets/fi-rfq-reactive.json"
   ]
 }

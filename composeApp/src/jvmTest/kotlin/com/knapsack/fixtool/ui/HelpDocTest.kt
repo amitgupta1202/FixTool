@@ -207,6 +207,37 @@ class HelpDocTest {
     }
 
     /**
+     * **The examples overview, by the thing a reader opens it for**: which of the five to pick.
+     *
+     * It said "FixTool ships two examples" for three releases after the third arrived, which is the exact
+     * failure this test exists to catch — a chapter that is not wrong about any one venue and is wrong
+     * about the shape of the whole thing.
+     */
+    @Test
+    fun `the examples overview names every venue and what only it does`() {
+        val chapter = html.substringAfter("""id="demo-server"""").substringBefore("""id="fx-venue"""")
+
+        val claims =
+            mapOf(
+                "how many there are" to "five example venues",
+                "they are not one venue restyled" to "not five copies of one venue",
+                "the FX venue" to "FX Venue",
+                "the FX RFQ venue" to "FX RFQ Venue",
+                "the equity venue" to "Equity Venue",
+                "the crypto venue" to "Crypto Venue",
+                "the fixed-income desk" to "Fixed Income RFQ Desk",
+                "each port" to "19880",
+                "two of them are one negotiation in two markets" to "vocabulary</em> is not",
+                "every one can be driven at volume" to "at least one load set",
+                "they can all be up at once" to "five different ports",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the examples overview no longer says: $missing")
+    }
+
+    /**
      * The fixed-income desk, by the vocabulary that makes it a bond desk rather than the FX RFQ venue with
      * different instruments. Every one of these was a correction to what the FX desk does.
      */

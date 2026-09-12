@@ -220,26 +220,64 @@
     <h2 id="demo-server">2. The Examples</h2>
 
     <h3>Overview</h3>
-    <p>FixTool ships two examples, and neither is a black box. Each is listed under
-    <strong>Open workspace</strong>, beside Browse&hellip;, and opening one copies a
-    <em>workspace</em> built entirely out of features you already have: an acceptor profile whose venue
-    behaviour is a list of rules you can read, client profiles pointed at it, message templates to
-    drive it, and repeatable scenarios that run green out of the box.</p>
-    <ul>
-        <li><a href="#fx-venue"><strong>FX Venue</strong></a>: an FX dealer on <code>localhost:19876</code> that
-            quotes three pairs with a live price, fills orders, and answers cancels, replaces and status requests
-            from its order book. Two clients.</li>
-        <li><a href="#rfq-venue"><strong>RFQ Venue</strong></a>: a request-for-quote desk on
-            <code>localhost:19877</code> that quotes firm and books a hit at the quoted price. Two clients, and a
-            five-session load client on a memory store, so the first <a href="#load-runs">load run</a> needs no
-            profile edits.</li>
-    </ul>
-    <p>That means everything an example does, you can open, change, reorder or switch off, and
-    everything you learn from it applies directly to simulating a real counterparty.</p>
+    <p>FixTool ships <strong>five example venues</strong>, and none is a black box. Each is listed under
+    <strong>Open workspace</strong>, beside Browse&hellip;, and opening one copies a <em>workspace</em>
+    built entirely out of features you already have: an acceptor profile whose venue behaviour is a list
+    of rules you can read, client profiles pointed at it, message templates to drive it, repeatable
+    scenarios that run green out of the box, a five-session load client, and a
+    <a href="#load-sets">load set</a> that runs without editing anything.</p>
+
+    <p><strong>They are not five copies of one venue with different tickers.</strong> Each exists because
+    it does something the others cannot, so the one to open is whichever is closest to the market you are
+    testing against &mdash; and the second one to open is whichever does the thing you have never had to
+    simulate before.</p>
+
+    <table>
+        <tr><th>Example</th><th>Port</th><th>What it is</th><th>What only it does</th></tr>
+        <tr><td><a href="#fx-venue"><strong>FX Venue</strong></a></td><td>19876</td>
+            <td>An FX dealer quoting three pairs, filling orders, answering cancels, replaces and status
+            requests out of its <a href="#order-book">order book</a></td>
+            <td>Prices drawn by <strong>Kotlin expression</strong> &mdash; which is also why it is the one
+            venue you should not measure throughput against</td></tr>
+        <tr><td><a href="#rfq-venue"><strong>FX RFQ Venue</strong></a></td><td>19877</td>
+            <td>A request-for-quote desk in FX: quotes firm, books a hit at the price it quoted</td>
+            <td>A <a href="#quote-book">quote book</a> &mdash; so <em>stale</em>, <em>spent</em> and
+            <em>never sent</em> are three different refusals, which nothing on the incoming message can
+            tell apart</td></tr>
+        <tr><td><a href="#equity-venue"><strong>Equity Venue</strong></a></td><td>19878</td>
+            <td>US cash equities, AAPL/MSFT/TSLA, on a resting book</td>
+            <td>A Day limit <strong>rests</strong> until you move it &mdash; so cancel, replace and status
+            are behaviours rather than races &mdash; and it <strong>publishes market data</strong></td></tr>
+        <tr><td><a href="#crypto-venue"><strong>Crypto Venue</strong></a></td><td>19879</td>
+            <td>24/7 spot in BTC-USD, ETH-USD, SOL-USD</td>
+            <td><strong>Post-only refused rather than crossed</strong>, no Day orders, and sizes refused
+            for being finer than a satoshi or below the dust floor</td></tr>
+        <tr><td><a href="#fi-rfq-venue"><strong>Fixed Income RFQ Desk</strong></a></td><td>19880</td>
+            <td>On-the-run US Treasuries, quoted in price <em>and</em> yield</td>
+            <td>A bond desk's vocabulary: <strong>CUSIP</strong>, coupon, maturity, 32nds, nominal in
+            millions, T+1 &mdash; and a disclosed side quoted <strong>one way</strong></td></tr>
+    </table>
+
+    <p><strong>Two of them are the same negotiation in two markets, on purpose.</strong> The FX RFQ venue
+    and the Fixed Income desk both play QuoteRequest &rarr; Quote &rarr; QuoteResponse. The mechanics of an
+    RFQ are the same everywhere and the <em>vocabulary</em> is not, and a desk that trades bonds does not
+    recognise itself in a venue quoting a currency pair to five decimal places. Open whichever speaks your
+    language.</p>
+
+    <p><strong>Every example can be driven at volume.</strong> Each ships a five-session load client on a
+    memory store and at least one load set, so a <a href="#load-runs">load run</a> needs no profile edits:
+    <code>fx-order-book</code>, <code>rfq-round-trip</code>, <code>equity-rest-and-cancel</code>,
+    <code>crypto-rest-and-refuse</code>, and two on the fixed-income desk &mdash;
+    <code>fi-rfq-round-trip</code> and <code>fi-rfq-reactive</code>. Read each venue's own section for
+    what its set proves.</p>
+
+    <p>Everything an example does, you can open, change, reorder or switch off, and everything you learn
+    from it applies directly to simulating a real counterparty.</p>
     <p>An example is a <em>copy</em>, into a folder you name. Nothing is mixed into your own profiles or
     scenarios, so there is nothing to uninstall, and what you change in it is yours to keep or commit.
-    Open it again under a different name whenever you want a clean one.</p>
-    <p>Both examples are written to the <strong>bundled FIX 4.4 dictionary</strong>. The dictionary does not
+    Open it again under a different name whenever you want a clean one. The five venues listen on five
+    different ports, so you can have all of them up at once.</p>
+    <p>Every example is written to the <strong>bundled FIX 4.4 dictionary</strong>. The dictionary does not
     move with the workspace (see <a href="#settings">Settings</a>), so an installation that has a venue's
     own dictionary loaded under Settings &rarr; Protocol runs the examples against that dialect. Where the
     dialect renames or relocates a tag the example uses, a bundled expectation goes red on that tag: one
@@ -249,11 +287,12 @@
 
     <h3>Opening an Example</h3>
     <ol>
-        <li>Click <strong>Open FX Venue example</strong> or <strong>Open RFQ Venue example</strong> where the
-            sessions would be, or open the workspace switcher at the top left, choose
-            <strong>Open workspace</strong> and pick the example from under Browse&hellip;</li>
-        <li>It is copied to <code>~/.fixtool/workspaces/fx-venue</code> or
-            <code>~/.fixtool/workspaces/rfq-venue</code> and opened. No dialog: an example is one of the things
+        <li>Click the example you want where the sessions would be &mdash; <strong>Open FX Venue
+            example</strong> and one button per venue beside it &mdash; or open the workspace switcher at
+            the top left, choose <strong>Open workspace</strong> and pick it from under Browse&hellip;</li>
+        <li>It is copied to <code>~/.fixtool/workspaces/</code> under its own name:
+            <code>~/.fixtool/workspaces/fx-venue</code>, or <code>rfq-venue</code>,
+            <code>equity-venue</code>, <code>crypto-venue</code>, <code>fixed-income-rfq</code>. No dialog: an example is one of the things
             Open can open, and opening it asks nothing. Opening it again returns to that same workspace with your
             edits in it: the copy happens once, because Open means open. For a pristine one, rename or
             delete the folder</li>
@@ -802,6 +841,31 @@
     two things no client can guess.</p>
 
     <div class="example"><code>fixtool load --set fi-rfq-round-trip --workspace "Fixed Income RFQ"</code></div>
+
+    <h4>The same round trip, two shapes</h4>
+    <p>The desk ships the set twice, and the difference is the <a href="#load-sets">phase shape</a> of the
+    lift. It is the clearest place in the build to see what <strong>reactive</strong> buys you.</p>
+    <table>
+        <tr><th>Set</th><th>The lift phase</th><th>What it measures</th></tr>
+        <tr><td><code>fi-rfq-round-trip</code></td>
+            <td><code>{"kind": "burst", "count": 2000}</code></td>
+            <td>Two blocks. Every quote is asked for, the phase settles, and only then is anything lifted
+            &mdash; so a lift is always at least one settle window behind its quote</td></tr>
+        <tr><td><code>fi-rfq-reactive</code></td>
+            <td><code>{"kind": "triggered"}</code> with <code>"after": 1</code></td>
+            <td>Two thousand <strong>chains</strong>. Each quote is lifted the moment it lands, which is
+            what a client actually does, and what the thirty-second validity is there for</td></tr>
+    </table>
+    <p>Reactive is the honest model for an RFQ: a client does not wait for two thousand quotes to settle
+    before answering the first one. Add <code>"cap": 50</code> to the shape to ceiling it at fifty lifts a
+    second &mdash; a ceiling, never a schedule, so a second nothing was released in is a second nothing
+    was ready rather than a shortfall.</p>
+
+    <div class="example"><code>fixtool load --set fi-rfq-reactive --workspace "Fixed Income RFQ"</code></div>
+
+    <p>Against this desk both finish in well under a second, because nothing here reaches the script
+    engine &mdash; so read the contrast for the <em>shape</em> rather than for the clock. Point the load
+    client at a venue that takes its time and the difference stops being academic.</p>
 
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This

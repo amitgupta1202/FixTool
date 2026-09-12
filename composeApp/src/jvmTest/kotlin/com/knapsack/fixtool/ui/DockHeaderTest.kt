@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
@@ -90,6 +91,39 @@ class DockHeaderTest {
         composeTestRule.onNodeWithTag("tool-window-order_book-status").assertDoesNotExist()
         composeTestRule.onNodeWithTag("tool-window-order_book-header-title").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tool-window-order_book-hide").assertIsDisplayed()
+    }
+
+    /**
+     * **A long status never costs the title its name.**
+     *
+     * A Row measures its unweighted children first, so whichever of the title and the status has no weight
+     * is the one that gets what it asks for. The weight was on the title, so a long status took the whole
+     * bar at its intrinsic width and the name was middle-ellipsised down to "..": the Order book header
+     * came up reading ".." beside "Equity Demo Venue ← EQTY_CLIENT1 · 1 order · 0 working".
+     *
+     * Found by opening the panel against a real book, not by a test — every status a test had written until
+     * now was short enough to leave room. So this one is as long as a real one.
+     */
+    @Test
+    fun `a status longer than the bar ellipsises itself rather than the title`() {
+        composeTestRule.setContent {
+            Box(Modifier.width(300.dp)) {
+                DockHeader(
+                    window = ToolWindow.ORDER_BOOK,
+                    onHide = {},
+                    status = "Equity Demo Venue ← EQTY_CLIENT1 · 14 orders · 9 working · cleared 21:22:03",
+                    actions = listOf(clear),
+                )
+            }
+        }
+
+        val title =
+            composeTestRule
+                .onNodeWithTag("tool-window-order_book-header-title")
+                .fetchSemanticsNode()
+                .config[SemanticsProperties.Text]
+                .joinToString("") { it.text }
+        assertEquals("Order book", title, "the dock lost its own name to its status")
     }
 
     /**

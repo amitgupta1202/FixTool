@@ -1439,17 +1439,20 @@ private fun AppOrderBookPanel(viewModel: FixMessageViewModel, modifier: Modifier
     val flow = session?.orderBookFlow()
     val book = flow?.collectAsState()?.value
     if (session == null || book == null) {
-        Box(
-            modifier = modifier.fillMaxSize().background(AppTheme.Colors.surface),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                // Not "no orders": an initiator has no book to be empty. A client's own view of the
-                // orders it sent is a different feature, deliberately not this one.
-                text = "Only an acceptor holds orders.\nSelect a venue session to see its book.",
-                color = AppTheme.Colors.textDisabled,
-                fontSize = 12.sp,
-            )
+        // **The header comes first, even here.** This branch drew the sentence alone, so the one state a
+        // fresh window opens in was a dock with no title, no name and nothing to put it away with — found
+        // by opening the panel with no venue connected, which is what a first run looks like.
+        Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.surface)) {
+            DockHeader(window = ToolWindow.ORDER_BOOK, onHide = { viewModel.toggleOrderBookPanel() })
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    // Not "no orders": an initiator has no book to be empty. A client's own view of the
+                    // orders it sent is a different feature, deliberately not this one.
+                    text = "Only an acceptor holds orders.\nSelect a venue session to see its book.",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 12.sp,
+                )
+            }
         }
         return
     }

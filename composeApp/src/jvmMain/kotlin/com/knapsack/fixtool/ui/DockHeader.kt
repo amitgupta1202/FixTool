@@ -175,22 +175,34 @@ private fun DockTitle(
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        AppTooltip(text = title, modifier = Modifier.weight(1f, fill = false)) {
+        // **The title is unweighted and the status carries the weight, not the other way round.**
+        // A Row measures its unweighted children first, so whichever of the two has no weight is the one
+        // that gets what it asks for. With the weight on the title, a long status took the whole bar at its
+        // intrinsic width and left the name with nothing: the Order book header came up reading ".." beside
+        // "Equity Demo Venue ← EQTY_CLIENT1 · 1 order · 0 working". Found by opening it against a real book —
+        // no test width reproduced it, because every status a test writes is short.
+        AppTooltip(text = title) {
             MiddleEllipsisText(title, AppTheme.Colors.text, DockHeaders.TITLE_SIZE, Modifier.testTag(titleTag))
         }
         if (status == null) return@Row
         Spacer(modifier = Modifier.width(6.dp))
-        val line: @Composable () -> Unit = {
+        val line: @Composable (Modifier) -> Unit = { m ->
             Text(
                 status,
                 color = AppTheme.Colors.textDisabled,
                 fontSize = DockHeaders.STATUS_SIZE,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.testTag(statusTag),
+                modifier = m.testTag(statusTag),
             )
         }
-        if (statusTooltip != null) AppTooltip(statusTooltip) { line() } else line()
+        // The status ellipsises inside whatever the title left, which is what "the status gives ground
+        // before the title does" has to mean in a row that measures rather than in a rule that decides.
+        if (statusTooltip != null) {
+            AppTooltip(statusTooltip, modifier = Modifier.weight(1f, fill = false)) { line(Modifier) }
+        } else {
+            line(Modifier.weight(1f, fill = false))
+        }
     }
 }
 

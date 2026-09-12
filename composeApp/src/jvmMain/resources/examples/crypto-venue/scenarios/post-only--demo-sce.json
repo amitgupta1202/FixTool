@@ -1,0 +1,108 @@
+{
+  "id": "crypto-scenario-post-only",
+  "name": "Post-only is refused, not crossed",
+  "binding": "this_run",
+  "createdAt": 1789000000000,
+  "setup": [
+    {
+      "stepId": "bcc0756b-58fc-5cd0-bd3c-79fe5ab1d657",
+      "type": "clearMessages",
+      "session": "Crypto Client 1"
+    },
+    {
+      "stepId": "e63415f7-393b-5e44-a7a7-b4ae0eed288e",
+      "type": "clearOrderBook",
+      "session": "Crypto Demo Venue \u2190 CRYPTO_CLIENT1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "7dbbf101-8318-5882-90d6-1fff7b5a0117",
+      "type": "send",
+      "raw": "35=D|11=CX-PO-1|55=BTC-USD|54=1|38=0.10000000|40=2|18=6|44=61300.00|59=1|60=${now}",
+      "session": "Crypto Client 1"
+    },
+    {
+      "stepId": "9df37855-53f0-5b66-989f-9bb5753cbf36",
+      "type": "expect",
+      "session": "Crypto Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "8"
+            }
+          },
+          {
+            "tag": 103,
+            "matcher": {
+              "type": "exact",
+              "value": "11"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "3763d83f-9d4c-5570-98f5-dc77c9c8c6c6",
+      "type": "send",
+      "raw": "35=D|11=CX-PO-2|55=BTC-USD|54=1|38=0.10000000|40=2|18=6|44=61000.00|59=1|60=${now}",
+      "session": "Crypto Client 1"
+    },
+    {
+      "stepId": "ff27417e-bfda-5b8b-bf02-1d2829fec7b7",
+      "type": "expect",
+      "session": "Crypto Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 151,
+            "matcher": {
+              "type": "exact",
+              "value": "0.10000000"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

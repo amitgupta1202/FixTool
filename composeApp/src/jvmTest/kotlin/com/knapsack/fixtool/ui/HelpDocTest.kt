@@ -207,6 +207,33 @@ class HelpDocTest {
     }
 
     /**
+     * The crypto example, by the four rules that make it a crypto venue rather than the equity venue with
+     * different tickers. If a later edit loses these, the chapter is describing a rename.
+     */
+    @Test
+    fun `the crypto example chapter states what only a crypto venue does`() {
+        val chapter = html.substringAfter("""id="crypto-venue"""").substringBefore("""<h3>Closing the Workspace""")
+
+        val claims =
+            mapOf(
+                "it never closes, so a Day order is refused" to "no day to be good for",
+                "sizes are satoshi-grained" to "0.00000001",
+                "eight decimals written long is a size, not a fault" to "0.10000000",
+                "there is a dust floor" to "dust floor",
+                "post-only is refused rather than filled" to "refused rather than filled",
+                "what 18=6 means" to "ParticipateDontInitiate",
+                "why post-only outranks the fills" to "exactly what its sender paid to avoid",
+                "the product names are the real ones" to "hyphenated form",
+                "the set is run by name from the CLI" to "--set crypto-rest-and-refuse",
+                "the refusal path is measured at volume" to "measures <em>the refusal path</em>",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the crypto example chapter no longer says: $missing")
+    }
+
+    /**
      * The equity example, by the facts that make it a different venue rather than a third set of tickers.
      * Each was a decision about the real domain, and each is the kind of thing a later edit quietly loses.
      */

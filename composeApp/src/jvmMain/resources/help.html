@@ -697,6 +697,52 @@
     match and the second is counted and not judged, which is what a venue answering an order with several
     ExecutionReports looks like.</p>
 
+    <h3 id="crypto-venue">The Crypto Venue</h3>
+    <p>A <strong>Crypto Demo Venue</strong> acceptor on <code>localhost:19879</code>, open to any CompID,
+    playing a 24/7 spot venue in <strong>BTC-USD</strong>, <strong>ETH-USD</strong> and
+    <strong>SOL-USD</strong>. It exists to answer a fair question about the other three: does this tool
+    only know the instruments a bank trades?</p>
+    <p>It would have been easy, and worthless, to ship the <a href="#equity-venue">equity venue</a> with
+    <code>BTC-USD</code> where <code>AAPL</code> is — a crypto venue sends <code>35=D</code> and gets
+    <code>35=8</code> back like everything else. What makes this a different example is the set of rules a
+    crypto venue has and an equity venue has no use for:</p>
+    <table>
+        <tr><th>What only a crypto venue does</th><th>The rule</th></tr>
+        <tr><td>Never closes</td>
+            <td>A <strong>Day order</strong> (<code>59=0</code>) is refused, <code>103=11</code>, naming
+            the two TimeInForces it does keep. There is no day to be good for</td></tr>
+        <tr><td>Sizes in satoshis</td>
+            <td>A quantity finer than the <strong>base increment</strong> of <code>0.00000001</code> is
+            refused, <code>103=13</code>. <code>0.10000000</code> is eight decimals written long and rests</td></tr>
+        <tr><td>Has a dust floor</td>
+            <td>A quantity below the product's <strong>minimum size</strong> is refused, <code>103=13</code>,
+            naming the floor in the base currency</td></tr>
+        <tr><td>Sells maker-only access</td>
+            <td>A <strong>post-only</strong> order (<code>18=6</code>) that would take liquidity is
+            <strong>refused rather than filled</strong></td></tr>
+    </table>
+
+    <p><strong>Post-only is the one worth opening the cards for.</strong> <code>18=6</code>
+    <em>ParticipateDontInitiate</em> is FIX's way of saying &ldquo;I want the maker fee, so do not let me
+    cross&rdquo;. A client sending it is asking the venue to <em>refuse</em> a marketable order rather than
+    execute it at a worse economic outcome — the opposite of what every other venue in this build does.
+    It is also a rule you cannot write without knowing both the order's price and the venue's own touch,
+    which is why the post-only rules sit above the IOC fills and the resting rule: below them, a
+    marketable post-only order would be filled, which is exactly what its sender paid to avoid.</p>
+
+    <p>The names, the prices and the sizes are the real ones. Products are written <code>BTC-USD</code>,
+    the hyphenated form a crypto venue uses, not the <code>BTC/USD</code> an FX desk would write.
+    Quantities are fractional and carry eight decimals, and the minimums are a dust floor rather than a
+    round number.</p>
+
+    <h4 id="crypto-load">The Load Client</h4>
+    <p>The <strong>Crypto Load Client</strong> is five sessions, <code>CXLG1</code> to <code>CXLG5</code>.
+    The shipped set, <strong>Crypto rest, cancel and refuse</strong>, rests 2,000 GTC orders, cancels all
+    2,000, and then has 2,000 post-only orders refused — a phase that measures <em>the refusal path</em>
+    at volume, which is a thing a venue's operators actually want a number for.</p>
+
+    <div class="example"><code>fixtool load --set crypto-rest-and-refuse --workspace "Crypto Venue"</code></div>
+
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This
     disconnects the venue and its clients, closes their panes, and puts your own profiles, templates

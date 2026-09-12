@@ -1,0 +1,13 @@
+{
+  "id": "crypto-venue",
+  "displayName": "Crypto Venue",
+  "summary": "A 24/7 crypto spot venue in BTC-USD, ETH-USD and SOL-USD: a Day order is refused because there is no day, a post-only order that would take liquidity is refused rather than filled, and sizes finer than a satoshi or below the dust floor are refused by name. Two clients, a load-ready client, templates, scenarios that run green, and a three-phase load set.",
+  "defaultWorkspaceName": "Crypto Venue",
+  "files": [
+    "connection_profiles.json",
+    "saved_messages.json",
+    "scenarios/post-only--demo-sce.json",
+    "scenarios/rest-and-cancel--demo-sce.json",
+    "load-sets/crypto-rest-and-refuse.json"
+  ]
+}

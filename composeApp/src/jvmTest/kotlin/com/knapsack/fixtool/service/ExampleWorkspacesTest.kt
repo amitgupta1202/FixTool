@@ -34,9 +34,14 @@ class ExampleWorkspacesTest {
     }
 
     @Test
-    fun `the index lists the three venues in the order they were built`() {
+    fun `the index lists the four venues in the order they were built`() {
         assertEquals(
-            listOf(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.RFQ_VENUE, ExampleWorkspaces.EQUITY_VENUE),
+            listOf(
+                ExampleWorkspaces.FX_VENUE,
+                ExampleWorkspaces.RFQ_VENUE,
+                ExampleWorkspaces.EQUITY_VENUE,
+                ExampleWorkspaces.CRYPTO_VENUE,
+            ),
             ExampleWorkspaces.all().map { it.id },
         )
     }
@@ -549,6 +554,7 @@ class ExampleWorkspacesTest {
         assertEquals("fx-venue", ExampleWorkspaces.slug(fxVenue.defaultWorkspaceName))
         assertEquals("rfq-venue", ExampleWorkspaces.slug(rfqVenue.defaultWorkspaceName))
         assertEquals("equity-venue", ExampleWorkspaces.slug(equityVenue.defaultWorkspaceName))
+        assertEquals("crypto-venue", ExampleWorkspaces.slug(cryptoVenue.defaultWorkspaceName))
         val slugs = ExampleWorkspaces.all().map { ExampleWorkspaces.slug(it.defaultWorkspaceName) }
         assertEquals(slugs.size, slugs.distinct().size, "two examples would be copied over each other")
     }
@@ -569,7 +575,8 @@ class ExampleWorkspacesTest {
     fun `every file the equity manifest names is in the build`() {
         equityVenue.files.forEach { relative ->
             assertNotNull(
-                ExampleWorkspaces::class.java.getResourceAsStream("/examples/${ExampleWorkspaces.EQUITY_VENUE}/$relative"),
+                ExampleWorkspaces::class.java
+                    .getResourceAsStream("/examples/${ExampleWorkspaces.EQUITY_VENUE}/$relative"),
                 "manifest names '$relative', which is not in the build",
             )
         }
@@ -595,7 +602,7 @@ class ExampleWorkspacesTest {
     }
 
     @Test
-    fun `the three bundled venues listen on three different ports`() {
+    fun `every bundled venue listens on its own port`() {
         fun port(example: String, venueId: String): String {
             val location = Files.createTempDirectory("port-check").toFile()
             val workspace = ExampleWorkspaces.open(example, example, location).getOrThrow()
@@ -606,6 +613,7 @@ class ExampleWorkspacesTest {
                 port(ExampleWorkspaces.FX_VENUE, "demo-profile-venue"),
                 port(ExampleWorkspaces.RFQ_VENUE, "rfq-profile-venue"),
                 port(ExampleWorkspaces.EQUITY_VENUE, "equity-profile-venue"),
+                port(ExampleWorkspaces.CRYPTO_VENUE, "crypto-profile-venue"),
             )
         assertEquals(ports.size, ports.distinct().size, "two bundled venues would fight over a port: $ports")
     }
@@ -688,6 +696,117 @@ class ExampleWorkspacesTest {
             assertFalse(body.contains("fileStorePath"), "$relative pins the sequence store outside the workspace")
         }
         profilesIn(openEquityInTemp()).forEach { assertEquals(1_700_000_000_000L, it.createdAt) }
+    }
+
+    // ---------------------------------------------------------------- the crypto venue
+
+    private val cryptoVenue =
+        assertNotNull(ExampleWorkspaces.byId(ExampleWorkspaces.CRYPTO_VENUE), "crypto-venue is not in the build")
+
+    private fun openCryptoInTemp(): File {
+        val location = Files.createTempDirectory("crypto-example-open").toFile()
+        return ExampleWorkspaces
+            .open(ExampleWorkspaces.CRYPTO_VENUE, "Crypto Venue", location, now = 1_700_000_000_000L)
+            .getOrThrow()
+    }
+
+    @Test
+    fun `every file the crypto manifest names is in the build`() {
+        cryptoVenue.files.forEach { relative ->
+            assertNotNull(
+                ExampleWorkspaces::class.java
+                    .getResourceAsStream("/examples/${ExampleWorkspaces.CRYPTO_VENUE}/$relative"),
+                "manifest names '$relative', which is not in the build",
+            )
+        }
+    }
+
+    @Test
+    fun `the crypto venue carries the crypto preset's rules, all of them, in the order the preset menu places them`() {
+        val venue = profilesIn(openCryptoInTemp()).first { it.id == "crypto-profile-venue" }
+        val preset = assertNotNull(AcceptorPresets.byId(CryptoVenuePreset.ID))
+        assertEquals(AcceptorPresets.insert(emptyList(), preset).rules, venue.config.acceptorResponseRules)
+    }
+
+    @Test
+    fun `the crypto venue is an acceptor open to any client, on its own port, with no injected latency`() {
+        val venue = profilesIn(openCryptoInTemp()).first { it.id == "crypto-profile-venue" }
+        assertEquals("CRYPTO_SERVER", venue.config.senderCompID)
+        assertEquals("*", venue.config.targetCompID)
+        assertEquals("19879", venue.config.socketAcceptPort)
+        assertEquals(AcceptorLatencyConfig.Mode.NONE, venue.config.acceptorLatency.mode)
+    }
+
+    @Test
+    fun `the crypto load client is five lanes on a memory store with no log`() {
+        val load = profilesIn(openCryptoInTemp()).first { it.id == "crypto-profile-CRYPTO_LOAD" }
+        assertEquals("CXLG{n}", load.config.senderCompID)
+        assertEquals(5, load.config.sessionCount)
+        assertEquals(FixConnectionConfig.MessageStoreKind.MEMORY, load.config.messageStore)
+        assertEquals(null, load.config.storeProblem(), "the bundled load client would be refused at connect")
+    }
+
+    /** **The templates are the venue's own vocabulary**, and a crypto client's is not an equity client's. */
+    @Test
+    fun `the crypto templates are sized in fractions and carry the venue's own instructions`() {
+        val workspace = openCryptoInTemp()
+        val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
+        val byId = messages.loadMessagesForProfile("crypto-profile-CRYPTO_CLIENT1").associateBy { it.id }
+        fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
+
+        assertEquals("0.10000000", value("crypto-buy-btc-gtc", "38"), "eight decimals, as a base increment implies")
+        assertEquals("1", value("crypto-buy-btc-gtc", "59"), "GTC, because there is no day to be good for")
+        assertEquals("6", value("crypto-postonly-would-cross", "18"), "18=6 is ParticipateDontInitiate")
+        assertEquals("0", value("crypto-day-order", "59"), "the template that proves the Day refusal")
+        assertTrue(
+            value("crypto-sub-satoshi", "38").substringAfter(".").length > 8,
+            "the sub-satoshi template has to be finer than a satoshi",
+        )
+
+        val forLoad = messages.loadMessagesForProfile("crypto-profile-CRYPTO_LOAD").map { it.id }
+        assertEquals(
+            setOf("crypto-load-new-order", "crypto-load-cancel", "crypto-load-postonly"),
+            forLoad.toSet(),
+        )
+    }
+
+    @Test
+    fun `the crypto example ships a three-phase set that plans without a refusal`() {
+        val workspace = openCryptoInTemp()
+        val store = LoadSetStore(File(workspace, "load-sets").absolutePath)
+        val set = assertNotNull(store.load("crypto-rest-and-refuse"), "the shipped load set did not come across")
+
+        assertEquals(listOf("Rest", "Cancel", "Refuse"), set.phases.map { it.label })
+        assertEquals(OnFailure.STOP, set.onFailure)
+        val resolver = exampleResolver(workspace)
+        assertEquals(
+            emptyList(),
+            set.problems(resolve = resolver, surface = LoadPlan.Surface.CLI),
+            "the set this example ships would be refused before it ran",
+        )
+        assertEquals(6_000L, set.plan(resolver, emptyMap(), id = "check").phases.sumOf { it.requested })
+    }
+
+    @Test
+    fun `both crypto scenarios come across and parse`() {
+        val scenarios = ScenarioService(customDir = File(openCryptoInTemp(), "scenarios").absolutePath).list()
+        assertEquals(
+            setOf("crypto-scenario-post-only", "crypto-scenario-rest-and-cancel"),
+            scenarios.map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun `the crypto bundle carries no password and no path off this machine`() {
+        cryptoVenue.files.forEach { relative ->
+            val body =
+                ExampleWorkspaces::class.java
+                    .getResourceAsStream("/examples/crypto-venue/$relative")!!
+                    .use { it.readBytes().decodeToString() }
+            assertFalse(body.contains("\"password\""), "$relative carries a password field")
+            assertFalse(body.contains("/Users/"), "$relative carries an absolute path from a developer's machine")
+        }
+        profilesIn(openCryptoInTemp()).forEach { assertEquals(1_700_000_000_000L, it.createdAt) }
     }
 
     private fun profilesIn(workspace: File) =

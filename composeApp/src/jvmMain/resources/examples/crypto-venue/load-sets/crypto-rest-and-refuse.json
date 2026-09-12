@@ -1,0 +1,60 @@
+{
+    "schema": 1,
+    "name": "crypto-rest-and-refuse",
+    "label": "Crypto rest, cancel and refuse",
+    "seed": {
+        "run": "${uuid:4}"
+    },
+    "storeAndLog": {
+        "store": "MEMORY",
+        "log": "NONE"
+    },
+    "onFailure": "STOP",
+    "phases": [
+        {
+            "label": "Rest",
+            "template": "CRYPTO Load NewOrderSingle",
+            "profile": "Crypto Load Client",
+            "match": {
+                "requestTag": 11,
+                "replyTag": 11,
+                "replyType": "8"
+            },
+            "shape": {
+                "kind": "burst",
+                "count": 2000
+            },
+            "settleMs": 30000
+        },
+        {
+            "label": "Cancel",
+            "template": "CRYPTO Load Cancel",
+            "profile": "Crypto Load Client",
+            "match": {
+                "requestTag": 11,
+                "replyTag": 11,
+                "replyType": "8"
+            },
+            "shape": {
+                "kind": "burst",
+                "count": 2000
+            },
+            "settleMs": 30000
+        },
+        {
+            "label": "Refuse",
+            "template": "CRYPTO Load PostOnly that would cross",
+            "profile": "Crypto Load Client",
+            "match": {
+                "requestTag": 11,
+                "replyTag": 11,
+                "replyType": "8"
+            },
+            "shape": {
+                "kind": "burst",
+                "count": 2000
+            },
+            "settleMs": 30000
+        }
+    ]
+}

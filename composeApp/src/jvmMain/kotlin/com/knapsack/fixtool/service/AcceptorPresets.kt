@@ -98,6 +98,9 @@ object AcceptorPresets {
     /** The id of the equity venue bundle: the first with a book that holds an order. See [EquityVenuePreset]. */
     const val EQUITY_VENUE = EquityVenuePreset.ID
 
+    /** The id of the crypto venue bundle: 24/7, post-only, satoshi-grained. See [CryptoVenuePreset]. */
+    const val CRYPTO_VENUE = CryptoVenuePreset.ID
+
     // ------------------------------------------------------------------ templates
     //
     // Some of what follows is `internal` rather than `private`, and the reason is [FxVenuePreset]: a
@@ -595,6 +598,7 @@ object AcceptorPresets {
             FxVenuePreset.preset,
             RfqVenuePreset.preset,
             EquityVenuePreset.preset,
+            CryptoVenuePreset.preset,
             AcceptorPreset(
                 id = "order-ack",
                 name = "Order acknowledged",

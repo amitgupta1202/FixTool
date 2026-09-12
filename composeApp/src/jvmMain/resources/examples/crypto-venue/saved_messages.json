@@ -1,0 +1,815 @@
+{
+    "messages": [
+        {
+            "id": "crypto-buy-btc-gtc",
+            "name": "CRYPTO Buy BTC-USD GTC",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61000.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.10000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-sell-btc-gtc",
+            "name": "CRYPTO Sell BTC-USD GTC",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61500.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.10000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-buy-btc-market",
+            "name": "CRYPTO Buy BTC-USD Market",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.01000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-buy-btc-ioc-marketable",
+            "name": "CRYPTO Buy BTC-USD IOC, marketable",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61300.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.01000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "3"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-buy-btc-ioc-away",
+            "name": "CRYPTO Buy BTC-USD IOC, away from the touch",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61000.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.01000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "3"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "crypto-postonly-rests",
+            "name": "CRYPTO Post-only buy that rests",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "18",
+                    "value": "6"
+                },
+                {
+                    "tag": "44",
+                    "value": "61000.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.10000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-postonly-would-cross",
+            "name": "CRYPTO Post-only buy that would cross",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "18",
+                    "value": "6"
+                },
+                {
+                    "tag": "44",
+                    "value": "61300.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.10000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-day-order",
+            "name": "CRYPTO Day order, which this venue never keeps",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61000.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.10000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "crypto-sub-satoshi",
+            "name": "CRYPTO Order finer than a satoshi",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61000.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.123456789"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "crypto-dust",
+            "name": "CRYPTO Order below the minimum size",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61000.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.00001000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "crypto-cancel-last",
+            "name": "CRYPTO Cancel last order",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "F"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "41",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-replace-last",
+            "name": "CRYPTO Replace last order",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "G"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "41",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.20000000"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "60900.00"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-status-last",
+            "name": "CRYPTO Order Status Request",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "H"
+                },
+                {
+                    "tag": "11",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-md-eth",
+            "name": "CRYPTO Market Data Snapshot ETH-USD",
+            "userTags": [
+                "crypto-profile-CRYPTO_CLIENT1",
+                "crypto-profile-CRYPTO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "V"
+                },
+                {
+                    "tag": "262",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "263",
+                    "value": "0"
+                },
+                {
+                    "tag": "264",
+                    "value": "1"
+                },
+                {
+                    "tag": "267",
+                    "value": "2"
+                },
+                {
+                    "tag": "269",
+                    "value": "0"
+                },
+                {
+                    "tag": "269",
+                    "value": "1"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "ETH-USD"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-load-new-order",
+            "name": "CRYPTO Load NewOrderSingle",
+            "userTags": [
+                "crypto-profile-CRYPTO_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "CXO-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "61000.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.01000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-load-cancel",
+            "name": "CRYPTO Load Cancel",
+            "userTags": [
+                "crypto-profile-CRYPTO_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "F"
+                },
+                {
+                    "tag": "11",
+                    "value": "CXC-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "41",
+                    "value": "CXO-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "crypto-load-postonly",
+            "name": "CRYPTO Load PostOnly that would cross",
+            "userTags": [
+                "crypto-profile-CRYPTO_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "CXP-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "BTC-USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "18",
+                    "value": "6"
+                },
+                {
+                    "tag": "44",
+                    "value": "61300.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "0.01000000"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        }
+    ]
+}

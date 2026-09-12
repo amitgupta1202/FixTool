@@ -57,7 +57,19 @@ class AcceptorPresetsTest {
                 is Matcher.OneOf -> m.values.first()
                 else -> "ACME"
             }
-        val quantity = if (rule.trigger().any { it.tag == 38 }) "20000000" else "1000"
+        // Derived from the bound rather than assumed to be an over-size rule: the crypto venue's dust
+        // floor is a condition on 38 too, and it wants a quantity BELOW its bound, not above it.
+        val quantity =
+            when (val m = rule.trigger().firstOrNull { it.tag == 38 }?.parsed()) {
+                is Matcher.Regex -> "0.123456789"
+                is Matcher.Range ->
+                    when {
+                        m.max != null -> java.math.BigDecimal(m.max!!.toString()).divide(java.math.BigDecimal(10))
+                            .toPlainString()
+                        else -> "20000000"
+                    }
+                else -> "1000"
+            }
         val market = rule.trigger().any { it.tag == 40 && it.parsed() == Matcher.Exact("1") }
         // The limit price is derived for the same reason the symbol is. The equity venue's bands and its
         // sub-penny refusal are all conditions on 44, so one fixed price would ask half of them whether
@@ -84,11 +96,16 @@ class AcceptorPresetsTest {
         // without it asked them whether they fire against a Day order — which they promise not to.
         val tif =
             (rule.trigger().firstOrNull { it.tag == 59 }?.parsed() as? Matcher.Exact)?.let { "|59=${it.value}" } ?: ""
+        // ExecInst, for the same reason: the crypto venue's post-only rules are conditioned on `18=6`,
+        // and a sample without it is an ordinary order, which those rules correctly refuse to answer.
+        val execInst =
+            (rule.trigger().firstOrNull { it.tag == 18 }?.parsed() as? Matcher.Exact)?.let { "|18=${it.value}" } ?: ""
         return when (rule.whenMsgType) {
             "D" ->
                 "35=D|11=ORD-1|55=$symbol|54=$side|38=$quantity" +
                     (if (market) "|40=1" else "|40=2|44=$price") +
                     tif +
+                    execInst +
                     locate +
                     "|60=20260730-09:14:22.000"
             "R" -> "35=R|131=Q-1|55=$symbol|54=1|38=1000000"

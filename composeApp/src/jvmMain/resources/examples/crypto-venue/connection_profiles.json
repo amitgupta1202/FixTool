@@ -1,0 +1,1222 @@
+{
+    "profiles": [
+        {
+            "id": "crypto-profile-venue",
+            "name": "Crypto Demo Venue",
+            "config": {
+                "senderCompID": "CRYPTO_SERVER",
+                "targetCompID": "*",
+                "port": "19879",
+                "socketAcceptPort": "19879",
+                "connectionType": "ACCEPTOR",
+                "acceptorResponseRules": [
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=6|58=ClOrdID is already in use on this session|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=6|58=ClOrdID is already in use on this session|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "pending"
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "BTC-USD",
+                                        "ETH-USD",
+                                        "SOL-USD"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "0"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=This venue never closes: send GTC (59=1) or IOC (59=3), not Day|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "BTC-USD",
+                                        "ETH-USD",
+                                        "SOL-USD"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "regex",
+                                    "pattern": "^\\d+\\.\\d{8}[0-9]*[1-9][0-9]*$"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=13|58=Quantity is finer than the 0.00000001 base increment|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 1.0E-4,
+                                    "maxInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=13|58=Below the BTC-USD minimum of 0.0001 BTC|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 0.001,
+                                    "maxInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=13|58=Below the ETH-USD minimum of 0.001 ETH|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 0.01,
+                                    "maxInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=13|58=Below the SOL-USD minimum of 0.01 SOL|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 18,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 61240.6
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=Post-only (18=6) would have taken liquidity against the BTC-USD touch|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 18,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 61240.5
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=Post-only (18=6) would have taken liquidity against the BTC-USD touch|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 18,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 2415.35
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=Post-only (18=6) would have taken liquidity against the ETH-USD touch|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 18,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 2415.3
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=Post-only (18=6) would have taken liquidity against the ETH-USD touch|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 18,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 142.2
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=Post-only (18=6) would have taken liquidity against the SOL-USD touch|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 18,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 142.18
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=Post-only (18=6) would have taken liquidity against the SOL-USD touch|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 61240.6
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=61240.60|32=${req.38}|6=61240.60|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 61240.5
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=61240.50|32=${req.38}|6=61240.50|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 2415.35
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=2415.35|32=${req.38}|6=2415.35|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 2415.3
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=2415.30|32=${req.38}|6=2415.30|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 142.2
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=142.20|32=${req.38}|6=142.20|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 142.18
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=142.18|32=${req.38}|6=142.18|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "BTC-USD",
+                                        "ETH-USD",
+                                        "SOL-USD"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|58=Immediate-or-cancel: no contra inside your limit|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "BTC-USD",
+                                        "ETH-USD",
+                                        "SOL-USD"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=61240.60|32=${req.38}|6=61240.60|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=61240.50|32=${req.38}|6=61240.50|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=2415.35|32=${req.38}|6=2415.35|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=2415.30|32=${req.38}|6=2415.30|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=142.20|32=${req.38}|6=142.20|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=142.18|32=${req.38}|6=142.18|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=1|58=This venue lists BTC-USD, ETH-USD, SOL-USD|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=9|37=NONE|11=${req.11}|41=${req.41}|39=8|434=1|102=1|58=Unknown order|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "unknown"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ],
+                        "whenOrder": "pending"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=9|37=${order.orderId}|11=${req.11}|41=${req.41}|39=${order.ordStatus}|434=1|102=0|58=Too late to cancel|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "done"
+                    },
+                    {
+                        "whenMsgType": "G",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=5|39=0|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|38=${req.38}|14=${order.cumQty}|151=${req.38}|6=0|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "G",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=5|39=0|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=j|372=H|379=${req.11}|380=1|58=Unknown order"
+                            }
+                        ],
+                        "whenOrder": "unknown"
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=I|37=${order.orderId}|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=I|37=${order.orderId}|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "done"
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "BTC-USD"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=BTC-USD|268=2|269=0|270=${random:61239.80:61240.50:2}|271=${random:0.05:9.5:8}|269=1|270=${random:61240.60:61241.30:2}|271=${random:0.05:9.5:8}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "ETH-USD"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=ETH-USD|268=2|269=0|270=${random:2415.10:2415.30:2}|271=${random:0.05:9.5:8}|269=1|270=${random:2415.35:2415.55:2}|271=${random:0.05:9.5:8}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "SOL-USD"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=SOL-USD|268=2|269=0|270=${random:142.13:142.18:2}|271=${random:0.05:9.5:8}|269=1|270=${random:142.20:142.25:2}|271=${random:0.05:9.5:8}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "steps": [
+                            {
+                                "template": "35=Y|262=${req.262}|281=0|58=This venue publishes BTC-USD, ETH-USD, SOL-USD"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "crypto-profile-CRYPTO_CLIENT1",
+            "name": "Crypto Client 1",
+            "config": {
+                "senderCompID": "CRYPTO_CLIENT1",
+                "targetCompID": "CRYPTO_SERVER",
+                "port": "19879",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "crypto-profile-CRYPTO_CLIENT2",
+            "name": "Crypto Client 2",
+            "config": {
+                "senderCompID": "CRYPTO_CLIENT2",
+                "targetCompID": "CRYPTO_SERVER",
+                "port": "19879",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "crypto-profile-CRYPTO_LOAD",
+            "name": "Crypto Load Client",
+            "config": {
+                "senderCompID": "CXLG{n}",
+                "targetCompID": "CRYPTO_SERVER",
+                "sessionCount": 5,
+                "port": "19879",
+                "reconnectInterval": "5",
+                "resetOnLogon": true,
+                "messageStore": "MEMORY",
+                "messageLog": "NONE"
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        }
+    ]
+}

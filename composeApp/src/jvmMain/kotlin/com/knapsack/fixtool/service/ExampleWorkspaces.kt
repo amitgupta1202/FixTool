@@ -38,6 +38,9 @@ object ExampleWorkspaces {
     /** The bundled equity venue: the first whose book still holds your order a minute later. */
     const val EQUITY_VENUE = "equity-venue"
 
+    /** The bundled crypto venue: 24/7, and the one that refuses rather than crosses a post-only order. */
+    const val CRYPTO_VENUE = "crypto-venue"
+
     /**
      * Written into a copy, naming the example it came from.
      *

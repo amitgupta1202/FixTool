@@ -1,0 +1,190 @@
+{
+  "id": "crypto-scenario-rest-and-cancel",
+  "name": "A GTC order rests, then cancels",
+  "binding": "this_run",
+  "createdAt": 1789000000000,
+  "setup": [
+    {
+      "stepId": "07ba2514-199b-5a69-9c0d-db3ecbc7e51c",
+      "type": "clearMessages",
+      "session": "Crypto Client 1"
+    },
+    {
+      "stepId": "e0431dd8-86ab-5aae-9c4c-3a737df6ddd8",
+      "type": "clearOrderBook",
+      "session": "Crypto Demo Venue \u2190 CRYPTO_CLIENT1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "9173843e-074b-5129-bea0-702799b07fbd",
+      "type": "send",
+      "raw": "35=D|11=CX-R-1|55=BTC-USD|54=1|38=0.10000000|40=2|44=61000.00|59=1|60=${now}",
+      "session": "Crypto Client 1"
+    },
+    {
+      "stepId": "ef04a3ba-c613-50ba-943f-93732da1847a",
+      "type": "expect",
+      "session": "Crypto Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 151,
+            "matcher": {
+              "type": "exact",
+              "value": "0.10000000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "8f780cd0-bd02-5559-a3fe-9d4bd3ea3243",
+      "type": "send",
+      "raw": "35=D|11=CX-R-2|55=BTC-USD|54=1|38=0.10000000|40=2|44=61000.00|59=0|60=${now}",
+      "session": "Crypto Client 1"
+    },
+    {
+      "stepId": "3042a605-24b2-588c-9e75-8bb7af78460c",
+      "type": "expect",
+      "session": "Crypto Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "8"
+            }
+          },
+          {
+            "tag": 103,
+            "matcher": {
+              "type": "exact",
+              "value": "11"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "8e585446-2999-596e-a929-f69d6b2b571b",
+      "type": "send",
+      "raw": "35=F|11=CX-C-1|41=CX-R-1|55=BTC-USD|54=1|60=${now}",
+      "session": "Crypto Client 1"
+    },
+    {
+      "stepId": "de02a44f-991e-5843-b8c1-49b599cb3e8b",
+      "type": "expect",
+      "session": "Crypto Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "6"
+            }
+          },
+          {
+            "tag": 41,
+            "matcher": {
+              "type": "exact",
+              "value": "CX-R-1"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "6"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "95d0121a-8134-5f92-b030-5bcaa32d1cf3",
+      "type": "expect",
+      "session": "Crypto Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "4"
+            }
+          },
+          {
+            "tag": 41,
+            "matcher": {
+              "type": "exact",
+              "value": "CX-R-1"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "4"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

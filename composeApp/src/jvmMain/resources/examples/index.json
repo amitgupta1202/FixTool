@@ -2,6 +2,7 @@
   "examples": [
     "fx-venue",
     "rfq-venue",
-    "equity-venue"
+    "equity-venue",
+    "crypto-venue"
   ]
 }

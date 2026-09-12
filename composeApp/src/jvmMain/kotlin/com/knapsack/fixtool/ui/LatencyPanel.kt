@@ -1,7 +1,5 @@
 package com.knapsack.fixtool.ui
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -9,7 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.HorizontalDivider
@@ -51,63 +48,24 @@ fun LatencyPanel(
                 .fillMaxSize()
                 .background(AppTheme.Colors.surface),
     ) {
-        // Header
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(AppTheme.Colors.surfaceHeader)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Latency Tracking",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = AppTheme.Colors.text,
-                )
-
-                SourceBadge()
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TooltipIconButton(
-                    tooltip = "Clear Statistics",
-                    onClick = onClear,
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Clear",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-
-                TooltipIconButton(
-                    tooltip = "Close Panel",
-                    onClick = onClose,
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-        }
-
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = 1.dp)
+        // The shared dock header: "Latency" from the stripe tab rather than "Latency Tracking", and where
+        // the measurement is taken as the status. This was the one dock wearing a dialog's header — a 14sp
+        // medium title and a bordered chip, where every other dock title is 11sp plain.
+        DockHeader(
+            window = ToolWindow.LATENCY,
+            onHide = onClose,
+            status = "Socket",
+            statusTooltip = SOCKET_STAMP,
+            actions =
+                listOf(
+                    BarAction(
+                        label = "Clear statistics",
+                        icon = Icons.Default.Delete,
+                        onClick = onClear,
+                        tag = "latency-clear",
+                    ),
+                ),
+        )
 
         // Main content
         Column(
@@ -205,51 +163,17 @@ fun LatencyPanel(
 }
 
 /**
- * Where the numbers come from — the one thing about a latency that a reader has to know before
- * trusting it, so it is on the header rather than in the help. The tooltip says what the stamp
- * includes and what it leaves out; see `SocketStampFilter` for the mechanism.
+ * **Where the numbers come from** — the one thing about a latency that a reader has to know before trusting
+ * it, so it is on the header rather than in the help.
+ *
+ * It was a bordered chip of its own beside a 14sp title. It is the dock header's status now, which is the
+ * slot the grammar gives a dock for speaking in its own words, and the sentence that made it worth having
+ * is the status's tooltip. See `SocketStampFilter` for the mechanism.
  */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SourceBadge() {
-    val color = AppTheme.Colors.primary
-    TooltipArea(
-        tooltip = {
-            Box(
-                modifier =
-                    Modifier
-                        .background(AppTheme.Colors.surfaceHeader, RoundedCornerShape(4.dp))
-                        .border(1.dp, AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                        .widthIn(max = 360.dp),
-            ) {
-                Text(
-                    text =
-                        "Stamped at FixTool's socket, after TLS: a send when the kernel has taken the last byte, " +
-                            "a reply when it has been framed out of the stream. The FIX engine's queue, parse and " +
-                            "validation are not in the number. No privileges needed.",
-                    fontSize = 11.sp,
-                    color = AppTheme.Colors.text,
-                )
-            }
-        },
-    ) {
-        Box(
-            modifier =
-                Modifier
-                    .background(color.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                    .border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-        ) {
-            Text(
-                text = "Socket",
-                fontSize = 10.sp,
-                color = color,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-    }
-}
+private const val SOCKET_STAMP =
+    "Stamped at FixTool's socket, after TLS: a send when the kernel has taken the last byte, " +
+        "a reply when it has been framed out of the stream. The FIX engine's queue, parse and " +
+        "validation are not in the number. No privileges needed."
 
 /**
  * Main statistics card

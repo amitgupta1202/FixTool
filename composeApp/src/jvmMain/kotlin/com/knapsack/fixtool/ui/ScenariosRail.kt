@@ -850,28 +850,12 @@ private fun RailHeader(
     onDiffMessages: () -> Unit,
     onClose: () -> Unit,
 ) {
-    // The docked-pane header every other pane speaks (Message Editor, Connection, Message Details): a top
-    // rule, the title in a surface-filled bar, a bottom rule — then the controls below. The rail skipped the
-    // fill and the rules and painted its whole body surface, so it read looser and flatter than its neighbours.
+    // The shared dock header, then the rail's own controls row below it. The controls stay where they are on
+    // purpose: that row is the rail's *content* toolbar, the way the editor's button row is the editor's, and
+    // neither belongs in a header.
     Column(modifier = Modifier.fillMaxWidth()) {
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface).padding(horizontal = 6.dp, vertical = 4.dp),
-        ) {
-            // The register every docked pane speaks ("Message Details", "Connection"): title case, 11sp, plain.
-            Text("Scenarios", color = AppTheme.Colors.text, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            TooltipIconButton(tooltip = "Hide the Scenarios rail", onClick = onClose, modifier = Modifier.size(20.dp)) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Hide Scenarios",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(12.dp),
-                )
-            }
-        }
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-        // The controls, below the header bar as the Message Editor's toolbar sits below its title: the filter
+        DockHeader(window = ToolWindow.SCENARIOS, onHide = onClose)
+        // The controls, below the header bar as the editor's toolbar sits below its title: the filter
         // (which a list this size had earned), one way in to the three ways of creating a scenario, and ⋯.
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -925,7 +909,16 @@ private fun RailHeader(
             // Sort — how the list orders itself within each section.
             Box {
                 var sortOpen by remember { mutableStateOf(false) }
-                SlimButton("⇅", onClick = { sortOpen = true }, color = AppTheme.Colors.textSecondary, modifier = Modifier.testTag("rail-sort"))
+                // A glyph with no tooltip is learned by pressing it and watching, which is what the grammar's
+                // "a tooltip on every icon button" is for. ⇅ and ⊞ had none.
+                AppTooltip("Sort") {
+                    SlimButton(
+                        "⇅",
+                        onClick = { sortOpen = true },
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.testTag("rail-sort"),
+                    )
+                }
                 DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
                     SortItem("Name (A–Z)", ScenarioSort.NAME, sort) { onSort(it); sortOpen = false }
                     SortItem("Recently modified", ScenarioSort.RECENTLY_MODIFIED, sort) { onSort(it); sortOpen = false }
@@ -933,12 +926,14 @@ private fun RailHeader(
                 }
             }
             // Collapse-all / expand-all — one button that folds every open scenario shut, or opens them all.
-            SlimButton(
-                if (anyExpanded) "⊟" else "⊞",
-                onClick = onToggleExpandAll,
-                color = AppTheme.Colors.textSecondary,
-                modifier = Modifier.testTag("rail-collapse-all"),
-            )
+            AppTooltip(if (anyExpanded) "Collapse all" else "Expand all") {
+                SlimButton(
+                    if (anyExpanded) "⊟" else "⊞",
+                    onClick = onToggleExpandAll,
+                    color = AppTheme.Colors.textSecondary,
+                    modifier = Modifier.testTag("rail-collapse-all"),
+                )
+            }
             Box {
                 var open by remember { mutableStateOf(false) }
                 SlimButton(

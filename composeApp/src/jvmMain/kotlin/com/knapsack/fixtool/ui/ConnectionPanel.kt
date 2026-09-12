@@ -265,42 +265,9 @@ fun ConnectionPanel(
                 .fillMaxHeight()
                 .background(AppTheme.Colors.background),
     ) {
-        // Top border
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-
-        // Header
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(AppTheme.Colors.surface)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "FIX Connection",
-                color = AppTheme.Colors.text,
-                fontSize = 11.sp,
-            )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Close button
-            TooltipIconButton(
-                tooltip = "Close Connection Panel",
-                onClick = onClose,
-                modifier = iconSize24,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = iconSize16,
-                )
-            }
-        }
-
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        // The shared dock header: "Connection" from the stripe tab rather than "FIX Connection", and Hide
+        // rather than Close, because the stripe tab brings it straight back.
+        DockHeader(window = ToolWindow.CONNECTION, onHide = onClose)
 
         // Content
         Column(

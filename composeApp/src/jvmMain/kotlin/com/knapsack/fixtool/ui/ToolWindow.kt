@@ -81,6 +81,14 @@ enum class ToolWindow(
     /** The shortcut as a reader of this platform writes it, or null for a window with no digit. */
     val shortcutLabel: String? get() = shortcut?.let { if (IS_MAC) "⌘$it" else "Ctrl+$it" }
 
+    /**
+     * What a dock's Hide says on hover: "Hide Detail · ⌘3".
+     *
+     * Hide and not Close, because nothing is lost — and the shortcut is named on the button that does the
+     * hiding, which is where somebody who has just hidden a dock wants to read how to get it back.
+     */
+    val hideTooltip: String get() = shortcutLabel?.let { "Hide $title · $it" } ?: "Hide $title"
+
     companion object {
         private val IS_MAC = System.getProperty("os.name").lowercase().contains("mac")
 

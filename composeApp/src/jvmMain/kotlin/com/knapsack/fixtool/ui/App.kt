@@ -449,6 +449,12 @@ fun App(
                                 // All panels in same row: scenarios rail, editor, tabs, detail
                                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                                     val maxWidthPx = with(density) { maxWidth.toPx() }
+                                    // A dock is never dragged narrower than its own folded header, so no width exists at
+                                    // which one of its controls is half drawn. The ratio floors are still what decides on a
+                                    // wide window, where a tenth of the width is far more than a header needs; the folded
+                                    // header takes over on a window narrow enough that a tenth of it is not a header at all.
+                                    val dockFloor = dockFloorRatio(0.1f, maxWidthPx, density)
+                                    val bookFloor = dockFloorRatio(0.15f, maxWidthPx, density)
 
                                     Row(modifier = Modifier.fillMaxSize()) {
                                         ScenariosRailDock(
@@ -457,7 +463,7 @@ fun App(
                                             ratio = scenariosRailSplitRatio,
                                             maxWidthPx = maxWidthPx,
                                             onDeltaPx = { dx ->
-                                                scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
+                                                scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.45f)
                                             },
                                             onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
                                         )
@@ -484,7 +490,7 @@ fun App(
                                             // Resizable divider for editor panel
                                             WidthResizeHandle(
                                                 onDeltaPx = { dx ->
-                                                    editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                    editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
                                                 },
                                                 onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
                                             )
@@ -620,7 +626,7 @@ fun App(
                                             // Resizable divider for detail panel
                                             WidthResizeHandle(
                                                 onDeltaPx = { dx ->
-                                                    detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                    detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
                                                 },
                                                 onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
                                             )
@@ -644,7 +650,8 @@ fun App(
                                             // Resizable divider for connection panel
                                             WidthResizeHandle(
                                                 onDeltaPx = { dx ->
-                                                    connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                    connectionPanelSplitRatio =
+                                                        (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
                                                 },
                                                 onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
                                             )
@@ -696,7 +703,7 @@ fun App(
                                         if (showOrderBookPanel) {
                                             WidthResizeHandle(
                                                 onDeltaPx = { dx ->
-                                                    orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
+                                                    orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(bookFloor, 0.7f)
                                                 },
                                                 onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
                                             )
@@ -711,7 +718,7 @@ fun App(
                                             // Resizable divider for latency panel
                                             WidthResizeHandle(
                                                 onDeltaPx = { dx ->
-                                                    latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
+                                                    latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.5f)
                                                 },
                                                 onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
                                             )
@@ -787,6 +794,12 @@ fun App(
                                 ) {
                                     BoxWithConstraints(modifier = Modifier.weight(1f)) {
                                         val maxWidthPx = with(density) { maxWidth.toPx() }
+                                        // A dock is never dragged narrower than its own folded header, so no width exists at
+                                        // which one of its controls is half drawn. The ratio floors are still what decides on a
+                                        // wide window, where a tenth of the width is far more than a header needs; the folded
+                                        // header takes over on a window narrow enough that a tenth of it is not a header at all.
+                                        val dockFloor = dockFloorRatio(0.1f, maxWidthPx, density)
+                                        val bookFloor = dockFloorRatio(0.15f, maxWidthPx, density)
 
                                         Row(modifier = Modifier.fillMaxSize()) {
                                             ScenariosRailDock(
@@ -795,7 +808,7 @@ fun App(
                                                 ratio = scenariosRailSplitRatio,
                                                 maxWidthPx = maxWidthPx,
                                                 onDeltaPx = { dx ->
-                                                    scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
+                                                    scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.45f)
                                                 },
                                                 onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
                                             )
@@ -822,7 +835,7 @@ fun App(
                                                 // Resizable divider for editor panel
                                                 WidthResizeHandle(
                                                     onDeltaPx = { dx ->
-                                                        editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                        editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
                                                     },
                                                     onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
                                                 )
@@ -848,7 +861,7 @@ fun App(
                                                 // Resizable divider for detail panel
                                                 WidthResizeHandle(
                                                     onDeltaPx = { dx ->
-                                                        detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                        detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
                                                     },
                                                     onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
                                                 )
@@ -872,7 +885,8 @@ fun App(
                                                 // Resizable divider for connection panel
                                                 WidthResizeHandle(
                                                     onDeltaPx = { dx ->
-                                                        connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                        connectionPanelSplitRatio =
+                                                            (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
                                                     },
                                                     onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
                                                 )
@@ -932,7 +946,7 @@ fun App(
                                             if (showOrderBookPanel) {
                                                 WidthResizeHandle(
                                                     onDeltaPx = { dx ->
-                                                        orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
+                                                        orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(bookFloor, 0.7f)
                                                     },
                                                     onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
                                                 )
@@ -947,7 +961,7 @@ fun App(
                                                 // Resizable divider for latency panel
                                                 WidthResizeHandle(
                                                     onDeltaPx = { dx ->
-                                                        latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
+                                                        latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.5f)
                                                     },
                                                     onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
                                                 )

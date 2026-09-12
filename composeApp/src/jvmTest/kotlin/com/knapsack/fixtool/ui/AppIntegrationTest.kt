@@ -359,8 +359,8 @@ class AppIntegrationTest {
             )
         }
 
-        // Then: Connection panel header should be displayed
-        composeTestRule.onNodeWithText("FIX Connection").assertExists()
+        // Then: Connection panel header should be displayed, named as its stripe tab names it
+        composeTestRule.onNodeWithTag("tool-window-connection-header-title").assertTextContains("Connection")
     }
 
     @Test
@@ -471,7 +471,7 @@ class AppIntegrationTest {
         }
 
         // When: Close button is clicked
-        composeTestRule.onNodeWithContentDescription("Close").performClick()
+        composeTestRule.onNodeWithTag("tool-window-connection-hide").performClick()
         composeTestRule.waitForIdle()
 
         // Then: Close callback should be invoked
@@ -514,7 +514,7 @@ class AppIntegrationTest {
         }
 
         // When: Close button is clicked
-        composeTestRule.onNodeWithContentDescription("Close").performClick()
+        composeTestRule.onNodeWithTag("tool-window-detail-hide").performClick()
         composeTestRule.waitForIdle()
 
         // Then: Close callback should be invoked

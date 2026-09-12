@@ -121,88 +121,47 @@ fun MessageDetailPanel(
             var expandedFields by remember { mutableStateOf<Set<String>>(emptySet()) }
 
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top border
-                HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-
-                // Header
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .background(headerBackgroundColor)
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Message Details",
-                        color = headerTextColor,
-                        fontSize = 11.sp,
-                    )
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Only show message-specific buttons when a message is selected
-                    if (message != null) {
-                        // "Reply With…" — first, because on a venue's session it is the thing being done to
-                        // this message; the rest of the row is about reading it.
-                        if (onReplyWith != null && replyOffers.isNotEmpty()) {
-                            ReplyWithMenu(offers = replyOffers, onPick = onReplyWith)
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-
-                        // "Diff against…" — start a plain diff with this message on one side (Phase 7 entry point).
-                        if (onDiffAgainst != null) {
-                            TooltipIconButton(
-                                tooltip = "Diff against another message…",
-                                onClick = { onDiffAgainst(message) },
-                                modifier = buttonSize.testTag("detail-diff-against"),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CompareArrows,
-                                    contentDescription = "Diff against",
-                                    tint = iconTintColor,
-                                    modifier = iconSize,
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-
-                        // Toggle expand/collapse all button
-                        val allGroupKeys = remember(message) { collectAllGroupKeys(message) }
-                        val allExpanded = allGroupKeys.isNotEmpty() && expandedGroups.containsAll(allGroupKeys)
-
-                        TooltipIconButton(
-                            tooltip = if (allExpanded) "Collapse All Groups" else "Expand All Groups",
-                            onClick = {
-                                expandedGroups = if (allExpanded) emptySet() else allGroupKeys
-                            },
-                            modifier = buttonSize,
-                        ) {
-                            Icon(
-                                imageVector = if (allExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
-                                contentDescription = if (allExpanded) "Collapse All" else "Expand All",
-                                tint = iconTintColor,
-                                modifier = iconSize,
+                // The shared dock header: "Detail" from the stripe tab rather than "Message Details", and a
+                // Hide naming ⌘3. "Reply With…" goes in the leading slot because it is not a plain action —
+                // it opens a menu of offers, and it is the one thing on a venue's session being *done* to
+                // this message while the rest of the row is about reading it.
+                val allGroupKeys = remember(message) { if (message == null) emptySet() else collectAllGroupKeys(message) }
+                val allExpanded = allGroupKeys.isNotEmpty() && expandedGroups.containsAll(allGroupKeys)
+                val replyOffered = message != null && onReplyWith != null && replyOffers.isNotEmpty()
+                DockHeader(
+                    window = ToolWindow.DETAIL,
+                    onHide = onClose,
+                    leading =
+                        if (!replyOffered) {
+                            null
+                        } else {
+                            { ReplyWithMenu(offers = replyOffers, onPick = onReplyWith!!) }
+                        },
+                    leadingWidth = if (replyOffered) 24.dp else 0.dp,
+                    actions =
+                        if (message == null) {
+                            emptyList()
+                        } else {
+                            listOfNotNull(
+                                onDiffAgainst?.let {
+                                    BarAction(
+                                        label = "Diff against another message…",
+                                        icon = Icons.Default.CompareArrows,
+                                        onClick = { it(message) },
+                                        tag = "detail-diff-against",
+                                        foldRank = 1,
+                                    )
+                                },
+                                BarAction(
+                                    label = if (allExpanded) "Collapse all" else "Expand all",
+                                    icon = if (allExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                    onClick = { expandedGroups = if (allExpanded) emptySet() else allGroupKeys },
+                                    tag = "detail-expand-all",
+                                    foldRank = 2,
+                                ),
                             )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    // Close button
-                    TooltipIconButton(
-                        tooltip = "Close Detail Panel",
-                        onClick = onClose,
-                        modifier = buttonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = iconTintColor,
-                            modifier = iconSize,
-                        )
-                    }
-                }
+                        },
+                )
 
                 HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
 

@@ -5,10 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -56,40 +53,16 @@ fun SearchResultsPane(
                 .fillMaxWidth()
                 .background(AppTheme.Colors.background),
     ) {
-        // Header row with title and close button
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF2D2D2D)) // Same as grid header
-                    .height(24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Search Results (${searchResults.size})",
-                fontSize = 10.sp,
-                color = AppTheme.Colors.textSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-
-            TooltipIconButton(
-                tooltip = "Close",
-                onClick = onClose,
-                modifier = Modifier.size(24.dp),
-            ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-        }
-
-        HorizontalDivider(color = AppTheme.Colors.border)
+        // The shared dock header. Its title carries the count, the way the dock tab's does, and its
+        // trailing control stays a **Close** rather than becoming a Hide: unpinning the results loses them,
+        // and the grammar reserves Close for the things that hold content.
+        DockHeader(
+            title = "Search results · ${searchResults.size}",
+            onHide = onClose,
+            hideTooltip = "Close",
+            hideTag = "search-results-close",
+            tag = "search-results-header",
+        )
 
         // Grid with scrollbars
         Box(modifier = Modifier.fillMaxSize()) {

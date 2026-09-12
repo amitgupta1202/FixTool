@@ -387,43 +387,10 @@ fun MessageEditorPanel(
                 .fillMaxSize()
                 .background(AppTheme.Colors.background),
     ) {
-        // Top border
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-
-        // Header
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(AppTheme.Colors.surface)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Message Editor",
-                    color = AppTheme.Colors.text,
-                    fontSize = 11.sp,
-                )
-
-                IconButton(
-                    onClick = onClose,
-                    modifier = iconSize24,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = iconSize16,
-                    )
-                }
-            }
-        }
-
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        // The shared dock header: "Editor" from the stripe tab rather than "Message Editor", and a Hide that
+        // finally has a tooltip — this was the one dock whose close was a bare IconButton, so the only way
+        // to learn what it did was to press it. The editor's own button row is below, untouched here.
+        DockHeader(window = ToolWindow.EDITOR, onHide = onClose)
 
         // What the editor is editing, when it is not a message. Above the session controls rather than
         // in place of them: which session is selected still means something for the rest of the panel,

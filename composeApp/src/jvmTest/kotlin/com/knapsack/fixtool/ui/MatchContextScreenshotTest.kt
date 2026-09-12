@@ -80,7 +80,7 @@ class MatchContextScreenshotTest {
     fun `bare mode shows matched rows only, no party identity`() {
         composeTestRule.setContent { panel() }
         // Reproduce the legacy "before": expand the group, then search the nested tag.
-        composeTestRule.onNodeWithContentDescription("Expand All").performClick()
+        composeTestRule.onNodeWithTag("detail-expand-all").performClick()
         composeTestRule.waitForIdle()
         search("PartyRole")
         selectMode("Bare")

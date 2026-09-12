@@ -17,10 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,36 +70,24 @@ fun OrderBookPanel(
     var showUnattributed by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.background)) {
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(AppTheme.Colors.surfaceHeader)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Orders", color = AppTheme.Colors.text, fontSize = 11.sp)
-            Text(
-                text = "$title  ·  ${book.orders.size} order${if (book.orders.size == 1) "" else "s"} · ${book.working} working",
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 9.sp,
-                modifier = Modifier.testTag("order-book-summary"),
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            TooltipIconButton(
-                tooltip = "Clear this book — the panel will say it was cleared, not that nothing happened",
-                onClick = onClear,
-                modifier = Modifier.size(20.dp).testTag("order-book-clear"),
-            ) {
-                Icon(Icons.Default.DeleteSweep, "Clear book", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(14.dp))
-            }
-            TooltipIconButton(tooltip = "Hide the order book", onClick = onClose, modifier = Modifier.size(20.dp)) {
-                Icon(Icons.Default.Close, "Close", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(14.dp))
-            }
-        }
-        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        // The shared dock header: "Order book" from the stripe tab rather than "Orders", the summary as the
+        // status it always was, and a Hide that names the ⌘ digit which brings the dock back.
+        DockHeader(
+            window = ToolWindow.ORDER_BOOK,
+            onHide = onClose,
+            status = "$title  ·  ${book.orders.size} order${if (book.orders.size == 1) "" else "s"} · ${book.working} working",
+            statusTag = "order-book-summary",
+            actions =
+                listOf(
+                    BarAction(
+                        label = "Clear book",
+                        icon = Icons.Default.DeleteSweep,
+                        onClick = onClear,
+                        tag = "order-book-clear",
+                        hint = "the panel will say it was cleared, not that nothing happened",
+                    ),
+                ),
+        )
 
         if (book.orders.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {

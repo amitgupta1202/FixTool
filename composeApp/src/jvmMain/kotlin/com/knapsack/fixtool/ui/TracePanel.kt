@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,9 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -133,8 +132,6 @@ fun TracePanel(
             onClose = onClose,
         )
 
-        HorizontalDivider(color = AppTheme.Colors.border)
-
         if (rendering == TraceRendering.LANES) {
             TraceLanesView(
                 lanes = lanes,
@@ -233,59 +230,37 @@ private fun TracePanelHeaderBar(
     onCollapseAll: () -> Unit,
     onClose: () -> Unit,
 ) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF2D2D2D))
-                .height(26.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Trace",
-                fontSize = 10.sp,
-                color = AppTheme.Colors.textSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-            Text(
-                text = status,
-                fontSize = 10.sp,
-                color = AppTheme.Colors.text,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 8.dp).testTag("trace-panel-status"),
-            )
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RenderingToggle(rendering, onSetRendering)
-            // Folding is the Ledger's own gesture and Lanes has nothing to fold, so the two actions go
-            // when it does rather than sitting there doing nothing.
-            if (rendering == TraceRendering.LEDGER) {
-                TextAction("Expand all", "trace-expand-all", onExpandAll)
-                TextAction("Collapse all", "trace-collapse-all", onCollapseAll)
-            }
-            // Closes the panel and nothing else: the panes stay narrowed and the chip goes on saying so.
-            TooltipIconButton(
-                tooltip = "Close (keeps following)",
-                onClick = onClose,
-                modifier = Modifier.size(24.dp).testTag("trace-close"),
-            ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(14.dp),
+    DockHeader(
+        window = ToolWindow.TRACE,
+        onHide = onClose,
+        // What it is following, which is the one thing this dock has to say in its own words.
+        status = status,
+        statusTag = "trace-panel-status",
+        // Ledger and Lanes stay a segmented control rather than becoming two actions: they are one view of
+        // one thing, and a reader moving between them is changing the question they are asking of the rows
+        // already on screen.
+        leading = { RenderingToggle(rendering, onSetRendering) },
+        leadingWidth = RENDERING_TOGGLE_WIDTH,
+        // Folding is the Ledger's own gesture and Lanes has nothing to fold, so the two actions go when it
+        // does rather than sitting there doing nothing. Icon buttons now, with the tooltips two bare text
+        // actions never had.
+        actions =
+            if (rendering != TraceRendering.LEDGER) {
+                emptyList()
+            } else {
+                listOf(
+                    BarAction("Expand all", Icons.Default.UnfoldMore, onExpandAll, "trace-expand-all"),
+                    BarAction("Collapse all", Icons.Default.UnfoldLess, onCollapseAll, "trace-collapse-all"),
                 )
-            }
-        }
-    }
+            },
+        // Hides the dock and nothing else: the panes stay narrowed and the chip goes on saying so.
+        hideTooltip = "Hide Trace (keeps following)",
+        hideTag = "trace-close",
+    )
 }
+
+/** Ledger and Lanes side by side, as the fold has to budget for them. */
+private val RENDERING_TOGGLE_WIDTH = 92.dp
 
 /**
  * **Ledger | Lanes** — the same trace rows, two drawings, one segmented control.

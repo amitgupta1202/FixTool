@@ -109,8 +109,8 @@ class MessageDetailPanelIntegrationTest {
             )
         }
 
-        // Then: The panel should display the header
-        composeTestRule.onNodeWithText("Message Details").assertExists()
+        // Then: The panel should display the header, named as its stripe tab names it
+        composeTestRule.onNodeWithTag("tool-window-detail-header-title").assertTextContains("Detail")
 
         // And: The direction should be shown as INCOMING
         composeTestRule.onNodeWithText("INCOMING").assertExists()
@@ -199,7 +199,7 @@ class MessageDetailPanelIntegrationTest {
         }
 
         // And: The close button is clicked
-        composeTestRule.onNodeWithContentDescription("Close").performClick()
+        composeTestRule.onNodeWithTag("tool-window-detail-hide").performClick()
 
         // Then: The onClose callback should be invoked
         assert(closeCallCount == 1) { "Expected close to be called once, but was called $closeCallCount times" }
@@ -237,12 +237,9 @@ class MessageDetailPanelIntegrationTest {
             )
         }
 
-        // Then: The expand/collapse all button should be displayed
-        try {
-            composeTestRule.onNodeWithContentDescription("Expand All").assertExists()
-        } catch (e: AssertionError) {
-            composeTestRule.onNodeWithContentDescription("Collapse All").assertExists()
-        }
+        // Then: the one expand/collapse button should be displayed. One tag whichever way it is
+        // pointing, rather than a try/catch over two content descriptions that changed with the case.
+        composeTestRule.onNodeWithTag("detail-expand-all").assertExists()
     }
 
     @Test
@@ -395,7 +392,7 @@ class MessageDetailPanelIntegrationTest {
         }
 
         // First, expand the group to see all fields
-        composeTestRule.onNodeWithContentDescription("Expand All").performClick()
+        composeTestRule.onNodeWithTag("detail-expand-all").performClick()
         composeTestRule.waitForIdle()
 
         // Verify both EUR/USD and GBP/USD are visible before search

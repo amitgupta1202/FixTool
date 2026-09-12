@@ -329,8 +329,8 @@ class ConnectionPanelTest {
             )
         }
 
-        // Click close button
-        composeTestRule.onNodeWithContentDescription("Close").performClick()
+        // Click the header's Hide — Hide, not Close, because the stripe tab brings the dock back.
+        composeTestRule.onNodeWithTag("tool-window-connection-hide").performClick()
 
         // Verify close was called
         assertTrue(closeCalled, "Close callback should be called")

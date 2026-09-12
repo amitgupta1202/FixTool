@@ -1054,7 +1054,7 @@
         venue behave when several thousand messages arrive at once</em>: it issues one message across a
         profile's sessions <strong>without waiting for replies</strong>, then accounts for every reply that
         lands on any participating session.</p>
-    <p>Two doors, one dialog. In the <strong>Message Editor</strong>, the <strong>&#9889; Load</strong> button
+    <p>Two doors, one dialog. In the <strong>Editor</strong>, the <strong>&#9889; Load</strong> button
         beside Send and Send to All opens the Load run dialog with the editor's fields as the template. In the
         <strong>toolbar</strong>, the run widget's <strong>&#9662; &rarr; Load run&hellip;</strong> opens the same
         dialog with a picker over the saved messages. The dialog is one row per decision: the template and which of its tags vary per
@@ -1593,7 +1593,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
         one. What the header cannot point at, it does not say.</li>
     </ul>
 
-    <h3>Message Details</h3>
+    <h3>Detail</h3>
     <p>Click any message in the grid to view detailed field information in the detail panel:</p>
     <ul>
         <li>Shows all FIX fields with tag numbers and values</li>
@@ -1614,7 +1614,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
 
     <h2 id="sending-messages">5. Sending Messages</h2>
 
-    <h3>Opening the Message Editor</h3>
+    <h3>Opening the Editor</h3>
     <p>Click the <strong>Editor</strong> tab on the left stripe, or press <code>&#8984;1</code>
     (<code>Ctrl+1</code> off macOS), to open the message editor panel.</p>
 
@@ -1848,7 +1848,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
         <h4>Real-World Example: Quote Request Message</h4>
         <p>When building a QuoteRequest message where you need the same QuoteReqID in multiple fields:</p>
 
-        <p><strong>In the Message Editor, add these fields:</strong></p>
+        <p><strong>In the Editor, add these fields:</strong></p>
         <table class="fix-table">
             <tr>
                 <td class="tag">Tag</td>
@@ -2806,7 +2806,7 @@ ${incoming["D"].valueOfTag(38)}
 
     <p>The seven tags are the defaults, not the limit: the list is edited under <strong>Settings &rarr; Latency &rarr; Correlation tags</strong>, any tag in the dictionary can be added, and a reply is paired with its request on the first tag in the list that both carry. A tag that is not one of the built-ins is shown in the panel under its dictionary name. A venue's own identifier declared under <strong>Protocol &rarr; Venue tag roles</strong> is read by scenario capture and the conversation grid, not by the latency tracker, so add it to this list as well to time it. A list saved by an earlier version keeps its own contents, so add 112 by hand there if you want the probe.</p>
 
-    <h3>Enabling Latency Tracking</h3>
+    <h3>Enabling latency tracking</h3>
     <ol>
         <li>Open <strong>Settings</strong> from the toolbar and choose the <strong>Latency</strong> page</li>
         <li>Check <strong>Enable latency tracking</strong></li>
@@ -4187,7 +4187,7 @@ ${incoming["D"].valueOfTag(38)}
     <p>Everything above in one sitting, against the bundled <a href="#demo-server">FX Venue example</a>, so
     you can replay it rather than read it. Open the example, connect <strong>Demo Client 1</strong>, select
     the <code>FX Demo Venue &larr; DEMO_CLIENT1</code> pane &mdash; the book belongs to the counterparty,
-    so that pane and not the venue's own tab &mdash; and switch the <strong>Order Book</strong> toggle on.</p>
+    so that pane and not the venue's own tab &mdash; and switch the <strong>Order book</strong> toggle on.</p>
 
     <p><strong>1. Place an order.</strong> Send from the client:</p>
 

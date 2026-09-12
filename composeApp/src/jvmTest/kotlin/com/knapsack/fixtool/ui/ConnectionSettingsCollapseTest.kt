@@ -71,7 +71,7 @@ class ConnectionSettingsCollapseTest {
                 )
             }
         }
-        composeTestRule.onNodeWithText("Connection Settings").performClick()
+        composeTestRule.onNodeWithText("Connection settings").performClick()
         composeTestRule.waitForIdle()
     }
 

@@ -265,7 +265,7 @@ fun ConnectionPanel(
                 .fillMaxHeight()
                 .background(AppTheme.Colors.background),
     ) {
-        // The shared dock header: "Connection" from the stripe tab rather than "FIX Connection", and Hide
+        // The shared dock header: "Connection" from the stripe tab rather than "Connection", and Hide
         // rather than Close, because the stripe tab brings it straight back.
         DockHeader(window = ToolWindow.CONNECTION, onHide = onClose)
 
@@ -437,7 +437,7 @@ fun ConnectionPanel(
             ) {
                 // Profile Name field
                 ConnectionField(
-                    label = "Profile Name",
+                    label = "Profile name",
                     value = profileName,
                     onValueChange = { profileName = it },
                     placeholder = "Enter profile name",
@@ -491,7 +491,7 @@ fun ConnectionPanel(
             // as long as the venue behaviour is being pinned down. Folding the half that is finished
             // gives the half being worked on the panel's length.
             CollapsibleSectionHeader(
-                label = "Connection Settings",
+                label = "Connection settings",
                 expanded = showConnectionSettings,
                 onToggle = { showConnectionSettings = !showConnectionSettings },
             )
@@ -536,7 +536,7 @@ fun ConnectionPanel(
                                 FixConnectionConfig.ConnectionType.ACCEPTOR -> "Acceptor (Server)"
                             }
                         },
-                        placeholder = "Select Connection Type",
+                        placeholder = "Select connection type",
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -728,7 +728,7 @@ fun ConnectionPanel(
                 // FIX Version selection
                 Column {
                     Text(
-                        text = "FIX Version",
+                        text = "FIX version",
                         color = AppTheme.Colors.textSecondary,
                         fontSize = 9.sp,
                         modifier = Modifier.padding(bottom = 2.dp),
@@ -739,7 +739,7 @@ fun ConnectionPanel(
                         options = FixVersion.entries.toList(),
                         onValueChange = { it?.let { version -> selectedFixVersion = version } },
                         displayText = { it.displayName },
-                        placeholder = "Select FIX Version",
+                        placeholder = "Select FIX version",
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -764,13 +764,13 @@ fun ConnectionPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TooltipIconButton(
-                    tooltip = if (showAdvanced) "Hide Advanced Settings" else "Show Advanced Settings",
+                    tooltip = if (showAdvanced) "Advanced settings" else "Advanced settings",
                     onClick = { showAdvanced = !showAdvanced },
                     modifier = iconSize20,
                 ) {
                     Icon(
                         imageVector = if (showAdvanced) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Toggle Advanced",
+                        contentDescription = "Toggle advanced",
                         tint = AppTheme.Colors.textSecondary,
                         modifier = iconSize16,
                     )
@@ -833,7 +833,7 @@ fun ConnectionPanel(
                             }
                         }
                         Text(
-                            text = "Show Heartbeat",
+                            text = "Show heartbeat",
                             color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                         )
@@ -846,14 +846,14 @@ fun ConnectionPanel(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ConnectionField(
-                        label = "Connect Timeout (seconds)",
+                        label = "Connect timeout (seconds)",
                         value = socketConnectTimeout,
                         onValueChange = { socketConnectTimeout = it },
                         placeholder = "10",
                         modifier = Modifier.weight(1f),
                     )
                     ConnectionField(
-                        label = "Reconnect Interval (seconds)",
+                        label = "Reconnect interval (seconds)",
                         value = reconnectInterval,
                         onValueChange = { reconnectInterval = it },
                         placeholder = "30",
@@ -900,7 +900,7 @@ fun ConnectionPanel(
                 // Reset Options - all in one row
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Reset Options",
+                    text = "Reset options",
                     color = AppTheme.Colors.textSecondary,
                     fontSize = 9.sp,
                 )
@@ -1122,7 +1122,7 @@ fun ConnectionPanel(
 
                     // KeyStore Path
                     ConnectionField(
-                        label = "KeyStore Path",
+                        label = "KeyStore path",
                         value = keyStorePath,
                         onValueChange = { keyStorePath = it },
                         placeholder = "/path/to/keystore.jks",
@@ -1131,7 +1131,7 @@ fun ConnectionPanel(
 
                     // KeyStore Password
                     ConnectionField(
-                        label = "KeyStore Password",
+                        label = "KeyStore password",
                         value = keyStorePassword,
                         onValueChange = { keyStorePassword = it },
                         placeholder = "********",
@@ -1140,7 +1140,7 @@ fun ConnectionPanel(
 
                     // TrustStore Path
                     ConnectionField(
-                        label = "TrustStore Path",
+                        label = "TrustStore path",
                         value = trustStorePath,
                         onValueChange = { trustStorePath = it },
                         placeholder = "/path/to/truststore.jks",
@@ -1149,7 +1149,7 @@ fun ConnectionPanel(
 
                     // TrustStore Password
                     ConnectionField(
-                        label = "TrustStore Password",
+                        label = "TrustStore password",
                         value = trustStorePassword,
                         onValueChange = { trustStorePassword = it },
                         placeholder = "********",
@@ -1167,7 +1167,7 @@ fun ConnectionPanel(
 
                     // Enabled Protocols
                     ConnectionField(
-                        label = "Enabled Protocols",
+                        label = "Enabled protocols",
                         value = enabledProtocols,
                         onValueChange = { enabledProtocols = it },
                         placeholder = "TLSv1.2,TLSv1.3",
@@ -1176,7 +1176,7 @@ fun ConnectionPanel(
 
                     // Cipher Suites (optional)
                     ConnectionField(
-                        label = "Cipher Suites (optional)",
+                        label = "Cipher suites (optional)",
                         value = cipherSuites,
                         onValueChange = { cipherSuites = it },
                         placeholder = "Leave empty for defaults",
@@ -1212,7 +1212,7 @@ fun ConnectionPanel(
                             }
                         }
                         Text(
-                            text = "Require Client Auth (Acceptor only)",
+                            text = "Require client auth (acceptor only)",
                             color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                         )
@@ -1228,13 +1228,13 @@ fun ConnectionPanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Custom Parameters",
+                        text = "Custom parameters",
                         color = AppTheme.Colors.textSecondary,
                         fontSize = 9.sp,
                     )
 
                     TooltipIconButton(
-                        tooltip = "Add Custom Parameter",
+                        tooltip = "Add custom parameter",
                         onClick = {
                             customParameters = customParameters + ("" to "")
                         },
@@ -1242,7 +1242,7 @@ fun ConnectionPanel(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Add Parameter",
+                            contentDescription = "Add parameter",
                             tint = AppTheme.Colors.primary,
                             modifier = iconSize14,
                         )
@@ -1345,7 +1345,7 @@ fun ConnectionPanel(
                         )
 
                         TooltipIconButton(
-                            tooltip = "Delete Parameter",
+                            tooltip = "Delete parameter",
                             onClick = {
                                 customParameters =
                                     customParameters.toMutableList().apply {
@@ -1373,13 +1373,13 @@ fun ConnectionPanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Logon Message Fields",
+                        text = "Logon message fields",
                         color = AppTheme.Colors.textSecondary,
                         fontSize = 9.sp,
                     )
 
                     TooltipIconButton(
-                        tooltip = "Add Logon Field",
+                        tooltip = "Add Logon field",
                         onClick = {
                             logonFields = logonFields + ("" to "")
                         },
@@ -1387,7 +1387,7 @@ fun ConnectionPanel(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Add Logon Field",
+                            contentDescription = "Add Logon field",
                             tint = AppTheme.Colors.primary,
                             modifier = iconSize14,
                         )
@@ -1490,7 +1490,7 @@ fun ConnectionPanel(
                         )
 
                         TooltipIconButton(
-                            tooltip = "Delete Logon Field",
+                            tooltip = "Delete Logon field",
                             onClick = {
                                 logonFields =
                                     logonFields.toMutableList().apply {
@@ -1806,7 +1806,7 @@ fun ConnectionPanel(
                 text =
                     when {
                         sessionStates.any { it == FixConnectionState.CONNECTING } -> "Connecting..."
-                        connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR -> "Start Listening"
+                        connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR -> "Start listening"
                         else -> "Connect"
                     },
                 onClick = {
@@ -1877,7 +1877,7 @@ fun ConnectionPanel(
 
             // Disconnect button
             SlimButton(
-                text = if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) "Stop Listening" else "Disconnect",
+                text = if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) "Stop listening" else "Disconnect",
                 onClick = {
                     selectedProfile?.let { onDisconnect(it.id) }
                 },
@@ -2017,7 +2017,7 @@ private fun ProfileSection(
     onCloneProfile: (FixConnectionProfile) -> Unit,
 ) {
     Column {
-        SectionLabel("Connection Profile")
+        SectionLabel("Connection profile")
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2059,13 +2059,13 @@ private fun ProfileSection(
 
             // Save profile button
             TooltipIconButton(
-                tooltip = "Save Profile",
+                tooltip = "Save profile",
                 onClick = onSaveProfile,
                 modifier = iconSize24,
             ) {
                 Icon(
                     imageVector = Icons.Default.Save,
-                    contentDescription = "Save Profile",
+                    contentDescription = "Save profile",
                     tint = AppTheme.Colors.primary,
                     modifier = iconSize16,
                 )
@@ -2074,13 +2074,13 @@ private fun ProfileSection(
             // Clone profile button
             if (selectedProfile != null) {
                 TooltipIconButton(
-                    tooltip = "Clone Profile",
+                    tooltip = "Clone profile",
                     onClick = { onCloneProfile(selectedProfile) },
                     modifier = iconSize24,
                 ) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Clone Profile",
+                        contentDescription = "Clone profile",
                         tint = AppTheme.Colors.info,
                         modifier = iconSize16,
                     )
@@ -2090,13 +2090,13 @@ private fun ProfileSection(
             // Delete profile button
             if (selectedProfile != null) {
                 TooltipIconButton(
-                    tooltip = "Delete Profile",
+                    tooltip = "Delete profile",
                     onClick = { onDeleteProfile(selectedProfile) },
                     modifier = iconSize24,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete Profile",
+                        contentDescription = "Delete profile",
                         tint = AppTheme.Colors.warning,
                         modifier = iconSize16,
                     )

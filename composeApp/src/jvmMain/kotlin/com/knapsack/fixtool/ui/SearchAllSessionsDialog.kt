@@ -92,7 +92,7 @@ fun SearchAllSessionsDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Search All Sessions",
+                        text = "Search all sessions",
                         fontSize = 16.sp,
                         color = AppTheme.Colors.text,
                     )
@@ -180,7 +180,7 @@ fun SearchAllSessionsDialog(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = "Open in Search Window",
+                                text = "Pin results",
                                 color = AppTheme.Colors.background,
                                 fontSize = 13.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,

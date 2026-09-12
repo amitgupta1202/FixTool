@@ -875,13 +875,13 @@ internal fun SessionFilterBar(session: FixMessageSession) {
 
         // Close filter button
         TooltipIconButton(
-            tooltip = "Hide Filter",
+            tooltip = "Hide filter",
             onClick = { session.toggleFilter() },
             modifier = Modifier.size(18.dp),
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
-                contentDescription = "Hide Filter",
+                contentDescription = "Hide filter",
                 tint = iconTintColor,
                 modifier = Modifier.size(smallIconSize),
             )

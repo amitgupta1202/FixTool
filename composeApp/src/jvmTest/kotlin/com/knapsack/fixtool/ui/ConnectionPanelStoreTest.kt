@@ -60,7 +60,7 @@ class ConnectionPanelStoreTest {
         composeTestRule.onNodeWithText("Select profile...").performClick()
         composeTestRule.onNodeWithText("LOADGEN").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithContentDescription("Toggle Advanced").performClick()
+        composeTestRule.onNodeWithContentDescription("Toggle advanced").performClick()
         composeTestRule.waitForIdle()
     }
 
@@ -92,7 +92,7 @@ class ConnectionPanelStoreTest {
 
         composeTestRule.onNodeWithTag("store-memory").performClick()
         composeTestRule.onNodeWithTag("log-none").performClick()
-        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
 
         val config = assertNotNull(saved).config
         assertEquals(MessageStoreKind.MEMORY, config.messageStore)

@@ -276,7 +276,7 @@ class MessageDetailPanelIntegrationTest {
         }
 
         // Then: The copy button should be displayed
-        composeTestRule.onNodeWithContentDescription("Copy All").assertExists()
+        composeTestRule.onNodeWithContentDescription("Copy all").assertExists()
     }
 
     @Test

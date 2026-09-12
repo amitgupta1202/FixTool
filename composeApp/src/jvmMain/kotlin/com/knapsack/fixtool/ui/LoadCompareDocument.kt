@@ -231,7 +231,7 @@ private fun CompareHeader(
             // is worse than not being able to fire it at all. A **set** goes back through its saved file,
             // because replanning one phase of it would rerun a third of the thing that regressed.
             SlimButton(
-                if (after.phases.size > 1) "Run this set again" else "Run this plan again",
+                "Run again",
                 modifier = Modifier.testTag("compare-rerun"),
                 onClick = { note = rerun(viewModel, after) },
             )

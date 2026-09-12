@@ -62,7 +62,7 @@ class ScenarioEditorStepIdentityTest {
         }
 
         composeTestRule.onNodeWithTag("step-row-2").performClick() // select step C
-        composeTestRule.onAllNodesWithContentDescription("Remove")[0].performClick() // delete step A
+        composeTestRule.onAllNodesWithContentDescription("Remove step")[0].performClick() // delete step A
         // Steps are now [B, C, D]; the selection must still be on C, and an edit must land on C. (The edit
         // used to be the STRICT toggle, which lived in the expectation builder — deleted, along with the
         // builder. The step editor no longer edits assertions at all; it edits the step, and so does this.)
@@ -117,7 +117,7 @@ class ScenarioEditorStepIdentityTest {
             )
         }
 
-        composeTestRule.onAllNodesWithContentDescription("Down")[0].performClick() // A moves below B
+        composeTestRule.onAllNodesWithContentDescription("Move step down")[0].performClick() // A moves below B
         composeTestRule.onNodeWithTag("editor-save").performClick()
 
         val out = saved!!.steps.map { it as ScenarioStep.Expect }
@@ -192,8 +192,8 @@ class ScenarioEditorStepIdentityTest {
 
         // The setup row's own arrow is dead: across a phase boundary the move would not be a move, it
         // would change when the step runs. Index 1 is the flow's first step, which does move.
-        composeTestRule.onAllNodesWithContentDescription("Down")[0].assertIsNotEnabled()
-        composeTestRule.onAllNodesWithContentDescription("Down")[1].performClick()
+        composeTestRule.onAllNodesWithContentDescription("Move step down")[0].assertIsNotEnabled()
+        composeTestRule.onAllNodesWithContentDescription("Move step down")[1].performClick()
         composeTestRule.onNodeWithTag("editor-save").performClick()
 
         val out = saved!!

@@ -59,11 +59,11 @@ class ConnectionPanelTest {
         }
 
         // Verify the panel is displayed
-        composeTestRule.onNodeWithText("Connection Profile").assertExists()
-        composeTestRule.onNodeWithText("Connection Settings").assertExists()
+        composeTestRule.onNodeWithText("Connection profile").assertExists()
+        composeTestRule.onNodeWithText("Connection settings").assertExists()
 
         // Click Save button to save with default values
-        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
 
         // Verify profile was saved (with default/empty values)
         assertNotNull(savedProfile)
@@ -138,10 +138,10 @@ class ConnectionPanelTest {
         composeTestRule.waitForIdle()
 
         // Delete button should now be visible (only shows when profile is selected)
-        composeTestRule.onNodeWithContentDescription("Delete Profile").assertExists()
+        composeTestRule.onNodeWithContentDescription("Delete profile").assertExists()
 
         // Click Delete button
-        composeTestRule.onNodeWithContentDescription("Delete Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
 
         // Verify profile was deleted
         assertEquals("delete-me", deletedProfileId)
@@ -190,10 +190,10 @@ class ConnectionPanelTest {
         composeTestRule.waitForIdle()
 
         // Clone button should now be visible
-        composeTestRule.onNodeWithContentDescription("Clone Profile").assertExists()
+        composeTestRule.onNodeWithContentDescription("Clone profile").assertExists()
 
         // Click Clone button
-        composeTestRule.onNodeWithContentDescription("Clone Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Clone profile").performClick()
 
         // Verify profile was cloned
         assertNotNull(clonedProfile)
@@ -502,7 +502,7 @@ class ConnectionPanelTest {
         }
 
         // Save button should still work even with empty fields (for saving drafts)
-        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
 
         // Profile should be saved even with empty/invalid fields
         assertNotNull(savedProfile, "Save should work even with validation errors")
@@ -528,10 +528,10 @@ class ConnectionPanelTest {
         }
 
         // Profile name field should be empty initially
-        composeTestRule.onNodeWithText("Profile Name").assertExists()
+        composeTestRule.onNodeWithText("Profile name").assertExists()
 
         // Save without entering a profile name
-        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
 
         // Verify profile was saved with auto-generated name
         assertNotNull(savedProfile)
@@ -563,10 +563,10 @@ class ConnectionPanelTest {
         }
 
         // Verify profile name field exists
-        composeTestRule.onNodeWithText("Profile Name").assertExists()
+        composeTestRule.onNodeWithText("Profile name").assertExists()
 
         // Save the profile (even without entering a name, the test is about the behavior)
-        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
 
         // Verify profile was saved
         assertNotNull(savedProfile)
@@ -598,7 +598,7 @@ class ConnectionPanelTest {
         }
 
         // Save first profile without name
-        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
         composeTestRule.waitForIdle()
 
         // Verify first profile has name "Profile 1"
@@ -645,7 +645,7 @@ class ConnectionPanelTest {
         composeTestRule.onNodeWithText("TARGET_DELETE").assertExists()
 
         // Delete the profile
-        composeTestRule.onNodeWithContentDescription("Delete Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
         composeTestRule.waitForIdle()
 
         // Verify profile was deleted
@@ -691,7 +691,7 @@ class ConnectionPanelTest {
         composeTestRule.onAllNodesWithText("Profile Name Clear Test").fetchSemanticsNodes().isNotEmpty()
 
         // Delete the profile
-        composeTestRule.onNodeWithContentDescription("Delete Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
         composeTestRule.waitForIdle()
 
         // Verify profile name field is cleared
@@ -741,7 +741,7 @@ class ConnectionPanelTest {
         composeTestRule.waitForIdle()
 
         // Delete the profile
-        composeTestRule.onNodeWithContentDescription("Delete Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
         composeTestRule.waitForIdle()
 
         // Verify fields are reset to defaults
@@ -804,7 +804,7 @@ class ConnectionPanelTest {
         // The current implementation only clears fields if the deleted profile is the selected one
 
         // Delete the selected profile
-        composeTestRule.onNodeWithContentDescription("Delete Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
         composeTestRule.waitForIdle()
 
         // Verify profile was deleted
@@ -834,7 +834,7 @@ class ConnectionPanelTest {
         }
 
         // Delete button should not be visible initially
-        composeTestRule.onNodeWithContentDescription("Delete Profile").assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription("Delete profile").assertDoesNotExist()
 
         // Select a profile
         composeTestRule.onNodeWithText("Select profile...").performClick()
@@ -843,7 +843,7 @@ class ConnectionPanelTest {
         composeTestRule.waitForIdle()
 
         // Delete button should now be visible
-        composeTestRule.onNodeWithContentDescription("Delete Profile").assertExists()
+        composeTestRule.onNodeWithContentDescription("Delete profile").assertExists()
     }
 
     @Test
@@ -904,7 +904,7 @@ class ConnectionPanelTest {
         composeTestRule.onNodeWithText("DEV1").assertExists()
 
         // Save the profile (should preserve session qualifier)
-        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
         composeTestRule.waitForIdle()
 
         // Verify saved profile has the session qualifier
@@ -954,7 +954,7 @@ class ConnectionPanelTest {
         composeTestRule.waitForIdle()
 
         // Clone the profile
-        composeTestRule.onNodeWithContentDescription("Clone Profile").performClick()
+        composeTestRule.onNodeWithContentDescription("Clone profile").performClick()
         composeTestRule.waitForIdle()
 
         // Verify cloned profile preserves session qualifier

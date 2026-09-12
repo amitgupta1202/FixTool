@@ -447,9 +447,9 @@ class AppIntegrationTest {
         }
 
         // Then: Profile management UI should be displayed
-        composeTestRule.onNodeWithText("Connection Profile").assertExists()
-        composeTestRule.onNodeWithText("Profile Name").assertExists()
-        composeTestRule.onNodeWithContentDescription("Save Profile").assertExists()
+        composeTestRule.onNodeWithText("Connection profile").assertExists()
+        composeTestRule.onNodeWithText("Profile name").assertExists()
+        composeTestRule.onNodeWithContentDescription("Save profile").assertExists()
     }
 
     @Test

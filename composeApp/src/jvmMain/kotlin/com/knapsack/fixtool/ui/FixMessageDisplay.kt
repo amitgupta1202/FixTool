@@ -15,7 +15,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -903,7 +902,7 @@ private fun MessageRow(
                         horizontalArrangement = Arrangement.End,
                     ) {
                         TooltipIconButton(
-                            tooltip = "Copy Message",
+                            tooltip = "Copy message",
                             onClick = {
                                 val clipboard = Toolkit.getDefaultToolkit().systemClipboard
                                 clipboard.setContents(StringSelection(message.rawMessage), null)
@@ -1006,8 +1005,9 @@ private fun SearchBar(
             )
         }
 
-        // Previous button
-        IconButton(
+        // Three glyphs that had no tooltip between them.
+        TooltipIconButton(
+            tooltip = "Previous match",
             onClick = onPreviousMatch,
             enabled = searchMatches.isNotEmpty(),
             modifier = Modifier.size(32.dp),
@@ -1020,8 +1020,8 @@ private fun SearchBar(
             )
         }
 
-        // Next button
-        IconButton(
+        TooltipIconButton(
+            tooltip = "Next match",
             onClick = onNextMatch,
             enabled = searchMatches.isNotEmpty(),
             modifier = Modifier.size(32.dp),
@@ -1034,8 +1034,8 @@ private fun SearchBar(
             )
         }
 
-        // Close button
-        IconButton(
+        TooltipIconButton(
+            tooltip = "Close search",
             onClick = onClose,
             modifier = Modifier.size(32.dp),
         ) {

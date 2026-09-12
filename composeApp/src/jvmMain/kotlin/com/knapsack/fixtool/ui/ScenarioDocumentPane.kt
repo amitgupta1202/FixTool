@@ -111,7 +111,7 @@ private fun DocumentTabView(
         } else {
             Spacer(modifier = Modifier.width(6.dp))
             TooltipIconButton(tooltip = "Close tab", onClick = onRequestClose, modifier = Modifier.size(16.dp).testTag("doc-close-${tab.id}")) {
-                Icon(Icons.Default.Close, contentDescription = "Close Document", tint = textColor, modifier = Modifier.size(11.dp))
+                Icon(Icons.Default.Close, contentDescription = "Close document", tint = textColor, modifier = Modifier.size(11.dp))
             }
         }
     }

@@ -88,16 +88,18 @@ fun MinimizedStrip(
             }
         }
         if (minimized.size > 1) {
-            Text(
-                text = "restore all",
-                color = AppTheme.Colors.textDisabled,
-                fontSize = 10.sp,
-                modifier =
-                    Modifier
-                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickable { onRestoreAll() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+            AppTooltip("Restore every minimized pane") {
+                Text(
+                    text = "restore all",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 10.sp,
+                    modifier =
+                        Modifier
+                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                            .clickable { onRestoreAll() }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }

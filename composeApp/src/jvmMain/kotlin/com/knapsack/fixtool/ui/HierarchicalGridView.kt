@@ -657,20 +657,28 @@ fun HierarchicalGridView(
                                 } else {
                                     Modifier
                                 }
-                            Text(
-                                text = "⇄ Diff selected",
-                                color = if (canDiff) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
-                                fontSize = 11.sp,
-                                modifier =
-                                    Modifier
-                                        .then(diffClick)
-                                        .padding(horizontal = 6.dp)
-                                        .testTag("grid-diff-selected"),
-                            )
+                            AppTooltip(
+                                if (canDiff) {
+                                    "Diff selected"
+                                } else {
+                                    "Diff selected — pick exactly two rows"
+                                },
+                            ) {
+                                Text(
+                                    text = "⇄ Diff selected",
+                                    color = if (canDiff) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
+                                    fontSize = 11.sp,
+                                    modifier =
+                                        Modifier
+                                            .then(diffClick)
+                                            .padding(horizontal = 6.dp)
+                                            .testTag("grid-diff-selected"),
+                                )
+                            }
                         }
                         // Copy button
                         TooltipIconButton(
-                            tooltip = "Copy Selected Messages ($copyShortcut)",
+                            tooltip = "Copy selected messages ($copyShortcut)",
                             onClick = { copySelectedToClipboard() },
                             modifier = Modifier.size(28.dp),
                         ) {
@@ -684,7 +692,7 @@ fun HierarchicalGridView(
 
                         // Save to file button
                         TooltipIconButton(
-                            tooltip = "Save Selected Messages to File",
+                            tooltip = "Save selected messages to file",
                             onClick = { saveSelectedToFile() },
                             modifier = Modifier.size(28.dp),
                         ) {
@@ -698,13 +706,13 @@ fun HierarchicalGridView(
 
                         // Clear selection button
                         TooltipIconButton(
-                            tooltip = "Clear Selection (Esc)",
+                            tooltip = "Clear selection · Esc",
                             onClick = { clearSelection() },
                             modifier = Modifier.size(28.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Clear Selection",
+                                contentDescription = "Clear selection",
                                 tint = AppTheme.Colors.textSecondary,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -764,7 +772,7 @@ fun HierarchicalGridView(
                                         someSelected -> Icons.Default.IndeterminateCheckBox
                                         else -> Icons.Default.CheckBoxOutlineBlank
                                     },
-                                contentDescription = if (allSelected) "Deselect All" else "Select All",
+                                contentDescription = if (allSelected) "Deselect all" else "Select all",
                                 tint = if (allSelected || someSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                                 modifier = Modifier.size(14.dp),
                             )
@@ -1446,7 +1454,7 @@ fun MessageSummaryRow(
         ) {
             Icon(
                 imageVector = if (isMultiSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                contentDescription = if (isMultiSelected) "Selected" else "Not Selected",
+                contentDescription = if (isMultiSelected) "Selected" else "Not selected",
                 tint = if (isMultiSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                 modifier = Modifier.size(14.dp),
             )

@@ -214,7 +214,7 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         ) {
             SlimButton(
-                "↻ Re-run as it ran",
+                "Run again",
                 onClick = { viewModel.rerunRecordedEntry(set.id, entry) },
                 enabled = !running,
                 color = AppTheme.Colors.textSecondary,

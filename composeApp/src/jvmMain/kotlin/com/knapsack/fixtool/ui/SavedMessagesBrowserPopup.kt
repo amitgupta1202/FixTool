@@ -213,7 +213,7 @@ fun SavedMessagesBrowserPopup(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Load Message Template",
+                        text = "Load message template",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = AppTheme.Colors.text,
@@ -254,7 +254,7 @@ fun SavedMessagesBrowserPopup(
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    ViewModeTab("By User", BrowserViewMode.BY_CATEGORY, viewMode) {
+                    ViewModeTab("By user", BrowserViewMode.BY_CATEGORY, viewMode) {
                         viewMode = it
                         focusRequester.requestFocus()
                     }

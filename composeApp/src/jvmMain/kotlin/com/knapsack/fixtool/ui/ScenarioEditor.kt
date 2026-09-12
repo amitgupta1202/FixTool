@@ -822,14 +822,41 @@ private fun StepRow(
                 modifier = Modifier.size(12.dp),
             )
         }
-        IconButton(onClick = { onMove(-1) }, enabled = canMoveUp, modifier = Modifier.size(22.dp)) {
-            Icon(Icons.Default.ArrowUpward, contentDescription = "Up", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
+        // Three glyphs that had no tooltip between them, so the only way to learn what ↑ did was to
+        // press it and watch the list.
+        TooltipIconButton(
+            tooltip = "Move step up",
+            onClick = { onMove(-1) },
+            enabled = canMoveUp,
+            modifier = Modifier.size(22.dp),
+        ) {
+            Icon(
+                Icons.Default.ArrowUpward,
+                contentDescription = "Move step up",
+                tint = AppTheme.Colors.textSecondary,
+                modifier = Modifier.size(12.dp),
+            )
         }
-        IconButton(onClick = { onMove(1) }, enabled = canMoveDown, modifier = Modifier.size(22.dp)) {
-            Icon(Icons.Default.ArrowDownward, contentDescription = "Down", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
+        TooltipIconButton(
+            tooltip = "Move step down",
+            onClick = { onMove(1) },
+            enabled = canMoveDown,
+            modifier = Modifier.size(22.dp),
+        ) {
+            Icon(
+                Icons.Default.ArrowDownward,
+                contentDescription = "Move step down",
+                tint = AppTheme.Colors.textSecondary,
+                modifier = Modifier.size(12.dp),
+            )
         }
-        IconButton(onClick = onRemove, modifier = Modifier.size(22.dp)) {
-            Icon(Icons.Default.Delete, contentDescription = "Remove", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
+        TooltipIconButton(tooltip = "Remove step", onClick = onRemove, modifier = Modifier.size(22.dp)) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Remove step",
+                tint = AppTheme.Colors.error,
+                modifier = Modifier.size(12.dp),
+            )
         }
     }
 }

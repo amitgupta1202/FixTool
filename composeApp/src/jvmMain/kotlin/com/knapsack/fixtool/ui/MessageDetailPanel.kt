@@ -419,7 +419,7 @@ fun MessageDetailPanel(
                                     // Paste button
                                     if (onPasteMessage != null) {
                                         TooltipIconButton(
-                                            tooltip = "Paste Message from Clipboard",
+                                            tooltip = "Paste message from clipboard",
                                             onClick = {
                                                 try {
                                                     val clipboard = Toolkit.getDefaultToolkit().systemClipboard
@@ -446,7 +446,7 @@ fun MessageDetailPanel(
                                     // Copy button (only when message exists)
                                     if (message != null) {
                                         TooltipIconButton(
-                                            tooltip = "Copy All",
+                                            tooltip = "Copy all",
                                             onClick = {
                                                 if (message.rawMessage.isNotBlank()) {
                                                     val clipboard = Toolkit.getDefaultToolkit().systemClipboard
@@ -460,7 +460,7 @@ fun MessageDetailPanel(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.ContentCopy,
-                                                contentDescription = "Copy All",
+                                                contentDescription = "Copy all",
                                                 tint = iconTintColor,
                                                 modifier = rawActionIconSize,
                                             )
@@ -1692,13 +1692,13 @@ private fun ReplyWithMenu(offers: List<ReplyOffer>, onPick: (ReplyShape) -> Unit
     var open by remember { mutableStateOf(false) }
     Box {
         TooltipIconButton(
-            tooltip = "Reply With… — open a reply to this message in the editor",
+            tooltip = "Reply with… — open a reply to this message in the editor",
             onClick = { open = true },
             modifier = buttonSize.testTag("detail-reply-with"),
         ) {
             Icon(
                 imageVector = Icons.Default.Reply,
-                contentDescription = "Reply With",
+                contentDescription = "Reply with",
                 tint = iconTintColor,
                 modifier = iconSize,
             )

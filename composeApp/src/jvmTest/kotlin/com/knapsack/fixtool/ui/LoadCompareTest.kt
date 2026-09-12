@@ -249,14 +249,14 @@ class LoadCompareTest {
      * by name, and refuses in a sentence when the record came from no file.
      */
     @Test
-    fun `Run this set again refuses a set that came from no saved file`() {
+    fun `Run again refuses a set that came from no saved file`() {
         viewModel.stageLoadRecord(set("after", unmatchedInPhaseTwo = 4).copy(set = null))
         viewModel.stageLoadRecord(set("before", unmatchedInPhaseTwo = 0).copy(set = null))
 
         composeTestRule.setContent {
             LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare("after", "before"), Modifier.fillMaxSize())
         }
-        composeTestRule.onNodeWithTag("compare-rerun").assertTextContains("Run this set again")
+        composeTestRule.onNodeWithTag("compare-rerun").assertTextContains("Run again")
         composeTestRule.onNodeWithTag("compare-rerun").performClick()
         composeTestRule.waitForIdle()
 
@@ -265,7 +265,7 @@ class LoadCompareTest {
 
     /** The set had a file, so the refusal is the set's own and not a replan of one phase. */
     @Test
-    fun `Run this set again goes to the saved set by name`() {
+    fun `Run again goes to the saved set by name`() {
         viewModel.stageLoadRecord(set("after", unmatchedInPhaseTwo = 4))
         viewModel.stageLoadRecord(set("before", unmatchedInPhaseTwo = 0))
 

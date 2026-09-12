@@ -210,7 +210,7 @@ class GridViewMultiSelectionTest {
         // (Copy/Save/Clear buttons should not exist)
         composeTestRule.onNodeWithContentDescription("Copy").assertDoesNotExist()
         composeTestRule.onNodeWithContentDescription("Save").assertDoesNotExist()
-        composeTestRule.onNodeWithContentDescription("Clear Selection").assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription("Clear selection").assertDoesNotExist()
     }
 
     // ========================================

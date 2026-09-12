@@ -355,7 +355,7 @@ class ScenarioEditorTest {
         var saved: Scenario? = null
         render { saved = it }
 
-        composeTestRule.onAllNodesWithContentDescription("Remove")[0].performClick()
+        composeTestRule.onAllNodesWithContentDescription("Remove step")[0].performClick()
         composeTestRule.onNodeWithTag("editor-save").performClick()
         composeTestRule.waitForIdle()
 
@@ -575,9 +575,9 @@ class ScenarioEditorTest {
         var saved: Scenario? = null
         render(initial = withTeardown) { saved = it }
 
-        composeTestRule.onAllNodesWithContentDescription("Up")[3].assertIsNotEnabled()
+        composeTestRule.onAllNodesWithContentDescription("Move step up")[3].assertIsNotEnabled()
         // Row 1 is the flow's first step, and it has somewhere to go.
-        composeTestRule.onAllNodesWithContentDescription("Down")[1].performClick()
+        composeTestRule.onAllNodesWithContentDescription("Move step down")[1].performClick()
         composeTestRule.onNodeWithTag("editor-save").performClick()
         composeTestRule.waitForIdle()
 

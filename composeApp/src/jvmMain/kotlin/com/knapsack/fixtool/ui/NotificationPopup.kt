@@ -114,15 +114,17 @@ private fun NotificationPopup(
                 modifier = Modifier.weight(1f),
             )
 
-            // Close button
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Dismiss",
-                tint = AppTheme.Colors.textSecondary,
-                modifier =
-                    closeButtonSize
-                        .clickable { onDismiss() },
-            )
+            // Dismiss, not Close: a report is dismissed, and it had no tooltip at all.
+            AppTooltip("Dismiss") {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier =
+                        closeButtonSize
+                            .clickable { onDismiss() },
+                )
+            }
         }
     }
 }

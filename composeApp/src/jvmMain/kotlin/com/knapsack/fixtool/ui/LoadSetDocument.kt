@@ -153,7 +153,7 @@ private fun SetHeader(
             // Off when the set came from no file, with the reason in the meta line above rather than in a
             // notification nobody asked for by hovering a button.
             SlimButton(
-                "Run set again",
+                "Run again",
                 onClick = onRerun ?: {},
                 enabled = onRerun != null,
                 modifier = Modifier.testTag("load-set-rerun"),

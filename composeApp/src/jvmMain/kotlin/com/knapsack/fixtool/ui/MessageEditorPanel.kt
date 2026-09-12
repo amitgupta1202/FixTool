@@ -278,7 +278,7 @@ private fun SlimTextField(
  *
  * The editor draws its toolbar twice — the row, and the progressive overflow Popup that re-renders the same
  * eleven buttons — so every one of these strings existed twice and the two copies had already drifted: the
- * row's Validate said "Validate Message against Data Dictionary" where the Popup's said "Validate", and one
+ * row's Validate said "Validate message against the data dictionary" where the Popup's said "Validate", and one
  * said "Requires FIX data dictionary" where the other said "Validation disabled". One constant each until
  * the Popup itself goes.
  *
@@ -557,7 +557,7 @@ fun MessageEditorPanel(
                         if (selectedSession == null) selectedEditorProfile?.name else null
                     val sendTooltip =
                         when {
-                            canSend -> "Send Message (QuickFIX/J manages header/trailer fields)"
+                            canSend -> "Send message (QuickFIX/J manages header/trailer fields)"
                             unconnectedProfileName != null -> "Cannot send - $unconnectedProfileName is not connected"
                             else -> "Cannot send - Session not logged on (${connectionState.getDisplayText()})"
                         }
@@ -673,7 +673,7 @@ fun MessageEditorPanel(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Campaign,
-                            contentDescription = "Send to All Sessions",
+                            contentDescription = "Send to all sessions",
                             modifier = iconSize18,
                             tint = if (canSendToAll) AppTheme.Colors.primary else disabledIconColor,
                         )
@@ -718,7 +718,7 @@ fun MessageEditorPanel(
                     TooltipIconButton(
                         tooltip =
                             if (hasDataDictionary) {
-                                if (validationPassed) "Validation Passed" else "Validate Message against Data Dictionary"
+                                if (validationPassed) "Validation passed" else "Validate message against the data dictionary"
                             } else {
                                 "Requires FIX data dictionary"
                             },
@@ -757,7 +757,7 @@ fun MessageEditorPanel(
                     var showLoadPopup by remember { mutableStateOf(false) }
                     Box {
                         TooltipIconButton(
-                            tooltip = "Load Message Template",
+                            tooltip = "Load message template",
                             onClick = { showLoadPopup = true },
                             modifier = iconSize28,
                         ) {
@@ -793,7 +793,7 @@ fun MessageEditorPanel(
                 if (visibleButtonsCount > 3 && onSaveMessage != null) {
                     var showSaveDialog by remember { mutableStateOf(false) }
                     TooltipIconButton(
-                        tooltip = "Save Message Template",
+                        tooltip = "Save message template",
                         onClick = { showSaveDialog = true },
                         modifier = iconSize28,
                     ) {
@@ -815,7 +815,7 @@ fun MessageEditorPanel(
                                 },
                             )
                         }
-                        // Duplicate check for "Save as New" - checks ALL templates (don't exclude current)
+                        // Duplicate check for "Save as new" - checks ALL templates (don't exclude current)
                         val isDuplicateForSaveAsNew =
                             savedMessages.any {
                                 it.name.trim().equals(messageName.trim(), ignoreCase = true) &&
@@ -845,7 +845,7 @@ fun MessageEditorPanel(
                                         .width(400.dp),
                             ) {
                                 Text(
-                                    "Save Message Template",
+                                    "Save message template",
                                     color = AppTheme.Colors.text,
                                     fontSize = 16.sp,
                                     modifier = Modifier.padding(bottom = 12.dp),
@@ -853,7 +853,7 @@ fun MessageEditorPanel(
 
                                 // Template Name field (FIRST)
                                 Text(
-                                    "Template Name",
+                                    "Template name",
                                     color = AppTheme.Colors.textSecondary,
                                     fontSize = 12.sp,
                                     modifier = Modifier.padding(bottom = 4.dp),
@@ -990,7 +990,7 @@ fun MessageEditorPanel(
                                     // Secondary button (only shown when editing existing template)
                                     if (!editorState.isNew() && onSaveMessageAs != null) {
                                         SlimButton(
-                                            text = if (nameWasModified) "Rename & Update" else "Save as New",
+                                            text = if (nameWasModified) "Rename & update" else "Save as new",
                                             onClick = {
                                                 val isDuplicateCheck = if (nameWasModified) isDuplicateForUpdate else isDuplicateForSaveAsNew
                                                 if (messageName.isNotBlank() &&
@@ -1032,9 +1032,9 @@ fun MessageEditorPanel(
                                     SlimButton(
                                         text =
                                             when {
-                                                editorState.isNew() -> "Save as New"
-                                                nameWasModified -> "Save as New"
-                                                else -> "Update Existing"
+                                                editorState.isNew() -> "Save as new"
+                                                nameWasModified -> "Save as new"
+                                                else -> "Update existing"
                                             },
                                         onClick = {
                                             val isDuplicateCheck =
@@ -1100,7 +1100,7 @@ fun MessageEditorPanel(
 
                 // Button 4: Add
                 if (visibleButtonsCount > 4) {
-                    TooltipIconButton(tooltip = "Add Field", onClick = onFieldAdd, modifier = iconSize28) {
+                    TooltipIconButton(tooltip = "Add field", onClick = onFieldAdd, modifier = iconSize28) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add",
@@ -1114,7 +1114,7 @@ fun MessageEditorPanel(
                 // Button 5: Delete
                 if (visibleButtonsCount > 5) {
                     TooltipIconButton(
-                        tooltip = "Delete Field",
+                        tooltip = "Delete field",
                         onClick = { onFieldDelete(selectedFieldIndex) },
                         enabled = fields.size > 1,
                         modifier = iconSize28,
@@ -1132,14 +1132,14 @@ fun MessageEditorPanel(
                 // Button 6: Move Up
                 if (visibleButtonsCount > 6) {
                     TooltipIconButton(
-                        tooltip = "Move Up",
+                        tooltip = "Move up",
                         onClick = { onFieldMoveUp(selectedFieldIndex) },
                         enabled = selectedFieldIndex > 0,
                         modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowUpward,
-                            contentDescription = "Move Up",
+                            contentDescription = "Move up",
                             modifier = iconSize18,
                             tint = if (selectedFieldIndex > 0) AppTheme.Colors.textSecondary else disabledIconColor,
                         )
@@ -1150,14 +1150,14 @@ fun MessageEditorPanel(
                 // Button 7: Move Down
                 if (visibleButtonsCount > 7) {
                     TooltipIconButton(
-                        tooltip = "Move Down",
+                        tooltip = "Move down",
                         onClick = { onFieldMoveDown(selectedFieldIndex) },
                         enabled = selectedFieldIndex < fields.size - 1,
                         modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowDownward,
-                            contentDescription = "Move Down",
+                            contentDescription = "Move down",
                             modifier = iconSize18,
                             tint = if (selectedFieldIndex < fields.size - 1) AppTheme.Colors.textSecondary else disabledIconColor,
                         )
@@ -1168,7 +1168,7 @@ fun MessageEditorPanel(
                 // Button 8: Clear
                 if (visibleButtonsCount > 8) {
                     TooltipIconButton(
-                        tooltip = "Clear All Fields",
+                        tooltip = "Clear fields",
                         onClick = {
                             previewText = ""
                             onClearFields()
@@ -1227,13 +1227,13 @@ fun MessageEditorPanel(
 
                     Box {
                         TooltipIconButton(
-                            tooltip = "More Options",
+                            tooltip = "More",
                             onClick = { showOverflowPopup = !showOverflowPopup },
                             modifier = iconSize28,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
-                                contentDescription = "More Options",
+                                contentDescription = "More",
                                 tint = AppTheme.Colors.textSecondary,
                                 modifier = iconSize18,
                             )
@@ -1258,7 +1258,7 @@ fun MessageEditorPanel(
                                     // Button 0: Send
                                     if (visibleButtonsCount <= 0) {
                                         TooltipIconButton(
-                                            tooltip = if (canSend) "Send Message" else "Cannot send",
+                                            tooltip = if (canSend) "Send message" else "Cannot send",
                                             onClick = {
                                                 onClearValidationErrors()
                                                 try {
@@ -1309,7 +1309,7 @@ fun MessageEditorPanel(
                                         TooltipIconButton(
                                             tooltip =
                                                 if (hasDataDictionary) {
-                                                    if (validationPassed) "Validation Passed" else "Validate"
+                                                    if (validationPassed) "Validation passed" else "Validate"
                                                 } else {
                                                     "Validation disabled"
                                                 },
@@ -1348,7 +1348,7 @@ fun MessageEditorPanel(
                                         var showLoadPopup by remember { mutableStateOf(false) }
                                         Box {
                                             TooltipIconButton(
-                                                tooltip = "Load Message Template",
+                                                tooltip = "Load message template",
                                                 onClick = { showLoadPopup = true },
                                                 modifier = iconSize28,
                                             ) {
@@ -1382,7 +1382,7 @@ fun MessageEditorPanel(
                                     if (visibleButtonsCount <= 3 && onSaveMessage != null) {
                                         var showSaveDialog by remember { mutableStateOf(false) }
                                         TooltipIconButton(
-                                            tooltip = "Save Message Template",
+                                            tooltip = "Save message template",
                                             onClick = { showSaveDialog = true },
                                             modifier = iconSize28,
                                         ) {
@@ -1397,7 +1397,7 @@ fun MessageEditorPanel(
                                     // Button 4: Add
                                     if (visibleButtonsCount <= 4) {
                                         TooltipIconButton(
-                                            tooltip = "Add Field",
+                                            tooltip = "Add field",
                                             onClick = { onFieldAdd() },
                                             modifier = iconSize28,
                                         ) {
@@ -1412,7 +1412,7 @@ fun MessageEditorPanel(
                                     // Button 5: Delete
                                     if (visibleButtonsCount <= 5) {
                                         TooltipIconButton(
-                                            tooltip = "Delete Field",
+                                            tooltip = "Delete field",
                                             onClick = { onFieldDelete(selectedFieldIndex) },
                                             enabled = fields.size > 1,
                                             modifier = iconSize28,
@@ -1428,14 +1428,14 @@ fun MessageEditorPanel(
                                     // Button 6: Move Up
                                     if (visibleButtonsCount <= 6) {
                                         TooltipIconButton(
-                                            tooltip = "Move Up",
+                                            tooltip = "Move up",
                                             onClick = { onFieldMoveUp(selectedFieldIndex) },
                                             enabled = selectedFieldIndex > 0,
                                             modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.ArrowUpward,
-                                                contentDescription = "Move Up",
+                                                contentDescription = "Move up",
                                                 modifier = iconSize18,
                                                 tint =
                                                     if (selectedFieldIndex > 0) {
@@ -1451,14 +1451,14 @@ fun MessageEditorPanel(
                                     // Button 7: Move Down
                                     if (visibleButtonsCount <= 7) {
                                         TooltipIconButton(
-                                            tooltip = "Move Down",
+                                            tooltip = "Move down",
                                             onClick = { onFieldMoveDown(selectedFieldIndex) },
                                             enabled = selectedFieldIndex < fields.size - 1,
                                             modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.ArrowDownward,
-                                                contentDescription = "Move Down",
+                                                contentDescription = "Move down",
                                                 modifier = iconSize18,
                                                 tint =
                                                     if (selectedFieldIndex <
@@ -1476,7 +1476,7 @@ fun MessageEditorPanel(
                                     // Button 8: Clear
                                     if (visibleButtonsCount <= 8) {
                                         TooltipIconButton(
-                                            tooltip = "Clear All Fields",
+                                            tooltip = "Clear fields",
                                             onClick = {
                                                 previewText = ""
                                                 onClearFields()
@@ -1557,7 +1557,7 @@ fun MessageEditorPanel(
             val isWarning = validationErrors.any { it.startsWith("WARNING:") }
             val backgroundColor = if (isWarning) Color(0xFF3A2F1F) else Color(0xFF3A1F1F) // Amber-tinted vs red-tinted
             val textColor = if (isWarning) Color(0xFFFFA726) else AppTheme.Colors.error // Amber vs red
-            val label = if (isWarning) "Validation Warnings" else "Validation Errors"
+            val label = if (isWarning) "Validation warnings" else "Validation errors"
 
             Column(
                 modifier =
@@ -1590,7 +1590,7 @@ fun MessageEditorPanel(
                         )
                     }
                     TooltipIconButton(
-                        tooltip = if (isWarning) "Dismiss Warnings" else "Dismiss Errors",
+                        tooltip = if (isWarning) "Dismiss warnings" else "Dismiss errors",
                         onClick = onClearValidationErrors,
                         modifier = iconSize20,
                     ) {
@@ -1639,7 +1639,7 @@ fun MessageEditorPanel(
                 Spacer(modifier = Modifier.width(4.dp))
 
                 Text(
-                    text = "Field Name",
+                    text = "Field name",
                     color = AppTheme.Colors.textSecondary,
                     fontSize = 10.sp,
                     modifier = Modifier.width(120.dp),
@@ -1782,7 +1782,7 @@ fun MessageEditorPanel(
                             ) {
                                 // Copy button
                                 TooltipIconButton(
-                                    tooltip = "Copy to Clipboard",
+                                    tooltip = "Copy to clipboard",
                                     onClick = {
                                         try {
                                             val clipboard = Toolkit.getDefaultToolkit().systemClipboard
@@ -1808,7 +1808,7 @@ fun MessageEditorPanel(
 
                                 // Paste button
                                 TooltipIconButton(
-                                    tooltip = "Paste from Clipboard",
+                                    tooltip = "Paste from clipboard",
                                     onClick = {
                                         try {
                                             val clipboard = Toolkit.getDefaultToolkit().systemClipboard

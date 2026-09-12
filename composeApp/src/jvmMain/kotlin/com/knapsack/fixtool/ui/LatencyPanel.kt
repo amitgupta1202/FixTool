@@ -361,8 +361,8 @@ private fun RecentCorrelationsTable(
                 color = AppTheme.Colors.textSecondary,
                 modifier = Modifier.weight(1.2f),
             )
-            Text("Send Time", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
-            Text("Recv Time", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
+            Text("Send time", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
+            Text("Recv time", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
             Text("RTT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(0.8f))
         }
 

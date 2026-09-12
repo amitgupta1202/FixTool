@@ -1098,7 +1098,7 @@
                         "whenMsgType": "H",
                         "steps": [
                             {
-                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=I|37=${order.orderId}|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=I|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
                             }
                         ],
                         "whenOrder": "working"
@@ -1107,7 +1107,7 @@
                         "whenMsgType": "H",
                         "steps": [
                             {
-                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=I|37=${order.orderId}|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=I|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
                             }
                         ],
                         "whenOrder": "done"

@@ -270,6 +270,12 @@ object AcceptorPresets {
             "39=\${order.ordStatus}",
             "14=\${order.cumQty}",
             "151=\${order.leavesQty}",
+            // Required on every FIX 4.4 ExecutionReport, and this template shipped without one — so the
+            // starter and FX venues answered a status request with a message a validating client
+            // rejects. Found by the equity venue's dictionary check. Safe to read now that the book
+            // answers `avgPx` for an order that has filled nothing (see `OrderBook.fields`); before
+            // that, adding it here would have turned a malformed answer into no answer at all.
+            "6=\${order.avgPx}",
             "55=\${order.symbol}",
             "54=\${order.side}",
             "38=\${order.orderQty}",

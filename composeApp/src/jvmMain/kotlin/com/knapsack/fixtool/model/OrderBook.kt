@@ -476,7 +476,18 @@ object OrderBook {
             current.orderQty?.let { put("orderQty", it) }
             current.cumQty?.let { put("cumQty", it) }
             current.leavesQty?.let { put("leavesQty", it) }
-            current.avgPx?.let { put("avgPx", it) }
+            // **AvgPx is answerable for an order that has filled nothing**, and that is the whole of the
+            // fix. FIX requires a `6` on every ExecutionReport, so a status reply has to carry one; but
+            // `${order.avgPx}` reading a name the book has not got is refused at send time, and a venue
+            // that answers a status request with silence is worse than one that answers it with a
+            // malformed message. By FIX convention an order with no fills has an average of zero, so the
+            // book states it rather than leaving the reply unsendable.
+            //
+            // Still absent when CumQty says something DID fill and no report carried a `6`: that is a
+            // number the venue genuinely has not stated, and putting a zero there would be the book
+            // inventing a price nobody sent.
+            val filledNothing = current.cumQty?.toBigDecimalOrNull()?.signum() == 0
+            (current.avgPx ?: "0".takeIf { filledNothing })?.let { put("avgPx", it) }
             current.price?.let { put("price", it) }
             current.symbol?.let { put("symbol", it) }
             current.side?.let { put("side", it) }

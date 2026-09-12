@@ -238,34 +238,6 @@ object EquityVenuePreset {
             "58=Sell short without LocateReqd (114): Reg SHO requires a locate",
         )
 
-    /**
-     * **This venue's own status reply, because the shipped one is missing a required field.**
-     *
-     * `AcceptorPresets.ORDER_STATUS` carries no AvgPx, and FIX 4.4 requires one on every
-     * ExecutionReport — so every venue built on it answers a status request with a message a validating
-     * client rejects. Found by this venue's dictionary check (`EquityVenuePresetTest`), and **not fixed
-     * in the shared template**, because `resolveOrderRefs` refuses to send a reply that reads an order
-     * field the book has not got: adding `6` there would turn a malformed answer into no answer at all
-     * for any venue whose book lacks an AvgPx, which is a worse failure and not this change's to make.
-     *
-     * Safe here because the two rules that use it fire only for an order this venue has already
-     * reported on, and every report this venue sends carries a `6` — the ack's is `6=0` — so the book
-     * always has one to give back.
-     */
-    private val ORDER_STATUS =
-        AcceptorPresets.executionReport(
-            "150=I",
-            "37=\${order.orderId}",
-            "11=\${req.11}",
-            "39=\${order.ordStatus}",
-            "14=\${order.cumQty}",
-            "151=\${order.leavesQty}",
-            "6=\${order.avgPx}",
-            "55=\${order.symbol}",
-            "54=\${order.side}",
-            "38=\${order.orderQty}",
-        )
-
     private val UNKNOWN_SYMBOL =
         AcceptorPresets.executionReport(
             "150=8", "39=8", AcceptorPresets.ORDER_ECHO,
@@ -413,14 +385,6 @@ object EquityVenuePreset {
             steps = listOf(ResponseStep(snapshot(listing))),
         )
 
-    /** Working and done are the two states the venue can answer: both mean it has already reported. */
-    private fun statusRule(constraint: OrderConstraint) =
-        AcceptorResponseRule(
-            whenMsgType = "H",
-            whenOrder = constraint,
-            steps = listOf(ResponseStep(ORDER_STATUS)),
-        )
-
     private val marketDataReject =
         AcceptorResponseRule(whenMsgType = "V", steps = listOf(ResponseStep(MD_REJECT)))
 
@@ -467,8 +431,8 @@ object EquityVenuePreset {
             ) +
             listOf(AcceptorPresets.replaceAccepted, AcceptorPresets.replaceAcceptedSameId) +
             listOf(
-                statusRule(OrderConstraint.DONE),
-                statusRule(OrderConstraint.WORKING),
+                AcceptorPresets.statusRequestDone,
+                AcceptorPresets.statusRequestWorking,
                 AcceptorPresets.statusRequestUnknown,
             ) +
             // 35=V — a subscription per listing, a snapshot per listing, then the reject.

@@ -289,28 +289,6 @@ object CryptoVenuePreset {
 
     // ------------------------------------------------------------------ 35=H, 35=V
 
-    /** Its own status reply, carrying the AvgPx 4.4 requires — see [EquityVenuePreset.ORDER_STATUS]. */
-    private val ORDER_STATUS =
-        AcceptorPresets.executionReport(
-            "150=I",
-            "37=\${order.orderId}",
-            "11=\${req.11}",
-            "39=\${order.ordStatus}",
-            "14=\${order.cumQty}",
-            "151=\${order.leavesQty}",
-            "6=\${order.avgPx}",
-            "55=\${order.symbol}",
-            "54=\${order.side}",
-            "38=\${order.orderQty}",
-        )
-
-    private fun statusRule(constraint: OrderConstraint) =
-        AcceptorResponseRule(
-            whenMsgType = "H",
-            whenOrder = constraint,
-            steps = listOf(ResponseStep(ORDER_STATUS)),
-        )
-
     private fun snapshotRule(product: Product) =
         AcceptorResponseRule(
             whenMsgType = "V",
@@ -359,8 +337,8 @@ object CryptoVenuePreset {
             ) +
             listOf(AcceptorPresets.replaceAccepted, AcceptorPresets.replaceAcceptedSameId) +
             listOf(
-                statusRule(OrderConstraint.DONE),
-                statusRule(OrderConstraint.WORKING),
+                AcceptorPresets.statusRequestDone,
+                AcceptorPresets.statusRequestWorking,
                 AcceptorPresets.statusRequestUnknown,
             ) +
             PRODUCTS.reversed().map(::snapshotRule) +

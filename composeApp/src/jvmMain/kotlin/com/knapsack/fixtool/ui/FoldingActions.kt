@@ -5,11 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -23,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -75,6 +78,20 @@ data class BarAction(
      * a sentence would not fit — and because the sentence is the half that is worth saying at every width.
      */
     val hint: String? = null,
+    /**
+     * A toggle's state, or null for a plain action.
+     *
+     * A folding bar draws a toggle as a [ToggleIconButton] and a plain action as a glyph, so the pressed
+     * look survives folding: the four pane toggles are in the same row as Clear and Scroll to bottom, and a
+     * bar that flattened them into plain buttons would have lost the state on the way in.
+     */
+    val pressed: Boolean? = null,
+    /**
+     * The glyph's own colour, where it says something the word does not — an armed Close, say.
+     *
+     * Null is the row's own tint, which is what every ordinary action uses.
+     */
+    val tint: Color? = null,
 ) {
     /** What a glyph says on hover: its word, its shortcut, and whatever the word could not carry. */
     val hover: String
@@ -245,10 +262,10 @@ internal fun FoldingActions(
         horizontalArrangement = Arrangement.spacedBy(BAR_GAP),
     ) {
         fold.shown.forEach { action ->
-            if (fold.labelled && action.labelled && action.icon != null) {
-                BarChip(action)
-            } else {
-                BarIconButton(action)
+            when {
+                action.pressed != null -> BarToggle(action)
+                fold.labelled && action.labelled && action.icon != null -> BarChip(action)
+                else -> BarIconButton(action)
             }
         }
         if (fold.folded.isNotEmpty()) BarOverflow(fold.folded, overflowTag)
@@ -258,7 +275,7 @@ internal fun FoldingActions(
 /** An action with its word: the same chip the toolbar draws, one size down, because a dock bar is denser. */
 @Composable
 private fun BarChip(action: BarAction) {
-    val tint = if (action.enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled
+    val tint = action.tint ?: if (action.enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled
     val chip: @Composable () -> Unit = {
         Row(
             modifier =
@@ -282,10 +299,27 @@ private fun BarChip(action: BarAction) {
     if (hover != null) AppTooltip(hover) { chip() } else chip()
 }
 
+/** A toggle in a folding bar: the shared pressed look, at the bar's own size. */
+@Composable
+private fun BarToggle(action: BarAction) {
+    ToggleIconButton(
+        on = action.pressed == true,
+        tooltip = action.hover,
+        icon = requireNotNull(action.icon) { "a toggle with no glyph cannot be drawn: ${action.label}" },
+        onClick = action.onClick,
+        enabled = action.enabled,
+        disabledReason = action.disabledReason,
+        size = BAR_BUTTON,
+        glyph = BAR_ICON,
+        tag = action.tag,
+    )
+}
+
 /** An action as a glyph, with the word it lost in the tooltip. */
 @Composable
 private fun BarIconButton(action: BarAction) {
-    val tint = if (action.enabled) AppTheme.Colors.textSecondary else AppTheme.Colors.textDisabled
+    val tint =
+        action.tint ?: if (action.enabled) AppTheme.Colors.textSecondary else AppTheme.Colors.textDisabled
     TooltipIconButton(
         tooltip = action.hover,
         onClick = action.onClick,
@@ -293,7 +327,10 @@ private fun BarIconButton(action: BarAction) {
         modifier = Modifier.size(BAR_BUTTON).testTag(action.tag),
     ) {
         action.icon?.let {
-            Icon(it, contentDescription = action.label, tint = tint, modifier = Modifier.size(BAR_ICON))
+            // The **hover** and not the bare label: what a control cannot say in a word — why it is refused,
+            // what a second click would cost — has to reach a test and a screen reader, not only a bubble
+            // somebody has to hover for. It is what the toolbar's chips already publish.
+            Icon(it, contentDescription = action.hover, tint = tint, modifier = Modifier.size(BAR_ICON))
         }
     }
 }
@@ -340,17 +377,22 @@ private fun BarOverflow(folded: List<BarAction>, tag: String) {
                         }
                     },
                     enabled = action.enabled,
-                    leadingIcon =
-                        action.icon?.let {
-                            {
-                                Icon(
-                                    it,
-                                    contentDescription = null,
-                                    tint = AppTheme.Colors.textSecondary,
-                                    modifier = Modifier.size(BAR_ICON),
-                                )
-                            }
-                        },
+                    // A folded toggle keeps its state in the menu — a tick where the pressed ground would
+                    // have been. Without it, folding would be the one thing that loses what a toggle says.
+                    leadingIcon = {
+                        val on = action.pressed == true
+                        val glyph = if (on) Icons.Default.Check else action.icon
+                        if (glyph == null) {
+                            Spacer(modifier = Modifier.size(BAR_ICON))
+                        } else {
+                            Icon(
+                                glyph,
+                                contentDescription = null,
+                                tint = if (on) AppTheme.Colors.text else AppTheme.Colors.textSecondary,
+                                modifier = Modifier.size(BAR_ICON),
+                            )
+                        }
+                    },
                     onClick = {
                         open = false
                         action.onClick()

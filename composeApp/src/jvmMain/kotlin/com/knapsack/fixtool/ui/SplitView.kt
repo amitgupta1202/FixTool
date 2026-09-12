@@ -11,8 +11,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -23,10 +21,8 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
@@ -556,19 +552,18 @@ private fun SessionPanel(
 }
 
 /**
- * **One pane's header**, and what it gives up first when the pane is narrow.
+ * **The split layout's pane header is [PaneHeader]**, with its title shown.
  *
- * Lifted out of [SessionPanel] because it carries up to thirteen controls and its own overflow rule,
- * and because a test can then render it at a fixed width on its own. Two things hold it to one line at
- * any width. The title ellipsizes in the middle, so "RFQ Demo Venue ← RFQLG3" degrades to a name that
- * still tells two tiles apart, with the whole of it a hover away. And below [fullHeaderWidth]
- * everything but power, title, count, minimize and close folds into one menu, the way a tool window
- * does it. Ten panes in a top-to-bottom grid leave each one about 190dp wide, and at that width the
- * old header wrapped its title onto three lines, stacked the count a digit per line, and measured
- * every button past the weighted spacer at zero width, minimize and close among them, so the pane
- * could no longer be put away, moved or closed at all.
+ * It used to be three hundred lines of its own: thirteen controls, a hand-counted fold threshold, and a
+ * menu that restated every one of them. All of that is declared once as [BarAction]s now and folded by the
+ * one rule every bar in the app uses — which is what stops this header and the tab strip's from drifting
+ * again, as they had already done over whether a blank line is a "Separator".
+ *
+ * Kept as its own function rather than inlined at the call site because its test renders it at a fixed
+ * width on its own, and because the split layout is where "what does a pane header do" is asked.
  */
 @Composable
+@Suppress("LongParameterList")
 internal fun SessionPanelHeader(
     session: FixMessageSession,
     viewMode: FixMessageSession.ViewMode,
@@ -584,513 +579,22 @@ internal fun SessionPanelHeader(
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val wrapText by session.wrapText.collectAsState()
-    val searchVisible by session.searchVisible.collectAsState()
-    val filterVisible by session.filterVisible.collectAsState()
-    val groupedByConversation by session.groupByConversation.collectAsState()
-    val connectionState by session.connectionState.collectAsState()
-    val discarded by session.discarded.collectAsState()
-
-    val canPowerOn = connectionState.canConnect() && onConnect != null
-    val canPowerOff = connectionState.canDisconnect() && onDisconnect != null
-    val showsPower = !session.isVenue && (canPowerOn || canPowerOff)
-    val showsCount = !session.isVenue
-    val isRaw = viewMode == FixMessageSession.ViewMode.RAW
-
-    // Counted off the same conditions the buttons themselves are drawn under, so the fold threshold
-    // cannot drift from the row it is measuring.
-    val buttonCount =
-        listOf(
-            !session.isVenue && isRaw, // wrap text
-            !session.isVenue && isRaw, // search
-            !session.isVenue, // filter
-            !session.isVenue, // group by conversation
-            !session.isVenue, // add blank line
-            !session.isVenue, // clear all messages
-            !session.isVenue, // scroll to bottom
-            true, // minimize
-            onMoveLeft != null,
-            onMoveRight != null,
-            onClose != null,
-        ).count { it }
-
-    // A venue's header holds minimize, the moves and close, so it fits almost anywhere. With nothing to
-    // fold there is no menu either, rather than a button that opens an empty one.
-    val hasFoldableActions = !session.isVenue || onMoveLeft != null || onMoveRight != null
-
-    BoxWithConstraints(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .background(headerBackgroundColor),
-    ) {
-        val folded = hasFoldableActions && maxWidth < fullHeaderWidth(buttonCount, showsPower, showsCount)
-
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Connect/Disconnect toggle button (replaces drag handle).
-            //
-            // Not for a venue: on one, this unbinds a port that every client on its list is sitting on,
-            // and an unlabelled power icon says none of that. The overview draws it as a named Stop or
-            // Start instead — the same button, in the same words, that its minimized chip carries.
-            if (session.isVenue) {
-                Unit
-            } else if (canPowerOn && onConnect != null) {
-                // Show connect button when disconnected
-                TooltipIconButton(
-                    tooltip = "Connect Session",
-                    onClick = onConnect,
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = "Connect",
-                        tint = iconTintColor, // Gray when disconnected
-                        modifier = Modifier.size(iconSize),
-                    )
-                }
-            } else if (canPowerOff && onDisconnect != null) {
-                // Show disconnect button when connected
-                TooltipIconButton(
-                    tooltip = "Disconnect Session",
-                    onClick = onDisconnect,
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = "Disconnect",
-                        tint = connectedStateColor, // Green when connected
-                        modifier = Modifier.size(iconSize),
-                    )
-                }
-            }
-
-            if (showsPower) Spacer(modifier = Modifier.width(4.dp))
-
-            // The name and the numbers beside it, in one weighted row so the buttons stay pinned to the
-            // right edge and the title is the only thing that gives ground.
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppTooltip(text = session.title, modifier = Modifier.weight(1f, fill = false)) {
-                    // Middle, not end: the tail of "RFQ Demo Venue ← RFQLG3" is the half that says which
-                    // client this is, so an end ellipsis would leave ten tiles reading alike. The platform
-                    // cannot do it, `TextOverflow.MiddleEllipsis` draws an end ellipsis on Compose Desktop,
-                    // so [MiddleEllipsisText] measures and cuts the string itself. See MiddleEllipsisText.kt.
-                    MiddleEllipsisText(session.title, titleTextColor, 12.sp, Modifier.testTag("pane-title"))
-                }
-
-                // **Messages this session threw away.** Shown in the header, next to the name, because it is a
-                // fact about the session's whole log: everything below it is missing this many messages, and a
-                // reader who does not know that will reasonably conclude the venue never sent them. Absent while
-                // the count is zero — a badge that is always there is furniture, not a warning.
-                if (discarded > 0) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    TooltipIconButton(
-                        tooltip =
-                            "$discarded message(s) received and discarded — FixTool could not ingest them fast " +
-                                "enough, so they are missing from this log entirely. Not a venue problem, and " +
-                                "not recoverable: they were never stored. Raising the session buffer deepens the " +
-                                "burst it can absorb but does not raise the rate.",
-                        onClick = {},
-                        modifier = Modifier.size(buttonSize),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "$discarded messages discarded",
-                            tint = AppTheme.Colors.warning,
-                            modifier = Modifier.size(iconSize),
-                        )
-                    }
-                    Text(
-                        text = "$discarded lost",
-                        color = AppTheme.Colors.warning,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                }
-
-                // The count its minimized chip also shows, so a pane reduces to something already seen
-                // rather than to a new readout. Held to one line: squeezed, it used to stack its digits.
-                if (showsCount) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "$messageCount",
-                        color = AppTheme.Colors.textDisabled,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.testTag("pane-message-count"),
-                    )
-                }
-            }
-
-            if (folded) {
-                Spacer(modifier = Modifier.width(2.dp))
-
-                SessionPanelHeaderMenu(
-                    session = session,
-                    viewMode = viewMode,
-                    isAtBottom = isAtBottom,
-                    onScrollToBottom = onScrollToBottom,
-                    onMoveLeft = onMoveLeft,
-                    onMoveRight = onMoveRight,
-                )
-            } else if (!session.isVenue) {
-                // Everything from here to the scroll button acts on the message grid, so a venue gets
-                // none of it. Its pane has no grid: every message on the venue belongs to one of its
-                // clients (see QuickFixService.deliver, whose every venue branch routes to a client
-                // channel), so filtering, grouping, blank lines, clearing and scroll-to-bottom were
-                // eleven controls of which four did anything. The filter was the worst of them, drawing
-                // a working-looking regex box above a list it could not touch.
-
-                // Wrap text toggle (RAW mode only)
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // **The four toggles, all in one pressed look.** Wrap said on by swapping its glyph and the
-                // other three by tinting theirs, so the four of them disagreed about what *on* looks like
-                // and a tinted glyph said nothing to a reader who had never seen the other state. Their
-                // tooltips are nouns now: the button says on by looking on. See ToggleIconButton.
-                if (isRaw) {
-                    ToggleIconButton(
-                        on = wrapText,
-                        tooltip = WRAP_LABEL,
-                        icon = Icons.Default.WrapText,
-                        onClick = { session.toggleWrapText() },
-                        size = buttonSize,
-                        glyph = iconSize,
-                        tag = "pane-wrap",
-                    )
-
-                    // Search button (RAW mode only)
-                    Spacer(modifier = Modifier.width(2.dp))
-
-                    ToggleIconButton(
-                        on = searchVisible,
-                        tooltip = SEARCH_LABEL,
-                        icon = Icons.Default.Search,
-                        onClick = { session.toggleSearch() },
-                        size = buttonSize,
-                        tag = "pane-search",
-                    )
-                }
-
-                // Filter button (available for both RAW and PARSED modes)
-                Spacer(modifier = Modifier.width(2.dp))
-
-                ToggleIconButton(
-                    on = filterVisible,
-                    tooltip = FILTER_LABEL,
-                    icon = Icons.Default.FilterAlt,
-                    onClick = { session.toggleFilter() },
-                    tag = "pane-filter",
-                )
-
-                // Group this pane's grid by business exchange — per session, like the filter.
-                Spacer(modifier = Modifier.width(2.dp))
-
-                ToggleIconButton(
-                    on = groupedByConversation,
-                    tooltip = GROUP_LABEL,
-                    icon = Icons.Default.AccountTree,
-                    onClick = { session.toggleGroupByConversation() },
-                    tag = "pane-group",
-                )
-
-                // Add blank line button
-                Spacer(modifier = Modifier.width(2.dp))
-
-                TooltipIconButton(
-                    tooltip = BLANK_LINE_LABEL,
-                    onClick = { session.addSeparator() },
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add Blank Line",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-
-                // Clear session button
-                Spacer(modifier = Modifier.width(2.dp))
-
-                TooltipIconButton(
-                    tooltip = CLEAR_LABEL,
-                    onClick = { session.clearMessages() },
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Clear All Messages",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-
-                // Scroll to bottom button
-                Spacer(modifier = Modifier.width(2.dp))
-
-                TooltipIconButton(
-                    tooltip = SCROLL_TO_BOTTOM_LABEL,
-                    onClick = onScrollToBottom,
-                    enabled = !isAtBottom,
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Scroll to bottom",
-                        tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(iconSize),
-                    )
-                }
-            }
-
-            // Leaves the layout for a chip in the strip above (see MinimizedStrip). Not a close:
-            // the session keeps running and keeps its log, which closing does not.
-            Spacer(modifier = Modifier.width(2.dp))
-
-            TooltipIconButton(
-                tooltip = "Minimize Pane",
-                onClick = onMinimize,
-                modifier = Modifier.size(buttonSize),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Remove,
-                    contentDescription = "Minimize Pane",
-                    tint = iconTintColor,
-                    modifier = Modifier.size(iconSize),
-                )
-            }
-
-            // Move left button
-            if (!folded && onMoveLeft != null) {
-                Spacer(modifier = Modifier.width(2.dp))
-
-                TooltipIconButton(
-                    tooltip = MOVE_LEFT_LABEL,
-                    onClick = onMoveLeft,
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    // An icon rather than a "◀" glyph: these two were the only text buttons in a row of
-                    // icons, so they were the only ones with no content description — invisible to a
-                    // screen reader and to a test.
-                    Icon(
-                        imageVector = Icons.Default.ChevronLeft,
-                        contentDescription = "Move Session Left",
-                        tint = iconTintColor,
-                        modifier = Modifier.size(iconSize),
-                    )
-                }
-            }
-
-            // Move right button
-            if (!folded && onMoveRight != null) {
-                Spacer(modifier = Modifier.width(2.dp))
-
-                TooltipIconButton(
-                    tooltip = MOVE_RIGHT_LABEL,
-                    onClick = onMoveRight,
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = "Move Session Right",
-                        tint = iconTintColor,
-                        modifier = Modifier.size(iconSize),
-                    )
-                }
-            }
-
-            if (onClose != null) {
-                Spacer(modifier = Modifier.width(2.dp))
-
-                TooltipIconButton(
-                    tooltip = "Close Session",
-                    onClick = onClose,
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close Session",
-                        tint = iconTintColor,
-                        modifier = Modifier.size(iconSize),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * The actions a narrow header cannot fit, in one menu.
- *
- * Each row says what the button it stands in for says on hover, and answers to the same conditions:
- * the two RAW-only actions are absent outside RAW, a move is absent at the end of the row, and scroll
- * to bottom is disabled while the pane is already there. So folding moves where an action lives, never
- * whether it is offered.
- */
-@Composable
-private fun SessionPanelHeaderMenu(
-    session: FixMessageSession,
-    viewMode: FixMessageSession.ViewMode,
-    isAtBottom: Boolean,
-    onScrollToBottom: () -> Unit,
-    onMoveLeft: (() -> Unit)?,
-    onMoveRight: (() -> Unit)?,
-) {
-    val wrapText by session.wrapText.collectAsState()
-    val searchVisible by session.searchVisible.collectAsState()
-    val filterVisible by session.filterVisible.collectAsState()
-    val groupedByConversation by session.groupByConversation.collectAsState()
-    var open by remember { mutableStateOf(false) }
-
-    Box {
-        TooltipIconButton(
-            tooltip = "More actions",
-            onClick = { open = true },
-            modifier = Modifier.size(buttonSize),
-        ) {
-            Icon(
-                imageVector = Icons.Default.MoreHoriz,
-                contentDescription = "More actions",
-                tint = iconTintColor,
-                modifier = Modifier.size(iconSize),
-            )
-        }
-
-        DropdownMenu(
-            expanded = open,
-            onDismissRequest = { open = false },
-            modifier = Modifier.background(AppTheme.Colors.surface),
-        ) {
-            if (!session.isVenue) {
-                if (viewMode == FixMessageSession.ViewMode.RAW) {
-                    HeaderMenuItem(text = WRAP_LABEL, tag = "pane-menu-wrap") {
-                        open = false
-                        session.toggleWrapText()
-                    }
-                    HeaderMenuItem(text = SEARCH_LABEL, tag = "pane-menu-search") {
-                        open = false
-                        session.toggleSearch()
-                    }
-                }
-                HeaderMenuItem(text = FILTER_LABEL, tag = "pane-menu-filter") {
-                    open = false
-                    session.toggleFilter()
-                }
-                HeaderMenuItem(text = GROUP_LABEL, tag = "pane-menu-group") {
-                    open = false
-                    session.toggleGroupByConversation()
-                }
-                HeaderMenuItem(text = BLANK_LINE_LABEL, tag = "pane-menu-blank") {
-                    open = false
-                    session.addSeparator()
-                }
-                HeaderMenuItem(text = CLEAR_LABEL, tag = "pane-menu-clear") {
-                    open = false
-                    session.clearMessages()
-                }
-                HeaderMenuItem(text = SCROLL_TO_BOTTOM_LABEL, enabled = !isAtBottom, tag = "pane-menu-scroll") {
-                    open = false
-                    onScrollToBottom()
-                }
-            }
-            if (onMoveLeft != null) {
-                HeaderMenuItem(text = MOVE_LEFT_LABEL, tag = "pane-menu-move-left") {
-                    open = false
-                    onMoveLeft()
-                }
-            }
-            if (onMoveRight != null) {
-                HeaderMenuItem(text = MOVE_RIGHT_LABEL, tag = "pane-menu-move-right") {
-                    open = false
-                    onMoveRight()
-                }
-            }
-        }
-    }
-}
-
-/** One row of the header's overflow menu, in the shape the rail's own menus use. */
-@Composable
-private fun HeaderMenuItem(
-    text: String,
-    tag: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    DropdownMenuItem(
-        text = {
-            Text(
-                text = text,
-                color = if (enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
-                fontSize = 11.sp,
-            )
-        },
-        enabled = enabled,
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-        modifier = Modifier.height(26.dp).testTag(tag),
+    PaneHeader(
+        session = session,
+        viewMode = viewMode,
+        messageCount = messageCount,
+        isAtBottom = isAtBottom,
+        onScrollToBottom = onScrollToBottom,
+        onMinimize = onMinimize,
+        modifier = modifier,
+        onConnect = onConnect,
+        onDisconnect = onDisconnect,
+        onMoveLeft = onMoveLeft,
+        onMoveRight = onMoveRight,
+        onClose = onClose,
+        showTitle = true,
     )
 }
-
-/**
- * The width the whole button set needs, below which the header folds its extra actions into a menu.
- *
- * Added up rather than measured, from the row's own numbers: the header's 8dp of padding each side,
- * the power button with its inset and the message count when this pane shows them, one [buttonSize]
- * button plus its 2dp spacer for every button that would be drawn, and [minTitleWidth] left over for
- * the name. Honest by construction, because [SessionPanelHeader] counts the buttons from the same
- * conditions it draws them under. At its widest, a conversation pane in RAW with both moves and a
- * close, that comes to 426dp. The same venue pane needs 192dp, having only four buttons and no count.
- */
-private fun fullHeaderWidth(
-    buttons: Int,
-    showsPower: Boolean,
-    showsCount: Boolean,
-): Dp =
-    headerHorizontalPadding +
-        (if (showsPower) buttonSize + 4.dp else 0.dp) +
-        (if (showsCount) countWidth else 0.dp) +
-        (buttonSize + 2.dp) * buttons +
-        minTitleWidth
-
-/** 8dp each side, from the header row's own padding. */
-private val headerHorizontalPadding = 16.dp
-
-/** Room for four monospace digits at 10sp, which is as wide as a session's count gets in practice. */
-private val countWidth = 24.dp
-
-/** The narrowest title still worth reading: the room the fold rule keeps clear for the name. */
-private val minTitleWidth = 72.dp
-
-// **One wording per action, and the noun alone.** A button and the menu row standing in for it cannot come
-// to disagree, and none of the four explains its own mechanism any more: the pressed look says which state
-// a toggle is in, which is what frees its tooltip to name the thing. "Wrap: On (click to unwrap)" was a
-// control describing how it works to a reader who only wanted to know what it does.
-internal const val WRAP_LABEL = "Wrap lines"
-
-internal const val SEARCH_LABEL = "Search in pane"
-
-internal const val FILTER_LABEL = "Filter pane"
-
-internal const val GROUP_LABEL = "Group by conversation"
-
-private const val BLANK_LINE_LABEL = "Add Blank Line"
-private const val CLEAR_LABEL = "Clear All Messages"
-private const val MOVE_LEFT_LABEL = "Move Session Left"
-private const val MOVE_RIGHT_LABEL = "Move Session Right"
-private const val SCROLL_TO_BOTTOM_LABEL = "Scroll to Bottom"
 
 // Constants
 private val borderColor = AppTheme.Colors.border

@@ -70,9 +70,9 @@ class MinimizedStripTest {
         // The seven that did nothing. Their absence is the whole of proposal A.
         composeTestRule.onAllNodesWithTag("pane-filter").assertCountEquals(0)
         composeTestRule.onAllNodesWithTag("pane-group").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Add Blank Line").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Clear All Messages").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Scroll to bottom").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("pane-blank-line").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("pane-clear").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("pane-scroll-bottom").assertCountEquals(0)
         // And the bare power icon, whose replacement says what it will take down.
         composeTestRule.onAllNodesWithContentDescription("Disconnect").assertCountEquals(0)
         composeTestRule.onNodeWithText("Stop").assertExists()
@@ -86,8 +86,8 @@ class MinimizedStripTest {
 
         composeTestRule.onAllNodesWithTag("pane-filter").assertCountEquals(1)
         composeTestRule.onAllNodesWithTag("pane-group").assertCountEquals(1)
-        composeTestRule.onAllNodesWithContentDescription("Clear All Messages").assertCountEquals(1)
-        composeTestRule.onAllNodesWithContentDescription("Minimize Pane").assertCountEquals(1)
+        composeTestRule.onAllNodesWithTag("pane-clear").assertCountEquals(1)
+        composeTestRule.onAllNodesWithTag("pane-minimize").assertCountEquals(1)
     }
 
     @Test
@@ -98,12 +98,12 @@ class MinimizedStripTest {
         render()
 
         // Three panes: A has no move-left, B and C do.
-        composeTestRule.onAllNodesWithContentDescription("Move Session Left").assertCountEquals(2)
+        composeTestRule.onAllNodesWithTag("pane-move-left").assertCountEquals(2)
 
         // Minimize A. B is now leftmost *visible* and must lose its move-left, even though it is still
         // at real index 1 — the case an `index > 0` test on the model's list gets wrong.
         composeTestRule.runOnIdle { viewModel.setSessionMinimized(a, true) }
-        composeTestRule.onAllNodesWithContentDescription("Move Session Left").assertCountEquals(1)
+        composeTestRule.onAllNodesWithTag("pane-move-left").assertCountEquals(1)
     }
 
     @Test
@@ -112,17 +112,17 @@ class MinimizedStripTest {
         pane("B")
         render()
 
-        composeTestRule.onAllNodesWithContentDescription("Minimize Pane").assertCountEquals(2)
+        composeTestRule.onAllNodesWithTag("pane-minimize").assertCountEquals(2)
         composeTestRule.runOnIdle { viewModel.setSessionMinimized(a, true) }
 
         // One pane left in the grid, and A is a chip above it.
-        composeTestRule.onAllNodesWithContentDescription("Minimize Pane").assertCountEquals(1)
+        composeTestRule.onAllNodesWithTag("pane-minimize").assertCountEquals(1)
         composeTestRule.onNodeWithTag("minimized-strip").assertExists()
         composeTestRule.onNodeWithTag("chip:A").assertExists()
 
         // Clicking the chip puts the pane back.
         composeTestRule.onNodeWithTag("chip:A").performClick()
-        composeTestRule.onAllNodesWithContentDescription("Minimize Pane").assertCountEquals(2)
+        composeTestRule.onAllNodesWithTag("pane-minimize").assertCountEquals(2)
     }
 
     @Test

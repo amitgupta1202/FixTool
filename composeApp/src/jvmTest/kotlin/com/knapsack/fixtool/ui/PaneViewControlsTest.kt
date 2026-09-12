@@ -7,7 +7,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Dp
@@ -225,7 +224,7 @@ class PaneViewControlsTest {
             }
         }
 
-        composeTestRule.onNodeWithContentDescription("Minimize Pane").assertExists()
+        composeTestRule.onNodeWithTag("pane-minimize").assertExists()
     }
 
     /** The controls as the window draws them: in the toolbar, at a width that decides the fold. */

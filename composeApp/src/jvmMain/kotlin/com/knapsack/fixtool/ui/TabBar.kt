@@ -122,138 +122,44 @@ fun TabBar(
                 }
             }
 
-            // Toolbar buttons for the active session, unless it is in the strip — a minimized pane keeps
-            // its session and its log, but it has no grid on screen for these to act on.
+            // **The same header the split layout draws**, with its title suppressed: the tab a reader is
+            // looking straight at already names the pane, and a second copy of the name in the same strip
+            // would be the one thing a shared header must not add. Everything else is shared — the
+            // vocabulary, the pressed look, the fold order, the overflow and the arming Close — so the two
+            // layouts cannot drift again the way "Add Separator" and "Add Blank Line" did.
+            //
+            // Unless the pane is in the strip above: a minimized pane keeps its session and its log, but it
+            // has no grid on screen for these to act on.
             if (activeGridSession != null) {
-                val filterVisible by activeGridSession.filterVisible.collectAsState()
-                val groupedByConversation by activeGridSession.groupByConversation.collectAsState()
-
-                // Grid controls, so a venue gets none of them: its pane draws a client list, not a
-                // message log, and every message on the venue belongs to one of its clients. The same
-                // gate as the split layout applies (see SplitView) — one behaviour, both layouts.
-                if (!activeGridSession.isVenue) {
-                    // RAW mode specific buttons (wrap, search)
-                    if (viewMode == FixMessageSession.ViewMode.RAW) {
-                        RawViewActions(activeGridSession, onToggleWrapText)
-                    }
-
-                    // The same two toggles the split layout draws, in the same pressed look and with the
-                    // same nouns — the constants live in SplitView beside the menu rows that stand in for
-                    // them. Two layouts that phrased one control differently is how "Add Separator" and
-                    // "Add Blank Line" came to be the same button.
-                    ToggleIconButton(
-                        on = filterVisible,
-                        tooltip = FILTER_LABEL,
-                        icon = Icons.Default.FilterAlt,
-                        onClick = { activeGridSession.toggleFilter() },
-                        tag = "tab-filter",
-                    )
-
-                    // Group this session's grid by business exchange — per session, like the filter.
-                    ToggleIconButton(
-                        on = groupedByConversation,
-                        tooltip = GROUP_LABEL,
-                        icon = Icons.Default.AccountTree,
-                        onClick = { activeGridSession.toggleGroupByConversation() },
-                        tag = "tab-group",
-                    )
-
-                    // Add separator button
-                    TooltipIconButton(
-                        tooltip = "Add Separator",
-                        onClick = { activeGridSession.addSeparator() },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add Separator",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
-
-                    // Clear session button
-                    TooltipIconButton(
-                        tooltip = "Clear All Messages",
-                        onClick = { activeGridSession.clearMessages() },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Clear All Messages",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
-
-                    // Scroll to bottom button
-                    TooltipIconButton(
-                        tooltip = "Scroll to Bottom",
-                        onClick = onScrollToBottom,
-                        enabled = !isAtBottom,
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDownward,
-                            contentDescription = "Scroll to bottom",
-                            tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
-                }
-
-                // Sends this tab to the strip above. Not a close: the session keeps running.
-                TooltipIconButton(
-                    tooltip = "Minimize Pane",
-                    onClick = { onMinimize(activeGridSession, true) },
-                    modifier = toolbarButtonSize,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Remove,
-                        contentDescription = "Minimize Pane",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = toolbarIconSize,
-                    )
-                }
-
-                // Connect/Disconnect toggle button. Withheld for a venue, whose equivalent is the named
-                // Start/Stop its overview and its chip both carry — an unlabelled power icon never said
-                // that it unbinds a port every client on the venue is sitting on.
-                if (activeGridSession.isVenue) {
-                    Unit
-                } else if (connectionState.canConnect()) {
-                    // Show connect button when disconnected
-                    TooltipIconButton(
-                        tooltip = "Connect Session",
-                        onClick = { onConnect(activeGridSession) },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PowerSettingsNew,
-                            contentDescription = "Connect",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
-                } else if (connectionState.canDisconnect()) {
-                    // Show disconnect button when connected
-                    TooltipIconButton(
-                        tooltip = "Disconnect Session",
-                        onClick = { onDisconnect(activeGridSession) },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PowerSettingsNew,
-                            contentDescription = "Disconnect",
-                            tint = AppTheme.Colors.success,
-                            modifier = toolbarIconSize,
-                        )
-                    }
-                }
+                val paneMessageCount by activeGridSession.messages.collectAsState()
+                PaneHeader(
+                    session = activeGridSession,
+                    viewMode = viewMode,
+                    messageCount = paneMessageCount.size,
+                    isAtBottom = isAtBottom,
+                    onScrollToBottom = onScrollToBottom,
+                    onMinimize = { onMinimize(activeGridSession, true) },
+                    onConnect = { onConnect(activeGridSession) },
+                    onDisconnect = { onDisconnect(activeGridSession) },
+                    showTitle = false,
+                    // The tabs are the flexible part of this bar; the header keeps its natural width, so a
+                    // box with fifty tabs scrolls its strip rather than pushing the actions off the edge.
+                    modifier = Modifier.width(PANE_ACTIONS_WIDTH),
+                )
             }
         }
     }
 }
+
+/**
+ * What the tab strip leaves for the pane header beside it.
+ *
+ * The strip is the weighted child and the header is not, so this is the header's whole share: a Row
+ * measures its unweighted children first and hands the weighted one what is left. Wide enough for the nine
+ * controls a client pane draws, so nothing folds at a normal window width — and when the window is narrow
+ * enough that it does, the fold is the shared one and everything stays reachable through its ⋯.
+ */
+private val PANE_ACTIONS_WIDTH = 232.dp
 
 /** The RAW-view-only buttons (wrap, search), lifted out so the tab bar itself stays readable. */
 @Composable

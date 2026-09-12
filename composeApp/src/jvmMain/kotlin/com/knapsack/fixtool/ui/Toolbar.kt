@@ -446,7 +446,7 @@ private fun AllSessionsActions(
                 onClick = onSearchAllSessions,
                 tag = "toolbar-search",
                 words = words,
-                tooltip = "Search all sessions · ⌘F",
+                tooltip = "Search all sessions · $SEARCH_ALL_SHORTCUT",
             )
         }
         if (onAddSeparatorToAll != null) {
@@ -778,6 +778,15 @@ private fun CloseAllChip(
         tooltip = sentence,
     )
 }
+
+/**
+ * ⌘⇧F on macOS, Ctrl+Shift+F elsewhere.
+ *
+ * It was ⌘F, which is find-in-file everywhere else in the world; that shortcut belongs to the pane's own
+ * search now, and this is find-in-path beside it.
+ */
+internal val SEARCH_ALL_SHORTCUT: String
+    get() = if (System.getProperty("os.name").lowercase().contains("mac")) "⌘⇧F" else "Ctrl+Shift+F"
 
 /** How long Close all stays armed. Long enough to mean the second click, short enough not to lie in wait. */
 private const val CLOSE_ALL_ARMED_MS = 5_000L

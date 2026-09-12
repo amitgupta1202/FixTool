@@ -9,8 +9,8 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
@@ -74,17 +74,27 @@ class SessionPanelHeaderTest {
         assertTrue(shown.endsWith("3"), "the title read \"$shown\", so the tail of \"$title\" was cut off")
         assertTrue(shown.length < title.length, "the title read \"$shown\", which is not shorter than \"$title\"")
         rule.onNodeWithTag("pane-message-count").assertIsDisplayed().assertTextEquals("140").assertWidthIsAtLeast(8.dp)
-        rule.onNodeWithContentDescription("Close Session").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Minimize Pane").assertIsDisplayed()
-        rule.onNodeWithContentDescription("More actions").assertIsDisplayed()
+        rule.onNodeWithTag("pane-overflow").assertIsDisplayed()
+
+        // **Close is the one action a pane header may never lose**, and it is still its own button here.
+        // Minimize is not: the fold order is declared now, and it is third in it, after the two moves.
+        // The header used to hold Minimize out of the fold by hand — one more thing the two layouts each
+        // decided for themselves.
+        rule.onNodeWithTag("pane-close").assertIsDisplayed()
+        rule.onNodeWithTag("pane-minimize").assertDoesNotExist()
+
+        // Folded is not gone: the ⋯ carries the word the button would have shown.
+        rule.onNodeWithTag("pane-overflow").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("pane-minimize-menu").assertIsDisplayed()
     }
 
     @Test
     fun `a 700dp header draws every action as its own button, with no overflow menu`() {
         renderHeader(width = 700.dp, title = "RFQ Demo Venue ← RFQLG3", messageCount = 140)
 
-        rule.onNodeWithContentDescription("More actions").assertDoesNotExist()
+        rule.onNodeWithTag("pane-overflow").assertDoesNotExist()
         rule.onNodeWithTag("pane-filter").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Move Session Right").assertIsDisplayed()
+        rule.onNodeWithTag("pane-move-right").assertIsDisplayed()
     }
 }

@@ -274,13 +274,28 @@ fun App(
                 modifier
                     .fillMaxSize()
                     .onKeyEvent { event ->
-                        // ⌘F is Search all sessions. The filter has no shortcut of its own any more: it
-                        // is on the toolbar, in the open, so there is nothing for one to summon.
+                        // **⌘F searches the pane, ⌘⇧F searches every session** — IntelliJ's find in file and
+                        // find in path, in that order. ⌘F used to open Search all sessions from here while
+                        // the pane's own search button advertised "Show Search (Ctrl+F)" and opened
+                        // something else, so the one shortcut printed in a pane tooltip was the one shortcut
+                        // that did not belong to that button.
+                        //
+                        // The pane is the active one, which is as close to "focused" as the app gets today —
+                        // there is no per-pane keyboard focus to ask. A minimized pane has no grid on screen
+                        // and a venue has none at all, so both fall through to Search all sessions rather
+                        // than answering with a search bar nobody can see. The filter has no shortcut of its
+                        // own any more: it is on the toolbar, in the open, so there is nothing to summon.
                         if (event.type == KeyEventType.KeyDown &&
                             event.key == Key.F &&
                             (event.isMetaPressed || event.isCtrlPressed)
                         ) {
-                            viewModel.toggleGlobalSearchDialog()
+                            val pane =
+                                viewModel.activeSession?.takeIf { !it.isVenue && !it.minimized.value }
+                            if (event.isShiftPressed || pane == null) {
+                                viewModel.toggleGlobalSearchDialog()
+                            } else {
+                                pane.toggleSearch()
+                            }
                             true // Consume the event
                         } else if (event.type == KeyEventType.KeyDown &&
                             event.key == Key.R &&

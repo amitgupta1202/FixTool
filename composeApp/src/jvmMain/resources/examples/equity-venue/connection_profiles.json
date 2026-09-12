@@ -1,0 +1,1196 @@
+{
+    "profiles": [
+        {
+            "id": "equity-profile-venue",
+            "name": "Equity Demo Venue",
+            "config": {
+                "senderCompID": "EQTY_SERVER",
+                "targetCompID": "*",
+                "port": "19878",
+                "socketAcceptPort": "19878",
+                "connectionType": "ACCEPTOR",
+                "acceptorResponseRules": [
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=6|58=ClOrdID is already in use on this session|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=6|58=ClOrdID is already in use on this session|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "pending"
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 1000000.0,
+                                    "minInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Order exceeds the venue size limit|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "AAPL",
+                                        "MSFT",
+                                        "TSLA"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "5"
+                                }
+                            },
+                            {
+                                "tag": 114,
+                                "matcher": {
+                                    "type": "absent"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=0|58=Sell short without LocateReqd (114): Reg SHO requires a locate|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "AAPL",
+                                        "MSFT",
+                                        "TSLA"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "regex",
+                                    "pattern": "^\\d+\\.\\d\\d[0-9]*[1-9][0-9]*$"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=11|58=Sub-penny limit price: this venue quotes in whole cents (SEC Rule 612)|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 238.78,
+                                    "minInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Limit price is more than 5% from the AAPL mid, which closes at 238.78|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 216.04,
+                                    "maxInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Limit price is more than 5% from the AAPL mid, which opens at 216.04|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 439.03,
+                                    "minInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Limit price is more than 5% from the MSFT mid, which closes at 439.03|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 397.21,
+                                    "maxInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Limit price is more than 5% from the MSFT mid, which opens at 397.21|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 258.9,
+                                    "minInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Limit price is more than 5% from the TSLA mid, which closes at 258.90|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 234.25,
+                                    "maxInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Limit price is more than 5% from the TSLA mid, which opens at 234.25|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 227.42
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=227.42|32=${req.38}|6=227.42|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 227.4
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=227.40|32=${req.38}|6=227.40|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 418.14
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=418.14|32=${req.38}|6=418.14|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 418.1
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=418.10|32=${req.38}|6=418.10|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 246.6
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=246.60|32=${req.38}|6=246.60|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "range",
+                                    "max": 246.55
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=246.55|32=${req.38}|6=246.55|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "AAPL",
+                                        "MSFT",
+                                        "TSLA"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 59,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|58=Immediate-or-cancel: nothing resting at your limit|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "AAPL",
+                                        "MSFT",
+                                        "TSLA"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=227.42|32=${req.38}|6=227.42|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=227.40|32=${req.38}|6=227.40|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=418.14|32=${req.38}|6=418.14|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=418.10|32=${req.38}|6=418.10|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=246.60|32=${req.38}|6=246.60|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=246.55|32=${req.38}|6=246.55|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=1|58=This venue lists AAPL, MSFT, TSLA|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=9|37=NONE|11=${req.11}|41=${req.41}|39=8|434=1|102=1|58=Unknown order|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "unknown"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ],
+                        "whenOrder": "pending"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=9|37=${order.orderId}|11=${req.11}|41=${req.41}|39=${order.ordStatus}|434=1|102=0|58=Too late to cancel|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "done"
+                    },
+                    {
+                        "whenMsgType": "G",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=5|39=0|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|38=${req.38}|14=${order.cumQty}|151=${req.38}|6=0|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "G",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=5|39=0|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=j|372=H|379=${req.11}|380=1|58=Unknown order"
+                            }
+                        ],
+                        "whenOrder": "unknown"
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=I|37=${order.orderId}|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=I|37=${order.orderId}|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "done"
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            },
+                            {
+                                "tag": 263,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=AAPL|268=2|269=0|270=${random:227.35:227.40:2}|271=${random:1:9:0}00|269=1|270=${random:227.42:227.47:2}|271=${random:1:9:0}00"
+                            },
+                            {
+                                "template": "35=X|262=${req.262}|268=1|279=1|269=0|55=AAPL|270=${random:227.35:227.40:2}|271=${random:1:9:0}00",
+                                "delayMillis": 400
+                            },
+                            {
+                                "template": "35=X|262=${req.262}|268=1|279=1|269=1|55=AAPL|270=${random:227.42:227.47:2}|271=${random:1:9:0}00",
+                                "delayMillis": 400
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            },
+                            {
+                                "tag": 263,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=MSFT|268=2|269=0|270=${random:418.05:418.10:2}|271=${random:1:9:0}00|269=1|270=${random:418.14:418.19:2}|271=${random:1:9:0}00"
+                            },
+                            {
+                                "template": "35=X|262=${req.262}|268=1|279=1|269=0|55=MSFT|270=${random:418.05:418.10:2}|271=${random:1:9:0}00",
+                                "delayMillis": 400
+                            },
+                            {
+                                "template": "35=X|262=${req.262}|268=1|279=1|269=1|55=MSFT|270=${random:418.14:418.19:2}|271=${random:1:9:0}00",
+                                "delayMillis": 400
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            },
+                            {
+                                "tag": 263,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=TSLA|268=2|269=0|270=${random:246.50:246.55:2}|271=${random:1:9:0}00|269=1|270=${random:246.60:246.65:2}|271=${random:1:9:0}00"
+                            },
+                            {
+                                "template": "35=X|262=${req.262}|268=1|279=1|269=0|55=TSLA|270=${random:246.50:246.55:2}|271=${random:1:9:0}00",
+                                "delayMillis": 400
+                            },
+                            {
+                                "template": "35=X|262=${req.262}|268=1|279=1|269=1|55=TSLA|270=${random:246.60:246.65:2}|271=${random:1:9:0}00",
+                                "delayMillis": 400
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "AAPL"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=AAPL|268=2|269=0|270=${random:227.35:227.40:2}|271=${random:1:9:0}00|269=1|270=${random:227.42:227.47:2}|271=${random:1:9:0}00"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "MSFT"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=MSFT|268=2|269=0|270=${random:418.05:418.10:2}|271=${random:1:9:0}00|269=1|270=${random:418.14:418.19:2}|271=${random:1:9:0}00"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "TSLA"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=W|262=${req.262}|55=TSLA|268=2|269=0|270=${random:246.50:246.55:2}|271=${random:1:9:0}00|269=1|270=${random:246.60:246.65:2}|271=${random:1:9:0}00"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "V",
+                        "steps": [
+                            {
+                                "template": "35=Y|262=${req.262}|281=0|58=This venue publishes AAPL, MSFT, TSLA"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "equity-profile-EQTY_CLIENT1",
+            "name": "Equity Client 1",
+            "config": {
+                "senderCompID": "EQTY_CLIENT1",
+                "targetCompID": "EQTY_SERVER",
+                "port": "19878",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "equity-profile-EQTY_CLIENT2",
+            "name": "Equity Client 2",
+            "config": {
+                "senderCompID": "EQTY_CLIENT2",
+                "targetCompID": "EQTY_SERVER",
+                "port": "19878",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "equity-profile-EQTY_LOAD",
+            "name": "Equity Load Client",
+            "config": {
+                "senderCompID": "EQLG{n}",
+                "targetCompID": "EQTY_SERVER",
+                "sessionCount": 5,
+                "port": "19878",
+                "reconnectInterval": "5",
+                "resetOnLogon": true,
+                "messageStore": "MEMORY",
+                "messageLog": "NONE"
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        }
+    ]
+}

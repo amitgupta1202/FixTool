@@ -1,6 +1,7 @@
 {
   "examples": [
     "fx-venue",
-    "rfq-venue"
+    "rfq-venue",
+    "equity-venue"
   ]
 }

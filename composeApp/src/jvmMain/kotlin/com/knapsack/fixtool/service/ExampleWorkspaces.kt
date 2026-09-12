@@ -35,6 +35,9 @@ object ExampleWorkspaces {
     /** The bundled RFQ venue: a request-for-quote desk, and the first real use case for a load run. */
     const val RFQ_VENUE = "rfq-venue"
 
+    /** The bundled equity venue: the first whose book still holds your order a minute later. */
+    const val EQUITY_VENUE = "equity-venue"
+
     /**
      * Written into a copy, naming the example it came from.
      *

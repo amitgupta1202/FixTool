@@ -207,6 +207,36 @@ class HelpDocTest {
     }
 
     /**
+     * The equity example, by the facts that make it a different venue rather than a third set of tickers.
+     * Each was a decision about the real domain, and each is the kind of thing a later edit quietly loses.
+     */
+    @Test
+    fun `the equity example chapter states what makes this venue different`() {
+        val chapter = html.substringAfter("""id="equity-venue"""").substringBefore("""<h3>Closing the Workspace""")
+
+        val claims =
+            mapOf(
+                "a Day limit rests" to "rests",
+                "the default TimeInForce is why the rule names none" to "no <code>59</code> condition",
+                "an IOC is filled at the touch, not at its limit" to "at the touch and not at its own limit",
+                "sub-penny is refused under Rule 612" to "Rule 612",
+                "a penny price with trailing zeros is not sub-penny" to "227.4200",
+                "a short sale needs a locate" to "Reg SHO",
+                "the reason codes are ones 4.4 defines" to "does not exist before FIX 5.0",
+                "it publishes market data" to "MarketDataSnapshotFullRefresh",
+                "an unpublished name is rejected by name" to "281=0",
+                "the prints are assertable" to "31=227.42",
+                "the set is run by name from the CLI" to "--set equity-rest-and-cancel",
+                "the cancel phase is the one FX cannot have" to "the FX venue cannot have",
+                "duplicates are counted and not judged" to "counted and not judged",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the equity example chapter no longer says: $missing")
+    }
+
+    /**
      * The FX example's load half, pinned the way the RFQ example's is.
      *
      * The set that ships with this venue is sized by a fact about the venue rather than by taste: its

@@ -1,0 +1,190 @@
+{
+  "id": "equity-scenario-rest-and-cancel",
+  "name": "AAPL rests, then cancels",
+  "binding": "this_run",
+  "createdAt": 1789000000000,
+  "setup": [
+    {
+      "stepId": "d1c3c665-8a01-560d-943f-578490992b68",
+      "type": "clearMessages",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "35ad9cf6-5f2e-5e20-b2cb-ee696ae343e1",
+      "type": "clearOrderBook",
+      "session": "Equity Demo Venue \u2190 EQTY_CLIENT1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "99ce7d21-db40-559e-9eee-b2b69e5786ef",
+      "type": "send",
+      "raw": "35=D|11=EQTY-REST-1|55=AAPL|54=1|38=100|40=2|44=225.00|59=0|60=${now}",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "69ad4040-2b5a-5d7e-990e-991895babce9",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 14,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 151,
+            "matcher": {
+              "type": "exact",
+              "value": "100"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "845eb03d-96ba-560f-9012-4c6e89acb101",
+      "type": "send",
+      "raw": "35=F|11=EQTY-CXL-1|41=EQTY-REST-1|55=AAPL|54=1|60=${now}",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "178396a3-a122-5c61-9fca-71150661e912",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "6"
+            }
+          },
+          {
+            "tag": 41,
+            "matcher": {
+              "type": "exact",
+              "value": "EQTY-REST-1"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "6"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "1eb86942-597b-58c8-a980-9b564a860df8",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "4"
+            }
+          },
+          {
+            "tag": 41,
+            "matcher": {
+              "type": "exact",
+              "value": "EQTY-REST-1"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "4"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "8e753204-41bc-56fd-92b0-0214269dcadf",
+      "type": "send",
+      "raw": "35=H|11=EQTY-REST-1|55=AAPL|54=1",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "ad059aba-3635-513d-a224-a629bb84684f",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "4"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "I"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

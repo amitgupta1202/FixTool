@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.OrderConstraint
@@ -154,7 +155,10 @@ class AcceptorRulesEditorActionsTest {
         }
 
         composeTestRule.onNodeWithText("+ preset").performClick()
-        composeTestRule.onNodeWithText("Cancel rejected — unknown order").performClick()
+        // Scrolled to first: the menu lists every bundle above the individual presets, and a third
+        // bundle pushed this row below the fold of the test's window. A DropdownMenu scrolls, so the
+        // row is reachable — but an off-screen `performClick` lands on nothing and says nothing.
+        composeTestRule.onNodeWithText("Cancel rejected — unknown order").performScrollTo().performClick()
 
         assertEquals(OrderConstraint.UNKNOWN, rules.single().whenOrder)
     }

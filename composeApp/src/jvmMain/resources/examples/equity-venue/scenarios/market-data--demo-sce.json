@@ -1,0 +1,140 @@
+{
+  "id": "equity-scenario-market-data",
+  "name": "AAPL top of book, then two updates",
+  "binding": "this_run",
+  "createdAt": 1789000000000,
+  "setup": [
+    {
+      "stepId": "bf5c617c-608a-5dcb-a9e2-ca117ecce881",
+      "type": "clearMessages",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "2d2af06f-ecdc-5822-9c5f-a19615a559b3",
+      "type": "clearOrderBook",
+      "session": "Equity Demo Venue \u2190 EQTY_CLIENT1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "26d5bd2d-b349-5b1f-8a62-8f5d30ef61b7",
+      "type": "send",
+      "raw": "35=V|262=EQTY-MD-1|263=1|264=1|267=2|269=0|269=1|146=1|55=AAPL",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "1d131de3-67f5-5df2-8483-fa56664ef10b",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "W",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "W",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 55,
+            "matcher": {
+              "type": "exact",
+              "value": "AAPL"
+            }
+          },
+          {
+            "tag": 262,
+            "matcher": {
+              "type": "exact",
+              "value": "EQTY-MD-1"
+            }
+          },
+          {
+            "tag": 268,
+            "matcher": {
+              "type": "exact",
+              "value": "2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "19b395c5-3999-5d95-a36e-c92975f601ae",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "X",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "X",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 262,
+            "matcher": {
+              "type": "exact",
+              "value": "EQTY-MD-1"
+            }
+          },
+          {
+            "tag": 268,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          },
+          {
+            "tag": 279,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "9853540c-f348-5837-a493-d118ad8911d4",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "X",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "X",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 262,
+            "matcher": {
+              "type": "exact",
+              "value": "EQTY-MD-1"
+            }
+          },
+          {
+            "tag": 268,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          },
+          {
+            "tag": 279,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

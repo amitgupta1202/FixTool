@@ -1,0 +1,853 @@
+{
+    "messages": [
+        {
+            "id": "equity-buy-aapl-day",
+            "name": "EQTY Buy AAPL Limit Day",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "225.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-sell-aapl-day",
+            "name": "EQTY Sell AAPL Limit Day",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "230.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-buy-aapl-market",
+            "name": "EQTY Buy AAPL Market",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-buy-aapl-ioc-marketable",
+            "name": "EQTY Buy AAPL IOC, marketable",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "228.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "3"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-buy-aapl-ioc-away",
+            "name": "EQTY Buy AAPL IOC, away from the touch",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "225.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "3"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "equity-buy-aapl-sub-penny",
+            "name": "EQTY Buy AAPL at a sub-penny price",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "227.4213"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "equity-buy-aapl-outside-band",
+            "name": "EQTY Buy AAPL outside the price band",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "250.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "equity-short-aapl-no-locate",
+            "name": "EQTY Sell short AAPL with no locate",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "5"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "230.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "equity-short-aapl-located",
+            "name": "EQTY Sell short AAPL, located",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "5"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "230.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "114",
+                    "value": "Y"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "equity-cancel-last",
+            "name": "EQTY Cancel last order",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "F"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "41",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-replace-last",
+            "name": "EQTY Replace last order",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "G"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "41",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                },
+                {
+                    "tag": "38",
+                    "value": "200"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "226.00"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-status-last",
+            "name": "EQTY Order Status Request",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "H"
+                },
+                {
+                    "tag": "11",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-md-subscribe-aapl",
+            "name": "EQTY Market Data Subscribe AAPL",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "V"
+                },
+                {
+                    "tag": "262",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "263",
+                    "value": "1"
+                },
+                {
+                    "tag": "264",
+                    "value": "1"
+                },
+                {
+                    "tag": "267",
+                    "value": "2"
+                },
+                {
+                    "tag": "269",
+                    "value": "0"
+                },
+                {
+                    "tag": "269",
+                    "value": "1"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-md-snapshot-msft",
+            "name": "EQTY Market Data Snapshot MSFT",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "V"
+                },
+                {
+                    "tag": "262",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "263",
+                    "value": "0"
+                },
+                {
+                    "tag": "264",
+                    "value": "1"
+                },
+                {
+                    "tag": "267",
+                    "value": "2"
+                },
+                {
+                    "tag": "269",
+                    "value": "0"
+                },
+                {
+                    "tag": "269",
+                    "value": "1"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "MSFT"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-md-unlisted",
+            "name": "EQTY Market Data for an unlisted name",
+            "userTags": [
+                "equity-profile-EQTY_CLIENT1",
+                "equity-profile-EQTY_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "V"
+                },
+                {
+                    "tag": "262",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "263",
+                    "value": "0"
+                },
+                {
+                    "tag": "264",
+                    "value": "1"
+                },
+                {
+                    "tag": "267",
+                    "value": "1"
+                },
+                {
+                    "tag": "269",
+                    "value": "0"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "IBM"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "equity-load-new-order",
+            "name": "EQTY Load NewOrderSingle",
+            "userTags": [
+                "equity-profile-EQTY_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "EQO-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "225.00"
+                },
+                {
+                    "tag": "38",
+                    "value": "100"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-load-cancel",
+            "name": "EQTY Load Cancel",
+            "userTags": [
+                "equity-profile-EQTY_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "F"
+                },
+                {
+                    "tag": "11",
+                    "value": "EQC-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "41",
+                    "value": "EQO-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "equity-load-md-request",
+            "name": "EQTY Load MarketDataRequest",
+            "userTags": [
+                "equity-profile-EQTY_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "V"
+                },
+                {
+                    "tag": "262",
+                    "value": "EQM-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "263",
+                    "value": "0"
+                },
+                {
+                    "tag": "264",
+                    "value": "1"
+                },
+                {
+                    "tag": "267",
+                    "value": "2"
+                },
+                {
+                    "tag": "269",
+                    "value": "0"
+                },
+                {
+                    "tag": "269",
+                    "value": "1"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "AAPL"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        }
+    ]
+}

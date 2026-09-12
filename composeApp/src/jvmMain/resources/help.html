@@ -614,6 +614,89 @@
     and reads its order book rather than measuring throughput; this is the venue to measure against. Point
     the load client at a real RFQ venue and the same set measures that venue instead.</p>
 
+    <h3 id="equity-venue">The Equity Venue</h3>
+    <p>An <strong>Equity Demo Venue</strong> acceptor on <code>localhost:19878</code>, open to any CompID,
+    that plays a US cash equities venue in <strong>AAPL</strong>, <strong>MSFT</strong> and
+    <strong>TSLA</strong>. It is the first bundled venue whose <a href="#order-book">book holds your
+    order</a>: send a Day limit and it is acknowledged and then <em>nothing else happens to it</em>. It
+    rests until you cancel or replace it.</p>
+    <p>That one difference is the point of the example. The FX and RFQ venues answer everything at once,
+    so <a href="#when-order"><code>whenOrder</code></a> <em>working</em> lasted the 250&nbsp;ms between an
+    ack and its fill, a cancel was a race, and a replace was a rule with nothing to replace. Here they are
+    behaviours you can drive by hand.</p>
+
+    <h4>What TimeInForce decides</h4>
+    <table>
+        <tr><th>Order</th><th>What the venue does</th></tr>
+        <tr><td>Limit, Day (<code>59=0</code>, or absent)</td>
+            <td>New, and it <strong>rests</strong> at <code>39=0</code> until you cancel or replace it</td></tr>
+        <tr><td>Limit, IOC (<code>59=3</code>)</td>
+            <td>Marketable against the touch: New, then filled <em>at the touch</em>. Not marketable: New,
+            then Canceled <code>39=4</code></td></tr>
+        <tr><td>Market (<code>40=1</code>)</td>
+            <td>New, then filled: a buy pays the offer, a sell hits the bid</td></tr>
+    </table>
+    <p>FIX's default TimeInForce is Day, so the resting rule carries <strong>no <code>59</code> condition
+    at all</strong> and catches the order that says <code>59=0</code> and the one that says nothing.
+    An IOC that crosses is filled <em>at the touch and not at its own limit</em> — a buy bidding 230.00
+    into a 227.42 offer pays 227.42, because the price improvement is the client's.</p>
+
+    <h4>The three refusals</h4>
+    <table>
+        <tr><th>Order</th><th>Answer</th></tr>
+        <tr><td>A limit price finer than a cent, <code>44=227.4213</code></td>
+            <td>Rejected, <code>103=11</code> — SEC Rule 612 forbids a sub-penny quote at or above $1.00.
+            <code>227.4200</code> is <em>not</em> sub-penny and rests</td></tr>
+        <tr><td>Sell short (<code>54=5</code>) with no LocateReqd (<code>114</code>)</td>
+            <td>Rejected, <code>103=0</code> — Reg SHO requires a locate. Add <code>114=Y</code> and it rests</td></tr>
+        <tr><td>A limit more than 5% from the printed mid</td>
+            <td>Rejected, <code>103=3</code>, naming the bound it crossed</td></tr>
+    </table>
+    <p>Every reason code is one <strong>FIX 4.4 actually defines</strong>. <code>103=18</code> <em>Invalid
+    price increment</em> is the exact name for the sub-penny case and does not exist before FIX 5.0 — the
+    4.4 enum stops at 15 and 99 — so the venue sends <code>103=11</code> and puts the specifics in
+    <code>58</code>. Every reply this venue can plan is validated against the bundled dictionary by its
+    own test, which is how that was caught.</p>
+
+    <h4>Market data</h4>
+    <p>This is the only bundled venue that publishes. A <strong>MarketDataRequest (35=V)</strong> naming a
+    listed symbol draws a <strong>MarketDataSnapshotFullRefresh (35=W)</strong> with both sides of the
+    touch in round lots; ask for updates as well (<code>263=1</code>) and two
+    <strong>MarketDataIncrementalRefresh (35=X)</strong> messages follow, one per side. A name it does not
+    publish gets a <strong>MarketDataRequestReject (35=Y)</strong> with <code>281=0</code>.</p>
+
+    <h4>Fixed prints, drawn quotes</h4>
+    <p>Every price the venue <em>prints</em> is a literal and every price it <em>publishes</em> is drawn
+    across a band, which is the opposite of the FX venue and deliberate. A printed price is one a scenario
+    can assert — <strong>AAPL market order fills at the touch</strong> expects <code>31=227.42</code> and
+    means it. And nothing here is a Kotlin expression, so unlike the <a href="#fx-load">FX venue</a> this
+    one can be asked for orders at volume: its load set does 2,000 per phase in about two hundred
+    milliseconds each.</p>
+
+    <h4 id="equity-load">The Load Client, and the set the FX venue could not ship</h4>
+    <p>The <strong>Equity Load Client</strong> is five sessions, <code>EQLG1</code> to <code>EQLG5</code>,
+    on a memory store with no log. The example ships <strong>Equity rest and cancel</strong>:</p>
+
+    <div class="example"><code>fixtool load --set equity-rest-and-cancel --workspace "Equity Venue"</code></div>
+
+    <table>
+        <tr><th>Phase</th><th>Sends</th><th>Matched on</th></tr>
+        <tr><td>1. Rest</td><td>2,000 Day limits, <code>11=EQO-&lt;run&gt;-&lt;n&gt;</code></td>
+            <td>ClOrdID to ClOrdID, reply <code>35=8</code></td></tr>
+        <tr><td>2. Cancel</td><td>2,000 cancels of the orders phase one left resting</td>
+            <td>ClOrdID to ClOrdID, reply <code>35=8</code></td></tr>
+        <tr><td>3. Publish</td><td>2,000 market data requests</td>
+            <td>MDReqID to MDReqID, reply <code>35=W</code></td></tr>
+    </table>
+
+    <p><strong>Cancelling what you placed is the phase the FX venue cannot have.</strong> There, an order
+    fills 250&nbsp;ms after its ack, so a cancel phase would race the fill and land a nondeterministic mix
+    of Canceled and &ldquo;too late to cancel&rdquo; — and a bundled example must never run amber. Here
+    the order is still resting when the cancel arrives, every time. Phase two reports a healthy count of
+    <strong>duplicates</strong>: a cancel draws a PendingCancel <em>and</em> a Canceled, the first is the
+    match and the second is counted and not judged, which is what a venue answering an order with several
+    ExecutionReports looks like.</p>
+
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This
     disconnects the venue and its clients, closes their panes, and puts your own profiles, templates

@@ -1,0 +1,123 @@
+{
+  "id": "equity-scenario-market-fill",
+  "name": "AAPL market order fills at the touch",
+  "binding": "this_run",
+  "createdAt": 1789000000000,
+  "setup": [
+    {
+      "stepId": "f402d58d-d746-5791-ac59-8db5d54f8a25",
+      "type": "clearMessages",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "1f810910-0482-5078-8f2b-ee5a555fa1bd",
+      "type": "clearOrderBook",
+      "session": "Equity Demo Venue \u2190 EQTY_CLIENT1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "eaaaeaa0-6e16-5c95-9c44-1a63b123a302",
+      "type": "send",
+      "raw": "35=D|11=EQTY-MKT-1|55=AAPL|54=1|38=100|40=1|60=${now}",
+      "session": "Equity Client 1"
+    },
+    {
+      "stepId": "7a86482b-dd8e-59ba-9cfc-0ec9ca628130",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          },
+          {
+            "tag": 151,
+            "matcher": {
+              "type": "exact",
+              "value": "100"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "8762c1aa-60a5-5add-9762-a87b91a8f7a6",
+      "type": "expect",
+      "session": "Equity Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 6,
+            "matcher": {
+              "type": "exact",
+              "value": "227.42"
+            }
+          },
+          {
+            "tag": 14,
+            "matcher": {
+              "type": "exact",
+              "value": "100"
+            }
+          },
+          {
+            "tag": 31,
+            "matcher": {
+              "type": "exact",
+              "value": "227.42"
+            }
+          },
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "2"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "F"
+            }
+          },
+          {
+            "tag": 151,
+            "matcher": {
+              "type": "exact",
+              "value": "0"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

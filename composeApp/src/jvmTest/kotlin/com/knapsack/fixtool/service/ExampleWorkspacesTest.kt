@@ -34,8 +34,11 @@ class ExampleWorkspacesTest {
     }
 
     @Test
-    fun `the index lists the FX venue first and the RFQ venue after it`() {
-        assertEquals(listOf(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.RFQ_VENUE), ExampleWorkspaces.all().map { it.id })
+    fun `the index lists the three venues in the order they were built`() {
+        assertEquals(
+            listOf(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.RFQ_VENUE, ExampleWorkspaces.EQUITY_VENUE),
+            ExampleWorkspaces.all().map { it.id },
+        )
     }
 
     @Test
@@ -542,9 +545,149 @@ class ExampleWorkspacesTest {
     }
 
     @Test
-    fun `the two examples land in different folders`() {
+    fun `every example lands in its own folder`() {
         assertEquals("fx-venue", ExampleWorkspaces.slug(fxVenue.defaultWorkspaceName))
         assertEquals("rfq-venue", ExampleWorkspaces.slug(rfqVenue.defaultWorkspaceName))
+        assertEquals("equity-venue", ExampleWorkspaces.slug(equityVenue.defaultWorkspaceName))
+        val slugs = ExampleWorkspaces.all().map { ExampleWorkspaces.slug(it.defaultWorkspaceName) }
+        assertEquals(slugs.size, slugs.distinct().size, "two examples would be copied over each other")
+    }
+
+    // ---------------------------------------------------------------- the equity venue
+
+    private val equityVenue =
+        assertNotNull(ExampleWorkspaces.byId(ExampleWorkspaces.EQUITY_VENUE), "equity-venue is not in the build")
+
+    private fun openEquityInTemp(): File {
+        val location = Files.createTempDirectory("equity-example-open").toFile()
+        return ExampleWorkspaces
+            .open(ExampleWorkspaces.EQUITY_VENUE, "Equity Venue", location, now = 1_700_000_000_000L)
+            .getOrThrow()
+    }
+
+    @Test
+    fun `every file the equity manifest names is in the build`() {
+        equityVenue.files.forEach { relative ->
+            assertNotNull(
+                ExampleWorkspaces::class.java.getResourceAsStream("/examples/${ExampleWorkspaces.EQUITY_VENUE}/$relative"),
+                "manifest names '$relative', which is not in the build",
+            )
+        }
+    }
+
+    /** The same pin the other two venues carry: the bundle is the preset, in the menu's order. */
+    @Test
+    fun `the equity venue carries the equity preset's rules, all of them, in the order the preset menu places them`() {
+        val venue = profilesIn(openEquityInTemp()).first { it.id == "equity-profile-venue" }
+        val preset = assertNotNull(AcceptorPresets.byId(EquityVenuePreset.ID))
+        assertEquals(AcceptorPresets.insert(emptyList(), preset).rules, venue.config.acceptorResponseRules)
+        assertEquals(preset.rules.size, venue.config.acceptorResponseRules.size)
+    }
+
+    /** Its own port, so all three examples can be up at once, and no injected latency. */
+    @Test
+    fun `the equity venue is an acceptor open to any client, on its own port, with no injected latency`() {
+        val venue = profilesIn(openEquityInTemp()).first { it.id == "equity-profile-venue" }
+        assertEquals("EQTY_SERVER", venue.config.senderCompID)
+        assertEquals("*", venue.config.targetCompID)
+        assertEquals("19878", venue.config.socketAcceptPort)
+        assertEquals(AcceptorLatencyConfig.Mode.NONE, venue.config.acceptorLatency.mode)
+    }
+
+    @Test
+    fun `the three bundled venues listen on three different ports`() {
+        fun port(example: String, venueId: String): String {
+            val location = Files.createTempDirectory("port-check").toFile()
+            val workspace = ExampleWorkspaces.open(example, example, location).getOrThrow()
+            return profilesIn(workspace).first { it.id == venueId }.config.socketAcceptPort
+        }
+        val ports =
+            listOf(
+                port(ExampleWorkspaces.FX_VENUE, "demo-profile-venue"),
+                port(ExampleWorkspaces.RFQ_VENUE, "rfq-profile-venue"),
+                port(ExampleWorkspaces.EQUITY_VENUE, "equity-profile-venue"),
+            )
+        assertEquals(ports.size, ports.distinct().size, "two bundled venues would fight over a port: $ports")
+    }
+
+    @Test
+    fun `the equity load client is five lanes on a memory store with no log, and Reset on Logon on`() {
+        val load = profilesIn(openEquityInTemp()).first { it.id == "equity-profile-EQTY_LOAD" }
+        assertEquals("Equity Load Client", load.name)
+        assertEquals("EQLG{n}", load.config.senderCompID)
+        assertEquals(5, load.config.sessionCount)
+        assertEquals(FixConnectionConfig.MessageStoreKind.MEMORY, load.config.messageStore)
+        assertEquals(FixConnectionConfig.MessageLogKind.NONE, load.config.messageLog)
+        assertEquals(null, load.config.storeProblem(), "the bundled load client would be refused at connect")
+    }
+
+    @Test
+    fun `the equity templates come across, tagged to the clients and the load client that send them`() {
+        val workspace = openEquityInTemp()
+        val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
+        val forClientOne = messages.loadMessagesForProfile("equity-profile-EQTY_CLIENT1").map { it.id }
+        assertTrue("equity-buy-aapl-day" in forClientOne, "the resting order template is missing")
+        assertTrue("equity-md-subscribe-aapl" in forClientOne, "the market data template is missing")
+        assertTrue("equity-load-new-order" !in forClientOne, "a load template is offered to a single-session client")
+        val forLoad = messages.loadMessagesForProfile("equity-profile-EQTY_LOAD").map { it.id }
+        assertEquals(
+            setOf("equity-load-new-order", "equity-load-cancel", "equity-load-md-request"),
+            forLoad.toSet(),
+        )
+    }
+
+    /**
+     * **The set this venue could ship and the FX venue could not.** A cancel needs an order that is
+     * still there when it arrives, and until this example every bundled venue filled or refused
+     * everything at once — so an FX cancel phase would have raced the fill and landed a mix of Canceled
+     * and Too-late-to-cancel, which is the one thing a bundled example must never do.
+     */
+    @Test
+    fun `the equity example ships a three-phase set that plans without a refusal`() {
+        val workspace = openEquityInTemp()
+        val store = LoadSetStore(File(workspace, "load-sets").absolutePath)
+        val set = assertNotNull(store.load("equity-rest-and-cancel"), "the shipped load set did not come across")
+
+        assertEquals("Equity rest and cancel", set.label)
+        assertEquals(listOf("Rest", "Cancel", "Publish"), set.phases.map { it.label })
+        assertEquals(OnFailure.STOP, set.onFailure, "there is no point cancelling orders that were never placed")
+        assertEquals(listOf("8", "8", "W"), set.phases.map { it.match?.replyType })
+        assertEquals(listOf(1, 1, 1), set.phases.map { it.indexFrom }, "index n is lane n in every phase")
+
+        val resolver = exampleResolver(workspace)
+        assertEquals(
+            emptyList(),
+            set.problems(resolve = resolver, surface = LoadPlan.Surface.CLI),
+            "the set this example ships would be refused before it ran",
+        )
+        assertEquals(6_000L, set.plan(resolver, emptyMap(), id = "check").phases.sumOf { it.requested })
+    }
+
+    @Test
+    fun `all three equity scenarios come across and parse`() {
+        val scenarios = ScenarioService(customDir = File(openEquityInTemp(), "scenarios").absolutePath).list()
+        assertEquals(
+            setOf(
+                "equity-scenario-rest-and-cancel",
+                "equity-scenario-market-fill",
+                "equity-scenario-market-data",
+            ),
+            scenarios.map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun `the equity bundle carries no password, no path off this machine, and stamps no clock`() {
+        equityVenue.files.forEach { relative ->
+            val body =
+                ExampleWorkspaces::class.java
+                    .getResourceAsStream("/examples/equity-venue/$relative")!!
+                    .use { it.readBytes().decodeToString() }
+            assertFalse(body.contains("\"password\""), "$relative carries a password field")
+            assertFalse(body.contains("/Users/"), "$relative carries an absolute path from a developer's machine")
+            assertFalse(body.contains("fileStorePath"), "$relative pins the sequence store outside the workspace")
+        }
+        profilesIn(openEquityInTemp()).forEach { assertEquals(1_700_000_000_000L, it.createdAt) }
     }
 
     private fun profilesIn(workspace: File) =

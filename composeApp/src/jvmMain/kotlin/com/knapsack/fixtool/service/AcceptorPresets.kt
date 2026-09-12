@@ -95,6 +95,9 @@ object AcceptorPresets {
     /** The id of the FX venue bundle — the one the demo workspace installs. See [FxVenuePreset]. */
     const val FX_VENUE = FxVenuePreset.ID
 
+    /** The id of the equity venue bundle: the first with a book that holds an order. See [EquityVenuePreset]. */
+    const val EQUITY_VENUE = EquityVenuePreset.ID
+
     // ------------------------------------------------------------------ templates
     //
     // Some of what follows is `internal` rather than `private`, and the reason is [FxVenuePreset]: a
@@ -591,6 +594,7 @@ object AcceptorPresets {
             ),
             FxVenuePreset.preset,
             RfqVenuePreset.preset,
+            EquityVenuePreset.preset,
             AcceptorPreset(
                 id = "order-ack",
                 name = "Order acknowledged",

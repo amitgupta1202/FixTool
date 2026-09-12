@@ -59,10 +59,37 @@ class AcceptorPresetsTest {
             }
         val quantity = if (rule.trigger().any { it.tag == 38 }) "20000000" else "1000"
         val market = rule.trigger().any { it.tag == 40 && it.parsed() == Matcher.Exact("1") }
+        // The limit price is derived for the same reason the symbol is. The equity venue's bands and its
+        // sub-penny refusal are all conditions on 44, so one fixed price would ask half of them whether
+        // they fire against a message on the other side of their own bound.
+        val price =
+            when (val m = rule.trigger().firstOrNull { it.tag == 44 }?.parsed()) {
+                is Matcher.Regex -> "185.2513"
+                is Matcher.Range ->
+                    when {
+                        m.max != null && m.maxInclusive -> m.max!!.toBigDecimal().setScale(2).toPlainString()
+                        m.max != null -> (m.max!! - 1).toBigDecimal().setScale(2).toPlainString()
+                        m.min != null && m.minInclusive -> m.min!!.toBigDecimal().setScale(2).toPlainString()
+                        else -> (m.min!! + 1).toBigDecimal().setScale(2).toPlainString()
+                    }
+                else -> "185.25"
+            }
+        // The side comes from the rule's own trigger, because the equity venue prices a buy at the offer
+        // and a sell at the bid and so names `54` on every one of its fill rules. Hardcoding a buy asked
+        // each sell rule whether it fires against a buy, which is the one thing it promises not to do.
+        val side = (rule.trigger().firstOrNull { it.tag == 54 }?.parsed() as? Matcher.Exact)?.value ?: "1"
+        // A locate, unless the rule under test is the one that refuses an order for want of one.
+        val locate = if (rule.trigger().any { it.tag == 114 }) "" else "|114=Y"
+        // TimeInForce, for the rules that name one. The equity venue's IOC rules do, and a sample
+        // without it asked them whether they fire against a Day order — which they promise not to.
+        val tif =
+            (rule.trigger().firstOrNull { it.tag == 59 }?.parsed() as? Matcher.Exact)?.let { "|59=${it.value}" } ?: ""
         return when (rule.whenMsgType) {
             "D" ->
-                "35=D|11=ORD-1|55=$symbol|54=1|38=$quantity" +
-                    (if (market) "|40=1" else "|40=2|44=185.25") +
+                "35=D|11=ORD-1|55=$symbol|54=$side|38=$quantity" +
+                    (if (market) "|40=1" else "|40=2|44=$price") +
+                    tif +
+                    locate +
                     "|60=20260730-09:14:22.000"
             "R" -> "35=R|131=Q-1|55=$symbol|54=1|38=1000000"
             // The RFQ venue's hit: the response type, side and price come from the rule's own trigger,
@@ -84,6 +111,12 @@ class AcceptorPresetsTest {
             "F" -> cancel
             "G" -> replace
             "H" -> statusRequest
+            // A MarketDataRequest names its subscription type at the top level and its symbol inside
+            // NoRelatedSym, which is where a conformant client puts it and where `valueOf` looks.
+            "V" -> {
+                val subscription = (rule.trigger().firstOrNull { it.tag == 263 }?.parsed() as? Matcher.Exact)?.value
+                "35=V|262=MDR-1|263=${subscription ?: "0"}|264=1|267=2|269=0|269=1|146=1|55=$symbol"
+            }
             else -> error("no sample message for 35=${rule.whenMsgType}")
         }
     }
@@ -167,7 +200,15 @@ class AcceptorPresetsTest {
                             at = LocalDateTime.now(),
                             sent = true,
                             msgType = "8",
-                            fields = mapOf(11 to "ORD-1", 37 to "EX-1", 150 to "0", 39 to "0", 14 to "0", 151 to "1000"),
+                            // `6` because every ExecutionReport these presets send carries one — the ack's
+                            // is `6=0` — so a book folded from this venue's own reports always has an
+                            // AvgPx to give back. Without it here the fixture described an order no
+                            // preset could have created.
+                            fields =
+                                mapOf(
+                                    11 to "ORD-1", 37 to "EX-1", 150 to "0", 39 to "0",
+                                    14 to "0", 151 to "1000", 6 to "0",
+                                ),
                         ),
                     ),
             ),

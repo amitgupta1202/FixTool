@@ -84,7 +84,7 @@ class SessionPanelHeaderTest {
         renderHeader(width = 700.dp, title = "RFQ Demo Venue ← RFQLG3", messageCount = 140)
 
         rule.onNodeWithContentDescription("More actions").assertDoesNotExist()
-        rule.onNodeWithContentDescription("Toggle Filter").assertIsDisplayed()
+        rule.onNodeWithTag("pane-filter").assertIsDisplayed()
         rule.onNodeWithContentDescription("Move Session Right").assertIsDisplayed()
     }
 }

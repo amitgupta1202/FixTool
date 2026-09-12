@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -67,8 +68,8 @@ class MinimizedStripTest {
         render()
 
         // The seven that did nothing. Their absence is the whole of proposal A.
-        composeTestRule.onAllNodesWithContentDescription("Toggle Filter").assertCountEquals(0)
-        composeTestRule.onAllNodesWithContentDescription("Group by Conversation").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("pane-filter").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("pane-group").assertCountEquals(0)
         composeTestRule.onAllNodesWithContentDescription("Add Blank Line").assertCountEquals(0)
         composeTestRule.onAllNodesWithContentDescription("Clear All Messages").assertCountEquals(0)
         composeTestRule.onAllNodesWithContentDescription("Scroll to bottom").assertCountEquals(0)
@@ -83,8 +84,8 @@ class MinimizedStripTest {
         pane("PLAIN")
         render()
 
-        composeTestRule.onAllNodesWithContentDescription("Toggle Filter").assertCountEquals(1)
-        composeTestRule.onAllNodesWithContentDescription("Group by Conversation").assertCountEquals(1)
+        composeTestRule.onAllNodesWithTag("pane-filter").assertCountEquals(1)
+        composeTestRule.onAllNodesWithTag("pane-group").assertCountEquals(1)
         composeTestRule.onAllNodesWithContentDescription("Clear All Messages").assertCountEquals(1)
         composeTestRule.onAllNodesWithContentDescription("Minimize Pane").assertCountEquals(1)
     }

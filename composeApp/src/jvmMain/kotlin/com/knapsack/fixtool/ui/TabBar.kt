@@ -137,38 +137,26 @@ fun TabBar(
                         RawViewActions(activeGridSession, onToggleWrapText)
                     }
 
-                    // Filter button (available for both RAW and PARSED modes - regex, message type, direction filters)
-                    TooltipIconButton(
-                        tooltip = if (filterVisible) "Hide Filter" else "Show Filter (Regex)",
+                    // The same two toggles the split layout draws, in the same pressed look and with the
+                    // same nouns — the constants live in SplitView beside the menu rows that stand in for
+                    // them. Two layouts that phrased one control differently is how "Add Separator" and
+                    // "Add Blank Line" came to be the same button.
+                    ToggleIconButton(
+                        on = filterVisible,
+                        tooltip = FILTER_LABEL,
+                        icon = Icons.Default.FilterAlt,
                         onClick = { activeGridSession.toggleFilter() },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FilterAlt,
-                            contentDescription = "Toggle Filter",
-                            tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
+                        tag = "tab-filter",
+                    )
 
                     // Group this session's grid by business exchange — per session, like the filter.
-                    TooltipIconButton(
-                        tooltip =
-                            if (groupedByConversation) {
-                                "Conversations: On (click for a flat list)"
-                            } else {
-                                "Conversations: Off (click to group by exchange)"
-                            },
+                    ToggleIconButton(
+                        on = groupedByConversation,
+                        tooltip = GROUP_LABEL,
+                        icon = Icons.Default.AccountTree,
                         onClick = { activeGridSession.toggleGroupByConversation() },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountTree,
-                            contentDescription = "Group by Conversation",
-                            tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
+                        tag = "tab-group",
+                    )
 
                     // Add separator button
                     TooltipIconButton(
@@ -273,31 +261,21 @@ private fun RawViewActions(session: FixMessageSession, onToggleWrapText: (FixMes
     val wrapText by session.wrapText.collectAsState()
     val searchVisible by session.searchVisible.collectAsState()
 
-    TooltipIconButton(
-        tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
+    ToggleIconButton(
+        on = wrapText,
+        tooltip = WRAP_LABEL,
+        icon = Icons.Default.WrapText,
         onClick = { onToggleWrapText(session) },
-        modifier = toolbarButtonSize,
-    ) {
-        Icon(
-            imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
-            contentDescription = "Toggle Text Wrap",
-            tint = AppTheme.Colors.textSecondary,
-            modifier = toolbarIconSize,
-        )
-    }
+        tag = "tab-wrap",
+    )
 
-    TooltipIconButton(
-        tooltip = if (searchVisible) "Hide Search" else "Show Search (Ctrl+F)",
+    ToggleIconButton(
+        on = searchVisible,
+        tooltip = SEARCH_LABEL,
+        icon = Icons.Default.Search,
         onClick = { session.toggleSearch() },
-        modifier = toolbarButtonSize,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Search,
-            contentDescription = "Toggle Search",
-            tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-            modifier = toolbarIconSize,
-        )
-    }
+        tag = "tab-search",
+    )
 }
 
 @Composable

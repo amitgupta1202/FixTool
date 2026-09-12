@@ -273,6 +273,24 @@ private fun SlimTextField(
     )
 }
 
+/**
+ * **The nouns the two view toggles carry, in one place.**
+ *
+ * The editor draws its toolbar twice — the row, and the progressive overflow Popup that re-renders the same
+ * eleven buttons — so every one of these strings existed twice and the two copies had already drifted: the
+ * row's Validate said "Validate Message against Data Dictionary" where the Popup's said "Validate", and one
+ * said "Requires FIX data dictionary" where the other said "Validation disabled". One constant each until
+ * the Popup itself goes.
+ *
+ * The word and not the gesture: "Group indentation", never "Hide Group Indentation" / "Show Group
+ * Indentation". The pressed look is what says which of those a click would do.
+ */
+private const val INDENT_LABEL = "Group indentation"
+
+private const val DESCRIPTION_LABEL = "Description column"
+
+private const val NEEDS_DICTIONARY = "Requires a FIX data dictionary"
+
 @Composable
 fun MessageEditorPanel(
     sessions: List<FixMessageSession>,
@@ -1167,61 +1185,40 @@ fun MessageEditorPanel(
                     Spacer(modifier = Modifier.width(4.dp))
                 }
 
-                // Button 9: Toggle Indentation
+                // Button 9: Group indentation. One pressed look, and a noun for a tooltip: this one said on
+                // by tinting its glyph, which says nothing to a reader who has not seen the other state.
                 if (visibleButtonsCount > 9) {
-                    TooltipIconButton(
-                        tooltip =
-                            if (!hasDataDictionary) {
-                                "Requires FIX data dictionary"
-                            } else if (showIndentation) {
-                                "Hide Group Indentation"
-                            } else {
-                                "Show Group Indentation"
-                            },
+                    ToggleIconButton(
+                        on = showIndentation,
+                        tooltip = INDENT_LABEL,
+                        icon = Icons.Default.FormatIndentIncrease,
                         onClick = { showIndentation = !showIndentation },
                         enabled = hasDataDictionary,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FormatIndentIncrease,
-                            contentDescription = "Toggle Indentation",
-                            modifier = iconSize18,
-                            tint =
-                                when {
-                                    !hasDataDictionary -> disabledIconColor
-                                    showIndentation -> AppTheme.Colors.primary
-                                    else -> AppTheme.Colors.textSecondary
-                                },
-                        )
-                    }
+                        disabledReason = NEEDS_DICTIONARY,
+                        size = 28.dp,
+                        glyph = 18.dp,
+                        tag = "editor-indent",
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
                 }
 
-                // Button 10: Toggle Description
+                // Button 10: Description column. This one said on by swapping its glyph, so neither state
+                // looked pressed and the only way to read it was to know both icons.
                 if (visibleButtonsCount > 10) {
-                    TooltipIconButton(
-                        tooltip =
-                            if (!hasDataDictionary) {
-                                "Requires FIX data dictionary"
-                            } else if (showDescription) {
-                                "Hide Description column"
-                            } else {
-                                "Show Description column"
-                            },
+                    ToggleIconButton(
+                        on = showDescription,
+                        tooltip = DESCRIPTION_LABEL,
+                        icon = Icons.Default.ViewModule,
                         onClick = {
                             showDescription = !showDescription
                             onDescriptionVisibilityChanged?.invoke(showDescription)
                         },
                         enabled = hasDataDictionary,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
-                            contentDescription = "Toggle Description",
-                            modifier = iconSize18,
-                            tint = if (hasDataDictionary) AppTheme.Colors.textSecondary else disabledIconColor,
-                        )
-                    }
+                        disabledReason = NEEDS_DICTIONARY,
+                        size = 28.dp,
+                        glyph = 18.dp,
+                        tag = "editor-description",
+                    )
                 }
 
                 // Overflow button if needed
@@ -1494,62 +1491,36 @@ fun MessageEditorPanel(
                                             )
                                         }
                                     }
-                                    // Button 9: Toggle Indentation
+                                    // Button 9: Group indentation
                                     if (visibleButtonsCount <= 9) {
-                                        TooltipIconButton(
-                                            tooltip =
-                                                if (!hasDataDictionary) {
-                                                    "Requires FIX data dictionary"
-                                                } else if (showIndentation) {
-                                                    "Hide Group Indentation"
-                                                } else {
-                                                    "Show Group Indentation"
-                                                },
+                                        ToggleIconButton(
+                                            on = showIndentation,
+                                            tooltip = INDENT_LABEL,
+                                            icon = Icons.Default.FormatIndentIncrease,
                                             onClick = { showIndentation = !showIndentation },
                                             enabled = hasDataDictionary,
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.FormatIndentIncrease,
-                                                contentDescription = "Toggle Indentation",
-                                                modifier = iconSize18,
-                                                tint =
-                                                    when {
-                                                        !hasDataDictionary -> disabledIconColor
-                                                        showIndentation -> AppTheme.Colors.primary
-                                                        else -> AppTheme.Colors.textSecondary
-                                                    },
-                                            )
-                                        }
+                                            disabledReason = NEEDS_DICTIONARY,
+                                            size = 28.dp,
+                                            glyph = 18.dp,
+                                            tag = "editor-overflow-indent",
+                                        )
                                     }
-                                    // Button 10: Toggle Description
+                                    // Button 10: Description column
                                     if (visibleButtonsCount <= 10) {
-                                        TooltipIconButton(
-                                            tooltip =
-                                                if (!hasDataDictionary) {
-                                                    "Requires FIX data dictionary"
-                                                } else if (showDescription) {
-                                                    "Hide Description column"
-                                                } else {
-                                                    "Show Description column"
-                                                },
+                                        ToggleIconButton(
+                                            on = showDescription,
+                                            tooltip = DESCRIPTION_LABEL,
+                                            icon = Icons.Default.ViewModule,
                                             onClick = {
-                                                showDescription =
-                                                    !showDescription
-                                                onDescriptionVisibilityChanged?.invoke(
-                                                    showDescription,
-                                                )
+                                                showDescription = !showDescription
+                                                onDescriptionVisibilityChanged?.invoke(showDescription)
                                             },
                                             enabled = hasDataDictionary,
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
-                                                contentDescription = "Toggle Description",
-                                                modifier = iconSize18,
-                                                tint = if (hasDataDictionary) AppTheme.Colors.textSecondary else disabledIconColor,
-                                            )
-                                        }
+                                            disabledReason = NEEDS_DICTIONARY,
+                                            size = 28.dp,
+                                            glyph = 18.dp,
+                                            tag = "editor-overflow-description",
+                                        )
                                     }
                                 }
                             }

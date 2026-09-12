@@ -755,68 +755,55 @@ internal fun SessionPanelHeader(
                 // Wrap text toggle (RAW mode only)
                 Spacer(modifier = Modifier.width(4.dp))
 
+                // **The four toggles, all in one pressed look.** Wrap said on by swapping its glyph and the
+                // other three by tinting theirs, so the four of them disagreed about what *on* looks like
+                // and a tinted glyph said nothing to a reader who had never seen the other state. Their
+                // tooltips are nouns now: the button says on by looking on. See ToggleIconButton.
                 if (isRaw) {
-                    TooltipIconButton(
-                        tooltip = wrapLabel(wrapText),
+                    ToggleIconButton(
+                        on = wrapText,
+                        tooltip = WRAP_LABEL,
+                        icon = Icons.Default.WrapText,
                         onClick = { session.toggleWrapText() },
-                        modifier = Modifier.size(buttonSize),
-                    ) {
-                        Icon(
-                            imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
-                            contentDescription = "Toggle Text Wrap",
-                            tint = iconTintColor,
-                            modifier = Modifier.size(iconSize),
-                        )
-                    }
+                        size = buttonSize,
+                        glyph = iconSize,
+                        tag = "pane-wrap",
+                    )
 
                     // Search button (RAW mode only)
                     Spacer(modifier = Modifier.width(2.dp))
 
-                    TooltipIconButton(
-                        tooltip = searchLabel(searchVisible),
+                    ToggleIconButton(
+                        on = searchVisible,
+                        tooltip = SEARCH_LABEL,
+                        icon = Icons.Default.Search,
                         onClick = { session.toggleSearch() },
-                        modifier = Modifier.size(buttonSize),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Toggle Search",
-                            tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+                        size = buttonSize,
+                        tag = "pane-search",
+                    )
                 }
 
                 // Filter button (available for both RAW and PARSED modes)
                 Spacer(modifier = Modifier.width(2.dp))
 
-                TooltipIconButton(
-                    tooltip = filterLabel(filterVisible),
+                ToggleIconButton(
+                    on = filterVisible,
+                    tooltip = FILTER_LABEL,
+                    icon = Icons.Default.FilterAlt,
                     onClick = { session.toggleFilter() },
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FilterAlt,
-                        contentDescription = "Toggle Filter",
-                        tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                    tag = "pane-filter",
+                )
 
                 // Group this pane's grid by business exchange — per session, like the filter.
                 Spacer(modifier = Modifier.width(2.dp))
 
-                TooltipIconButton(
-                    tooltip = groupLabel(groupedByConversation),
+                ToggleIconButton(
+                    on = groupedByConversation,
+                    tooltip = GROUP_LABEL,
+                    icon = Icons.Default.AccountTree,
                     onClick = { session.toggleGroupByConversation() },
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccountTree,
-                        contentDescription = "Group by Conversation",
-                        tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                    tag = "pane-group",
+                )
 
                 // Add blank line button
                 Spacer(modifier = Modifier.width(2.dp))
@@ -988,20 +975,20 @@ private fun SessionPanelHeaderMenu(
         ) {
             if (!session.isVenue) {
                 if (viewMode == FixMessageSession.ViewMode.RAW) {
-                    HeaderMenuItem(text = wrapLabel(wrapText), tag = "pane-menu-wrap") {
+                    HeaderMenuItem(text = WRAP_LABEL, tag = "pane-menu-wrap") {
                         open = false
                         session.toggleWrapText()
                     }
-                    HeaderMenuItem(text = searchLabel(searchVisible), tag = "pane-menu-search") {
+                    HeaderMenuItem(text = SEARCH_LABEL, tag = "pane-menu-search") {
                         open = false
                         session.toggleSearch()
                     }
                 }
-                HeaderMenuItem(text = filterLabel(filterVisible), tag = "pane-menu-filter") {
+                HeaderMenuItem(text = FILTER_LABEL, tag = "pane-menu-filter") {
                     open = false
                     session.toggleFilter()
                 }
-                HeaderMenuItem(text = groupLabel(groupedByConversation), tag = "pane-menu-group") {
+                HeaderMenuItem(text = GROUP_LABEL, tag = "pane-menu-group") {
                     open = false
                     session.toggleGroupByConversation()
                 }
@@ -1087,15 +1074,17 @@ private val countWidth = 24.dp
 /** The narrowest title still worth reading: the room the fold rule keeps clear for the name. */
 private val minTitleWidth = 72.dp
 
-// One wording per action, so a button and the menu row standing in for it cannot come to disagree.
-private fun wrapLabel(on: Boolean) = if (on) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)"
+// **One wording per action, and the noun alone.** A button and the menu row standing in for it cannot come
+// to disagree, and none of the four explains its own mechanism any more: the pressed look says which state
+// a toggle is in, which is what frees its tooltip to name the thing. "Wrap: On (click to unwrap)" was a
+// control describing how it works to a reader who only wanted to know what it does.
+internal const val WRAP_LABEL = "Wrap lines"
 
-private fun searchLabel(visible: Boolean) = if (visible) "Hide Search" else "Show Search (Ctrl+F)"
+internal const val SEARCH_LABEL = "Search in pane"
 
-private fun filterLabel(visible: Boolean) = if (visible) "Hide Filter" else "Show Filter (Regex)"
+internal const val FILTER_LABEL = "Filter pane"
 
-private fun groupLabel(on: Boolean) =
-    if (on) "Conversations: On (click for a flat list)" else "Conversations: Off (click to group by exchange)"
+internal const val GROUP_LABEL = "Group by conversation"
 
 private const val BLANK_LINE_LABEL = "Add Blank Line"
 private const val CLEAR_LABEL = "Clear All Messages"

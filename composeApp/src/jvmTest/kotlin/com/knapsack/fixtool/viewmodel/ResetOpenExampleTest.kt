@@ -57,12 +57,12 @@ class ResetOpenExampleTest {
     fun `reset gives back the shipped profiles and stays in the same folder`() {
         val workspace = viewModel.openExample(ExampleWorkspaces.FX_VENUE).getOrThrow()
         viewModel.deleteConnectionProfile(viewModel.connectionProfiles.first().id)
-        assertEquals(2, viewModel.connectionProfiles.size, "the fixture must start from a broken copy")
+        assertEquals(3, viewModel.connectionProfiles.size, "the fixture must start from a broken copy")
 
         val reset = viewModel.resetOpenExample().getOrThrow()
 
         assertEquals(workspace, reset)
-        assertEquals(3, viewModel.connectionProfiles.size)
+        assertEquals(4, viewModel.connectionProfiles.size)
         assertEquals(workspace, viewModel.openWorkspace, "reset should leave the fresh copy open")
     }
 

@@ -444,6 +444,125 @@
             "lastUsedAt": 0,
             "modifiedAt": 0,
             "isFavorite": true
+        },
+        {
+            "id": "demo-fx-load-new-order",
+            "name": "FX Load NewOrderSingle",
+            "userTags": [
+                "demo-profile-FX_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "FXO-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "100000"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-load-cancel-unknown",
+            "name": "FX Load Cancel Unknown",
+            "userTags": [
+                "demo-profile-FX_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "F"
+                },
+                {
+                    "tag": "11",
+                    "value": "FXC-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "41",
+                    "value": "FXX-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-load-order-status",
+            "name": "FX Load OrderStatusRequest",
+            "userTags": [
+                "demo-profile-FX_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "H"
+                },
+                {
+                    "tag": "11",
+                    "value": "FXO-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "37",
+                    "value": "${orderId}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
         }
     ]
 }

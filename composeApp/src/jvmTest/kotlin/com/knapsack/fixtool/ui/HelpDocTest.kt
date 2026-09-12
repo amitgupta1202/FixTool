@@ -207,6 +207,38 @@ class HelpDocTest {
     }
 
     /**
+     * The FX example's load half, pinned the way the RFQ example's is.
+     *
+     * The set that ships with this venue is sized by a fact about the venue rather than by taste: its
+     * fill price is a Kotlin expression, and the script engine serialises those for the whole process. A
+     * reader who takes the phase counts for a recommendation, or the report for a throughput figure, has
+     * been misled by the chapter, so the chapter has to say both.
+     */
+    @Test
+    fun `the FX example chapter says what its load set is for and what it costs`() {
+        val chapter = html.substringAfter("""id="fx-load"""").substringBefore("""<h3 id="rfq-venue"""")
+
+        val claims =
+            mapOf(
+                "the load client is five named sessions" to "FXLG1",
+                "the shipped set is named" to "FX order book",
+                "the set is run by name from the CLI" to "--set fx-order-book",
+                "the OrderID is captured because the venue mints it" to "\${orderId}",
+                "the cancel phase is refused by name" to "102=1 Unknown order",
+                "a lane is a counterparty, so the status request reaches the right book" to
+                    "one book per counterparty",
+                "the price expression is what bounds the order phase" to "Kotlin expression",
+                "the sizes are the ceiling rather than advice" to "not a recommendation",
+                "the queue behind a compiled fill is measured, not asserted" to "queued behind 250 fills",
+                "the RFQ venue is where a throughput number comes from" to "RFQ venue",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the FX example chapter no longer says: $missing")
+    }
+
+    /**
      * The RFQ example, by the four things a reader has to know before they can drive it. Every one of
      * them was a different fact in the first slice of that venue, which is why they are pinned rather
      * than left to whoever last edited the chapter.

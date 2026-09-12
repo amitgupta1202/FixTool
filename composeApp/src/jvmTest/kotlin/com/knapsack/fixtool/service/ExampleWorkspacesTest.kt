@@ -88,16 +88,133 @@ class ExampleWorkspacesTest {
     fun `the ids a bundled scenario names are the ids the profiles carry`() {
         val workspace = openInTemp()
         val ids = profilesIn(workspace).map { it.id }.toSet()
-        assertEquals(setOf("demo-profile-venue", "demo-profile-DEMO_CLIENT1", "demo-profile-DEMO_CLIENT2"), ids)
+        assertEquals(
+            setOf(
+                "demo-profile-venue",
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2",
+                "demo-profile-FX_LOAD",
+            ),
+            ids,
+        )
     }
 
     @Test
-    fun `the templates come across, tagged to the clients that send them`() {
+    fun `the templates come across, tagged to the clients and the load client that send them`() {
         val workspace = openInTemp()
         val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
-        val forClientOne = messages.loadMessagesForProfile("demo-profile-DEMO_CLIENT1")
-        assertTrue(forClientOne.any { it.id == "demo-fx-market-buy-eurusd" }, "the market buy template is missing")
-        assertTrue(forClientOne.any { it.id == "demo-session-probe" }, "the session probe template is missing")
+        val forClientOne = messages.loadMessagesForProfile("demo-profile-DEMO_CLIENT1").map { it.id }
+        assertTrue("demo-fx-market-buy-eurusd" in forClientOne, "the market buy template is missing")
+        assertTrue("demo-session-probe" in forClientOne, "the session probe template is missing")
+        assertTrue("demo-fx-load-new-order" !in forClientOne, "a load template is offered to a single-session client")
+        val forLoad = messages.loadMessagesForProfile("demo-profile-FX_LOAD").map { it.id }
+        assertEquals(
+            setOf("demo-fx-load-new-order", "demo-fx-load-cancel-unknown", "demo-fx-load-order-status"),
+            forLoad.toSet(),
+        )
+    }
+
+    /**
+     * The same five lanes on the same store as the RFQ example's, and for the same reasons: it is #42's
+     * setting and the one `fixtool load` wants, and a memory store needs Reset on Logon.
+     */
+    @Test
+    fun `the FX load client is five lanes on a memory store with no log, and Reset on Logon on`() {
+        val load = profilesIn(openInTemp()).first { it.id == "demo-profile-FX_LOAD" }
+        assertEquals("FX Load Client", load.name)
+        assertEquals("FXLG{n}", load.config.senderCompID)
+        assertEquals("DEMO_SERVER", load.config.targetCompID)
+        assertEquals("19876", load.config.port)
+        assertEquals(5, load.config.sessionCount)
+        assertEquals(FixConnectionConfig.MessageStoreKind.MEMORY, load.config.messageStore)
+        assertEquals(FixConnectionConfig.MessageLogKind.NONE, load.config.messageLog)
+        assertTrue(load.config.resetOnLogon)
+        assertEquals(null, load.config.storeProblem(), "the bundled load client would be refused at connect")
+    }
+
+    /**
+     * **The status phase asks after the orders the order phase placed, by the id the venue minted.**
+     *
+     * The ClOrdID is ours, so both phases build it from the same seed and the same index and the third
+     * can name an order the first placed. The OrderID is the venue's own `${req.uuid}`, which nothing on
+     * the client side can derive, so it is captured off the ExecutionReport that opened the order — the
+     * same bargain the RFQ example strikes with the QuoteID, and the reason phase 1 carries a `capture`
+     * block at all.
+     *
+     * The cancel phase names ids **nothing ever sent**, which is what makes its refusal the one the set
+     * expects: `FXC-` for its own ClOrdID and `FXX-` for the order it claims to be cancelling, neither of
+     * which the order phase's `FXO-` ids can collide with on any lane.
+     */
+    @Test
+    fun `the FX load templates ask after the orders they placed, and cancel ones nothing ever sent`() {
+        val workspace = openInTemp()
+        val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
+        val byId = messages.loadMessagesForProfile("demo-profile-FX_LOAD").associateBy { it.id }
+        fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
+        assertEquals("FXO-\${run}-\${messageIndex}", value("demo-fx-load-new-order", "11"))
+        assertEquals("1", value("demo-fx-load-new-order", "40"), "a market order, so the venue fills it and is done")
+
+        assertEquals("H", value("demo-fx-load-order-status", "35"))
+        assertEquals(
+            value("demo-fx-load-new-order", "11"),
+            value("demo-fx-load-order-status", "11"),
+            "the status request names the order by the ClOrdID the order phase sent, index for index",
+        )
+        assertEquals("\${orderId}", value("demo-fx-load-order-status", "37"), "the id is the venue's, not ours")
+
+        assertEquals("F", value("demo-fx-load-cancel-unknown", "35"))
+        assertEquals("FXC-\${run}-\${messageIndex}", value("demo-fx-load-cancel-unknown", "11"))
+        assertEquals(
+            "FXX-\${run}-\${messageIndex}",
+            value("demo-fx-load-cancel-unknown", "41"),
+            "the order being cancelled is one no phase ever placed, which is the whole point of the phase",
+        )
+    }
+
+    /**
+     * **The shipped set, pinned whole**, as the RFQ example's is and for the same reason: a phase whose
+     * template reads a name no earlier phase captures is refused at plan time, and this is where that
+     * refusal shows up before a user meets it.
+     *
+     * **The counts are not arbitrary.** This venue draws its fill price with a Kotlin expression, and the
+     * script engine compiles one expression at a time for the whole process at tens of milliseconds each,
+     * so every order it accepts costs the venue's dispatch thread that much. The two phases the venue
+     * answers by pure substitution — a cancel it refuses and a status it reads out of its book — are
+     * eight times the size of the one that makes it price something, and the report shows the difference.
+     */
+    @Test
+    fun `the FX example ships a three-phase set that plans without a refusal`() {
+        val workspace = openInTemp()
+        val store = LoadSetStore(File(workspace, "load-sets").absolutePath)
+        val set = assertNotNull(store.load("fx-order-book"), "the shipped load set did not come across")
+
+        assertEquals("FX order book", set.label)
+        assertEquals(listOf("Order", "Unknown", "Status"), set.phases.map { it.label })
+        assertEquals(mapOf("run" to "\${uuid:4}"), set.seed, "one seed, rendered once and frozen for the set")
+        assertEquals(OnFailure.STOP, set.onFailure, "there is no point asking after orders that were never placed")
+        assertEquals(FixConnectionConfig.MessageStoreKind.MEMORY, set.storeAndLog?.store)
+        assertEquals(FixConnectionConfig.MessageLogKind.NONE, set.storeAndLog?.log)
+
+        assertEquals(mapOf("orderId" to 37), set.phases[0].capture, "phase 3 reads what phase 1 keeps")
+        assertEquals(listOf("8", "9", "8"), set.phases.map { it.match?.replyType })
+        // Message n goes to lane (n - 1) % lanes, so every phase counting from 1 puts index n on the same
+        // lane in all three. That is what makes the status request reach the session whose book holds the
+        // order: the venue keeps one book per counterparty, and a lane is a counterparty.
+        assertEquals(listOf(1, 1, 1), set.phases.map { it.indexFrom })
+
+        val resolver = exampleResolver(workspace)
+        assertEquals(
+            emptyList(),
+            set.problems(resolve = resolver, surface = LoadPlan.Surface.CLI),
+            "the set this example ships would be refused before it ran",
+        )
+        val planned = set.plan(resolver, emptyMap(), id = "example-check")
+        assertEquals(3, planned.phases.size)
+        assertEquals(
+            listOf(250L, 2_000L, 250L),
+            planned.phases.map { it.requested },
+            "the phases the venue answers natively are the ones it can be asked at volume",
+        )
     }
 
     @Test

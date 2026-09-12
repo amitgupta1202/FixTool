@@ -1,12 +1,13 @@
 {
   "id": "fx-venue",
   "displayName": "FX Venue",
-  "summary": "An FX venue, two clients, message templates and two scenarios that run green.",
+  "summary": "An FX venue, two clients, a load-ready client, message templates, two scenarios that run green, and a three-phase load set that fills its order book and then reads it back.",
   "defaultWorkspaceName": "FX Venue",
   "files": [
     "connection_profiles.json",
     "saved_messages.json",
     "scenarios/eur-usd-order-lifecycle--demo-sce.json",
-    "scenarios/session-round-trip-probe--demo-sce.json"
+    "scenarios/session-round-trip-probe--demo-sce.json",
+    "load-sets/fx-order-book.json"
   ]
 }

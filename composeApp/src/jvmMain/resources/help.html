@@ -353,7 +353,8 @@
     constraint; open any of them and the word is on the card.</p>
 
     <h4>Demo Message Templates</h4>
-    <p>Eleven templates are installed, ready to send from the message editor:</p>
+    <p>Eleven templates are installed for the two clients, ready to send from the message editor, and
+    three more belong to the <a href="#fx-load">FX Load Client</a>:</p>
     <table>
         <tr><th>Template</th><th>Type</th><th>Notes</th></tr>
         <tr><td>FX Market Buy / Sell EUR/USD</td><td>35=D</td><td>Filled at the venue's price</td></tr>
@@ -390,6 +391,62 @@
         <strong>Try this:</strong> run the scenario green, then open a venue rule and change the fill
         price. Run it again &mdash; it goes red, and the reconcile view shows exactly which field moved
         and what it moved to.
+    </div>
+
+    <h4 id="fx-load">The Load Client, and What This Venue Can Be Asked</h4>
+    <p>The <strong>FX Load Client</strong> is a profile of five sessions, <code>FXLG1</code> to
+    <code>FXLG5</code>, on a <strong>memory store</strong> with <strong>no message log</strong> and Reset on
+    Logon &mdash; the same setting the <a href="#rfq-load">RFQ load client</a> carries, and the one
+    <a href="#store-and-log">Store and log</a> describes. The example ships a three-phase
+    <a href="#load-sets">load set</a>, <strong>FX order book</strong>, in <strong>Run &rarr; Load
+    sets</strong> or from the command line:</p>
+
+    <div class="example"><code>fixtool load --set fx-order-book --workspace "FX Venue"</code></div>
+
+    <table>
+        <tr><th>Phase</th><th>Sends</th><th>Matched on</th><th>Keeps</th></tr>
+        <tr><td>1. Order</td><td>250 market orders, <code>11=FXO-&lt;run&gt;-&lt;n&gt;</code></td>
+            <td>ClOrdID to ClOrdID, reply <code>35=8</code></td>
+            <td><code>orderId</code> from 37, per message</td></tr>
+        <tr><td>2. Unknown</td><td>2,000 cancels for orders nothing ever placed</td>
+            <td>ClOrdID to ClOrdID, reply <code>35=9</code></td><td>nothing</td></tr>
+        <tr><td>3. Status</td><td>250 status requests naming phase one's orders, at
+            <code>37=${orderId}</code></td>
+            <td>ClOrdID to ClOrdID, reply <code>35=8</code></td><td>nothing</td></tr>
+    </table>
+
+    <p>All three phases read the venue's <a href="#order-book">order book</a>, and that is what the set is
+    for. Phase two is refused with <strong>102=1 Unknown order</strong> because the book has never heard of
+    those ids; phase three is answered out of the book with the order's real quantities. The ClOrdID is
+    ours, so phase three can name an order phase one placed without being told; the <strong>OrderID is the
+    venue's</strong>, so it is <code>capture</code>d off the ExecutionReport that opened the order, exactly
+    as the RFQ set captures a QuoteID. Message <em>n</em> goes to lane <code>(n&nbsp;-&nbsp;1) % lanes</code>
+    in every phase, which is what puts the status request on the same session that placed the order &mdash;
+    the venue keeps one book per counterparty.</p>
+
+    <div class="warning">
+        <strong>The phase sizes are this venue's ceiling, not a recommendation &mdash; and phase two's round
+        trip is the proof.</strong> This venue draws its fill price with a <strong>Kotlin expression</strong>,
+        and the script engine compiles one expression at a time for the whole process at about 60&nbsp;ms
+        each, so <em>every order this venue accepts</em> costs its dispatch thread that much. A cancel it
+        refuses and a status it reads out of the book are pure substitution and cost microseconds. You can
+        read both facts straight off the report: run phase two on its own and its 2,000 refusals are
+        answered in about <strong>150&nbsp;ms</strong>; run it where it sits, behind 250 orders, and the same
+        2,000 refusals take about <strong>15&nbsp;seconds</strong>, because they are queued behind 250 fills
+        being compiled one at a time. That is the whole lesson of the set, and it is why the phase that
+        makes the venue price something is the small one. <strong>Do not read a throughput number off this
+        venue.</strong> The number you want comes from the <a href="#rfq-load">RFQ venue</a>, whose replies
+        are all generators, or from pointing the load client at a real venue.
+    </div>
+
+    <div class="warning">
+        <strong>Not there? Your copy is older than the set.</strong> Opening an example
+        <a href="#workspaces">happens once</a>, so a folder you opened before this release has no
+        <code>load-sets/</code> directory and no FX Load Client, and nothing in the app mentions either.
+        <strong>Settings &rarr; Storage &rarr; Reset</strong> lays the shipped example down again and brings
+        both with it. It <em>renames</em> your current copy to
+        <code>fx-venue-before-reset-&lt;date&gt;</code> rather than deleting it, so an edited rule or a
+        captured scenario is still there to copy across.
     </div>
 
     <h3 id="rfq-venue">The RFQ Venue</h3>
@@ -553,8 +610,9 @@
     rate is a fact about the acceptor. The load dialog and <code>POST /load</code> say so in their far-end
     notice. This venue's replies are all <strong>generators</strong>, so that ceiling is the socket and
     the panes: the drawn prices and the thirty-second validity render natively, in microseconds. The FX venue's prices are Kotlin expressions, compiled per quote at about 60&nbsp;ms each, so it
-    answers roughly seventeen quotes a second and is not the example to run load against. Point the load
-    client at a real RFQ venue and the same set measures that venue instead.</p>
+    answers roughly seventeen quotes a second. Its own <a href="#fx-load">load set</a> is sized for that
+    and reads its order book rather than measuring throughput; this is the venue to measure against. Point
+    the load client at a real RFQ venue and the same set measures that venue instead.</p>
 
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This

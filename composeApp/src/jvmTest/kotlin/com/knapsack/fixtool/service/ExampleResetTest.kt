@@ -84,7 +84,7 @@ class ExampleResetTest {
 
         assertEquals(workspace, reset.workspace, "the fresh copy takes the folder the broken one had")
         val profiles = ConnectionProfileService(customPath = File(reset.workspace, "connection_profiles.json").absolutePath)
-        assertEquals(3, profiles.loadProfiles().size, "the shipped profiles are back")
+        assertEquals(4, profiles.loadProfiles().size, "the shipped profiles are back")
     }
 
     /** Reset must never be the button that quietly ate an afternoon's rule edits. */

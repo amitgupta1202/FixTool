@@ -372,6 +372,22 @@
             },
             "createdAt": 0,
             "lastUsedAt": 0
+        },
+        {
+            "id": "demo-profile-FX_LOAD",
+            "name": "FX Load Client",
+            "config": {
+                "senderCompID": "FXLG{n}",
+                "targetCompID": "DEMO_SERVER",
+                "sessionCount": 5,
+                "port": "19876",
+                "reconnectInterval": "5",
+                "resetOnLogon": true,
+                "messageStore": "MEMORY",
+                "messageLog": "NONE"
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
         }
     ]
 }

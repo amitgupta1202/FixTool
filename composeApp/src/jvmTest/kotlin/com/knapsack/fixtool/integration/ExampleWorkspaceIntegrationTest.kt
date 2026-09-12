@@ -36,6 +36,7 @@ class ExampleWorkspaceIntegrationTest {
 
     private val venueCompId = "DEMO_SERVER"
     private val clientCompIds = listOf("DEMO_CLIENT1", "DEMO_CLIENT2")
+    private val laneCompIds = (1..5).map { "FXLG$it" }
 
     @Before
     fun setup() {
@@ -71,7 +72,7 @@ class ExampleWorkspaceIntegrationTest {
     }
 
     private fun sessionIds(): List<quickfix.SessionID> =
-        clientCompIds.flatMap { client ->
+        (clientCompIds + laneCompIds).flatMap { client ->
             listOf(
                 quickfix.SessionID("FIX.4.4", client, venueCompId),
                 quickfix.SessionID("FIX.4.4", venueCompId, client),
@@ -109,13 +110,15 @@ class ExampleWorkspaceIntegrationTest {
         return workspace
     }
 
-    private fun loggedOnClients() =
+    private fun loggedOnClients() = loggedOn("Demo Client")
+
+    private fun loggedOn(prefix: String) =
         viewModel.sessions.count { session ->
-            session.title.startsWith("Demo Client") && session.connectionState.value == FixConnectionState.LOGGED_ON
+            session.title.startsWith(prefix) && session.connectionState.value == FixConnectionState.LOGGED_ON
         }
 
     @Test
-    fun `opening the example gives a workspace holding the venue, its clients, templates and scenarios`() {
+    fun `opening the example gives a workspace holding the venue, its clients, the load client and the scenarios`() {
         val workspace =
             ExampleWorkspaces
                 .open(ExampleWorkspaces.FX_VENUE, "FX Venue", location)
@@ -123,7 +126,7 @@ class ExampleWorkspaceIntegrationTest {
         viewModel.openWorkspace(workspace).getOrThrow()
 
         assertEquals(
-            listOf("Demo Client 1", "Demo Client 2", "FX Demo Venue"),
+            listOf("Demo Client 1", "Demo Client 2", "FX Demo Venue", "FX Load Client"),
             viewModel.connectionProfiles.map { it.name }.sorted(),
         )
         assertNotNull(viewModel.scenarioService.load("demo-scenario-eurusd-lifecycle"))
@@ -133,24 +136,30 @@ class ExampleWorkspaceIntegrationTest {
     }
 
     @Test
-    fun `the venue comes up and both clients reach it`() {
-        openAndConnect()
+    fun `the venue comes up, both clients and all five load lanes reach it, and the lanes leave no store`() {
+        val workspace = openAndConnect()
 
         assertTrue(
-            awaitCondition(20_000) { loggedOnClients() == clientCompIds.size },
-            "both clients should log on to the venue; sessions are " +
+            awaitCondition(30_000) {
+                loggedOnClients() == clientCompIds.size && loggedOn("FX Load Client") == laneCompIds.size
+            },
+            "both clients and five lanes should log on to the venue; sessions are " +
                 viewModel.sessions.map { "${it.title}=${it.connectionState.value}" },
         )
         assertTrue(
             viewModel.sessions.any { it.title == "FX Demo Venue" },
             "the venue should have a session of its own",
         )
-        clientCompIds.forEach { compId ->
+        (clientCompIds + laneCompIds).forEach { compId ->
             assertTrue(
                 awaitCondition(10_000) { viewModel.sessions.any { it.title == "FX Demo Venue ← $compId" } },
                 "the venue should have opened a pane for $compId",
             )
         }
+
+        val store = File(workspace, "store")
+        val laneFiles = store.listFiles().orEmpty().map { it.name }.filter { it.startsWith("FIX.4.4-FXLG") }
+        assertEquals(emptyList(), laneFiles, "a lane on a memory store wrote a store file")
     }
 
     /** **The bundled scenario is green, twice.** The second run is the assertion; see the class comment. */
@@ -216,7 +225,7 @@ class ExampleWorkspaceIntegrationTest {
 
         viewModel.openWorkspace(workspace).getOrThrow()
 
-        assertEquals(3, viewModel.connectionProfiles.size)
+        assertEquals(4, viewModel.connectionProfiles.size)
         assertNotNull(viewModel.scenarioService.load("demo-scenario-eurusd-lifecycle"))
         assertTrue(viewModel.recentWorkspaces.contains(workspace), "an opened workspace should be offered again")
     }

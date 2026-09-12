@@ -66,8 +66,8 @@ class LoadCompareTest {
      */
     @Test
     fun `a set against a set is one chip per phase pair, and no counterpart when one has more`() {
-        viewModel.loadRecordStore.write(set("yesterday", unmatchedInPhaseTwo = 4))
-        viewModel.loadRecordStore.write(set("today", unmatchedInPhaseTwo = 0, phases = 2))
+        viewModel.stageLoadRecord(set("yesterday", unmatchedInPhaseTwo = 4))
+        viewModel.stageLoadRecord(set("today", unmatchedInPhaseTwo = 0, phases = 2))
 
         composeTestRule.setContent {
             LoadCompareDocument(
@@ -90,8 +90,8 @@ class LoadCompareTest {
 
     @Test
     fun `two one-phase records draw no rail, which is today's Compare exactly`() {
-        viewModel.loadRecordStore.write(LoadFixtures.burstReport(unmatched = 0).copy(id = "before", startedAt = 1_000))
-        viewModel.loadRecordStore.write(LoadFixtures.burstReport(unmatched = 4).copy(id = "after", startedAt = 2_000))
+        viewModel.stageLoadRecord(LoadFixtures.burstReport(unmatched = 0).copy(id = "before", startedAt = 1_000))
+        viewModel.stageLoadRecord(LoadFixtures.burstReport(unmatched = 4).copy(id = "after", startedAt = 2_000))
 
         composeTestRule.setContent {
             LoadCompareDocument(
@@ -108,7 +108,7 @@ class LoadCompareTest {
     @Test
     fun `the document header opens Compare over this run`() {
         val report = LoadFixtures.burstReport(unmatched = 0)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
         composeTestRule.onNodeWithTag("load-compare").assertIsDisplayed().performClick()
@@ -118,10 +118,37 @@ class LoadCompareTest {
         assert(docs.map { it.afterId } == listOf(report.id)) { docs.toString() }
     }
 
+    /**
+     * **A run that finishes while Compare is open joins its picker, with nothing reopened.**
+     *
+     * The list was `remember(doc.id) { loadRecordStore.listRecords() }` — whatever was on disk the moment
+     * the tab opened. So the run you fired *because* the comparison asked for one could not be compared
+     * against until the tab had been closed and opened again, and a workspace opened behind it left the
+     * previous box's runs in the menu. The records are the ViewModel's state now, and the open menu follows
+     * them: this asserts against a dropdown that is already showing, so nothing but the data has moved.
+     */
+    @Test
+    fun `a run that finishes while Compare is open joins its picker`() {
+        viewModel.stageLoadRecord(LoadFixtures.burstReport(unmatched = 4).copy(id = "the-one-open", startedAt = 2_000))
+
+        composeTestRule.setContent {
+            LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare("the-one-open"), Modifier.fillMaxSize())
+        }
+        composeTestRule.onNodeWithTag("compare-pick-other").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("no other run on disk").assertIsDisplayed()
+
+        viewModel.stageLoadRecord(LoadFixtures.burstReport(unmatched = 0).copy(id = "fired-since", startedAt = 3_000))
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("compare-other-fired-since").assertIsDisplayed()
+        composeTestRule.onNodeWithText("no other run on disk").assertDoesNotExist()
+    }
+
     @Test
     fun `Compare opens asking for the other run rather than showing a delta against nothing`() {
         val report = LoadFixtures.burstReport(unmatched = 0)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare(report.id), Modifier.fillMaxSize()) }
 
@@ -137,8 +164,8 @@ class LoadCompareTest {
             LoadFixtures
                 .burstReport(unmatched = 0)
                 .let { it.copy(id = "${it.id}-rfq", match = LoadMatch(131, 131, "S"), template = it.template.copy(msgType = "R")) }
-        viewModel.loadRecordStore.write(order)
-        viewModel.loadRecordStore.write(rfq)
+        viewModel.stageLoadRecord(order)
+        viewModel.stageLoadRecord(rfq)
 
         composeTestRule.setContent { LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare(order.id, rfq.id), Modifier.fillMaxSize()) }
 
@@ -152,8 +179,8 @@ class LoadCompareTest {
     fun `two runs of the same exchange are subtracted`() {
         val before = LoadFixtures.burstReport(unmatched = 4)
         val after = LoadFixtures.burstReport(unmatched = 0).let { it.copy(id = "${it.id}-after") }
-        viewModel.loadRecordStore.write(before)
-        viewModel.loadRecordStore.write(after)
+        viewModel.stageLoadRecord(before)
+        viewModel.stageLoadRecord(after)
 
         composeTestRule.setContent { LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare(after.id, before.id), Modifier.fillMaxSize()) }
 
@@ -185,8 +212,8 @@ class LoadCompareTest {
                         },
                 )
             }
-        viewModel.loadRecordStore.write(yesterday)
-        viewModel.loadRecordStore.write(today)
+        viewModel.stageLoadRecord(yesterday)
+        viewModel.stageLoadRecord(today)
 
         composeTestRule.setContent {
             LoadCompareDocument(
@@ -202,8 +229,8 @@ class LoadCompareTest {
     /** Every pair comparable, and the badge counts them rather than saying COMPARED about one. */
     @Test
     fun `a set whose every pair is comparable says how many pairs it compared`() {
-        viewModel.loadRecordStore.write(set("yesterday", unmatchedInPhaseTwo = 4))
-        viewModel.loadRecordStore.write(set("today", unmatchedInPhaseTwo = 0, phases = 2))
+        viewModel.stageLoadRecord(set("yesterday", unmatchedInPhaseTwo = 4))
+        viewModel.stageLoadRecord(set("today", unmatchedInPhaseTwo = 0, phases = 2))
 
         composeTestRule.setContent {
             LoadCompareDocument(
@@ -223,8 +250,8 @@ class LoadCompareTest {
      */
     @Test
     fun `Run this set again refuses a set that came from no saved file`() {
-        viewModel.loadRecordStore.write(set("after", unmatchedInPhaseTwo = 4).copy(set = null))
-        viewModel.loadRecordStore.write(set("before", unmatchedInPhaseTwo = 0).copy(set = null))
+        viewModel.stageLoadRecord(set("after", unmatchedInPhaseTwo = 4).copy(set = null))
+        viewModel.stageLoadRecord(set("before", unmatchedInPhaseTwo = 0).copy(set = null))
 
         composeTestRule.setContent {
             LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare("after", "before"), Modifier.fillMaxSize())
@@ -239,8 +266,8 @@ class LoadCompareTest {
     /** The set had a file, so the refusal is the set's own and not a replan of one phase. */
     @Test
     fun `Run this set again goes to the saved set by name`() {
-        viewModel.loadRecordStore.write(set("after", unmatchedInPhaseTwo = 4))
-        viewModel.loadRecordStore.write(set("before", unmatchedInPhaseTwo = 0))
+        viewModel.stageLoadRecord(set("after", unmatchedInPhaseTwo = 4))
+        viewModel.stageLoadRecord(set("before", unmatchedInPhaseTwo = 0))
 
         composeTestRule.setContent {
             LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare("after", "before"), Modifier.fillMaxSize())
@@ -259,7 +286,7 @@ class LoadCompareTest {
     @Test
     fun `Run this plan again refuses when the profile the plan names is gone`() {
         val report = LoadFixtures.burstReport(unmatched = 0)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadCompareDocument(viewModel, ScenarioDoc.LoadCompare(report.id), Modifier.fillMaxSize()) }
         composeTestRule.onNodeWithTag("compare-rerun").performClick()

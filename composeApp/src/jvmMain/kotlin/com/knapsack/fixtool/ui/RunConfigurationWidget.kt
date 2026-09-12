@@ -412,14 +412,19 @@ fun ToolbarRunConfiguration(
                 .merge(configurations.setRecords, configurations.loadRecords)
                 .take(RECENT_RUNS)
         }
+    // **Keyed on the profiles themselves, not on how many there are.** A workspace that swaps three profiles
+    // for three others moves no count, so the lane sentence and the issuer count went on describing the box
+    // before it — the same stale-key bug as the lists above, one step smaller. A snapshot copy of the state
+    // list keys on its contents, so any edit to a profile moves it too.
+    val profiles = viewModel.connectionProfiles.toList()
     // Counted for a load run, not for a fan-out: every row this menu gates on it is a load, and a load
     // issues from one lane as happily as from fifty.
-    val lanes = remember(menuOpen, sessionStates, viewModel.connectionProfiles.size) { Lanes.forLoad(viewModel) }
+    val lanes = remember(menuOpen, sessionStates, profiles) { Lanes.forLoad(viewModel) }
     // What "Load run…" needs to be worth opening: a profile that could issue, whether or not it is up.
     val issuers =
-        remember(menuOpen, viewModel.connectionProfiles.size) {
+        remember(menuOpen, profiles) {
             val initiator = FixConnectionConfig.ConnectionType.INITIATOR
-            viewModel.connectionProfiles.count { it.config.connectionType == initiator }
+            profiles.count { it.config.connectionType == initiator }
         }
 
     val selectedKey = layout.selectedRunConfiguration

@@ -49,10 +49,15 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
  */
 @Composable
 fun RunSetDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.RunSetView, modifier: Modifier = Modifier) {
-    // Re-read per focused entry rather than held: the directory is the state, and a tab that cached it
-    // would go stale the moment the set it is watching wrote its next entry.
+    // **The live set while it is the one running, and otherwise the record as the ViewModel holds it.**
+    // The directory is still the state — nothing is cached here — but the read is the ViewModel's, because
+    // `remember(doc.setId, active)` moved on neither a workspace opening nor a prune, so a tab left open
+    // across a workspace switch went on drawing the previous box's set. The live object comes first: the
+    // records list is refreshed when a run starts and when it finishes, so mid-run it is the progress in
+    // `activeRunSet` that has this set's latest entry.
     val active by viewModel.activeRunSet.collectAsState()
-    val set = remember(doc.setId, active) { viewModel.runRecordStore.readSet(doc.setId) }
+    val configurations by viewModel.runConfigurations.collectAsState()
+    val set = if (active?.id == doc.setId) active else configurations.setRecord(doc.setId)
     if (set == null) {
         Text(
             "This run set is no longer on disk — the runs directory keeps the most recent sets, and this one " +

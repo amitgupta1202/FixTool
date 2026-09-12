@@ -20,6 +20,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +51,12 @@ import java.time.format.DateTimeFormatter
  */
 @Composable
 fun LoadCompareDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadCompare, modifier: Modifier = Modifier) {
-    val records = remember(doc.id) { viewModel.loadRecordStore.listRecords() }
+    // **The records are the ViewModel's state, not a read remembered here.** Keyed on `doc.id`, the list was
+    // whatever was on disk the moment the tab opened: a run that finished afterwards never joined it, so the
+    // picker could not offer the run you had just fired, and a workspace opened behind an open tab left the
+    // previous box's runs in it.
+    val configurations by viewModel.runConfigurations.collectAsState()
+    val records = configurations.loadRecords
     val after = records.firstOrNull { it.id == doc.afterId }
     var beforeId by remember(doc.id) { mutableStateOf(doc.beforeId) }
     var pair by remember(doc.id, beforeId) { mutableStateOf(0) }

@@ -100,7 +100,7 @@ class LoadSetDocumentTest {
      * re-renders the way it does in the app.
      */
     private fun show(record: LoadRecord) {
-        viewModel.loadRecordStore.write(record)
+        viewModel.stageLoadRecord(record)
         viewModel.openLoadRun(record.id)
         composeTestRule.setContent {
             val docs by viewModel.openDocuments.collectAsState()
@@ -373,7 +373,7 @@ class LoadSetDocumentTest {
     @Test
     fun `a one-phase record still draws the single-run document`() {
         val report = LoadFixtures.burstReport(unmatched = 0)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
 

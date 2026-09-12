@@ -23,6 +23,7 @@ import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.service.RunSetStats
+import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.service.load.StampMatcher
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -46,6 +47,13 @@ class LoadRunDocumentTest {
     private lateinit var viewModel: FixMessageViewModel
     private lateinit var testDir: File
 
+    /**
+     * Put back in [tearDown], because one test here opens a workspace and that moves the global. Captured
+     * rather than replaced: the tests that never open one keep resolving their stores through
+     * `testSettingsDir`, which only wins while the installation is still the installation.
+     */
+    private lateinit var previousPaths: WorkspacePaths
+
     @Before
     fun setup() {
         testDir =
@@ -53,18 +61,43 @@ class LoadRunDocumentTest {
                 delete()
                 mkdirs()
             }
+        previousPaths = WorkspacePaths.current
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
     @After
     fun tearDown() {
+        WorkspacePaths.use(previousPaths)
         testDir.deleteRecursively()
+    }
+
+    /**
+     * **A document left open across a workspace switch stops drawing the previous workspace's run.**
+     *
+     * The record was read inside `remember(doc.loadId, live)`, and neither key moves when the stores are
+     * re-pointed at another directory — so the tab went on showing a run that is not in the box you are
+     * now looking at, with its figures, its verdict and its "Run this plan again" all live. The record is
+     * the ViewModel's state now, and this workspace has no loads directory at all, so the document says so.
+     */
+    @Test
+    fun `a document left open across a workspace switch stops drawing the previous workspace's run`() {
+        val report = LoadFixtures.burstReport(unmatched = 4)
+        viewModel.stageLoadRecord(report)
+
+        composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
+        composeTestRule.onNodeWithTag("load-verdict").assertTextContains("UNANSWERED  4 of 4,000")
+
+        viewModel.openWorkspace(File(testDir, "workspaces/somewhere-else").apply { mkdirs() }).getOrThrow()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("load-verdict").assertTextContains("NO RECORD")
+        composeTestRule.onNodeWithText("This load run is no longer on disk.").assertIsDisplayed()
     }
 
     @Test
     fun `a finished report renders its counts, its unanswered ids and its verdict`() {
         val report = LoadFixtures.burstReport(unmatched = 4)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
 
@@ -90,7 +123,7 @@ class LoadRunDocumentTest {
     @Test
     fun `each figure carries what it means, on its label`() {
         val report = LoadFixtures.burstReport(unmatched = 4)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
 
@@ -133,7 +166,7 @@ class LoadRunDocumentTest {
                             )
                         },
                 )
-            viewModel.loadRecordStore.write(report)
+            viewModel.stageLoadRecord(report)
             composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
             composeTestRule.waitForIdle()
             return composeTestRule
@@ -154,7 +187,7 @@ class LoadRunDocumentTest {
     @Test
     fun `the three judgements are named in the footer`() {
         val report = LoadFixtures.burstReport(unmatched = 4)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
 
@@ -174,7 +207,7 @@ class LoadRunDocumentTest {
     @Test
     fun `a reactive phase is drawn as reactive rather than as a burst`() {
         val report = LoadFixtures.burstReport(unmatched = 0).copy(shape = LoadShape.Triggered())
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
 
@@ -186,7 +219,7 @@ class LoadRunDocumentTest {
     @Test
     fun `the two counts that decide the verdict are the figures, and the five that do not are a strip`() {
         val report = LoadFixtures.burstReport(unmatched = 4)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(report.id), Modifier.fillMaxSize()) }
 
@@ -281,7 +314,7 @@ class LoadRunDocumentTest {
     @Test
     fun `a wide pane keeps an overlong wire to one line, with the open link beside it`() {
         val report = LoadFixtures.burstReport(unmatched = 4)
-        viewModel.loadRecordStore.write(report)
+        viewModel.stageLoadRecord(report)
         viewModel.loadRecordStore.writeEvidence(
             report.id,
             LoadReport.Evidence.forPhase(1),
@@ -446,7 +479,7 @@ class LoadRunDocumentTest {
     @Test
     fun `a stored report that claims to be running reads as stopped, because nothing is running it`() {
         val abandoned = LoadFixtures.burstReport(unmatched = 590, status = LoadStatus.RUNNING).copy(finishedAt = null)
-        viewModel.loadRecordStore.write(abandoned)
+        viewModel.stageLoadRecord(abandoned)
 
         composeTestRule.setContent { LoadRunDocument(viewModel, ScenarioDoc.LoadRunView(abandoned.id), Modifier.fillMaxSize()) }
 

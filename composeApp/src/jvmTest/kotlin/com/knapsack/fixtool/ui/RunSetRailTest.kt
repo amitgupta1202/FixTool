@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.RunEntry
@@ -26,6 +27,7 @@ import com.knapsack.fixtool.service.RunRecord
 import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
+import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.time.LocalDateTime
 import kotlin.test.assertSame
@@ -54,6 +56,13 @@ class RunSetRailTest {
     private lateinit var viewModel: FixMessageViewModel
     private lateinit var testDir: File
 
+    /**
+     * Put back in [tearDown], because one test here opens a workspace and that moves the global. Captured
+     * rather than replaced: the tests that never open one keep resolving their stores through
+     * `testSettingsDir`, which only wins while the installation is still the installation.
+     */
+    private lateinit var previousPaths: WorkspacePaths
+
     @Before
     fun setup() {
         testDir =
@@ -61,11 +70,13 @@ class RunSetRailTest {
                 delete()
                 mkdirs()
             }
+        previousPaths = WorkspacePaths.current
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
     @After
     fun tearDown() {
+        WorkspacePaths.use(previousPaths)
         testDir.deleteRecursively()
     }
 
@@ -240,7 +251,7 @@ class RunSetRailTest {
                 )
             }
         viewModel.runRecordStore.begin(set)
-        viewModel.runRecordStore.writeSet(set)
+        viewModel.stageRunSet(set)
         viewModel.focusRunSet(set.id)
 
         composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
@@ -367,6 +378,37 @@ class RunSetRailTest {
         )
     }
 
+    /**
+     * **A run set document left open across a workspace switch stops drawing the previous workspace's set.**
+     *
+     * The set was read inside `remember(doc.setId, active)`, and neither key moves when the stores are
+     * re-pointed at another directory — so the tab went on listing the entries, verdicts and messages of a
+     * set that is not in the box you are now looking at. It comes off the ViewModel's records now, and the
+     * live object is preferred only while it is the set running, which is what keeps a run in flight
+     * repainting per entry.
+     */
+    @Test
+    fun `a run set document left open across a workspace switch stops drawing the previous workspace's set`() {
+        val scenario = scenario("book-a-trade")
+        viewModel.scenarioService.save(scenario)
+        viewModel.refreshScenarios()
+        val set = writeFinishedSet(scenario, withMessages = true)
+
+        composeTestRule.setContent {
+            RunSetDocument(viewModel, ScenarioDoc.RunSetView(set.id, entry = 1), modifier = Modifier.fillMaxSize())
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("run-entry-grid").assertIsDisplayed()
+
+        // `focusRunSet` is never called here, so nothing is holding this set as the live one: the document
+        // is drawing it from the records, which is the read the switch has to reach.
+        viewModel.openWorkspace(File(testDir, "workspaces/somewhere-else").apply { mkdirs() }).getOrThrow()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-set-document").assertDoesNotExist()
+        composeTestRule.onNodeWithText("no longer on disk", substring = true).assertIsDisplayed()
+    }
+
     // ----------------------------------------------------------------- fixtures
 
     /** A set as it looks the morning after: on disk, one entry green, one red, the app restarted since. */
@@ -402,7 +444,7 @@ class RunSetRailTest {
                     ),
             )
         viewModel.runRecordStore.begin(set)
-        viewModel.runRecordStore.writeSet(set)
+        viewModel.stageRunSet(set)
         listOf(true, false).forEachIndexed { i, passed ->
             viewModel.runRecordStore.write(
                 RunRecord(

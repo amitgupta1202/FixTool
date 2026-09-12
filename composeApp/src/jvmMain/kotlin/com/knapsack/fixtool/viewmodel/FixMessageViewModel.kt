@@ -2443,7 +2443,19 @@ class FixMessageViewModel(
         val runSets: List<SavedRunSet> = emptyList(),
         val loadRecords: List<LoadRecord> = emptyList(),
         val setRecords: List<RunSet> = emptyList(),
-    )
+    ) {
+        /**
+         * One run by id, which is how a document asks for the record it was opened on.
+         *
+         * The list is what [LoadRecordStore.listRecords] read, and that is the same whole record
+         * [LoadRecordStore.readRecord] returns — so a document that looks it up here gets what it used to
+         * read from disk itself, and follows the workspace for free.
+         */
+        fun loadRecord(id: String): LoadRecord? = loadRecords.firstOrNull { it.id == id }
+
+        /** One run set by id, for the same reason. */
+        fun setRecord(id: String): RunSet? = setRecords.firstOrNull { it.id == id }
+    }
 
     private val _runConfigurations = MutableStateFlow(RunConfigurations())
 

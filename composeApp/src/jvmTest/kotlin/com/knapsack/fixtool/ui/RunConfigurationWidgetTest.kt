@@ -197,6 +197,51 @@ class RunConfigurationWidgetTest {
     }
 
     /**
+     * **A workspace that swaps one profile for another refreshes the lane sentence and the issuer count.**
+     *
+     * The last stale key in the widget, and the subtlest: the lane sentence and the issuer count were
+     * `remember(…, connectionProfiles.size)`, so a workspace with the same *number* of profiles as the one
+     * before it moved no key at all. Two boxes with one profile each is the smallest case, and it is a
+     * common one — a dev set and a UAT set that differ only in where they point.
+     *
+     * The assertion is `Load run…` being offered or refused, because that is the user-visible end of the
+     * count: it needs a profile that could *issue*, so an acceptor-only workspace has to grey it out. The
+     * lane sentence itself needs sessions up, which a test has none of.
+     */
+    @Test
+    fun `a workspace with the same number of profiles still recounts them`() {
+        val workspace = File(testDir, "workspaces/acceptor-only").apply { mkdirs() }
+        // Written through the open workspace so the file lands in it, which is what a switch has to find.
+        viewModel.openWorkspace(workspace).getOrThrow()
+        viewModel.saveConnectionProfile(
+            FixConnectionProfile(
+                id = "venue",
+                name = "Venue",
+                config =
+                    FixConnectionConfig(
+                        senderCompID = "V",
+                        targetCompID = "LG",
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                    ),
+            ),
+        )
+        viewModel.closeWorkspace()
+        viewModel.saveConnectionProfile(
+            FixConnectionProfile(id = "lg", name = "LoadGen", config = FixConnectionConfig(senderCompID = "LG", targetCompID = "V")),
+        )
+
+        openTheMenu()
+        composeTestRule.onNodeWithTag("rail-run-load").assertIsEnabled()
+
+        viewModel.openWorkspace(workspace).getOrThrow()
+        composeTestRule.waitForIdle()
+
+        // One profile before, one profile after, and nothing to issue from: the row has to go dark.
+        assertEquals(1, viewModel.connectionProfiles.size, "the swap is the point — one profile each side")
+        composeTestRule.onNodeWithTag("rail-run-load").assertIsNotEnabled()
+    }
+
+    /**
      * **A row aims the ▶, it does not press it.** The whole point of the widget: a menu of rows that each
      * ran something meant the window said nothing about what would run next, and a click on the wrong row
      * cost a run rather than a correction.

@@ -91,8 +91,11 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun LoadRunDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.LoadRunView, modifier: Modifier = Modifier) {
     val live by viewModel.activeLoadRun.collectAsState()
-    val record =
-        if (live?.id == doc.loadId) live else remember(doc.loadId, live) { viewModel.loadRecordStore.readRecord(doc.loadId) }
+    // The live run when this document is showing it, and otherwise the record as the ViewModel holds it —
+    // never a read remembered here. `remember(doc.loadId, live)` moved on neither a workspace opening nor a
+    // prune, so a document left open across a workspace switch went on drawing the previous box's run.
+    val configurations by viewModel.runConfigurations.collectAsState()
+    val record = if (live?.id == doc.loadId) live else configurations.loadRecord(doc.loadId)
     if (record == null) {
         PrunedRecord(viewModel.loadRecordStore.directory, modifier)
         return

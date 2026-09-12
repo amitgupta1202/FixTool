@@ -41,6 +41,9 @@ object ExampleWorkspaces {
     /** The bundled crypto venue: 24/7, and the one that refuses rather than crosses a post-only order. */
     const val CRYPTO_VENUE = "crypto-venue"
 
+    /** The bundled fixed-income RFQ desk: the same negotiation as the FX one, in a bond desk's vocabulary. */
+    const val FI_RFQ_VENUE = "fi-rfq-venue"
+
     /**
      * Written into a copy, naming the example it came from.
      *

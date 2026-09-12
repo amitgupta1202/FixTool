@@ -3,6 +3,7 @@
     "fx-venue",
     "rfq-venue",
     "equity-venue",
-    "crypto-venue"
+    "crypto-venue",
+    "fi-rfq-venue"
   ]
 }

@@ -1,0 +1,586 @@
+{
+    "messages": [
+        {
+            "id": "fi-rfq-request-10y",
+            "name": "FI RFQ Request 10y, two-way",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 11/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF7"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-request-10y-buy",
+            "name": "FI RFQ Request 10y, buying",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 11/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF7"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-request-10y-sell",
+            "name": "FI RFQ Request 10y, selling",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 11/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF7"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-request-5y",
+            "name": "FI RFQ Request 5y, two-way",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4 09/30/31"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CME0"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "25000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-lift",
+            "name": "FI RFQ Lift the offer",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "1"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                },
+                {
+                    "tag": "44",
+                    "value": "${incoming[\"S\"].valueOfTag(133)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-hit",
+            "name": "FI RFQ Hit the bid",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "1"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                },
+                {
+                    "tag": "44",
+                    "value": "${incoming[\"S\"].valueOfTag(132)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-pass",
+            "name": "FI RFQ Pass",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "6"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-cover",
+            "name": "FI RFQ Cover \u2014 you were second",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "4"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-done-away",
+            "name": "FI RFQ Done away \u2014 traded elsewhere",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "5"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-counter",
+            "name": "FI RFQ Counter the level",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "2"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "44",
+                    "value": "98.400000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "fi-rfq-off-the-run",
+            "name": "FI RFQ Request an issue off the run",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 9.875 11/15/45"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "fi-rfq-no-size",
+            "name": "FI RFQ Request with no size",
+            "userTags": [
+                "fi-rfq-profile-CLIENT1",
+                "fi-rfq-profile-CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 11/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF7"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": false
+        },
+        {
+            "id": "fi-rfq-load-request",
+            "name": "FI RFQ Load QuoteRequest",
+            "userTags": [
+                "fi-rfq-profile-LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "FIQ-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 11/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF7"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-load-lift",
+            "name": "FI RFQ Load Lift",
+            "userTags": [
+                "fi-rfq-profile-LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "FIL-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "694",
+                    "value": "1"
+                },
+                {
+                    "tag": "117",
+                    "value": "${quoteId}"
+                },
+                {
+                    "tag": "11",
+                    "value": "FIT-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 11/15/36"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                },
+                {
+                    "tag": "44",
+                    "value": "${offer}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        }
+    ]
+}

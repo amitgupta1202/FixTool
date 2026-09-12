@@ -1,0 +1,117 @@
+{
+  "id": "fi-rfq-scenario-two-way-lift",
+  "name": "Ten-year quoted two-way, then lifted",
+  "binding": "this_run",
+  "createdAt": 1789000000000,
+  "setup": [
+    {
+      "stepId": "5a360b61-a6e0-5bfb-a8f3-863925431413",
+      "type": "clearMessages",
+      "session": "FI RFQ Client 1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "1b94433f-f46f-5856-8a53-617de5aacdb9",
+      "type": "send",
+      "raw": "35=R|131=FI-RFQ-1|146=1|55=T 4.25 11/15/36|48=91282CMF7|22=1|38=10000000",
+      "session": "FI RFQ Client 1"
+    },
+    {
+      "stepId": "5c3d0a7b-859e-597f-8474-ea212b737711",
+      "type": "expect",
+      "session": "FI RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "S",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "S",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 132,
+            "matcher": {
+              "type": "exact",
+              "value": "98.500000"
+            }
+          },
+          {
+            "tag": 133,
+            "matcher": {
+              "type": "exact",
+              "value": "98.515625"
+            }
+          },
+          {
+            "tag": 423,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          },
+          {
+            "tag": 537,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "f627e940-6305-58e7-99c5-d611b726a3d9",
+      "type": "send",
+      "raw": "35=AJ|693=FI-RESP-1|694=1|117=${in.S.117}|11=FI-TRD-1|55=T 4.25 11/15/36|54=1|38=10000000|44=${in.S.133}",
+      "session": "FI RFQ Client 1"
+    },
+    {
+      "stepId": "70cafac4-6fcf-5f22-95de-bd9181eea45a",
+      "type": "expect",
+      "session": "FI RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "8",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "8",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 31,
+            "matcher": {
+              "type": "exact",
+              "value": "98.515625"
+            }
+          },
+          {
+            "tag": 39,
+            "matcher": {
+              "type": "exact",
+              "value": "2"
+            }
+          },
+          {
+            "tag": 150,
+            "matcher": {
+              "type": "exact",
+              "value": "F"
+            }
+          },
+          {
+            "tag": 423,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

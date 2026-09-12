@@ -133,7 +133,7 @@ class AcceptorRulesEditorActionsTest {
         composeTestRule.onNodeWithText("+ preset").performClick()
         // "— always" because there is now a second cancel-accepted preset, conditioned on the book
         // holding the order. Naming which one is being clicked is the point of both names.
-        composeTestRule.onNodeWithText("Cancel accepted — always").performClick()
+        composeTestRule.onNodeWithText("Cancel accepted — always").performScrollTo().performClick()
 
         assertEquals(1, rules.size)
         assertEquals("F", rules.single().whenMsgType, "the menu must insert the entry that was clicked")

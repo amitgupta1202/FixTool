@@ -1,0 +1,758 @@
+{
+    "profiles": [
+        {
+            "id": "fi-rfq-profile-venue",
+            "name": "FI RFQ Demo Desk",
+            "config": {
+                "senderCompID": "FIRFQ_SERVER",
+                "targetCompID": "*",
+                "port": "19880",
+                "socketAcceptPort": "19880",
+                "connectionType": "ACCEPTOR",
+                "acceptorResponseRules": [
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4.125 09/30/28"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4.125 09/30/28|48=91282CMD2|22=1|167=TNOTE|223=4.125|541=20280930|106=US TREASURY|107=US TREASURY N/B 4.125% 30-SEP-2028|54=1|537=1|423=1|15=USD|235=MATURITY|133=99.765625|634=4.150|135=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=99-24 / 99-24+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4.125 09/30/28"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4.125 09/30/28|48=91282CMD2|22=1|167=TNOTE|223=4.125|541=20280930|106=US TREASURY|107=US TREASURY N/B 4.125% 30-SEP-2028|54=2|537=1|423=1|15=USD|235=MATURITY|132=99.750000|632=4.158|134=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=99-24 / 99-24+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4 09/30/31"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4 09/30/31|48=91282CME0|22=1|167=TNOTE|223=4.000|541=20310930|106=US TREASURY|107=US TREASURY N/B 4.000% 30-SEP-2031|54=1|537=1|423=1|15=USD|235=MATURITY|133=99.265625|634=4.050|135=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=99-08 / 99-08+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4 09/30/31"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4 09/30/31|48=91282CME0|22=1|167=TNOTE|223=4.000|541=20310930|106=US TREASURY|107=US TREASURY N/B 4.000% 30-SEP-2031|54=2|537=1|423=1|15=USD|235=MATURITY|132=99.250000|632=4.058|134=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=99-08 / 99-08+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4.25 11/15/36"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4.25 11/15/36|48=91282CMF7|22=1|167=TNOTE|223=4.250|541=20361115|106=US TREASURY|107=US TREASURY N/B 4.250% 15-NOV-2036|54=1|537=1|423=1|15=USD|235=MATURITY|133=98.515625|634=4.250|135=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=98-16 / 98-16+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4.25 11/15/36"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4.25 11/15/36|48=91282CMF7|22=1|167=TNOTE|223=4.250|541=20361115|106=US TREASURY|107=US TREASURY N/B 4.250% 15-NOV-2036|54=2|537=1|423=1|15=USD|235=MATURITY|132=98.500000|632=4.258|134=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=98-16 / 98-16+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4.125 09/30/28"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4.125 09/30/28|48=91282CMD2|22=1|167=TNOTE|223=4.125|541=20280930|106=US TREASURY|107=US TREASURY N/B 4.125% 30-SEP-2028|537=1|423=1|15=USD|235=MATURITY|132=99.750000|133=99.765625|632=4.158|634=4.150|134=${random:5:25:0}000000|135=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=99-24 / 99-24+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4 09/30/31"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4 09/30/31|48=91282CME0|22=1|167=TNOTE|223=4.000|541=20310930|106=US TREASURY|107=US TREASURY N/B 4.000% 30-SEP-2031|537=1|423=1|15=USD|235=MATURITY|132=99.250000|133=99.265625|632=4.058|634=4.050|134=${random:5:25:0}000000|135=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=99-08 / 99-08+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "T 4.25 11/15/36"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=T 4.25 11/15/36|48=91282CMF7|22=1|167=TNOTE|223=4.250|541=20361115|106=US TREASURY|107=US TREASURY N/B 4.250% 15-NOV-2036|537=1|423=1|15=USD|235=MATURITY|132=98.500000|133=98.515625|632=4.258|634=4.250|134=${random:5:25:0}000000|135=${random:5:25:0}000000|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=98-16 / 98-16+|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "T 4.125 09/30/28",
+                                        "T 4 09/30/31",
+                                        "T 4.25 11/15/36"
+                                    ]
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AG|131=${req.131}|658=99|146=1|55=${req.55}|58=QuoteRequest without OrderQty: this desk prices a nominal"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "steps": [
+                            {
+                                "template": "35=AG|131=${req.131}|658=1|146=1|55=${req.55}|58=Not on the run here: this desk makes T 4.125 09/30/28, T 4 09/30/31, T 4.25 11/15/36"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${req.55}|297=9|58=This desk did not send that quote|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "unknown"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=7|58=The level expired before this arrived|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "expired"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=Quote already answered|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "done"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "quoteField",
+                                    "name": "symbol"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "quoteField",
+                                    "name": "offer"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=${quote.offer}|6=${quote.offer}|423=1|63=0|64=${utcnow+1d:yyyyMMdd}|60=${now}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "quoteField",
+                                    "name": "symbol"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "quoteField",
+                                    "name": "bid"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=${quote.bid}|6=${quote.bid}|423=1|63=0|64=${utcnow+1d:yyyyMMdd}|60=${now}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "quoteField",
+                                    "name": "symbol"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=Not the level quoted, or not a side this quote showed|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=That is not the issue this quote was for|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=A lift needs ClOrdID (11) and OrderQty (38) to book|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=Counter declined: this level is firm and stands until it expires|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "4"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=6|58=Noted: cover. The level is withdrawn|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "5"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=6|58=Noted: done away. The level is withdrawn|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=11|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "3"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=0|58=Noted: you read the level as expired|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=QuoteRespType not recognised|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "steps": [
+                            {
+                                "template": "35=j|372=AJ|379=${req.693}|380=5|58=A QuoteResponse needs QuoteID (117) to say which quote it answers"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "fi-rfq-profile-CLIENT1",
+            "name": "FI RFQ Client 1",
+            "config": {
+                "senderCompID": "FIRFQ_CLIENT1",
+                "targetCompID": "FIRFQ_SERVER",
+                "port": "19880",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "fi-rfq-profile-CLIENT2",
+            "name": "FI RFQ Client 2",
+            "config": {
+                "senderCompID": "FIRFQ_CLIENT2",
+                "targetCompID": "FIRFQ_SERVER",
+                "port": "19880",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "fi-rfq-profile-LOAD",
+            "name": "FI RFQ Load Client",
+            "config": {
+                "senderCompID": "FIRFQLG{n}",
+                "targetCompID": "FIRFQ_SERVER",
+                "sessionCount": 5,
+                "port": "19880",
+                "reconnectInterval": "5",
+                "resetOnLogon": true,
+                "messageStore": "MEMORY",
+                "messageLog": "NONE"
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        }
+    ]
+}

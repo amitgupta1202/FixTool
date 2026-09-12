@@ -743,6 +743,66 @@
 
     <div class="example"><code>fixtool load --set crypto-rest-and-refuse --workspace "Crypto Venue"</code></div>
 
+    <h3 id="fi-rfq-venue">The Fixed Income RFQ Desk</h3>
+    <p>An <strong>FI RFQ Demo Desk</strong> acceptor on <code>localhost:19880</code> making prices in three
+    on-the-run US Treasuries. It plays <em>the same negotiation</em> as the <a href="#rfq-venue">FX RFQ
+    venue</a> — QuoteRequest, Quote, QuoteResponse — and that is exactly why both are here: the mechanics
+    of an RFQ are the same everywhere, and the <strong>vocabulary is not</strong>. A desk that trades bonds
+    does not recognise itself in a venue quoting EUR/USD to five decimal places.</p>
+    <table>
+        <tr><th></th><th>FX RFQ venue</th><th>This desk</th></tr>
+        <tr><td>The instrument</td><td><code>Symbol(55)</code>, a currency pair</td>
+            <td><strong>CUSIP</strong> in <code>SecurityID(48)</code> with <code>SecurityIDSource(22)=1</code>,
+            plus <code>SecurityType(167)=TNOTE</code>, <code>CouponRate(223)</code> and
+            <code>MaturityDate(541)</code></td></tr>
+        <tr><td>The level</td><td>a rate, five decimals</td>
+            <td><strong>percent of par</strong> (<code>PriceType(423)=1</code>) on the 32nd grid, and a
+            yield in <code>BidYield(632)</code> / <code>OfferYield(634)</code></td></tr>
+        <tr><td>The size</td><td>an amount of currency</td><td><strong>nominal</strong>, in round millions</td></tr>
+        <tr><td>Settlement</td><td>not said</td>
+            <td><code>SettlType(63)=0</code> regular, with the T+1 <code>SettlDate(64)</code> spelled out</td></tr>
+    </table>
+
+    <h4>Three things this desk does that the FX one does not</h4>
+    <p><strong>A disclosed side is quoted one way.</strong> Two-way is what a dealer shows a client who
+    withheld direction — that is what it is <em>for</em>. Ask this desk for a price naming
+    <code>54=1</code> and you are shown the offer and nothing else, with <code>Side(54)</code> on the quote
+    saying which side it is. Ask without a side and you get both.</p>
+    <p><strong>The quote says it is tradeable.</strong> <code>QuoteType(537)=1</code>. Indicative or firm is
+    the first thing an RFQ client needs to know, and a desk that books at the level it showed is firm.</p>
+    <p><strong>Cover and Done Away are answers, not errors.</strong> In a multi-dealer RFQ the client tells
+    you it traded elsewhere (<code>694=5</code>) or that you were the cover (<code>694=4</code>). Those are
+    the ordinary end of a negotiation you did not win, and this desk answers them with a
+    QuoteStatusReport of <code>297=6</code>, the level withdrawn. A counter is declined and the level left
+    standing, because this desk quotes firm.</p>
+    <p>Everything the FX desk's quote book does, this one still does: a lift after the thirty seconds are
+    up is <em>stale</em>, a second lift on a level already hit is <em>spent</em>, and a lift naming a quote
+    the desk never sent is disowned — three refusals nothing on the incoming message can tell apart.</p>
+
+    <h4>Why these levels do not move</h4>
+    <p>Every other venue here draws its prices. This one states them, and the reason is the grid: a
+    Treasury trades in <strong>thirty-seconds of a point</strong>, so <code>98-16+</code> is
+    <code>98.515625</code> and the prices between grid points do not exist. The native
+    <code>${random:…}</code> generator quantises to a number of decimal places and no power of ten is a
+    thirty-second, so there is no way to draw a price a Treasury desk would recognise — and putting
+    <code>98.513</code> on the wire would be inventing one. So the desk quotes its <strong>axe</strong>: a
+    stated level, firm for thirty seconds, with the size drawn instead. The quote is carried in decimals,
+    as FIX requires, and the same level in 32nds is in <code>Text(58)</code> so it can be read aloud.</p>
+
+    <div class="warning">
+        <strong>The CUSIPs are illustrative.</strong> They are well formed and shaped like Treasury notes,
+        and they are <strong>not real securities</strong>. Nothing here should be pointed at one: a demo
+        venue quoting a live ISIN is a demo venue somebody will eventually mistake for a price.
+    </div>
+
+    <h4 id="fi-rfq-load">The Load Client</h4>
+    <p>Five sessions, <code>FIRFQLG1</code> to <code>FIRFQLG5</code>. The shipped set,
+    <strong>FI RFQ round trip</strong>, asks for 2,000 quotes and lifts all 2,000 at the levels it was
+    shown — <code>capture</code>d off each Quote, because an opaque QuoteID and the desk's own level are
+    two things no client can guess.</p>
+
+    <div class="example"><code>fixtool load --set fi-rfq-round-trip --workspace "Fixed Income RFQ"</code></div>
+
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This
     disconnects the venue and its clients, closes their panes, and puts your own profiles, templates

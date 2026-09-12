@@ -1,7 +1,7 @@
 {
   "id": "rfq-venue",
-  "displayName": "RFQ Venue",
-  "summary": "A request-for-quote desk that prices its own quotes and books a hit at the price it quoted, refusing stale, spent and unknown quotes by name. Two clients, a load-ready client, templates, two scenarios that run green, and a three-phase load set.",
+  "displayName": "FX RFQ Venue",
+  "summary": "An **FX** request-for-quote desk that prices its own quotes in EUR/USD, GBP/USD and USD/JPY and books a hit at the price it quoted, refusing stale, spent and unknown quotes by name. For the fixed-income conventions \u2014 CUSIPs, coupons, price and yield \u2014 open the Fixed Income RFQ venue instead. Two clients, a load-ready client, templates, two scenarios that run green, and a three-phase load set.",
   "defaultWorkspaceName": "RFQ Venue",
   "files": [
     "connection_profiles.json",

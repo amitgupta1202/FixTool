@@ -207,6 +207,36 @@ class HelpDocTest {
     }
 
     /**
+     * The fixed-income desk, by the vocabulary that makes it a bond desk rather than the FX RFQ venue with
+     * different instruments. Every one of these was a correction to what the FX desk does.
+     */
+    @Test
+    fun `the fixed-income chapter states the vocabulary that makes it a bond desk`() {
+        val chapter = html.substringAfter("""id="fi-rfq-venue"""").substringBefore("""<h3>Closing the Workspace""")
+
+        val claims =
+            mapOf(
+                "it is the same negotiation in a different vocabulary" to "vocabulary is not",
+                "the instrument is a CUSIP" to "SecurityIDSource(22)=1",
+                "the level is percent of par and a yield" to "OfferYield(634)",
+                "it is sized in nominal" to "round millions",
+                "it settles T+1" to "SettlDate(64)",
+                "a disclosed side is quoted one way" to "shown the offer and nothing else",
+                "the quote says it is tradeable" to "QuoteType(537)=1",
+                "cover and done away are answered" to "not errors",
+                "the level is withdrawn on done away" to "297=6",
+                "the grid is why the levels are stated" to "thirty-seconds of a point",
+                "the 32nds are readable" to "Text(58)",
+                "the identifiers are not real securities" to "not real securities",
+                "the set is run by name from the CLI" to "--set fi-rfq-round-trip",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the fixed-income chapter no longer says: $missing")
+    }
+
+    /**
      * The crypto example, by the four rules that make it a crypto venue rather than the equity venue with
      * different tickers. If a later edit loses these, the chapter is describing a rename.
      */

@@ -108,7 +108,10 @@ class AcceptorPresetsTest {
                     execInst +
                     locate +
                     "|60=20260730-09:14:22.000"
-            "R" -> "35=R|131=Q-1|55=$symbol|54=1|38=1000000"
+            // The side comes from the trigger here too: the fixed-income desk quotes one way to a
+            // request that disclosed one, so it has a rule per side and a hardcoded buy asked the sell
+            // rule whether it answers a buy.
+            "R" -> "35=R|131=Q-1|55=$symbol|54=$side|38=1000000"
             // The RFQ venue's hit: the response type, side and price come from the rule's own trigger,
             // because its booking rules name all three and its refusals name some of them.
             "AJ" -> {

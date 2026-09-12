@@ -1,0 +1,89 @@
+{
+  "id": "fi-rfq-scenario-one-way-done-away",
+  "name": "A disclosed side is quoted one way, then done away",
+  "binding": "this_run",
+  "createdAt": 1789000000000,
+  "setup": [
+    {
+      "stepId": "618f08d5-6ffa-5780-91af-138f666a8c46",
+      "type": "clearMessages",
+      "session": "FI RFQ Client 1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "03bb7d99-549d-5517-8ab9-bb8d507b5289",
+      "type": "send",
+      "raw": "35=R|131=FI-RFQ-2|146=1|55=T 4.25 11/15/36|48=91282CMF7|22=1|54=1|38=10000000",
+      "session": "FI RFQ Client 1"
+    },
+    {
+      "stepId": "dabac630-7e91-5eab-a0a2-c3fa3f4ee527",
+      "type": "expect",
+      "session": "FI RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "S",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "S",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 54,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          },
+          {
+            "tag": 133,
+            "matcher": {
+              "type": "exact",
+              "value": "98.515625"
+            }
+          },
+          {
+            "tag": 537,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "873d7334-a60d-57f7-bea5-71977fba5327",
+      "type": "send",
+      "raw": "35=AJ|693=FI-RESP-2|694=5|117=${in.S.117}|55=T 4.25 11/15/36",
+      "session": "FI RFQ Client 1"
+    },
+    {
+      "stepId": "9e07ccf2-071f-5202-871e-d9aaacde1196",
+      "type": "expect",
+      "session": "FI RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "AI",
+        "fields": []
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "AI",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 297,
+            "matcher": {
+              "type": "exact",
+              "value": "6"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

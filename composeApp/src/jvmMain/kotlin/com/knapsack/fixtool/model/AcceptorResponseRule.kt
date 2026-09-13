@@ -264,6 +264,16 @@ data class AcceptorResponseRule(
     /** True when any step of the reply leaves the conversation the trigger arrived on. */
     fun relays(): Boolean = sequence().any { it.address()?.relays == true }
 
+    /**
+     * True when this rule **books a trade**: one of its steps sends the quoter an ExecutionReport.
+     *
+     * Derived from the reply rather than declared, the way [willHaveAnOrder] is derived from the trigger — the
+     * rule already says it, and a flag beside it could disagree. A venue records the trade the moment such a rule
+     * fires, before any step goes out, so a second lift already queued behind it reads `done`.
+     */
+    fun booksATrade(): Boolean =
+        sequence().any { step -> step.address() == StepAddress.Quoter && MSG_TYPE_OF.find(step.template)?.groupValues?.get(1) == "8" }
+
     /** True when any step of the reply reads `${to.…}`. */
     fun readsTheRecipient(): Boolean = sequence().any { TO_REF in it.template }
 
@@ -437,3 +447,6 @@ private const val TAG_SENDER_COMP_ID = 49
 private const val TAG_QUOTE_REQ_ID = 131
 private const val TAG_QUOTE_ID = 117
 private const val MSG_QUOTE_REQUEST = "R"
+
+/** The MsgType a reply template opens with, `35=8|…`. */
+private val MSG_TYPE_OF = Regex("(?:^|[|\\u0001])35=([^|\\u0001]+)")

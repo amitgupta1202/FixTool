@@ -12,6 +12,10 @@ import com.knapsack.fixtool.model.QuoteConstraint
 import com.knapsack.fixtool.model.QuoteEntry
 import com.knapsack.fixtool.model.QuoteReading
 import com.knapsack.fixtool.model.ResponseStep
+import com.knapsack.fixtool.model.RespondersOnline
+import com.knapsack.fixtool.model.RfqConstraint
+import com.knapsack.fixtool.model.SenderRole
+import com.knapsack.fixtool.model.StepAddress
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.load.CompiledTemplate
 import quickfix.Message
@@ -42,6 +46,10 @@ data class PlannedSend(
      * [AcceptorResponder.buildMessage]. Null is a venue with none loaded, which still sends.
      */
     val dictionary: FixDictionary? = null,
+    /** Who this send goes to, when a relay plan resolved it. Null: the sender, as every plan before relaying. */
+    val to: Recipient? = null,
+    /** Which step of the rule, as authored, this send belongs to — a fan-out is one step with many sends. */
+    val authoredStep: Int = 0,
     val render: () -> String,
 ) {
     fun build(): Message = AcceptorResponder.buildMessage(render(), dictionary)
@@ -121,6 +129,27 @@ data class RuleOutcome(
     val order: OrderOutcome? = null,
     /** The same, for the quote book. Null when the rule asked it nothing. */
     val quote: QuoteOutcome? = null,
+    /** Whether a responder was online, when the rule asked. Null when it did not. */
+    val responders: RespondersOutcome? = null,
+)
+
+/** What a rule's `whenResponders` asked and what the venue said. [actual] is null when there was no venue to ask. */
+data class RespondersOutcome(
+    val wanted: String,
+    val actual: Boolean?,
+    val satisfied: Boolean,
+)
+
+/**
+ * **A relay rule's whole reply**: every send, each with its recipient, plus the recipients a step was owed
+ * to and could not reach, and the steps whose address reached nobody at all.
+ */
+data class RelayPlan(
+    val sends: List<PlannedSend>,
+    /** `(authored step, recipient)` for every counterparty a step was addressed to and is not there. */
+    val notDelivered: List<Pair<Int, Recipient>> = emptyList(),
+    /** Authored steps whose address resolved to nobody — a lift with no cover. Not an error; said, not sent. */
+    val nobody: List<Int> = emptyList(),
 )
 
 /**
@@ -152,6 +181,14 @@ object AcceptorResponder {
     private val QUOTE_REF = Regex("\\\$\\{quote\\.([A-Za-z][A-Za-z0-9]*)}")
     private val QUOTE_IN_EXPR = Regex("\\bquote\\.([A-Za-z][A-Za-z0-9]*)\\b")
     private val NOW_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")
+
+    // ${to.117} and ${rfq.requester}: what a recipient knows, and what the RFQ book holds. Whole references only —
+    // an id is a string, and there is no arithmetic worth doing on one.
+    private const val TO_PREFIX = "\${to."
+    private val TO_REF = Regex("\\$\\{to\\.(\\d+)}")
+    private const val RFQ_PREFIX = "\${rfq."
+    private val RFQ_REF = Regex("\\$\\{rfq\\.([A-Za-z][A-Za-z0-9]*)}")
+    private const val TAG_QUOTE_ID = 117
 
     /**
      * Parses each rule's trigger once, ahead of any traffic.
@@ -193,12 +230,15 @@ object AcceptorResponder {
         book: BookReading? = null,
         /** What the venue had quoted before this message, on the same terms [book] is given. */
         quote: QuoteReading? = null,
+        /** The sender's role and the RFQ state before this message, for a venue that relays. Null: none to ask. */
+        venue: VenueReading? = null,
     ): AcceptorResponseRule? =
         compiled.firstOrNull { (rule, conditions) ->
             valueOf(incoming, MSG_TYPE_TAG) == rule.whenMsgType &&
-                conditions.all { (tag, matcher) -> holds(matcher, valueOf(incoming, tag), quote) } &&
+                conditions.all { (tag, matcher) -> holds(matcher, tag, valueOf(incoming, tag), quote, venue) } &&
                 satisfiesBook(rule, book) &&
-                satisfiesQuote(rule, quote)
+                satisfiesQuote(rule, quote) &&
+                satisfiesResponders(rule, venue)
         }?.rule
 
     /** Whether [rule]'s book constraint holds, given what [book] said. See [firstMatch] for the null case. */
@@ -213,6 +253,13 @@ object AcceptorResponder {
         return quote != null && quote.satisfies(constraint)
     }
 
+    /** Whether a responder is online, as the rule asks. No venue to ask means a rule that asks does not fire. */
+    private fun satisfiesResponders(rule: AcceptorResponseRule, venue: VenueReading?): Boolean {
+        val wanted = RespondersOnline.byWord(rule.whenResponders ?: return true) ?: return false
+        val online = venue?.respondersOnline ?: return false
+        return (wanted == RespondersOnline.SOME) == online
+    }
+
     /**
      * One tag condition, judged — with a `quoteField` resolved against [quote] first.
      *
@@ -221,10 +268,24 @@ object AcceptorResponder {
      * direction, the same one [compile] takes with a trigger it cannot parse, and the reason the venue's
      * unknown-quote rule can sit under the hit rule and answer instead.
      */
-    private fun holds(matcher: Matcher, actual: String?, quote: QuoteReading?): Boolean {
-        val resolved = resolveQuoteField(matcher, quote) ?: return false
-        return ExpectationEvaluator.satisfies(resolved, actual)
-    }
+    private fun holds(
+        matcher: Matcher,
+        tag: Int,
+        actual: String?,
+        quote: QuoteReading?,
+        venue: VenueReading? = null,
+    ): Boolean =
+        when (matcher) {
+            // The two relay matchers are the venue's to answer, and with no venue to ask they are false — the safe
+            // direction, as an unresolvable quoteField is.
+            is Matcher.CounterpartyRole ->
+                venue != null && SenderRole.byWord(matcher.role)?.matches(venue.senderRole) == true
+            is Matcher.RfqState -> {
+                val reading = if (tag == TAG_QUOTE_ID) venue?.rfqBy117 else venue?.rfqBy131
+                reading != null && reading.word == RfqConstraint.byWord(matcher.state)?.word
+            }
+            else -> resolveQuoteField(matcher, quote)?.let { ExpectationEvaluator.satisfies(it, actual) } ?: false
+        }
 
     /**
      * [matcher] with any `quoteField` replaced by the value the quote actually carries, or null when
@@ -268,6 +329,7 @@ object AcceptorResponder {
         incoming: Message,
         book: BookReading? = null,
         quote: QuoteReading? = null,
+        venue: VenueReading? = null,
     ): List<RuleOutcome> {
         val msgType = valueOf(incoming, MSG_TYPE_TAG)
         var alreadyWon = false
@@ -290,7 +352,7 @@ object AcceptorResponder {
                     // thought. Left unresolved when there was no quote to resolve it against, because
                     // "the quote's offer" is then the truest thing that can be said about it.
                     val resolved = resolveQuoteField(matcher, quote)
-                    ConditionOutcome(tag, resolved ?: matcher, actual, holds(matcher, actual, quote))
+                    ConditionOutcome(tag, resolved ?: matcher, actual, holds(matcher, tag, actual, quote, venue))
                 }
             // Reported for a *skipped* rule too, since "disabled" and "the book said no" are both
             // reasons a rule did nothing and an author toggling one back on wants to know the other
@@ -313,15 +375,20 @@ object AcceptorResponder {
                         satisfied = quote != null && quote.satisfies(constraint),
                     )
                 }
+            val respondersOutcome =
+                rule.whenResponders?.let { wanted ->
+                    RespondersOutcome(wanted, venue?.respondersOnline, satisfiesResponders(rule, venue))
+                }
             val matched =
                 skipped == null &&
                     msgType == rule.whenMsgType &&
                     conditions.all { it.satisfied } &&
                     (order?.satisfied ?: true) &&
-                    (quoteOutcome?.satisfied ?: true)
+                    (quoteOutcome?.satisfied ?: true) &&
+                    (respondersOutcome?.satisfied ?: true)
             val selected = matched && !alreadyWon
             if (selected) alreadyWon = true
-            RuleOutcome(index, rule, matched, selected, skipped, conditions, order, quoteOutcome)
+            RuleOutcome(index, rule, matched, selected, skipped, conditions, order, quoteOutcome, respondersOutcome)
         }
     }
 
@@ -400,6 +467,86 @@ object AcceptorResponder {
                     resolveQuoteRefs(resolveOrderRefs(resolveAtSendTime(againstRequest), order()), quote())
                 resolveExpressions(books, request, dictionary)
             }
+        }
+    }
+
+    /**
+     * **The whole of a relay rule's reply**, with every step resolved to the counterparties it reaches.
+     *
+     * [plan]'s twin, not a replacement: a rule that never leaves the sender goes through [plan] exactly as it did
+     * before relaying existed, and this is chosen only for a rule that addresses someone else or reads what
+     * a recipient knows. An overload rather than a new parameter, because [plan] is called with trailing and
+     * positional lambdas in a dozen places and a parameter anywhere in its list would re-aim some of them.
+     *
+     * Addresses are resolved **here, once, on the callback thread** — against the RFQ as it stands after the
+     * trigger was recorded (decision R2) — so a fan-out knows who it is going to before anything is scheduled.
+     * Each step still **renders as it is sent**, like every other plan: `${to.<tag>}` and `${rfq.…}` read the
+     * book then, so a step that reads the ClOrdID an earlier step gave the same dealer sees it.
+     *
+     * `${req.uuid}` is drawn once for the whole reply, so both fills of one trade carry the same OrderID;
+     * `${uuid}` is drawn per send, so every recipient of a fan-out gets its own.
+     */
+    @Suppress("LongParameterList")
+    fun planRelay(
+        rule: AcceptorResponseRule,
+        incoming: Message,
+        request: FixMessage?,
+        dictionary: FixDictionary?,
+        venue: RelayVenue,
+        trigger: RelayTrigger,
+        quote: () -> QuoteReading? = { null },
+        order: () -> Map<String, String>? = { null },
+    ): RelayPlan {
+        var offset = 0L
+        val requestId = UUID.randomUUID().toString()
+        val sends = mutableListOf<PlannedSend>()
+        val notDelivered = mutableListOf<Pair<Int, Recipient>>()
+        val nobody = mutableListOf<Int>()
+        val sender = Recipient(trigger.sessionId, trigger.sessionKey, trigger.compId, StepAddress.Sender)
+        rule.sequence().forEachIndexed { index, step ->
+            offset += step.delayMillis.coerceAtLeast(0)
+            val address = step.address() ?: error("step ${index + 1} names no address the vocabulary has")
+            val resolution = if (address == StepAddress.Sender) Resolution(listOf(sender)) else venue.resolve(address, trigger)
+            resolution.notDelivered.forEach { notDelivered += index to it }
+            if (resolution.recipients.isEmpty() && resolution.notDelivered.isEmpty()) nobody += index
+            val againstRequest = resolveRequestRefs(step.template, incoming, requestId)
+            resolution.recipients.forEach { recipient ->
+                sends +=
+                    PlannedSend(offset, dictionary, to = recipient, authoredStep = index) {
+                        val relayed = resolveRfqRefs(resolveToRefs(resolveAtSendTime(againstRequest), venue, recipient, trigger), venue, trigger)
+                        val books = resolveQuoteRefs(resolveOrderRefs(relayed, order()), quote())
+                        resolveExpressions(books, request, dictionary)
+                    }
+            }
+        }
+        return RelayPlan(sends, notDelivered, nobody)
+    }
+
+    /**
+     * `${to.<tag>}` filled in with the id [recipient] knows — decision R5.
+     *
+     * **Refuses rather than substituting empty**, like every book reference: a QuoteRequest fanned out to a
+     * dealer who has never seen this RFQ has no `131` of its own, and `131=` on the wire would be a malformed
+     * message the dealer is blamed for.
+     */
+    fun resolveToRefs(template: String, venue: RelayVenue, recipient: Recipient, trigger: RelayTrigger): String {
+        if (!template.contains(TO_PREFIX)) return template
+        return TO_REF.replace(template) { match ->
+            val tag = match.groupValues[1].toInt()
+            venue.toValue(recipient, trigger, tag)
+                ?: throw IllegalStateException(
+                    "\${to.$tag}: ${recipient.compId} has no $tag on this RFQ, so the step cannot say it",
+                )
+        }
+    }
+
+    /** `${rfq.<name>}` filled in from the trigger's RFQ, refusing a name it cannot answer. */
+    fun resolveRfqRefs(template: String, venue: RelayVenue, trigger: RelayTrigger): String {
+        if (!template.contains(RFQ_PREFIX)) return template
+        return RFQ_REF.replace(template) { match ->
+            val name = match.groupValues[1]
+            venue.rfqField(trigger, name)
+                ?: throw IllegalStateException("\${rfq.$name}: the venue holds no $name for this RFQ, so the step cannot say it")
         }
     }
 
@@ -748,7 +895,7 @@ object AcceptorResponder {
      * Flat wins on purpose. A message carrying the tag both flat and in a group reads the flat one, so
      * nothing written before this existed changes what it matches.
      */
-    private fun valueOf(msg: Message, tag: Int): String? =
+    internal fun valueOf(msg: Message, tag: Int): String? =
         try {
             when {
                 msg.header.isSetField(tag) -> msg.header.getString(tag)

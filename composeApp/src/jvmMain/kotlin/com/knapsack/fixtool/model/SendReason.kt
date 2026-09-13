@@ -76,13 +76,17 @@ data class SendReason(
         val rule = "rule ${(ruleIndex ?: 0) + 1}" + stepSuffix()
         val matched = whenMsgType?.let { "35=$it matched" } ?: "the rule matched"
         val book = reading
-        return when {
-            constraint != null && book != null ->
-                "sent by $rule — $matched, and the book said ${book.key ?: "the order"} was ${book.word} at $time"
-            constraint != null -> "sent by $rule — $matched, and the order was ${constraint.word} at $time"
-            book?.state != null -> "sent by $rule — $matched at $time, with ${book.key} ${book.word} in the book"
-            else -> "sent by $rule — $matched at $time"
-        }
+        val line =
+            when {
+                constraint != null && book != null ->
+                    "sent by $rule — $matched, and the book said ${book.key ?: "the order"} was ${book.word} at $time"
+                constraint != null -> "sent by $rule — $matched, and the order was ${constraint.word} at $time"
+                book?.state != null -> "sent by $rule — $matched at $time, with ${book.key} ${book.word} in the book"
+                else -> "sent by $rule — $matched at $time"
+            }
+        // Said last and only for a relay, so every reason written before relaying reads exactly as it did.
+        return relay?.let { "$line → ${it.address} ${it.recipientCompId}, relayed from ${it.triggerCompId}'s 35=${it.triggerMsgType ?: "?"}" }
+            ?: line
     }
 
     private fun handLine(time: String): String {

@@ -133,3 +133,132 @@ fun roleOf(
 object RfqEntryNames {
     val FIELDS = listOf("requester", "quoter", "asked", "quoted", "state")
 }
+
+/**
+ * **The whole life of an RFQ as the book keeps it.** A trigger is told the four-word [RfqConstraint] this
+ * reduces to; the venue pane shows this.
+ */
+enum class RfqLife {
+    /** A requester asked, and the venue has relayed it to nobody yet. */
+    REQUESTED,
+
+    /** Relayed to at least one responder; quotes may arrive. */
+    OPEN,
+
+    /** The venue answered the requester with a QuoteRequestReject instead of relaying. */
+    REFUSED,
+
+    /** The requester passed. */
+    PASSED,
+
+    /** A trade was decided. */
+    DONE,
+
+    /** Its time ran out before anything else ended it. */
+    EXPIRED,
+
+    ;
+
+    val word: String get() = name.lowercase()
+
+    /** True while a quote can still arrive and be relayed. */
+    val live: Boolean get() = this == REQUESTED || this == OPEN
+}
+
+/** How one responder's part in an RFQ ended, when it has. */
+enum class LegOutcome {
+    NOT_DELIVERED,
+    PASSED,
+    LIFTED,
+    COVER,
+    DONE_AWAY,
+
+    ;
+
+    val word: String get() = name.lowercase().replace('_', ' ')
+}
+
+/** One quote a responder sent on an RFQ, and the id the venue showed the requester for it. */
+data class LegQuote(
+    val dealerQuoteId: String,
+    val venueQuoteId: String? = null,
+    val bid: String? = null,
+    val offer: String? = null,
+    val bidSize: String? = null,
+    val offerSize: String? = null,
+    /** Tag 62 as epoch millis. Null: the dealer quoted no validity. */
+    val validUntil: Long? = null,
+    /** The dealer has since quoted again, so this level no longer stands. */
+    val superseded: Boolean = false,
+) {
+    fun liveAt(now: Long): Boolean = !superseded && (validUntil == null || validUntil >= now)
+}
+
+/** One responder on one RFQ. */
+data class RfqLeg(
+    val responderKey: String,
+    val compId: String,
+    /** The QuoteReqID the venue sent this responder. */
+    val venueQuoteReqId: String? = null,
+    val quotes: List<LegQuote> = emptyList(),
+    val outcome: LegOutcome? = null,
+) {
+    /** The quote that still stands, if any: the latest one, when it has not lapsed. */
+    fun currentQuote(now: Long): LegQuote? = quotes.lastOrNull()?.takeIf { it.liveAt(now) }
+}
+
+/** One negotiation, from the requester's QuoteRequest to however it ended. */
+data class RfqEntry(
+    val rfqId: String,
+    val requesterKey: String,
+    val requesterCompId: String,
+    /** The QuoteReqID the requester sent. */
+    val requesterQuoteReqId: String,
+    /** The opening QuoteRequest's `uid`, for Trace. */
+    val openingUid: Long?,
+    /** The opening QuoteRequest's fields, read through its groups, for rules that fire without a message. */
+    val opening: Map<Int, String>,
+    val openedAt: Long,
+    /** Epoch millis after which an RFQ still live reads `expired`. Null: never. */
+    val expireAt: Long?,
+    val life: RfqLife,
+    val legs: List<RfqLeg> = emptyList(),
+) {
+    val symbol: String? get() = opening[55]
+    val securityId: String? get() = opening[48]
+    val securityType: String? get() = opening[167]
+    val side: String? get() = opening[54]
+    val qty: String? get() = opening[38]
+
+    fun leg(responderKey: String): RfqLeg? = legs.firstOrNull { it.responderKey == responderKey }
+
+    /** [life] with the clock applied: a live RFQ past [expireAt] is expired though nobody has said so. */
+    fun lifeAt(now: Long): RfqLife = if (life.live && expireAt != null && expireAt < now) RfqLife.EXPIRED else life
+}
+
+/**
+ * **What the RFQ book said about one message, at one moment** — frozen when taken, like `QuoteReading`,
+ * because a lift judged `open` re-reads as `done` a moment later and a reason must quote the first answer.
+ *
+ * [leg] and [quote] are set when the message named a quote id (117) the venue had relayed: the responder it
+ * belongs to and the quote it stands for.
+ */
+data class RfqReading(
+    val rfqId: String?,
+    val entry: RfqEntry?,
+    val word: String,
+    val leg: RfqLeg? = null,
+    val quote: LegQuote? = null,
+) {
+    fun satisfies(constraint: RfqConstraint): Boolean = constraint.word == word
+
+    companion object {
+        fun unknown() = RfqReading(null, null, RfqConstraint.UNKNOWN.word)
+    }
+}
+
+/** Every RFQ a venue holds, for a panel. */
+data class RfqBookView(
+    val rfqs: List<RfqEntry> = emptyList(),
+    val evicted: Long = 0,
+)

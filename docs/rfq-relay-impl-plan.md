@@ -130,6 +130,16 @@ These refine the proposal and are written into it.
 
 ## Probes to run before step 3
 
+**Outcome (2026-09-13, step 3 built):**
+- **P1** was settled by design, not measured. The venue keeps its own map of every counterparty session it
+  has created, by CompID, from `onCreate`, and checks each with `Session.lookupSession(id)?.isLoggedOn`. That
+  needs no handle on the acceptor (fact 3) and does not depend on which panes exist. `RfqRelayIntegrationTest`
+  exercises it with four real clients and a declared fifth that never connects.
+- **P2** is not measured yet. The integration test's templates carry no `Parties`; step 8's preset test
+  validates the platform's replies against the dictionary, and that is where `453` placement gets checked.
+- **P3** is confirmed by the integration test: the dealer's pane holds the relayed fill with
+  `sendReason.relay` set, recorded by the dealer session's own `toApp`.
+
 - **P1. Listing a venue's logged-on counterparties.** Try `SocketAcceptor.getManagedSessions()` (it
   needs the handle from fact 3) against `Session.lookupSession(new SessionID(…))` for each declared CompID.
   With three clients on and one off, which is exact and safe on the callback thread?

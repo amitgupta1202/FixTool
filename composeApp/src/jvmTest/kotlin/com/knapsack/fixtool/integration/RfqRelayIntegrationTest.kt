@@ -95,6 +95,19 @@ class RfqRelayIntegrationTest {
                         ResponseStep("35=AJ|693=\${uuid:10}|694=5|117=\${to.117}|55=\${req.55}|", to = "others"),
                     ),
             ),
+            // The same trade from the other side: the buy side sells at the dealer's bid.
+            AcceptorResponseRule(
+                whenMsgType = "AJ",
+                conditions = listOf(fromRequester, rfqOpenBy117, condition(694, Matcher.Exact("1")), condition(54, Matcher.Exact("2"))),
+                steps =
+                    listOf(
+                        ResponseStep("35=8|37=\${req.uuid}|11=\${req.11}|17=\${uuid}|150=F|39=2|54=2|55=\${req.55}|31=\${req.44}|32=\${req.38}|"),
+                        ResponseStep(
+                            "35=8|37=\${req.uuid}|11=\${uuid:10}|17=\${uuid}|150=F|39=2|54=1|55=\${req.55}|31=\${req.44}|32=\${req.38}|",
+                            to = "quoter",
+                        ),
+                    ),
+            ),
             AcceptorResponseRule(
                 whenMsgType = "AJ",
                 conditions = listOf(fromRequester, rfqOpenBy117, condition(694, Matcher.Exact("6"))),
@@ -266,6 +279,36 @@ class RfqRelayIntegrationTest {
         listOf("BUY1", "DLR1", "DLR2").forEach { name ->
             assertEquals(0L, venue.awaitPane(name).orderBook()?.unattributedCount ?: 0L, "nothing unattributed on $name's pane")
         }
+    }
+
+    /**
+     * **A sale at the dealer's bid is a hit, and the book says so.** The side is the one on the QuoteResponse that booked
+     * the trade, read by the venue as it decides; the book recorded every trade as lifted until a hand-played hit said
+     * "done · FIDLR2 lifted".
+     */
+    @Test
+    fun `a buy side that sells at the dealer's bid hits it, and the RFQ book records a hit`() {
+        val venuePane = venue.connectVenue(platformRules(), declared("BUY1", dealers = listOf("DLR1")))
+        val buyer = venue.connectClient("BUY1")
+        val dealer = venue.connectClient("DLR1")
+
+        request(buyer, "BUY-RFQ-9")
+        quote(dealer, venueRfqId(dealer), "D1-Q-90", "98.515625")
+        awaitQuotes(buyer, 1)
+        val shown = venue.field(venue.incoming(buyer, "S").single(), 117)!!
+        venue.send(buyer, "35=AJ|693=RESP-H|694=1|117=$shown|11=BUY-TRD-9|54=2|55=T 4.25 11/15/36|38=10000000|44=98.500000")
+
+        assertTrue(venue.awaitCondition(10_000) { venue.incoming(buyer, "8").isNotEmpty() }, "the hit is filled")
+        val leg =
+            venuePane
+                .venueService()!!
+                .rfqBook
+                .view()
+                .rfqs
+                .single()
+                .legs
+                .single()
+        assertEquals(LegOutcome.HIT, leg.outcome)
     }
 
     @Test

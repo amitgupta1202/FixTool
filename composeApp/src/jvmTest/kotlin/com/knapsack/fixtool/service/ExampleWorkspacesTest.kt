@@ -8,6 +8,7 @@ import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
+import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.load.LoadSetStore
@@ -1032,6 +1033,19 @@ class ExampleWorkspacesTest {
         assertTrue(buySide.keys.none { it.startsWith("fi-rfq-quote") }, "a buy side does not quote")
         assertTrue(dealer.keys.none { it.startsWith("fi-rfq-request") || it == "fi-rfq-lift" }, "a dealer does not ask or lift")
 
+        // SecurityType on every request: it is what tells the platform's RFQ book to show a level in 32nds.
+        val requests =
+            listOf(FiRfqPlatformBundle.BUY_SIDE_1, FiRfqPlatformBundle.BUY_SIDE_LOAD)
+                .flatMap { messages.loadMessagesForProfile(it) }
+                .filter { template -> template.fields.any { it.tag == "35" && it.value == "R" } }
+        assertTrue(requests.size >= 5, "the buy side's requests: ${requests.map { it.id }}")
+        requests.forEach { template ->
+            assertTrue(
+                template.fields.any { it.tag == "167" && it.value in setOf("TNOTE", "TBOND") },
+                "${template.id} names no Treasury SecurityType",
+            )
+        }
+
         val forLoad = messages.loadMessagesForProfile(FiRfqPlatformBundle.BUY_SIDE_LOAD).map { it.id }
         assertEquals(setOf("fi-rfq-load-request", "fi-rfq-load-lift"), forLoad.toSet())
         assertEquals(emptyList(), messages.loadMessagesForProfile(FiRfqPlatformBundle.DEALER_LOAD), "the dealer lanes quote by rule")
@@ -1099,6 +1113,15 @@ class ExampleWorkspacesTest {
                 .map { it.id }
                 .toSet(),
         )
+        val requests =
+            scenarios.values
+                .flatMap { it.steps }
+                .filterIsInstance<ScenarioStep.Send>()
+                .filter { "35=R|" in it.raw }
+        assertEquals(4, requests.size, "one QuoteRequest in each scenario")
+        requests.forEach { send ->
+            assertTrue(Regex("""\|167=T(NOTE|BOND)\|""").containsMatchIn(send.raw), "a scenario's request names no SecurityType: ${send.raw}")
+        }
     }
 
     private fun profilesIn(workspace: File) =

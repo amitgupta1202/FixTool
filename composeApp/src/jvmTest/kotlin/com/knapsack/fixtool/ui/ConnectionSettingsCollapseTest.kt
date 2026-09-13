@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -19,6 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import javax.imageio.ImageIO
+import kotlin.test.assertEquals
 
 /**
  * Folding Connection Settings must not fold away the reason the panel is unusable.
@@ -95,6 +97,38 @@ class ConnectionSettingsCollapseTest {
 
         composeTestRule.onNodeWithText("? → VTCLI · listening on ?").assertExists()
         snapshot("connection_settings_collapsed_invalid.png")
+    }
+
+    /**
+     * A profile put on the form from outside keeps its name through a Save. The form filled every field but the name,
+     * so an agent that opened a profile with `/panel` and a person who then pressed Save renamed it "Profile 2".
+     */
+    @Test
+    fun `a profile put on the form from the control surface is saved under its own name`() {
+        var saved: FixConnectionProfile? = null
+        val profile = acceptor()
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(360.dp, 900.dp).background(AppTheme.Colors.background)) {
+                ConnectionPanel(
+                    profiles = listOf(profile),
+                    sessions = emptyList(),
+                    onConnect = { _, _ -> },
+                    onDisconnect = {},
+                    onSaveProfile = { saved = it },
+                    onDeleteProfile = {},
+                    onCloneProfile = { it },
+                    onGetProfileSession = { null },
+                    onClose = {},
+                    selectionRequest = profile.name,
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithContentDescription("Save profile").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(profile.id, saved?.id)
+        assertEquals("ACC", saved?.name)
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")

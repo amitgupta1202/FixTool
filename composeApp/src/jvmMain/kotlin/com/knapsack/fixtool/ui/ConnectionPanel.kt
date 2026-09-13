@@ -177,6 +177,9 @@ fun ConnectionPanel(
     // agent cannot screenshot or drive.
     fun loadProfileIntoForm(profile: FixConnectionProfile) {
         selectedProfile = profile
+        // The name too. Only the dropdown used to set it, beside this call, so a profile put on the form by the
+        // control surface had a blank name, and Save named it "Profile N".
+        profileName = profile.name
         username = profile.config.username
         senderCompID = profile.config.senderCompID
         targetCompID = profile.config.targetCompID

@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -38,8 +39,12 @@ import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
+import com.knapsack.fixtool.service.IssueReport
+import com.knapsack.fixtool.service.MessageIssue
+import com.knapsack.fixtool.service.MessageIssues
 import com.knapsack.fixtool.service.compare.GroupOverlay
 import com.knapsack.fixtool.util.NotifyingLogger
+import kotlinx.coroutines.launch
 import java.awt.Cursor
 import java.awt.Toolkit
 
@@ -571,7 +576,7 @@ private fun sendAllGuarded(
 private val PROFILE_PICKER_WIDTH = 140.dp
 
 /** Room the validation badge keeps beside Send, whether or not there is a verdict to print. */
-private val VALIDATION_BADGE_SLOT = 60.dp
+private val BADGE_SLOT = 60.dp
 
 /**
  * **Every action the editor offers, in one list, in fold order.**
@@ -740,27 +745,66 @@ private fun editorActions(
 }
 
 /**
- * **What the last Validate found, beside Send.**
+ * **What is wrong with the message, beside Send, as a count.**
  *
  * Validate was a button that answered by tinting its own glyph — green for passed, a dull orange for
  * anything else — which is a control pretending to be a toggle, and a count that a colour cannot carry.
- * The result is a word now, where the eye already is: "Valid" in green, or "3 errors" in warn.
+ * The result is a word now, where the eye already is: "Valid" in green, or "3 errors" in warn, and a click
+ * opens the line under the search box that says what they are.
  *
- * Nothing at all until Validate is pressed, and nothing again the moment the fields change: a verdict about
- * a message that no longer exists is worse than no verdict.
+ * Nothing at all until something has been checked — Validate, or an action that refused — and nothing again
+ * the moment the fields change: a verdict about a message that no longer exists is worse than no verdict.
  */
 @Composable
-private fun ValidationBadge(errors: Int?) {
-    if (errors == null) return
-    val passed = errors == 0
+private fun ValidationBadge(
+    report: IssueReport,
+    validated: Boolean,
+    onToggle: () -> Unit,
+) {
+    val words = report.badgeWords()
+    if (words == null && !validated) return
     Text(
-        text = if (passed) "Valid" else "$errors error${if (errors == 1) "" else "s"}",
-        color = if (passed) AppTheme.Colors.success else AppTheme.Colors.warning,
+        text = words ?: "Valid",
+        color =
+            when {
+                words == null -> AppTheme.Colors.success
+                report.errors > 0 -> AppTheme.Colors.error
+                else -> AppTheme.Colors.warning
+            },
         fontSize = 11.sp,
         maxLines = 1,
-        modifier = Modifier.testTag("editor-validation-badge"),
+        modifier =
+            Modifier
+                .let { if (words != null) it.clickable(onClick = onToggle) else it }
+                .testTag("editor-validation-badge"),
     )
 }
+
+/** The fields a check judges: the ones that are sent — not parked, not QuickFIX/J's to write, with a value. */
+private fun checkedFields(
+    fields: List<FixField>,
+    managedTags: Set<String>,
+): List<MessageIssues.Field> =
+    fields
+        .withIndex()
+        .filter { (_, field) -> !field.excluded && field.tag !in managedTags && field.value.isNotBlank() }
+        .mapNotNull { (row, field) -> field.tag.toIntOrNull()?.let { MessageIssues.Field(row, it, field.value) } }
+
+/** Where an issue is, as the grid names it: "54 Side". */
+private fun fieldTarget(
+    tag: Int,
+    dictionary: FixDictionary,
+): String = listOfNotNull("$tag", dictionary.getFieldName(tag)).joinToString(" ")
+
+/** Each reported issue on the row that carries its tag, where the report did not already say which row. */
+private fun IssueReport.onRows(fields: List<FixField>): IssueReport =
+    copy(
+        issues =
+            issues.map { issue ->
+                val row = issue.row ?: issue.tag?.let { tag -> fields.indexOfFirst { it.tag == "$tag" } }
+                issue.copy(row = row?.takeIf { it >= 0 })
+            },
+    )
 
 /** Connected first, then connecting, then everything else — so the list opens on what can be sent to. */
 private fun profileConnectionPriority(state: FixConnectionState?): Int =
@@ -868,14 +912,17 @@ fun MessageEditorPanel(
     val hasDataDictionary = dictionary.isLoaded()
 
     /**
-     * **How the last validation went, or null for "not validated since the fields changed".**
+     * **What the last Validate found, or null for "not validated since the fields changed".**
      *
-     * A count rather than a boolean, because the result is a badge beside Send now — "Valid" in green or
-     * "3 errors" in warn — and a boolean can only say the first of those. Null is the honest third state:
-     * Validate has not been pressed since the message last changed, so the badge says nothing rather than
-     * carrying a verdict about a message that no longer exists.
+     * Every problem, from [MessageIssues.check], rather than the first exception QuickFIX/J threw: a count of
+     * exceptions said "1 error" of a message with five wrong fields. Null is the honest third state: Validate
+     * has not been pressed since the message last changed, so the badge says nothing rather than carrying a
+     * verdict about a message that no longer exists.
      */
-    var validationVerdict by remember { mutableStateOf<Int?>(null) }
+    var verdict by remember { mutableStateOf<IssueReport?>(null) }
+    var issuesExpanded by remember { mutableStateOf(false) }
+    val fieldListState = rememberLazyListState()
+    val issueScope = rememberCoroutineScope()
 
     // Notify parent about initial description visibility on component load
     LaunchedEffect(Unit) {
@@ -895,9 +942,25 @@ fun MessageEditorPanel(
         isUpdatingFromFields = true
         previewText = buildPreviewMessage(fields, managedTags)
         isUpdatingFromFields = false
-        // The verdict was about the message as it was, so it goes when the message changes.
-        validationVerdict = null
     }
+    // **The verdict and whatever an action reported both go when the message changes**, because both were
+    // about the message as it was. The reported lines used to stay: the badge cleared on an edit while the list
+    // under it went on naming an error in a value that had just been corrected. Keyed on exclusion too, since
+    // parking a field changes the message as surely as editing it. The first composition is not a change, so a
+    // refusal reported before the editor was opened is still there to read when it opens.
+    val issuesKey = fields.map { Triple(it.tag, it.value, it.excluded) }
+    var checkedKey by remember { mutableStateOf(issuesKey) }
+    LaunchedEffect(issuesKey) {
+        if (issuesKey != checkedKey) {
+            checkedKey = issuesKey
+            verdict = null
+            if (validationErrors.isNotEmpty()) onClearValidationErrors()
+        }
+    }
+    // What the grid and the line draw: the last verdict and what an action reported, as one report, each issue
+    // on the row carrying its tag where it did not already say which row.
+    val shownIssues = (verdict ?: IssueReport()) + MessageIssues.fromLines(validationErrors).onRows(fields)
+    val issueByRow = shownIssues.issues.worstByRow()
 
     Column(
         modifier =
@@ -1013,7 +1076,12 @@ fun MessageEditorPanel(
                     onValidate = {
                         onClearValidationErrors()
                         val toValidate = fields.filter { !it.excluded && it.tag.isNotBlank() }
-                        if (toValidate.isNotEmpty()) validationVerdict = onValidate(toValidate).size
+                        if (toValidate.isNotEmpty()) {
+                            // What the view model reports (template expressions, a missing dictionary), and every
+                            // problem the dictionary finds, each on the row it is about.
+                            val checked = MessageIssues.check(checkedFields(fields, managedTags), dictionary)
+                            verdict = MessageIssues.fromLines(onValidate(toValidate)) + IssueReport(issues = checked)
+                        }
                     },
                     hasDataDictionary = hasDataDictionary,
                     validatable = fields.any { !it.excluded && it.tag.isNotBlank() },
@@ -1063,13 +1131,17 @@ fun MessageEditorPanel(
                 )
 
                 Spacer(modifier = Modifier.width(6.dp))
-                ValidationBadge(validationVerdict)
+                ValidationBadge(
+                    shownIssues,
+                    validated = verdict != null,
+                    onToggle = { issuesExpanded = !issuesExpanded },
+                )
                 Spacer(modifier = Modifier.weight(1f))
 
                 FoldingActions(
                     actions = actions,
                     available = available,
-                    reserved = PROFILE_PICKER_WIDTH + if (validationVerdict == null) 0.dp else VALIDATION_BADGE_SLOT,
+                    reserved = PROFILE_PICKER_WIDTH + if (verdict == null && shownIssues.isEmpty) 0.dp else BADGE_SLOT,
                     overflowTag = "editor-overflow",
                 )
             }
@@ -1128,68 +1200,50 @@ fun MessageEditorPanel(
 
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
 
-        // Validation error/warning display section
-        if (validationErrors.isNotEmpty()) {
-            // Check if these are warnings or errors
-            val isWarning = validationErrors.any { it.startsWith("WARNING:") }
-            val backgroundColor = if (isWarning) Color(0xFF3A2F1F) else Color(0xFF3A1F1F) // Amber-tinted vs red-tinted
-            val textColor = if (isWarning) Color(0xFFFFA726) else AppTheme.Colors.error // Amber vs red
-            val label = if (isWarning) "Validation warnings" else "Validation errors"
-
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(backgroundColor)
-                        .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = if (isWarning) Icons.Default.Warning else Icons.Default.Error,
-                            contentDescription = label,
-                            tint = textColor,
-                            modifier = iconSize16,
-                        )
-                        Text(
-                            text = "$label (${validationErrors.size})",
-                            color = textColor,
-                            fontSize = 10.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        )
-                    }
-                    TooltipIconButton(
-                        tooltip = if (isWarning) "Dismiss warnings" else "Dismiss errors",
-                        onClick = onClearValidationErrors,
-                        modifier = iconSize20,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Dismiss",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = iconSize14,
-                        )
-                    }
-                }
-
-                // Display each error/warning
-                validationErrors.forEach { error ->
-                    Text(
-                        text = "• $error",
-                        color = textColor,
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(start = 22.dp),
+        // **What is wrong, in one row.** It was a block with a line per problem and no cap, which pushed the grid
+        // the problems were about off the bottom of a dock a fifth of the window wide. See [IssuesLine].
+        IssuesLine(
+            headline = shownIssues.headline,
+            items =
+                shownIssues.issues.map { issue ->
+                    IssueLineItem(
+                        severity = issue.severity,
+                        target = issue.tag?.let { tag -> fieldTarget(tag, dictionary) },
+                        text = issue.text,
+                        action = if (issue.missing) "Add" else null,
+                        onClick =
+                            when {
+                                // A required field the message lacks has no row to go to, so the click adds one,
+                                // at the end, and selects it for its value.
+                                issue.missing && issue.tag != null -> {
+                                    {
+                                        val added = fields.size
+                                        if (fields.isNotEmpty()) onFieldSelect(fields.lastIndex, false, false)
+                                        onFieldAdd()
+                                        onFieldUpdate(added, FixField(tag = "${issue.tag}", value = ""))
+                                        onFieldSelect(added, false, false)
+                                        issueScope.launch { fieldListState.animateScrollToItem(added) }
+                                    }
+                                }
+                                issue.row != null -> {
+                                    {
+                                        onFieldSelect(issue.row, false, false)
+                                        issueScope.launch { fieldListState.animateScrollToItem(issue.row) }
+                                    }
+                                }
+                                else -> null
+                            },
                     )
-                }
-            }
+                },
+            expanded = issuesExpanded,
+            onToggle = { issuesExpanded = !issuesExpanded },
+            onDismiss = {
+                verdict = null
+                onClearValidationErrors()
+            },
+            tag = "editor-issues",
+        )
+        if (!shownIssues.isEmpty || shownIssues.headline != null) {
             HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
         }
 
@@ -1259,6 +1313,7 @@ fun MessageEditorPanel(
                             .height(with(density) { (maxHeightPx * (1f - previewPanelRatio)).toDp() }),
                 ) {
                     LazyColumn(
+                        state = fieldListState,
                         modifier =
                             Modifier
                                 .fillMaxSize(),
@@ -1305,6 +1360,7 @@ fun MessageEditorPanel(
                                 showFieldName = hasDataDictionary,
                                 indentLevel = indentLevels.getOrElse(index) { 0 },
                                 instanceNumber = instanceNumbers.getOrElse(index) { null },
+                                issue = issueByRow[index],
                             )
                         }
                     }
@@ -1563,6 +1619,8 @@ private fun FieldEditorRow(
     showFieldName: Boolean = true,
     indentLevel: Int = 0,
     instanceNumber: Int? = null,
+    /** The worst problem on this row, which marks its left edge. See [issueMark]. */
+    issue: MessageIssue.Severity? = null,
 ) {
     val tagInt = field.tag.toIntOrNull()
     val fieldName =
@@ -1631,6 +1689,7 @@ private fun FieldEditorRow(
                 Modifier
                     .fillMaxWidth()
                     .background(backgroundColor)
+                    .issueMark(issue)
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
@@ -1975,7 +2034,6 @@ private val descriptionColor = Color(0xFF9A9A9A)
 private val iconSize28 = Modifier.size(28.dp)
 private val iconSize20 = Modifier.size(20.dp)
 private val iconSize18 = Modifier.size(18.dp)
-private val iconSize16 = Modifier.size(16.dp)
 private val iconSize14 = Modifier.size(14.dp)
 private val iconSize24 = Modifier.size(24.dp)
 private val inputShape = RoundedCornerShape(2.dp)

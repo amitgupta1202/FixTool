@@ -45,11 +45,15 @@ class MessageEditorToolbarTest {
      */
     private val loadedDictionary = FixDictionary.fromResource()
 
+    /** A NewOrderSingle the bundled dictionary accepts, so the only problems a test sees are the ones it adds. */
     private val order =
         listOf(
             FixField(tag = "35", value = "D"),
             FixField(tag = "11", value = "ORD-1"),
             FixField(tag = "55", value = "EUR/USD"),
+            FixField(tag = "54", value = "1"),
+            FixField(tag = "60", value = "20260913-10:00:00.000"),
+            FixField(tag = "40", value = "1"),
         )
 
     /**

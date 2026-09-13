@@ -2688,8 +2688,27 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
         <li><strong>Null Evaluations:</strong> Expressions that evaluate to null (like accessing non-existent message fields)</li>
     </ul>
 
+    <h4>What Validate checks against the dictionary</h4>
+    <p>Validate also checks every field against the loaded data dictionary, and reports <em>every</em> problem it
+    finds rather than the first: a value the field does not allow (<code>54=X</code>), a value without the field's
+    format (<code>38=1,000</code> is not a quantity), a field the message type requires and the message does not
+    carry, and a tag the message type does not define. A value still written by an expression is left to Send,
+    which judges what it resolves to. The rules are QuickFIX/J's own, applied to the dictionary you loaded, so they
+    are only as close to the counterparty's as that dictionary is.</p>
+
+    <h4>Where problems are shown</h4>
+    <p>The count is beside Send (<em>3 errors</em>, or <em>Valid</em>), and the problems are in <strong>one row
+    under the search box</strong>: how many errors and warnings, the worst of them, and how many more. Click the
+    row, or the count, to open the list; it grows to six rows and then scrolls. Each problem goes to the field it
+    is about, and a required field the message is missing offers <strong>Add</strong>. The rows it is about are
+    marked down their left edge in the grid. Editing the message withdraws all of it, because it was about the
+    message as it was.</p>
+    <p>The scenario editor shows the same row for the whole scenario, live: each Send that runs is checked the same
+    way, a name that is read but never minted is a warning on the first step that reads it, and every step with a
+    problem carries its count in the step list, so a bad Send is found without opening it.</p>
+
     <h4>Validation Errors</h4>
-    <p>If validation fails, you'll see detailed error messages in the validation error section:</p>
+    <p>If validation fails, the row under the search box names the refusal and each problem after it:</p>
 
     <div class="example">
         <h4>Example Validation Errors</h4>

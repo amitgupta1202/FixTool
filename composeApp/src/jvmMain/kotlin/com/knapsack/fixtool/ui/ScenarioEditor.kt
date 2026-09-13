@@ -80,6 +80,8 @@ import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.TrafficMode
+import com.knapsack.fixtool.service.MessageIssue
+import com.knapsack.fixtool.service.MessageIssues
 import com.knapsack.fixtool.service.ScenarioAnnotations
 import com.knapsack.fixtool.service.SendField
 import com.knapsack.fixtool.service.SendFields
@@ -355,6 +357,19 @@ fun ScenarioEditor(
     val allMintedNames = stepVars.flatMap { it.minted }.distinct()
     val varColors = varColorMap(stepVars.flatMap { it.minted })
     val sessionColors = sessionColorMap(steps.mapNotNull { it.session } + sessionOptions)
+    // **What is wrong, per row of the list.** Every Send is checked against the dictionary the way the message
+    // editor's Validate checks a message, and every name read but never minted is a warning on the first step
+    // that reads it. It used to be a sentence above the *selected* Send's grid and nothing anywhere else, so a
+    // scenario with three bad Sends looked clean until each one was clicked. A muted step does not run, so it is
+    // not checked; an excluded field is not sent, so it is not either.
+    val setupRows = steps.count { it.phase == StepPhase.SETUP }
+    val stepIssues: Map<Int, List<MessageIssue>> =
+        remember(steps.toList(), dictionary, columns) {
+            val unminted = unmintedIssues(flowSteps, columns, varSites, setupRows)
+            val sends = sendIssues(steps, dictionary)
+            (sends.keys + unminted.keys).associateWith { sends[it].orEmpty() + unminted[it].orEmpty() }.filterValues { it.isNotEmpty() }
+        }
+    var issuesOpen by remember { mutableStateOf(false) }
 
     fun select(index: Int) {
         selectedIdx = index
@@ -470,6 +485,31 @@ fun ScenarioEditor(
         // The rule every other pane header wears (Message Details, Connection, Settings). Without it the
         // toolbar bled straight into the variables strip and the step list — five stacked rows, no seam.
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        // The scenario's problems in one row, opened on request. Errors first, then each in list order; a click
+        // selects the step. See [IssuesLine].
+        IssuesLine(
+            headline = null,
+            items =
+                stepIssues.entries
+                    .flatMap { (row, issues) -> issues.map { row to it } }
+                    .sortedWith(compareBy({ it.second.severity.ordinal }, { it.first }))
+                    .map { (row, issue) ->
+                        val step = steps.getOrNull(row)
+                        IssueLineItem(
+                            severity = issue.severity,
+                            target =
+                                listOfNotNull(
+                                    step?.let { "${it.phase.label} ${numberInPhase(row)}" },
+                                    issue.tag?.let { tag -> listOfNotNull("$tag", dictionary?.getFieldName(tag)).joinToString(" ") },
+                                ).joinToString(" · "),
+                            text = issue.text,
+                            onClick = { select(row) },
+                        )
+                    },
+            expanded = issuesOpen,
+            onToggle = { issuesOpen = !issuesOpen },
+            tag = "scenario-issues",
+        )
         // The scenario's variables, on one line: every minted name (with the value the last run left, when
         // there is one), and — in warning colors — every name referenced but never minted, which the engine
         // would leave literal on the wire. The per-step badges say who touches a name; this says what it IS.
@@ -598,6 +638,7 @@ fun ScenarioEditor(
                                     }
                                 }
                             },
+                            issues = stepIssues[i].orEmpty(),
                             onToggleMute = { steps[i] = steps[i].copy(muted = !steps[i].muted) },
                             onRemove = {
                                 steps.removeAt(i)
@@ -775,6 +816,8 @@ private fun StepRow(
     canMoveDown: Boolean,
     onSelect: () -> Unit,
     onMove: (Int) -> Unit,
+    /** What is wrong with this step, which the row counts. See the scenario's issues line. */
+    issues: List<MessageIssue> = emptyList(),
     onToggleMute: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -809,6 +852,7 @@ private fun StepRow(
         PhaseBadge(step.phase)
         if (step.muted) MutedChip()
         if (vars != null) VarBadges(vars, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
+        StepIssueCount(issues, modifier = Modifier.padding(start = 8.dp).testTag("step-issues-$index"))
         Row(modifier = Modifier.weight(1f)) {}
         TooltipIconButton(
             tooltip = if (step.muted) "Unmute — the runner executes this step again" else "Mute — keep the step, but skip it on every run",
@@ -875,6 +919,60 @@ private fun StepRow(
                 )
             }
         }
+    }
+}
+
+/** What is wrong with each Send that runs, by its row in the list. */
+private fun sendIssues(
+    steps: List<EditStep>,
+    dictionary: FixDictionary?,
+): Map<Int, List<MessageIssue>> =
+    steps
+        .withIndex()
+        .filter { (_, step) -> step.kind == StepKind.SEND && !step.muted }
+        .associate { (row, step) -> row to MessageIssues.check(step.checkedFields(), dictionary) }
+
+/** A Send's fields as a check judges them: the ones that are sent. */
+private fun EditStep.checkedFields(): List<MessageIssues.Field> =
+    fields
+        .withIndex()
+        .filterNot { it.value.excluded }
+        .map { (row, field) -> MessageIssues.Field(row, field.tag, field.value) }
+
+/** Every name a running step reads and none mints, as a warning on the first row that reads it. */
+private fun unmintedIssues(
+    flowSteps: List<ScenarioStep>,
+    columns: List<String>,
+    varSites: Map<String, ScenarioAnnotations.VarSites>,
+    setupRows: Int,
+): Map<Int, List<MessageIssue>> =
+    ScenarioAnnotations
+        .unminted(flowSteps.filterNot { it.muted }, columns)
+        .mapNotNull { name ->
+            val first = varSites[name]?.referencedAt?.minOrNull() ?: return@mapNotNull null
+            val warning = "\${$name} is read but no step mints it, so it goes on the wire as a literal"
+            (setupRows + first) to MessageIssue(MessageIssue.Severity.WARNING, warning)
+        }.groupBy({ it.first }, { it.second })
+
+/**
+ * How many problems a step has, in the colour of the worst of them, so a bad Send is found from the list rather
+ * than by opening every step. What they are is in the scenario's issues line.
+ */
+@Composable
+private fun StepIssueCount(
+    issues: List<MessageIssue>,
+    modifier: Modifier = Modifier,
+) {
+    if (issues.isEmpty()) return
+    val worst = issues.minOf { it.severity }
+    AppTooltip(issues.joinToString("\n") { issue -> (issue.tag?.let { "$it: " } ?: "") + issue.text }) {
+        Text(
+            (if (worst == MessageIssue.Severity.ERROR) "⛔ " else "⚠ ") + issues.size,
+            color = worst.colour,
+            fontSize = 10.sp,
+            maxLines = 1,
+            modifier = modifier,
+        )
     }
 }
 
@@ -1322,22 +1420,10 @@ private fun SendDetail(
             modifier = Modifier.padding(start = 10.dp).width(SEND_SEARCH_WIDTH),
         )
     }
-    // Lint the message that will be SENT. An excluded field is not in it, and warning "unknown tag
-    // 9303" about a row the author has deliberately parked is the tool arguing with a decision.
-    val lintFields = step.fields.filterNot { it.excluded }.map { it.tag to it.value }
-    val unknownTags =
-        com.knapsack.fixtool.service.DictionaryLint
-            .unknownTags(lintFields, dictionary)
-    if (unknownTags.isNotEmpty()) {
-        Text(
-            "⚠ " +
-                com.knapsack.fixtool.service.DictionaryLint
-                    .describe(unknownTags, lintFields, dictionary),
-            color = AppTheme.Colors.warning,
-            fontSize = 10.sp,
-            modifier = Modifier.padding(bottom = 6.dp),
-        )
-    }
+    // Check the message that will be SENT. An excluded field is not in it, and a warning about a row the author
+    // has deliberately parked is the tool arguing with a decision. What the problems are is in the scenario's
+    // issues line; here each marks the row it sits on, which is where it gets fixed.
+    val marks = remember(step.fields, dictionary) { MessageIssues.check(step.checkedFields(), dictionary).worstByRow() }
     val allFields = remember(dictionary) { dictionary?.getAllFields() ?: emptyList() }
     // Lift, then drop at the target — not a swap. Adjacent moves are the same either way, but a swap
     // generalises wrong the moment a row travels further than one position.
@@ -1352,7 +1438,7 @@ private fun SendDetail(
     BoxWithConstraints {
         val valueWidth = sendValueWidth(maxWidth)
         Column {
-            SendFieldRows(step, dictionary, allFields, valueWidth, takenNames, query, onChange, ::moveField, onExtractColumn)
+            SendFieldRows(step, dictionary, allFields, valueWidth, takenNames, query, onChange, ::moveField, onExtractColumn, marks)
         }
     }
 }
@@ -1430,6 +1516,8 @@ private fun SendFieldRows(
     onChange: (EditStep) -> Unit,
     moveField: (Int, Int) -> Unit,
     onExtractColumn: ((Int, String) -> String)? = null,
+    /** The worst problem on each row, by row. See [issueMark]. */
+    marks: Map<Int, MessageIssue.Severity> = emptyMap(),
 ) {
     step.fields.forEachIndexed { i, field ->
         val tag = field.tag
@@ -1443,6 +1531,7 @@ private fun SendFieldRows(
                 Modifier
                     .fillMaxWidth()
                     .sendRowMark(sendFieldMatches(query, field, dictionary), i)
+                    .issueMark(marks[i])
                     .padding(vertical = 1.dp),
         ) {
             // Park a field without losing it: the same eye the Message Editor's field grid wears, for the

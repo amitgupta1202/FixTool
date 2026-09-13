@@ -67,7 +67,6 @@ import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
-import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.LaneRole
 import com.knapsack.fixtool.service.LayoutStateService
 import com.knapsack.fixtool.service.MessageView
@@ -6771,14 +6770,9 @@ class FixMessageViewModel(
             }
         }
 
-        // Also validate FIX message structure
-        val result =
-            FixMessageValidator.validate(
-                fields.toRawMessage(),
-                _dictionary.value,
-            )
-        _editorValidationErrors.addAll(result.errors)
-
+        // The dictionary's verdict is not added here. It used to be QuickFIX/J's `validate`, which throws on the
+        // first problem, so this list held one dictionary error however many fields were wrong. The editor asks
+        // MessageIssues for every one of them, each on its row, and merges them with what is reported here.
         return _editorValidationErrors
     }
 

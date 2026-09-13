@@ -1756,7 +1756,9 @@ private fun FieldEditorRow(
                 SlimTextField(
                     value = field.tag,
                     onValueChange = { onFieldChange(field.copy(tag = it)) },
-                    modifier = Modifier.width(42.dp).height(24.dp),
+                    // The Tag column's 48dp, as the header and the unselected rows have it. At 42 the name, value
+                    // and description jumped 6dp left the moment a row was clicked.
+                    modifier = Modifier.width(48.dp).height(24.dp),
                     backgroundColor =
                         if (field.tag.isBlank()) {
                             AppTheme.Colors.emptyFieldBackground

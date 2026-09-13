@@ -423,11 +423,14 @@ private fun ViewerBand(band: DiffItem.Band) {
             Modifier
                 .fillMaxWidth()
                 .background(fill)
-                .padding(start = FixIndent.start(band.depth, FixIndent.DIFF_STEP))
                 .padding(horizontal = ROW_PADDING, vertical = 2.dp)
                 .testTag(if (band.moved) "viewer-moved-band" else "viewer-entry-band"),
     ) {
-        Row(modifier = Modifier.weight(LEFT_WEIGHT), verticalAlignment = Alignment.CenterVertically) {
+        // Indented inside the left column, as [ViewerRow] is — see the editing surface's band for why.
+        Row(
+            modifier = Modifier.weight(LEFT_WEIGHT).padding(start = FixIndent.start(band.depth, FixIndent.DIFF_STEP)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text("▏", color = border, fontSize = 11.sp)
             Text(
                 band.entry.label.ifBlank { "entry ${band.entry.entryIndex + 1}" },

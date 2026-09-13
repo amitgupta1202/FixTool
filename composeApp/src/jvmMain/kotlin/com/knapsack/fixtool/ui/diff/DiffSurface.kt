@@ -1337,11 +1337,15 @@ private fun EntryBand(
                 .background(
                     fill,
                 ).selectable(onSelect)
-                .padding(start = FixIndent.start(band.depth, FixIndent.DIFF_STEP))
                 .padding(horizontal = ROW_PADDING, vertical = 2.dp)
                 .testTag(if (band.moved) "moved-band" else "entry-band"),
     ) {
-        Row(modifier = Modifier.weight(LEFT_WEIGHT), verticalAlignment = Alignment.CenterVertically) {
+        // Indented inside the left column, as the field rows are. On the whole row the indent came out of the width
+        // the columns share, so a nested band's gutter and reply column sat ~4dp right of its own rows per level.
+        Row(
+            modifier = Modifier.weight(LEFT_WEIGHT).padding(start = FixIndent.start(band.depth, FixIndent.DIFF_STEP)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             // The band's grip drags the whole entry — the unit a venue actually moves. Every row of it
             // travels, which is what makes the occurrence mapping survive the crossing (D1).
             DragHandle(handlers, testTag = "entry-handle-${band.entry.rows.first}", modifier = Modifier.padding(end = 3.dp))

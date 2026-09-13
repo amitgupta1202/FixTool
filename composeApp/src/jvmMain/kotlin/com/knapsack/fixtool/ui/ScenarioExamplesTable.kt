@@ -215,7 +215,9 @@ private fun RowLine(
                 value = row.values[name].orEmpty(),
                 onValueChange = { onChange(row.copy(values = row.values + (name to it))) },
                 monospace = true,
-                modifier = Modifier.width((CELL_WIDTH - 8).dp).padding(end = 6.dp).testTag("examples-cell-$index-$column"),
+                // CELL_WIDTH, as the header's column is: 8dp short, every cell started 8dp further left than the
+                // one before it, and by the fourth column the values stood under the wrong names.
+                modifier = Modifier.width(CELL_WIDTH.dp).padding(end = 6.dp).testTag("examples-cell-$index-$column"),
             )
         }
         // Parked, not deleted — the same bargain a muted step keeps, for the same reason: an author

@@ -2,8 +2,10 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,8 +20,10 @@ import com.knapsack.fixtool.model.RfqLeg
 import com.knapsack.fixtool.model.RfqLife
 import org.junit.Rule
 import org.junit.Test
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * **The venue's RFQ book, as the pane draws it**: one row per negotiation, one per leg, each id both ways, and a
@@ -93,6 +97,31 @@ class RfqBookPanelTest {
 
         composeTestRule.onNodeWithTag("rfq-book-clear").performClick()
         assertEquals(true, cleared)
+    }
+
+    /**
+     * **An RFQ's State and its legs' States stand in one column**, at every width a wide pane can be. The two rows
+     * split their width by different weights with different paddings, so the column drifted apart as the pane
+     * grew: 17dp at 640, 28 at 1000.
+     */
+    @Test
+    fun `on a wide pane an RFQ's State and its legs' States start at the same x, at any width`() {
+        val paneWidth = mutableStateOf(640.dp)
+        composeTestRule.setContent {
+            Box(Modifier.width(paneWidth.value)) {
+                RfqBookPanel(view = RfqBookView(listOf(traded)), onClear = {}, now = now)
+            }
+        }
+
+        listOf(640.dp, 1000.dp, 1400.dp).forEach { width ->
+            paneWidth.value = width
+            composeTestRule.waitForIdle()
+            val rfq = composeTestRule.onNodeWithTag("rfq-state-RFQ-1").getUnclippedBoundsInRoot().left
+            listOf("FIDLR1", "FIDLR2").forEach { dealer ->
+                val leg = composeTestRule.onNodeWithTag("rfq-leg-state-RFQ-1-$dealer").getUnclippedBoundsInRoot().left
+                assertTrue(abs((rfq - leg).value) < 0.5f, "at $width the RFQ's State starts at $rfq and $dealer's at $leg")
+            }
+        }
     }
 
     @Test

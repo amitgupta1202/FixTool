@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -21,6 +22,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import org.junit.Rule
 import org.junit.Test
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -70,6 +72,27 @@ class ScenarioExamplesTableTest {
             }
         }
         composeTestRule.waitForIdle()
+    }
+
+    /**
+     * **Each value stands under its column's name.** A header column took 150dp and a row's cell 142, so every cell
+     * started 8dp further left of its name than the one before; by the fourth column a value sat half under the
+     * wrong heading.
+     */
+    @Test
+    fun `every cell starts where its column's name starts, however many columns there are`() {
+        val columns = listOf("symbol", "qty", "side", "price", "account")
+        render(
+            outline.copy(
+                examples = Examples(columns = columns, rows = listOf(ExampleRow("wide", columns.associateWith { "v-$it" }))),
+            ),
+        )
+
+        columns.indices.forEach { column ->
+            val name = composeTestRule.onNodeWithTag("examples-column-$column").getUnclippedBoundsInRoot().left
+            val cell = composeTestRule.onNodeWithTag("examples-cell-0-$column").getUnclippedBoundsInRoot().left
+            assertTrue(abs((name - cell).value) < 0.5f, "column $column: its name starts at $name, its cell at $cell")
+        }
     }
 
     @Test

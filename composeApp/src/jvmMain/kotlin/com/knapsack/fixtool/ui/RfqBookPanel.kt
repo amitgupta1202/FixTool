@@ -123,12 +123,19 @@ private fun RfqRow(entry: RfqEntry, now: Long, wide: Boolean) {
     val requester = "${entry.requesterCompId} ${entry.requesterQuoteReqId}"
 
     if (wide) {
+        // Details, then State — the split a leg row makes too, so the two States stand in one column. See [LegRow].
         Row(modifier = base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = CELL_GAP) {
-            BookCell(entry.rfqId, AppTheme.Colors.text, Modifier.weight(1f), size = 11.sp)
-            BookCell(instrumentLabel(entry), AppTheme.Colors.text, Modifier.weight(2f))
-            BookCell(sideAndSize(entry), AppTheme.Colors.textSecondary, Modifier.weight(1.2f))
-            BookCell(requester, AppTheme.Colors.textSecondary, Modifier.weight(2f))
-            state(Modifier.weight(1.6f))
+            Row(
+                Modifier.weight(DETAILS_WEIGHT),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = CELL_GAP,
+            ) {
+                BookCell(entry.rfqId, AppTheme.Colors.text, Modifier.weight(1f), size = 11.sp)
+                BookCell(instrumentLabel(entry), AppTheme.Colors.text, Modifier.weight(2f))
+                BookCell(sideAndSize(entry), AppTheme.Colors.textSecondary, Modifier.weight(1.2f))
+                BookCell(requester, AppTheme.Colors.textSecondary, Modifier.weight(2f))
+            }
+            state(Modifier.weight(STATE_WEIGHT))
         }
     } else {
         Column(modifier = base) {
@@ -148,7 +155,7 @@ private fun LegRow(entry: RfqEntry, leg: RfqLeg, now: Long, wide: Boolean) {
     val base =
         Modifier
             .fillMaxWidth()
-            .padding(start = 18.dp, end = 8.dp, top = 1.dp, bottom = 1.dp)
+            .padding(end = 8.dp, top = 1.dp, bottom = 1.dp)
             .testTag("rfq-leg-${entry.rfqId}-${leg.compId}")
     val state: @Composable (Modifier) -> Unit = { mod ->
         val live = entry.lifeAt(now).live
@@ -160,14 +167,26 @@ private fun LegRow(entry: RfqEntry, leg: RfqLeg, now: Long, wide: Boolean) {
     }
 
     if (wide) {
-        Row(modifier = base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = CELL_GAP) {
-            BookCell(leg.compId, AppTheme.Colors.text, Modifier.weight(1f))
-            BookCell(legIds(leg), AppTheme.Colors.textSecondary, Modifier.weight(2.2f))
-            BookCell(level.orEmpty(), AppTheme.Colors.text, Modifier.weight(2f))
-            state(Modifier.weight(1.6f))
+        // The leg's indent is inside its details, not on the row. On the row, it and the leg's one fewer cell moved
+        // State: at 640dp the RFQ's State began at 512 and its legs' at 495, and the gap grew with the panel.
+        Row(
+            modifier = base.padding(start = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = CELL_GAP,
+        ) {
+            Row(
+                Modifier.weight(DETAILS_WEIGHT).padding(start = LEG_INDENT),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = CELL_GAP,
+            ) {
+                BookCell(leg.compId, AppTheme.Colors.text, Modifier.weight(1f))
+                BookCell(legIds(leg), AppTheme.Colors.textSecondary, Modifier.weight(2.2f))
+                BookCell(level.orEmpty(), AppTheme.Colors.text, Modifier.weight(2f))
+            }
+            state(Modifier.weight(STATE_WEIGHT))
         }
     } else {
-        Column(modifier = base) {
+        Column(modifier = base.padding(start = 8.dp + LEG_INDENT)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 BookCell(leg.compId, AppTheme.Colors.text, Modifier.weight(1f))
                 state(Modifier.weight(2f))
@@ -336,6 +355,13 @@ private val CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss").w
 private val MILLION = BigDecimal(1_000_000)
 
 private val CELL_GAP = Arrangement.spacedBy(10.dp)
+
+/** A wide row's two parts, the same on an RFQ and on its legs: everything else, and State. */
+private const val DETAILS_WEIGHT = 6.2f
+private const val STATE_WEIGHT = 1.6f
+
+/** How far a leg sits in from the RFQ it belongs to. */
+private val LEG_INDENT = 10.dp
 
 /** The Treasury coupon securities the cash market quotes in 32nds. Bills trade on discount yield and are left out. */
 private val QUOTED_IN_32NDS = setOf("TNOTE", "TBOND", "UST", "TIPS")

@@ -1892,6 +1892,9 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
         rows.take(DOOR_PREVIEW_ROWS).forEach { fe ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                // The constraint rows' 8dp between cells. Without it the name and the matcher stood 8dp left of the
+                // name and the comparison in the rows above, which is not the same columns.
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier =
                     Modifier
                         .padding(top = 2.dp)
@@ -1914,7 +1917,6 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }

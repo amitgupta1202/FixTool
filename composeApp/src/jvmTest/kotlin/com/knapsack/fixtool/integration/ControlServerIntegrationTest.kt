@@ -341,6 +341,23 @@ class ControlServerIntegrationTest {
         assertFalse(viewModel.showScenariosRail.value)
     }
 
+    /**
+     * **Latency and Terminal have a name here now.** Both had a stripe tab and a digit and no `/panel` name, so
+     * the only way to put either on screen for a screenshot was to hand an agent a mouse.
+     */
+    @Test
+    fun `panel latency and terminal put those two tool windows on screen and take them off`() {
+        assertEquals("ok", status(post("/panel", """{"panel":"latency","show":true}""")))
+        assertTrue(viewModel.showLatencyPanel.value)
+        post("/panel", """{"panel":"latency","show":false}""")
+        assertFalse(viewModel.showLatencyPanel.value)
+
+        assertEquals("ok", status(post("/panel", """{"panel":"terminal","show":true}""")))
+        assertTrue(viewModel.showing(com.knapsack.fixtool.ui.ToolWindow.TERMINAL))
+        post("/panel", """{"panel":"terminal","show":false}""")
+        assertFalse(viewModel.showing(com.knapsack.fixtool.ui.ToolWindow.TERMINAL))
+    }
+
     @Test
     fun `select with no sessions returns an error`() {
         assertEquals("error", status(post("/select", """{"session":"0"}""")))
@@ -437,7 +454,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(54, tools.size)
+        assertEquals(55, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_close_sessions" },
             "a box can be put back to nothing from a script, which is what a load run leaves fifty panes for",

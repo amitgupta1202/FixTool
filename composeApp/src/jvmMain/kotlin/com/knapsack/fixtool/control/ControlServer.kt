@@ -81,7 +81,13 @@ import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.ui.diff.DiffSide
 import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.ReconcileSession
+import com.knapsack.fixtool.ui.NOTHING_SAVED_TO_RUN
+import com.knapsack.fixtool.ui.RunConfiguration
+import com.knapsack.fixtool.ui.ToolWindow
 import com.knapsack.fixtool.ui.firstFailure
+import com.knapsack.fixtool.ui.liveRunId
+import com.knapsack.fixtool.ui.runRefusal
+import com.knapsack.fixtool.ui.stopRunConfiguration
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.knapsack.fixtool.viewmodel.TraceRendering
 import com.sun.net.httpserver.Headers
@@ -187,6 +193,7 @@ class ControlServer(
         httpServer.createContext("/load") { ex -> handleCoded(ex) { startLoad(readJson(ex)) } }
         httpServer.createContext("/loads") { ex -> handleCoded(ex) { loads(ex) } }
         httpServer.createContext("/load-sets") { ex -> handleCoded(ex) { loadSets(ex) } }
+        httpServer.createContext("/run") { ex -> handleCoded(ex) { runSelection(ex) } }
         httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
         httpServer.createContext("/scenarios/capture-paste") { ex -> handle(ex) { capturePaste(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
@@ -491,8 +498,9 @@ class ControlServer(
     }
 
     /**
-     * Shows or hides a UI panel/dialog for verification screenshots. `panel` is one of
-     * connection, editor, detail, settings; `show` (default true) sets the desired state.
+     * Shows or hides a UI panel/dialog for verification screenshots. `panel` is one of connection, editor,
+     * detail, settings, scenarios, orderbook, latency, terminal, trace or conversations; `show` (default true)
+     * sets the desired state.
      */
     private fun panel(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
@@ -613,12 +621,18 @@ class ControlServer(
                         // click, which is exactly the hole "Reply With…" left and this slice set out
                         // not to repeat — see the note on /acceptor/orders.
                         "orderbook" -> viewModel.showOrderBookPanel.value to viewModel::toggleOrderBookPanel
+                        // The two tool windows that had a stripe tab and a digit and no name here, so an agent
+                        // wanting a screenshot of either had to be handed a mouse.
+                        "latency" -> viewModel.showLatencyPanel.value to viewModel::toggleLatencyPanel
+                        "terminal" ->
+                            viewModel.showing(ToolWindow.TERMINAL) to { viewModel.toggle(ToolWindow.TERMINAL) }
                         else -> return@onEdt null
                     }
                 if (state != show) toggle()
                 show
             } ?: return errorObject(
-                "unknown panel '$name' (connection|editor|detail|settings|scenarios|conversations|trace|orderbook)",
+                "unknown panel '$name' " +
+                    "(connection|editor|detail|settings|scenarios|conversations|trace|orderbook|latency|terminal)",
             )
         return buildJsonObject {
             put("status", "ok")
@@ -1754,6 +1768,109 @@ class ControlServer(
         val record = viewModel.runRecordStore.readEntry(setId, n) ?: return errorObject("no record for entry $n of '$setId'")
         return RunRecordCodec.toJson(record)
     }
+
+    /**
+     * `/run` — **the run configuration widget's ▶, from outside**: what the window names, and running it.
+     *
+     * `GET` says what is selected, whether it is running and why ▶ would be refused. `POST {}` runs it. A body
+     * naming `loadSet` or `runSet` aims the widget first, exactly as choosing a row in its menu does — the
+     * choice is remembered — and runs it unless `start` is false. `{"stop": true}` stops the selection's own
+     * live run and nothing else.
+     *
+     * Running goes through the doors that already exist, `POST /load {"set"}` and `POST /scenarios/run
+     * {"set"}`, so the refusals, the 202 bodies and the job ids are theirs and cannot drift from them; this
+     * adds only `configuration`, which says what the window was pointed at.
+     */
+    private fun runSelection(ex: HttpExchange): Coded =
+        if (ex.requestMethod.uppercase() == "POST") runSelection(readJson(ex)) else Coded(HTTP_OK, runSelectionState())
+
+    private fun runSelection(body: JsonObject): Coded {
+        val aimed = aim(body)
+        if (aimed != null) {
+            val saved =
+                onEdt {
+                    viewModel.refreshRunConfigurations()
+                    val lists = viewModel.runConfigurations.value
+                    when (aimed.kind) {
+                        RunConfiguration.Kind.LOAD_SET -> lists.loadSets.any { it.name == aimed.name }
+                        RunConfiguration.Kind.RUN_SET -> lists.runSets.any { it.name == aimed.name }
+                    }.also { exists -> if (exists) viewModel.selectRunConfiguration(aimed.key) }
+                }
+            if (!saved) return Coded(HTTP_NOT_FOUND, errorObject("no saved ${aimed.kind.label} '${aimed.name}'"))
+        }
+        val selected =
+            onEdt {
+                viewModel.refreshRunConfigurations()
+                RunConfiguration.parse(viewModel.resolvedRunConfiguration())
+            } ?: return Coded(HTTP_NOT_FOUND, errorObject(NOTHING_SAVED_TO_RUN))
+        if (body["stop"]?.jsonPrimitive?.booleanOrNull == true) {
+            val stopped =
+                onEdt { stopRunConfiguration(viewModel, selected) }
+                    ?: return Coded(
+                        HTTP_CONFLICT,
+                        errorObject("${selected.kind.label} '${selected.name}' is not running"),
+                    )
+            return Coded(
+                HTTP_ACCEPTED,
+                buildJsonObject {
+                    put("status", "stopping")
+                    put(if (selected.kind == RunConfiguration.Kind.LOAD_SET) "load" else "runSet", stopped)
+                    put("configuration", configurationJson(selected))
+                },
+            )
+        }
+        if (body["start"]?.jsonPrimitive?.booleanOrNull == false) return Coded(HTTP_OK, runSelectionState())
+        val named = buildJsonObject { put("set", selected.name) }
+        val started =
+            when (selected.kind) {
+                RunConfiguration.Kind.LOAD_SET -> startLoadSet(named)
+                RunConfiguration.Kind.RUN_SET -> startRunSet(named)
+            }
+        val answer = started.body as? JsonObject ?: return started
+        return Coded(started.code, JsonObject(answer + ("configuration" to configurationJson(selected))))
+    }
+
+    /** The configuration a body names with `loadSet` or `runSet`, or null when it names neither. */
+    private fun aim(body: JsonObject): RunConfiguration? {
+        val loadSet = body["loadSet"]?.jsonPrimitive?.contentOrNull
+        val runSet = body["runSet"]?.jsonPrimitive?.contentOrNull
+        return when {
+            loadSet != null -> RunConfiguration(RunConfiguration.Kind.LOAD_SET, loadSet)
+            runSet != null -> RunConfiguration(RunConfiguration.Kind.RUN_SET, runSet)
+            else -> null
+        }
+    }
+
+    /** What the widget is pointed at and what ▶ would do now, read through the widget's own rules. */
+    private fun runSelectionState(): JsonObject =
+        onEdt {
+            // Re-read, because a set written by a checkout or another process is on disk before anything told
+            // the window, and this answer is about what is saved now.
+            viewModel.refreshRunConfigurations()
+            val selected = RunConfiguration.parse(viewModel.resolvedRunConfiguration())
+            val live =
+                selected?.liveRunId(
+                    viewModel.activeLoadRun.value,
+                    viewModel.activeRunSet.value,
+                    viewModel.runningSetIds.value,
+                )
+            buildJsonObject {
+                if (selected == null) put("selected", JsonNull) else put("selected", configurationJson(selected))
+                put("running", live != null)
+                live?.let { put(if (selected.kind == RunConfiguration.Kind.LOAD_SET) "load" else "runSet", it) }
+                runRefusal(selected, live != null, viewModel.scenarioRunning.value)?.let { put("refusal", it) }
+            }
+        }
+
+    private fun configurationJson(configuration: RunConfiguration): JsonObject =
+        buildJsonObject {
+            put("kind", if (configuration.kind == RunConfiguration.Kind.LOAD_SET) "loadSet" else "runSet")
+            put("name", configuration.name)
+            if (configuration.kind == RunConfiguration.Kind.LOAD_SET) {
+                val label = viewModel.loadSet(configuration.name)?.label
+                if (!label.isNullOrBlank()) put("label", label)
+            }
+        }
 
     /**
      * **Starts a load run as a job**: 202 and an id, 409 when the lanes are held or none is logged on, and a
@@ -4218,6 +4335,18 @@ class ControlServer(
             "fixtool_load_status" to { a -> loadStatusTool(a) },
             // MCP has no status codes, so the 404 for a name nothing answers to is the body.
             "fixtool_load_sets" to { a -> loadSetsBody(a["name"]?.jsonPrimitive?.contentOrNull).body },
+            "fixtool_run_selection" to { a ->
+                // `action` rather than the HTTP verb, and `status` by default: a tool called with no arguments
+                // should say what would run, not run it.
+                val rest = JsonObject(a - "action")
+                when (a["action"]?.jsonPrimitive?.contentOrNull ?: "status") {
+                    "status" -> runSelectionState()
+                    "aim" -> runSelection(JsonObject(rest + ("start" to JsonPrimitive(false)))).body
+                    "run" -> runSelection(rest).body
+                    "stop" -> runSelection(JsonObject(rest + ("stop" to JsonPrimitive(true)))).body
+                    else -> errorObject("'action' is status, aim, run or stop")
+                }
+            },
             "fixtool_reconcile" to { a -> reconcile(mcpExchange(a)) },
             "fixtool_diff" to { a -> diffMessages(mcpExchange(a)) },
             "fixtool_delete_scenario" to { a -> deleteScenario(mcpExchange(a)) },

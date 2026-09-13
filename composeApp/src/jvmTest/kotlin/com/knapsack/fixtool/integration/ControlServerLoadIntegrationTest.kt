@@ -374,6 +374,43 @@ class ControlServerLoadIntegrationTest {
         assertEquals(404, post("/load", """{"set":"nowhere"}""").statusCode())
     }
 
+    /**
+     * **`/run` is the widget's ▶ from outside**: what the window is pointed at, aiming it, and running it.
+     *
+     * Running goes through `/load {"set"}`, so what comes back is that door's answer — here the set's own
+     * refusal, in its phase's voice — plus `configuration`, which says what the window was pointed at. That is
+     * the claim worth a test: the door adds a name and no second set of rules.
+     */
+    @Test
+    fun `the run door reads the selection, aims it, refuses what is not saved, and runs through the load door`() {
+        val empty = obj(get("/run"))
+        assertTrue(empty["selected"] is kotlinx.serialization.json.JsonNull, empty.toString())
+        assertEquals("Nothing saved to run", empty["refusal"]!!.jsonPrimitive.content)
+        assertEquals(404, post("/run", "{}").statusCode())
+
+        listOf("alpha", "beta").forEach { name ->
+            viewModel.loadSetStore.save(
+                LoadSet(
+                    name = name,
+                    label = name.replaceFirstChar { it.uppercase() },
+                    phases = listOf(LoadPhaseSpec("Ask", "nowhere", "LOADGEN", shape = LoadShape.Burst(10))),
+                ),
+            )
+        }
+
+        val aimed = post("/run", """{"loadSet":"beta","start":false}""")
+        assertEquals(200, aimed.statusCode(), aimed.body())
+        assertEquals("beta", obj(aimed)["selected"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertEquals("LOADSET:beta", viewModel.layoutState.value.selectedRunConfiguration, "the choice is remembered")
+
+        assertEquals(404, post("/run", """{"loadSet":"nowhere"}""").statusCode())
+        assertEquals(409, post("/run", """{"stop":true}""").statusCode(), "nothing of beta's is running")
+
+        val ran = obj(post("/run", "{}"))
+        assertEquals("beta", ran["configuration"]!!.jsonObject["name"]!!.jsonPrimitive.content, ran.toString())
+        assertTrue(ran["error"]!!.jsonPrimitive.content.startsWith("Phase 1 · Ask:"), ran.toString())
+    }
+
     @Test
     fun `the MCP tools are listed and the status tool lists recent runs`() {
         viewModel.loadRecordStore.write(LoadFixtures.burstReport(unmatched = 0))

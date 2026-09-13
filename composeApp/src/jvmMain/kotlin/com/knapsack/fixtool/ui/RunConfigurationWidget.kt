@@ -39,7 +39,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadSet
+import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -205,6 +207,58 @@ internal class RunChoice(
                 selected == null -> "Run"
                 else -> "Run $displayName"
             }
+}
+
+/**
+ * **The live run's id when this configuration is the one running**, or null — which is what makes ▶ a ■.
+ *
+ * The live record has to be *this* configuration's, not merely running: ▶ becomes ■ only for what it is
+ * pointed at, and stays a refused ▶ for any other run. One rule for the widget, the Run menu and `/run`.
+ */
+internal fun RunConfiguration.liveRunId(
+    activeLoad: LoadRecord?,
+    activeSet: RunSet?,
+    runningIds: Set<String>,
+): String? =
+    when (kind) {
+        RunConfiguration.Kind.LOAD_SET -> activeLoad?.takeIf { it.set?.name == name && it.id in runningIds }?.id
+        RunConfiguration.Kind.RUN_SET ->
+            activeSet?.takeIf { (it.source as? RunSource.Saved)?.setName == name && it.id in runningIds }?.id
+    }
+
+/** Why ▶ is refused, or null when it is not: nothing saved to point at, or another run holding the sessions. */
+internal fun runRefusal(
+    selected: RunConfiguration?,
+    running: Boolean,
+    anyRunning: Boolean,
+): String? =
+    when {
+        selected == null -> NOTHING_SAVED_TO_RUN
+        anyRunning && !running -> ANOTHER_RUN_IN_PROGRESS
+        else -> null
+    }
+
+/**
+ * Stop [configuration]'s live run, if it is the one running.
+ *
+ * By the live record's id rather than the selection's name: what stops a run is the run, and with a second run in
+ * flight on other sessions the name alone would stop the wrong thing.
+ */
+internal fun stopRunConfiguration(
+    viewModel: FixMessageViewModel,
+    configuration: RunConfiguration,
+): String? {
+    val live =
+        configuration.liveRunId(
+            viewModel.activeLoadRun.value,
+            viewModel.activeRunSet.value,
+            viewModel.runningSetIds.value,
+        ) ?: return null
+    when (configuration.kind) {
+        RunConfiguration.Kind.LOAD_SET -> viewModel.stopLoadRun(live)
+        RunConfiguration.Kind.RUN_SET -> viewModel.requestScenarioStop(live)
+    }
+    return live
 }
 
 /** "Load run…  5 lanes on 2 profiles": the one-off run, and what it has to issue from. */
@@ -516,23 +570,8 @@ internal fun rememberRunChoice(
             else -> selected.name
         }
 
-    // A set is running when the live record is *this* set's, not merely when something is running: the ▶
-    // becomes a ■ only for the configuration it is pointed at, and stays a refused ▶ for any other run.
-    val running =
-        when (selected?.kind) {
-            null -> false
-            RunConfiguration.Kind.LOAD_SET ->
-                activeLoad?.set?.name == selected.name && activeLoad?.id in runningIds
-            RunConfiguration.Kind.RUN_SET ->
-                (activeSet?.source as? RunSource.Saved)?.setName == selected.name && activeSet?.id in runningIds
-        }
-
-    val refusal =
-        when {
-            selected == null -> NOTHING_SAVED_TO_RUN
-            scenarioRunning && !running -> ANOTHER_RUN_IN_PROGRESS
-            else -> null
-        }
+    val running = selected?.liveRunId(activeLoad, activeSet, runningIds) != null
+    val refusal = runRefusal(selected, running, scenarioRunning)
 
     return RunChoice(
         selected = selected,
@@ -561,17 +600,7 @@ internal fun rememberRunChoice(
                 RunConfiguration.Kind.RUN_SET -> viewModel.startSavedRunSet(selected.name)
             }
         },
-        stop = {
-            // The live record's id rather than the selection's name: what stops a run is the run, and the
-            // record is where its id is.
-            val liveLoad = viewModel.activeLoadRun.value?.id
-            val liveSet = viewModel.activeRunSet.value?.id
-            when (selected?.kind) {
-                null -> Unit
-                RunConfiguration.Kind.LOAD_SET -> liveLoad?.let(viewModel::stopLoadRun)
-                RunConfiguration.Kind.RUN_SET -> liveSet?.let(viewModel::requestScenarioStop)
-            }
-        },
+        stop = { selected?.let { stopRunConfiguration(viewModel, it) } },
         select = { viewModel.selectRunConfiguration(it.key) },
         // **Whether a record still names something is decided here, not in the row.** A Recent row is a
         // record, and a record remembers a name whether or not the file behind it survived the branch it was

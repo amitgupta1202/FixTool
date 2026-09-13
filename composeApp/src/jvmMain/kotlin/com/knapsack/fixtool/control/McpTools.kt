@@ -97,6 +97,8 @@ object McpTools {
                     "rule; Save still persists it, and the response says saved:false) or action:cancel. Apply " +
                     "refuses, by tag, a value carrying the '|' field separator or a tag left with no value — both " +
                     "would put a malformed message on the wire. " +
+                    "`latency` and `terminal` open those two tool windows, the Latency panel and the bottom " +
+                    "dock's Terminal tab. " +
                     "`trace` opens the Trace panel (the Ledger: every exchange across every session, with its " +
                     "session count and the gap between its messages). Add `follow` with a whole correlation " +
                     "value to narrow every pane to that one exchange — the same set fixtool_trace returns — or " +
@@ -107,7 +109,18 @@ object McpTools {
                     "response always says which drawing is on screen.",
                 props(
                     "panel" to
-                        enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations", "trace", "orderbook"),
+                        enumStr(
+                            "connection",
+                            "editor",
+                            "detail",
+                            "settings",
+                            "scenarios",
+                            "conversations",
+                            "trace",
+                            "orderbook",
+                            "latency",
+                            "terminal",
+                        ),
                     "show" to boolean("default true"),
                     "follow" to string("trace: a whole correlation value to follow, or null to stop following"),
                     "render" to enumStr("ledger", "lanes"),
@@ -610,6 +623,22 @@ object McpTools {
                     "template, profile, match, shape and captures. Read-only: a set is authored in the app or in " +
                     "a checkout. Run one with fixtool_load set=<name>.",
                 props("name" to string("a saved set's name; omit to list them all")),
+            ),
+            tool(
+                "fixtool_run_selection",
+                "The toolbar's RUN CONFIGURATION WIDGET: the one saved load set or scenario set the window's ▶ is " +
+                    "pointed at, and running it. action=status (the default) returns {selected:{kind, name, " +
+                    "label?}|null, running, load|runSet (the live id while it runs), refusal?} and changes nothing. " +
+                    "action=aim with loadSet=<name> or runSet=<name> points the widget at that set, as choosing " +
+                    "it in the widget's menu does, and runs nothing. action=run runs the selection — or, with " +
+                    "loadSet/runSet, aims and then runs — through the same doors as fixtool_load set=<name> and " +
+                    "fixtool_run_set set=<name>, so it answers with their job id and refusals plus " +
+                    "`configuration`. action=stop stops the selection's own live run and no other.",
+                props(
+                    "action" to enumStr("status", "aim", "run", "stop"),
+                    "loadSet" to string("a saved load set's name to aim at"),
+                    "runSet" to string("a saved scenario set's name to aim at"),
+                ),
             ),
             tool(
                 "fixtool_reconcile",

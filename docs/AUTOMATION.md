@@ -380,7 +380,9 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /acceptor/rules` | `{"profile", "rule"?, "preset"?, "index"?, "enabled"?}` | add (`rule`, no index), replace (`rule` + `index`), toggle (`index` + `enabled`) or insert a ready-made behaviour (`preset`) — **one** rule at a time, leaving the rest of the profile alone |
 | `GET /acceptor/presets` | —                                    | the shipped acceptor behaviours by `id`, each with what triggers it and the reply it inserts |
 | `DELETE /acceptor/rules` | `{"profile", "index"}`             | remove one rule; the rules after it shift up                |
-| `POST /acceptor/test` | `{"profile", "raw", "orderState"?, "order"?, "quoteState"?, "quote"?}` | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back. `order` is the order to render `${order.…}` against, by the book's own names. `quoteState` and `quote` are the same pair for the quote book (`unknown`\|`open`\|`expired`\|`done`, default `unknown`; `quote` given alone assumes `open`), reported back as `assumedQuoteState` and per rule as `whenQuote` |
+| `GET /acceptor/rfqs` | query: `profile` | a relaying venue's RFQ book: every RFQ with its requester and the id it used, its state, and a leg per responder with the quotes it sent, the id the requester was shown for each, and how its part ended |
+| `POST /acceptor/rfqs` | `{"profile", "clear": true}` | forget every RFQ the venue holds |
+| `POST /acceptor/test` | `{"profile", "raw", "from"?, "rfqState"?, "rfq"?, "online"?, "orderState"?, "order"?, "quoteState"?, "quote"?}` | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back. `order` is the order to render `${order.…}` against, by the book's own names. `quoteState` and `quote` are the same pair for the quote book (`unknown`\|`open`\|`expired`\|`done`, default `unknown`; `quote` given alone assumes `open`), reported back as `assumedQuoteState` and per rule as `whenQuote` |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
@@ -1133,6 +1135,77 @@ Two things every preset does that a hand-written rule should copy:
   nothing and puts `31=` on the wire, which is a malformed message the client gets blamed for. That
   is why the fill presets are conditioned on `40 = 2` and the replace preset requires `38`.
 
+#### Rules that address another counterparty
+
+A venue can carry a negotiation **between two parties** instead of answering each one itself: a buy side's
+QuoteRequest goes to the dealers, each dealer's Quote goes back to the buy side, and a lift is confirmed to
+both. Every one of those messages is a step of an ordinary rule that names who it goes to.
+
+First the venue says who plays what, on its profile:
+
+```json
+"counterparties": [
+  {"compId": "FIBUY1", "role": "requester"},
+  {"compId": "FIDLR*", "role": "responder"}
+]
+```
+
+A trailing `*` covers a family (a five-lane load client). An exact entry beats a family, and a longer family
+beats a shorter one. A counterparty that matches nothing still logs on, and only `sender` reaches it.
+
+Then a step gains `to`:
+
+| `to` | Goes to |
+|---|---|
+| absent, or `sender` | whoever sent the trigger — every rule written before this |
+| `requester` | the counterparty that opened the RFQ this message belongs to |
+| `quoter` | the responder whose quote the trigger names |
+| `cover` | the responder holding the best other live quote on the traded side: the lowest offer when the lift was a buy, the highest bid when it was a sell |
+| `others` | every responder holding a live quote, except the quoter and the cover |
+| `quoted` | every responder holding a live quote |
+| `asked` | every responder the RFQ was sent to, quoted or not |
+| `responders` | every counterparty declared a responder, as it stands when the rule fires |
+| `compId:FIDLR1` | one named counterparty |
+
+A step addressed to several renders once per recipient: `${uuid}` draws for each, `${req.uuid}` once for the
+whole reply. An address that reaches nobody (a single-dealer RFQ has no cover) sends nothing and is not an
+error. A recipient that is declared but not logged on is **not delivered**: nothing is sent, and it is
+counted as `notDelivered` in `/sessions` and on the venue's badge. A step already queued for a counterparty
+that logs out is counted the same way. It is cancelled by **that** counterparty's logout, not the sender's:
+a platform still tells a dealer about a lift after the buy side drops.
+
+Two trigger conditions ask the venue rather than the message, and they are matchers, so they sit in
+`conditions`:
+
+- `{"tag": 49, "matcher": {"type": "role", "role": "requester"}}` — the sender's part: `requester`,
+  `responder` or `unlisted`. Only on tag 49.
+- `{"tag": 117, "matcher": {"type": "rfq", "state": "open"}}` — the RFQ the message names: `unknown`,
+  `open`, `done` or `expired`. On 131 it is found by the QuoteReqID; on 117 by the quote id, and then `open`
+  also requires that quote to be its dealer's current one, so a lift of a level since replaced reads `done`.
+
+`"whenResponders": "none"` (or `"some"`) asks whether any responder is logged on. A rule with a step to anyone
+but the sender, or with `whenResponders`, **must** also carry a `role` or `rfq` condition: an older FixTool
+reading the profile ignores the fields it does not know and would run the rule as a reply to the sender, but
+it cannot parse those matchers, so it drops the whole rule instead.
+
+The venue **re-keys** what it passes across, because ids are only unique per counterparty. Two references
+read what the far side knows:
+
+- `${to.<tag>}` — `<tag>` as the recipient knows it on this RFQ. `${to.131}` is the buy side's own
+  QuoteReqID to the buy side and the venue's to a dealer; `${to.117}` to the quoter is the dealer's own quote
+  id, the one linked to the quote the trigger names. Any other tag is the last one exchanged with that
+  recipient, so a fill can read the ClOrdID the step before gave the same dealer. It **refuses** rather than
+  sending an empty field, and a step that fans out to dealers who have never seen the RFQ cannot read it.
+- `${rfq.requester}`, `${rfq.quoter}` (CompIDs), `${rfq.asked}`, `${rfq.quoted}` (counts), `${rfq.state}`.
+
+A trigger reads the book as it stood **before** the message; addresses and these references read it
+**after**, so the QuoteRequest that opens an RFQ can be relayed. A rule that sends the quoter a `35=8` books
+a trade, and the RFQ is marked done **the moment the rule fires**, before any step goes out: a second lift
+already queued behind it reads `done`.
+
+A relayed message's reason says where it came from — *"sent by rule 5 — 35=AJ matched at 09:14:34.551 →
+quoter FIDLR1, relayed from FIBUY1's 35=AJ"*.
+
 #### Editing a reply step in the message editor
 
 A step is a raw FIX string, and reading one is the same problem writing one was. `POST /panel` opens
@@ -1185,6 +1258,23 @@ judgement with `firstMatch`, and the reply comes from `plan`), so a dry run cann
 live session would do nothing. It reads the profile **as saved** — which is also what a connected
 acceptor is running, since saving now applies to live sessions, so testing here and connecting there
 cannot disagree about the ruleset.
+
+On a relaying venue the dry run needs to know who sent the message and what the venue is holding, because both
+decide the rule. `from` is the sender's CompID, and its role comes from the profile's `counterparties`.
+`rfqState` is the state to assume the named RFQ is in (`unknown`, `open`, `done` or `expired`). `online` lists
+who is logged on, defaulting to everyone the request names or the profile declares exactly. `rfq` says who
+holds what, and is what `${to.<tag>}` and `${rfq.…}` render against:
+
+```bash
+curl -s -X POST localhost:8765/acceptor/test -d '{"profile":"FI RFQ Platform",
+  "raw":"35=AJ|694=1|117=V-Q-1|11=BUY-TRD-7|", "from":"FIBUY1", "rfqState":"open", "online":["FIBUY1","FIDLR1"],
+  "rfq":{"requester":"FIBUY1","quoter":"FIDLR1","cover":"FIDLR2",
+         "quotes":{"FIDLR1":"D1-Q-88","FIDLR2":"D2-551"}, "ids":{"FIDLR1":{"131":"V-RFQ-1042"}}}}'
+```
+
+The answer's `assumedVenue` echoes the role, state and online answer it used. A relay rule's `response` lists
+every send with its `step` and `to` ({address, compId}), an entry with `notDelivered` for a recipient who is not
+online (FIDLR2 above), and one with `nobody` for a step whose address reached no one.
 
 #### What a running acceptor is doing
 

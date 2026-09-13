@@ -1276,6 +1276,98 @@ class ControlServerIntegrationTest {
         assertNull(rule["validationError"], "a well-formed relay rule is not refused: ${rule["validationError"]}")
     }
 
+    /** A platform with one lift rule, for the dry runs below. */
+    private fun relayVenue(): String =
+        obj(
+            post(
+                "/profiles",
+                """{"name":"Relay","config":{"connectionType":"ACCEPTOR","targetCompID":"*",
+                   "counterparties":[{"compId":"FIBUY1","role":"requester"},{"compId":"FIDLR1","role":"responder"},
+                                     {"compId":"FIDLR2","role":"responder"}],
+                   "acceptorResponseRules":[
+                   {"whenMsgType":"R","conditions":[{"tag":49,"matcher":{"type":"role","role":"responder"}}],
+                    "steps":[{"template":"35=AG|131=${'$'}{req.131}|658=6|"}]},
+                   {"whenMsgType":"R","conditions":[{"tag":49,"matcher":{"type":"role","role":"requester"}}],
+                    "steps":[{"template":"35=R|131=${'$'}{req.uuid}|55=${'$'}{req.55}|","to":"responders"}]},
+                   {"whenMsgType":"AJ","conditions":[{"tag":49,"matcher":{"type":"role","role":"requester"}},
+                                                    {"tag":117,"matcher":{"type":"rfq","state":"open"}}],
+                    "steps":[{"template":"35=8|11=${'$'}{req.11}|39=2|"},
+                             {"template":"35=AJ|694=1|117=${'$'}{to.117}|131=${'$'}{to.131}|","to":"quoter"},
+                             {"template":"35=AJ|694=4|117=${'$'}{to.117}|","to":"cover"},
+                             {"template":"35=AJ|694=5|117=${'$'}{to.117}|","to":"others"}]}]}}""",
+            ),
+        )["id"]!!.jsonPrimitive.content
+
+    @Test
+    fun `the dry run takes a sender, and its role decides which rule answers`() {
+        val id = relayVenue()
+
+        val fromDealer = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=R|131=Q-1|55=T 4.25 11/15/36|","from":"FIDLR1"}"""))
+        val fromBuyer = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=R|131=Q-1|55=T 4.25 11/15/36|","from":"FIBUY1"}"""))
+
+        assertTrue(fromDealer["rules"]!!.jsonArray[0].jsonObject["selected"]!!.jsonPrimitive.boolean)
+        assertEquals("responder", fromDealer["assumedVenue"]!!.jsonObject["role"]!!.jsonPrimitive.content)
+        assertTrue(fromBuyer["rules"]!!.jsonArray[1].jsonObject["selected"]!!.jsonPrimitive.boolean)
+        val fanOut = fromBuyer["response"]!!.jsonArray.map { it.jsonObject["to"]!!.jsonObject["compId"]!!.jsonPrimitive.content }
+        assertEquals(listOf("FIDLR1", "FIDLR2"), fanOut, "one send per declared responder")
+    }
+
+    @Test
+    fun `a relay dry run names every recipient, one that is not online, and a step that reaches nobody`() {
+        val id = relayVenue()
+
+        val body =
+            obj(
+                post(
+                    "/acceptor/test",
+                    """{"profile":"$id","raw":"35=AJ|694=1|117=V-Q-1|11=BUY-TRD-7|","from":"FIBUY1","rfqState":"open",
+                       "online":["FIBUY1","FIDLR1"],
+                       "rfq":{"requester":"FIBUY1","quoter":"FIDLR1","cover":"FIDLR2",
+                              "quotes":{"FIDLR1":"D1-Q-88","FIDLR2":"D2-551"},
+                              "ids":{"FIDLR1":{"131":"V-RFQ-1042"}}}}""",
+                ),
+            )
+
+        val response = body["response"]!!.jsonArray.map { it.jsonObject }
+        val toQuoter = response.single { it["step"]!!.jsonPrimitive.int == 2 && it["message"] != null }
+        assertEquals("FIDLR1", toQuoter["to"]!!.jsonObject["compId"]!!.jsonPrimitive.content)
+        assertTrue(toQuoter["message"]!!.jsonPrimitive.content.contains("117=D1-Q-88"), toQuoter.toString())
+        assertTrue(toQuoter["message"]!!.jsonPrimitive.content.contains("131=V-RFQ-1042"), toQuoter.toString())
+        val offline = response.single { it["notDelivered"] != null }
+        assertEquals("FIDLR2", offline["to"]!!.jsonObject["compId"]!!.jsonPrimitive.content, "the cover is not online")
+        val nobody = response.single { it["nobody"] != null }
+        assertEquals(4, nobody["step"]!!.jsonPrimitive.int, "no others on a two-dealer RFQ")
+    }
+
+    /** A reference a counterparty being asked could never answer is refused on the rule, before any dry run of it. */
+    @Test
+    fun `a fan-out that reads what a dealer knows is refused where the rule is read`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Slip","config":{"connectionType":"ACCEPTOR","targetCompID":"*",
+                       "counterparties":[{"compId":"FIBUY1","role":"requester"}],
+                       "acceptorResponseRules":[
+                       {"whenMsgType":"R","conditions":[{"tag":49,"matcher":{"type":"role","role":"requester"}}],
+                        "steps":[{"template":"35=R|131=${'$'}{to.131}|","to":"responders"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val rule = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray.single().jsonObject
+        assertTrue(rule["validationError"]!!.jsonPrimitive.content.contains("draw an id"), rule.toString())
+    }
+
+    @Test
+    fun `the RFQ book is read from a listening venue, and says so when there is none`() {
+        val id = relayVenue()
+
+        val notListening = obj(get("/acceptor/rfqs?profile=$id"))
+        assertTrue(notListening["error"]!!.jsonPrimitive.content.contains("not listening"), notListening.toString())
+        val unknown = obj(post("/acceptor/rfqs", """{"profile":"nope","clear":true}"""))
+        assertTrue(unknown["error"]!!.jsonPrimitive.content.contains("unknown profile"), unknown.toString())
+    }
+
     /** A rule written over the wire has to arrive as the rule the engine will run. */
     @Test
     fun `a rule posted with a book constraint keeps it, and is placed where it can fire`() {

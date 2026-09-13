@@ -7,6 +7,11 @@ package com.knapsack.fixtool.control
 
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.BookReading
+import com.knapsack.fixtool.model.BookSpec
+import com.knapsack.fixtool.model.BookedOrder
+import com.knapsack.fixtool.model.Counterparty
+import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
@@ -16,8 +21,19 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.MatchContextMode
+import com.knapsack.fixtool.model.OrderBook
+import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.OrderState
+import com.knapsack.fixtool.model.PartyRole
+import com.knapsack.fixtool.model.QuoteConstraint
+import com.knapsack.fixtool.model.QuoteEntry
+import com.knapsack.fixtool.model.QuoteReading
+import com.knapsack.fixtool.model.QuoteState
+import com.knapsack.fixtool.model.RfqConstraint
+import com.knapsack.fixtool.model.RfqReading
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.model.StepAddress
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.load.LoadMatch
@@ -26,12 +42,10 @@ import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadStatus
-import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
-import com.knapsack.fixtool.service.load.LoadReportCodec
-import com.knapsack.fixtool.service.load.LoadSetCodec
-import com.knapsack.fixtool.service.load.LoadTemplates
+import com.knapsack.fixtool.model.roleOf
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
@@ -40,24 +54,11 @@ import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
-import com.knapsack.fixtool.model.BookReading
-import com.knapsack.fixtool.model.BookSpec
-import com.knapsack.fixtool.model.BookedOrder
-import com.knapsack.fixtool.model.OrderBook
-import com.knapsack.fixtool.model.OrderConstraint
-import com.knapsack.fixtool.model.QuoteConstraint
-import com.knapsack.fixtool.model.QuoteEntry
-import com.knapsack.fixtool.model.QuoteReading
-import com.knapsack.fixtool.model.QuoteState
-import com.knapsack.fixtool.model.OrderState
-import com.knapsack.fixtool.service.ExampleWorkspaces
-import com.knapsack.fixtool.service.OrderBookService
-import com.knapsack.fixtool.service.QuoteBookService
-import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.service.AcceptorPresets
-import com.knapsack.fixtool.service.BookView
 import com.knapsack.fixtool.service.AcceptorResponder
+import com.knapsack.fixtool.service.BookView
 import com.knapsack.fixtool.service.EchoDetector
+import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
@@ -65,6 +66,14 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
+import com.knapsack.fixtool.service.OrderBookService
+import com.knapsack.fixtool.service.QuoteBookService
+import com.knapsack.fixtool.service.Recipient
+import com.knapsack.fixtool.service.RelayPlan
+import com.knapsack.fixtool.service.RelayTrigger
+import com.knapsack.fixtool.service.RelayVenue
+import com.knapsack.fixtool.service.Resolution
+import com.knapsack.fixtool.service.RfqBookService
 import com.knapsack.fixtool.service.RuleOutcome
 import com.knapsack.fixtool.service.RunRecordCodec
 import com.knapsack.fixtool.service.RunSets
@@ -75,9 +84,13 @@ import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.service.Traces
+import com.knapsack.fixtool.service.VenueReading
 import com.knapsack.fixtool.service.VenueTagScan
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.service.load.LoadReportCodec
+import com.knapsack.fixtool.service.load.LoadSetCodec
+import com.knapsack.fixtool.service.load.LoadTemplates
 import com.knapsack.fixtool.ui.diff.DiffSide
 import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.ReconcileSession
@@ -95,6 +108,22 @@ import com.sun.net.httpserver.HttpContext
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpPrincipal
 import com.sun.net.httpserver.HttpServer
+import java.awt.Robot
+import java.awt.Window
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.URI
+import java.net.URLEncoder
+import java.util.Base64
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
+import javax.imageio.ImageIO
+import javax.swing.SwingUtilities
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -114,22 +143,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
-import java.awt.Robot
-import java.awt.Window
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
-import java.io.OutputStream
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.URI
-import java.net.URLEncoder
-import java.util.Base64
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicReference
-import javax.imageio.ImageIO
-import javax.swing.SwingUtilities
-import java.io.File
 
 /**
  * A small loopback-only HTTP control surface that lets external tools (Claude Code, an MCP
@@ -218,6 +231,7 @@ class ControlServer(
         httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRulesEndpoint(ex) } }
         httpServer.createContext("/acceptor/presets") { ex -> handle(ex) { acceptorPresets() } }
         httpServer.createContext("/acceptor/orders") { ex -> handle(ex) { acceptorOrdersEndpoint(ex) } }
+        httpServer.createContext("/acceptor/rfqs") { ex -> handle(ex) { acceptorRfqsEndpoint(ex) } }
         httpServer.createContext("/syntax") { ex -> syntax(ex) }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.createContext("/mcp") { ex -> mcpHandle(ex) }
@@ -485,7 +499,7 @@ class ControlServer(
      */
     private fun acceptorProblems(config: FixConnectionConfig): List<String> =
         config.acceptorResponseRules.mapIndexedNotNull { index, rule ->
-            rule.validationError()?.let { "rule $index (${rule.whenMsgType.ifBlank { "no MsgType" }}): $it" }
+            rule.validationError(config.counterparties)?.let { "rule $index (${rule.whenMsgType.ifBlank { "no MsgType" }}): $it" }
         } + listOfNotNull(config.acceptorLatency.validationError()?.let { "acceptorLatency: $it" })
 
     private fun deleteProfile(ex: HttpExchange): JsonElement {
@@ -3249,6 +3263,113 @@ class ControlServer(
      * `session` it is that book in full, every order carrying its trail, which is the shape an
      * assertion wants. `order` narrows to one.
      */
+    private fun acceptorRfqsEndpoint(ex: HttpExchange): JsonElement =
+        when (ex.requestMethod.uppercase()) {
+            "POST" -> clearAcceptorRfqs(ex)
+            else -> acceptorRfqs(ex)
+        }
+
+    /** The live venue for a profile named by id or name, or an error saying which part of that is missing. */
+    private fun liveVenue(profileKey: String?): Pair<FixMessageSession?, JsonObject?> {
+        val key = profileKey ?: return null to errorObject("missing 'profile'")
+        val profile =
+            onEdt { viewModel.connectionProfiles.firstOrNull { it.id == key || it.name == key } }
+                ?: return null to errorObject("unknown profile: $key")
+        val venue =
+            onEdt { viewModel.getProfileSessions(profile.id).firstOrNull { it.venueService() != null } }
+                ?: return null to errorObject("'${profile.name}' is not listening, so it holds no RFQs")
+        return venue to null
+    }
+
+    /**
+     * **A relaying venue's RFQ book**: every negotiation it is carrying, with each id the way each side knows it.
+     *
+     * Legs are per responder and say how that part ended. The venue quote id beside each dealer quote id is the
+     * pair `${to.117}` reads, so a reader checking why a dealer was told the wrong quote can see the link itself.
+     */
+    private fun acceptorRfqs(ex: HttpExchange): JsonElement {
+        val (venue, error) = liveVenue(readJsonOrQuery(ex, "profile"))
+        error?.let { return it }
+        val view = venue!!.venueService()!!.rfqBookView()
+        val now = System.currentTimeMillis()
+        return buildJsonObject {
+            put("profile", venue.title)
+            put("evicted", view.evicted)
+            put(
+                "rfqs",
+                buildJsonArray {
+                    view.rfqs.forEach { rfq ->
+                        add(
+                            buildJsonObject {
+                                put("rfqId", rfq.rfqId)
+                                put("state", rfq.lifeAt(now).word)
+                                put(
+                                    "requester",
+                                    buildJsonObject {
+                                        put("compId", rfq.requesterCompId)
+                                        put("quoteReqId", rfq.requesterQuoteReqId)
+                                    },
+                                )
+                                rfq.symbol?.let { put("symbol", it) }
+                                rfq.securityId?.let { put("securityId", it) }
+                                rfq.side?.let { put("side", it) }
+                                rfq.qty?.let { put("qty", it) }
+                                put(
+                                    "legs",
+                                    buildJsonArray {
+                                        rfq.legs.forEach { leg ->
+                                            add(
+                                                buildJsonObject {
+                                                    put("compId", leg.compId)
+                                                    leg.venueQuoteReqId?.let { put("quoteReqId", it) }
+                                                    leg.outcome?.let { put("outcome", it.word) }
+                                                    put(
+                                                        "quotes",
+                                                        buildJsonArray {
+                                                            leg.quotes.forEach { q ->
+                                                                add(
+                                                                    buildJsonObject {
+                                                                        put("quoteId", q.dealerQuoteId)
+                                                                        q.venueQuoteId?.let { put("shownAs", it) }
+                                                                        q.bid?.let { put("bid", it) }
+                                                                        q.offer?.let { put("offer", it) }
+                                                                        put("live", q.liveAt(now))
+                                                                    },
+                                                                )
+                                                            }
+                                                        },
+                                                    )
+                                                },
+                                            )
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    private fun clearAcceptorRfqs(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        if (body["clear"]?.jsonPrimitive?.booleanOrNull != true) return errorObject("POST /acceptor/rfqs takes {\"profile\", \"clear\": true}")
+        val (venue, error) = liveVenue(body["profile"]?.jsonPrimitive?.contentOrNull)
+        error?.let { return it }
+        val dropped = venue!!.venueService()!!.rfqBookView().rfqs.size
+        venue.venueService()!!.clearRfqBook()
+        return buildJsonObject {
+            put("status", "cleared")
+            put("profile", venue.title)
+            put("dropped", dropped)
+        }
+    }
+
+    /** A value from the JSON body, or the query string when there is no body — GET and MCP both reach here. */
+    private fun readJsonOrQuery(ex: HttpExchange, key: String): String? =
+        readJson(ex)[key]?.jsonPrimitive?.contentOrNull ?: queryParams(ex)[key]
+
     private fun acceptorOrdersEndpoint(ex: HttpExchange): JsonElement =
         when (ex.requestMethod.uppercase()) {
             "POST" -> clearAcceptorOrders(ex)
@@ -3494,7 +3615,7 @@ class ControlServer(
                     }
                 }
                 liveAcceptorSessions(updated)?.let { put("appliedToLiveSessions", it) }
-                rules[position].validationError()?.let { put("validationError", it) }
+                rules[position].validationError(updated.config.counterparties)?.let { put("validationError", it) }
                 AcceptorResponder.shadowingRule(rules, position)?.let { put("shadowedBy", it) }
             }
         }
@@ -3587,6 +3708,7 @@ class ControlServer(
                                     ruleIndex,
                                     rule,
                                     AcceptorResponder.shadowingRule(profile.config.acceptorResponseRules, ruleIndex),
+                                    profile.config.counterparties,
                                 ),
                             )
                         }
@@ -3597,7 +3719,13 @@ class ControlServer(
     }
 
     /** One rule as it reads: what was written, what it means, and anything wrong with it. */
-    private fun acceptorRuleJson(index: Int, rule: AcceptorResponseRule, shadowedBy: Int? = null): JsonObject =
+    private fun acceptorRuleJson(
+        index: Int,
+        rule: AcceptorResponseRule,
+        shadowedBy: Int? = null,
+        /** The venue's counterparties, when there is a venue; null for a preset judged on its own. */
+        counterparties: List<Counterparty>? = null,
+    ): JsonObject =
         buildJsonObject {
             // The index is the rule's identity for /acceptor/rules POST and DELETE, and its priority
             // under first-match-wins. Both need it named.
@@ -3668,7 +3796,7 @@ class ControlServer(
             )
             // A rule nobody can act on is worse than no rule: it looks configured. There is no
             // authoring UI to catch this, so the read surface is the only place it can be said.
-            rule.validationError()?.let { put("validationError", it) }
+            rule.validationError(counterparties)?.let { put("validationError", it) }
             // The other way a well-formed rule does nothing: an earlier one already answers every
             // message of this type, so this one is unreachable. Named the same as the dry run's field
             // because it is the same fact — this one just did not need a message to establish it.
@@ -3781,8 +3909,15 @@ class ControlServer(
                     "'$quotedWord' is not a quote state; known: ${QuoteConstraint.words.joinToString(", ")}",
                 )
 
+        val rfqWord = body["rfqState"]?.jsonPrimitive?.contentOrNull
+        if (rfqWord != null && RfqConstraint.byWord(rfqWord) == null) {
+            return errorObject("'$rfqWord' is not an RFQ state; known: ${RfqConstraint.words.joinToString(", ")}")
+        }
+        val dryVenue = DryRunVenue.of(profile.config.counterparties, body, rfqWord)
+        val venueAssumed = dryVenue.reading(incoming)
+
         val outcomes =
-            AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming, assumed, quoted)
+            AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming, assumed, quoted, venueAssumed)
         val winner = outcomes.firstOrNull { it.selected }
         val incomingType = request.messageType ?: ""
 
@@ -3798,11 +3933,32 @@ class ControlServer(
             put(
                 "rules",
                 buildJsonArray {
-                    outcomes.forEach { outcome -> add(ruleOutcomeJson(outcome, outcomes, incomingType)) }
+                    outcomes.forEach { outcome -> add(ruleOutcomeJson(outcome, outcomes, incomingType, profile.config.counterparties)) }
                 },
             )
+            if (profile.config.counterparties.isNotEmpty()) {
+                put(
+                    "assumedVenue",
+                    buildJsonObject {
+                        put("from", dryVenue.from ?: "")
+                        put("role", venueAssumed.senderRole?.word ?: "unlisted")
+                        put("rfqState", rfqWord ?: RfqConstraint.UNKNOWN.word)
+                        put("respondersOnline", if (venueAssumed.respondersOnline) "some" else "none")
+                    },
+                )
+            }
             winner?.let { selected ->
-                put("response", plannedReplyJson(selected.rule, incoming, request, dictionary, assumedOrder, quoted))
+                val relays = selected.rule.relays() || selected.rule.readsTheRecipient() || selected.rule.readsTheRfq()
+                if (relays) {
+                    val relayPlan =
+                        AcceptorResponder.planRelay(
+                            selected.rule, incoming, request, dictionary, dryVenue, dryVenue.trigger(incoming),
+                            quote = { quoted },
+                        ) { assumedOrder }
+                    put("response", relayReplyJson(selected.rule, relayPlan))
+                } else {
+                    put("response", plannedReplyJson(selected.rule, incoming, request, dictionary, assumedOrder, quoted))
+                }
                 put(
                     "note",
                     "offsets are from the trigger and exclude simulated latency, which is drawn once per " +
@@ -4013,11 +4169,166 @@ class ControlServer(
             }
         }
 
+    /**
+     * A relay rule's reply as a dry run shows it: every send with the step it belongs to and who it goes to, then
+     * the recipients a step was owed to and could not reach, and the steps that reached nobody at all.
+     */
+    private fun relayReplyJson(rule: AcceptorResponseRule, plan: RelayPlan): JsonArray =
+        buildJsonArray {
+            val steps = rule.sequence()
+            plan.sends.forEach { planned ->
+                add(
+                    buildJsonObject {
+                        put("offsetMillis", planned.offsetMillis)
+                        put("step", planned.authoredStep + 1)
+                        planned.to?.let { to ->
+                            put(
+                                "to",
+                                buildJsonObject {
+                                    put("address", to.address.word)
+                                    put("compId", to.compId)
+                                },
+                            )
+                        }
+                        try {
+                            put("message", planned.render().replace(SOH, '|'))
+                        } catch (e: Exception) {
+                            put("unrendered", e.message ?: "this step could not be built")
+                            steps.getOrNull(planned.authoredStep)?.let { put("template", it.template) }
+                        }
+                    },
+                )
+            }
+            plan.notDelivered.forEach { (step, recipient) ->
+                add(
+                    buildJsonObject {
+                        put("step", step + 1)
+                        put(
+                            "to",
+                            buildJsonObject {
+                                put("address", recipient.address.word)
+                                put("compId", recipient.compId)
+                            },
+                        )
+                        put("notDelivered", "${recipient.compId} is not logged on, so this step would not be sent")
+                    },
+                )
+            }
+            plan.nobody.forEach { step ->
+                add(
+                    buildJsonObject {
+                        put("step", step + 1)
+                        steps.getOrNull(step)?.to?.let { put("to", buildJsonObject { put("address", it) }) }
+                        put("nobody", "this address reaches nobody on this RFQ, so the step sends nothing")
+                    },
+                )
+            }
+        }
+
+    /**
+     * **A venue a dry run assumes**, built from what its caller said: who sent the message, what state its RFQ is
+     * in, who holds which quote, and who is logged on.
+     *
+     * The same seam the live venue answers through ([RelayVenue]), so a dry run and a connected venue plan a
+     * relay with the one planner. Every answer is one the caller gave or the profile declares; nothing is
+     * guessed. `online` defaults to every counterparty the request names or the profile declares exactly,
+     * because a dry run is usually asked about the day everyone is there.
+     */
+    private class DryRunVenue(
+        private val counterparties: List<Counterparty>,
+        val from: String?,
+        private val rfqWord: String?,
+        private val requester: String?,
+        private val quoter: String?,
+        private val cover: String?,
+        private val asked: List<String>,
+        private val quotes: Map<String, String>,
+        private val ids: Map<String, Map<Int, String>>,
+        private val online: Set<String>,
+    ) : RelayVenue {
+        fun reading(message: quickfix.Message): VenueReading {
+            val word = rfqWord ?: RfqConstraint.UNKNOWN.word
+            return VenueReading(
+                senderRole = from?.let { roleOf(counterparties, it) },
+                rfqBy131 = AcceptorResponder.valueOf(message, 131)?.let { RfqReading(null, null, word) },
+                rfqBy117 = AcceptorResponder.valueOf(message, 117)?.let { RfqReading(null, null, word) },
+                respondersOnline = online.any { roleOf(counterparties, it) == PartyRole.RESPONDER },
+            )
+        }
+
+        fun trigger(message: quickfix.Message) =
+            RelayTrigger(
+                sessionId = null,
+                sessionKey = from ?: "sender",
+                compId = from ?: "sender",
+                msgType = AcceptorResponder.valueOf(message, 35),
+                fields = RfqBookService.fieldsOf(message),
+                rfqId = if (rfqWord == null || rfqWord == RfqConstraint.UNKNOWN.word) null else "assumed",
+            )
+
+        override fun resolve(address: StepAddress, trigger: RelayTrigger): Resolution =
+            when (address) {
+                StepAddress.Sender -> reach(listOfNotNull(from), address)
+                StepAddress.Requester -> reach(listOfNotNull(requester), address)
+                StepAddress.Quoter -> reach(listOfNotNull(quoter), address)
+                StepAddress.Cover -> reach(listOfNotNull(cover), address)
+                StepAddress.Quoted -> reach(quotes.keys.toList(), address)
+                StepAddress.Others -> reach(quotes.keys.filterNot { it == quoter || it == cover }, address)
+                StepAddress.Asked -> reach(asked, address)
+                StepAddress.Responders ->
+                    reach(
+                        counterparties.filter { !it.isPrefix && PartyRole.byWord(it.role) == PartyRole.RESPONDER }.map { it.compId } +
+                            online.filter { compId -> counterparties.any { it.isPrefix && it.covers(compId) && PartyRole.byWord(it.role) == PartyRole.RESPONDER } },
+                        address,
+                    )
+                is StepAddress.CompId -> reach(listOf(address.compId), address)
+            }
+
+        override fun toValue(recipient: Recipient, trigger: RelayTrigger, tag: Int): String? =
+            if (tag == 117 && recipient.quoteId != null) recipient.quoteId else ids[recipient.compId]?.get(tag)
+
+        override fun rfqField(trigger: RelayTrigger, name: String): String? =
+            when (name) {
+                "requester" -> requester
+                "quoter" -> quoter
+                "asked" -> asked.size.toString()
+                "quoted" -> quotes.size.toString()
+                "state" -> rfqWord
+                else -> null
+            }
+
+        private fun reach(compIds: List<String>, address: StepAddress): Resolution {
+            val (on, off) = compIds.distinct().partition { it in online }
+            fun recipient(compId: String) = Recipient(null, compId, compId, address, quotes[compId])
+            return Resolution(on.map(::recipient), off.map(::recipient))
+        }
+
+        companion object {
+            fun of(counterparties: List<Counterparty>, body: JsonObject, rfqWord: String?): DryRunVenue {
+                val rfq = body["rfq"] as? JsonObject
+                fun str(key: String) = rfq?.get(key)?.jsonPrimitive?.contentOrNull
+                val quotes = (rfq?.get("quotes") as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content }
+                val asked = (rfq?.get("asked") as? JsonArray).orEmpty().map { it.jsonPrimitive.content }
+                val ids =
+                    (rfq?.get("ids") as? JsonObject).orEmpty().mapValues { (_, tags) ->
+                        (tags as? JsonObject).orEmpty().mapNotNull { (tag, value) -> tag.toIntOrNull()?.let { it to value.jsonPrimitive.content } }.toMap()
+                    }
+                val from = body["from"]?.jsonPrimitive?.contentOrNull
+                val named = listOfNotNull(from, str("requester"), str("quoter"), str("cover")) + asked + quotes.keys
+                val online =
+                    (body["online"] as? JsonArray)?.map { it.jsonPrimitive.content }?.toSet()
+                        ?: (counterparties.filterNot { it.isPrefix }.map { it.compId } + named).toSet()
+                return DryRunVenue(counterparties, from, rfqWord, str("requester"), str("quoter"), str("cover"), asked, quotes, ids, online)
+            }
+        }
+    }
+
     /** One rule's verdict on the tested message, with the working that produced it. */
     private fun ruleOutcomeJson(
         outcome: RuleOutcome,
         all: List<RuleOutcome>,
         incomingType: String,
+        counterparties: List<Counterparty>? = null,
     ): JsonObject =
         buildJsonObject {
             put("index", outcome.index)
@@ -4084,7 +4395,17 @@ class ControlServer(
                     },
                 )
             }
-            outcome.rule.validationError()?.let { put("validationError", it) }
+            outcome.responders?.let { responders ->
+                put(
+                    "whenResponders",
+                    buildJsonObject {
+                        put("constraint", responders.wanted)
+                        responders.actual?.let { put("actual", if (it) "some" else "none") }
+                        put("satisfied", responders.satisfied)
+                    },
+                )
+            }
+            outcome.rule.validationError(counterparties)?.let { put("validationError", it) }
         }
 
     /** Validates a raw FIX message against the loaded data dictionary. */
@@ -4386,6 +4707,13 @@ class ControlServer(
                     clearAcceptorOrders(mcpExchange(a))
                 } else {
                     acceptorOrders(mcpExchange(a))
+                }
+            },
+            "fixtool_acceptor_rfqs" to { a ->
+                if (a["clear"]?.jsonPrimitive?.booleanOrNull == true) {
+                    clearAcceptorRfqs(mcpExchange(a))
+                } else {
+                    acceptorRfqs(mcpExchange(a))
                 }
             },
         )

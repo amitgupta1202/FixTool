@@ -819,7 +819,14 @@ object McpTools {
                     "is that assumption — unknown|open|expired|done, defaulting to `unknown` — so \"what would " +
                     "this venue do with a hit that arrived too late\" is answerable without waiting thirty " +
                     "seconds. A quote's prices are the venue's own, so a trigger comparing a tag against them " +
-                    "(matcher `quoteField`) and a reply reading \${quote.…} both need `quote` as well as the state.",
+                    "(matcher `quoteField`) and a reply reading \${quote.…} both need `quote` as well as the state. " +
+                    "On a RELAYING venue (one with counterparties) a rule can ask the sender's role (matcher `role` on " +
+                    "49) and the RFQ's state (matcher `rfq` on 131 or 117): give `from` (the sender's CompID), " +
+                    "`rfqState` (unknown|open|done|expired) and `online` (CompIDs logged on; default everyone named). A " +
+                    "relay rule's reply comes back per recipient, each send with `to` {address, compId}, plus " +
+                    "`notDelivered` entries for recipients not online and `nobody` for a step whose address reaches " +
+                    "no one. `rfq` supplies who holds what: {requester, quoter, cover, asked:[…], quotes:{compId: " +
+                    "quoteId}, ids:{compId:{tag:value}}} — what \${to.<tag>} and \${rfq.…} render against.",
                 props(
                     "profile" to string("profile id or name"),
                     "raw" to string("the incoming FIX message to test the rules against"),
@@ -833,6 +840,14 @@ object McpTools {
                         ),
                     "quoteState" to
                         string("the state to assume the named quote is in: unknown|open|expired|done (default unknown)"),
+                    "from" to string("relaying venue: the sender's CompID, which decides its role"),
+                    "rfqState" to string("relaying venue: the state to assume the named RFQ is in: unknown|open|done|expired"),
+                    "online" to arraySchema(string(), "relaying venue: CompIDs to treat as logged on (default: everyone named)"),
+                    "rfq" to
+                        objectSchema(
+                            "relaying venue: who holds what — {requester, quoter, cover, asked:[…], quotes:{compId:quoteId}, " +
+                                "ids:{compId:{tag:value}}}",
+                        ),
                     "quote" to
                         objectSchema(
                             "the quote to compare and render \${quote.…} against, by the quote book's own names " +
@@ -864,6 +879,22 @@ object McpTools {
                     "order" to string("one ClOrdID, to get just that order and its trail"),
                     "clear" to boolean("true = empty this session's book, recording that it was cleared"),
                 ),
+            ),
+            tool(
+                "fixtool_acceptor_rfqs",
+                "Read a RELAYING venue's RFQ book: every negotiation it is carrying between a requester and its " +
+                    "responders. A venue relays when its profile declares `counterparties` (CompID + role requester|" +
+                    "responder) and its rules address steps with `to` (requester, quoter, cover, others, quoted, asked, " +
+                    "responders, compId:X). Each RFQ has `rfqId`, `state` (requested, open, refused, passed, done, " +
+                    "expired), the `requester` with the QuoteReqID it used, and a leg per responder: the QuoteReqID the " +
+                    "venue gave it, its `quotes` (each dealer `quoteId`, the id the requester was `shownAs`, prices, " +
+                    "`live`) and its `outcome` (not delivered, passed, lifted, cover, done away). The pair quoteId / " +
+                    "shownAs is what \${to.117} reads. `clear:true` forgets every RFQ.",
+                props(
+                    "profile" to string("the venue's profile id or name; it must be listening"),
+                    "clear" to boolean("true = forget every RFQ this venue holds"),
+                ),
+                required = listOf("profile"),
             ),
             tool(
                 "fixtool_screenshot",

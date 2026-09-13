@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.knapsack.fixtool.model.EditorTarget
@@ -696,47 +697,7 @@ private fun AppContent(
                                                         with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
                                                     ),
                                             ) {
-                                                viewModel.activeSession?.let { session ->
-                                                    val latencyTrackingService = session.getLatencyTrackingService()
-
-                                                    if (latencyTrackingService != null) {
-                                                        val statistics by latencyTrackingService.statistics.collectAsState()
-                                                        val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
-                                                        val recentPairs by latencyTrackingService.recentPairs.collectAsState()
-
-                                                        LatencyPanel(
-                                                            statistics = statistics,
-                                                            aggregateStatistics = aggregateStatistics,
-                                                            recentPairs = recentPairs,
-                                                            warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
-                                                            criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
-                                                            onClear = { session.clearLatencyStatistics() },
-                                                            onClose = { viewModel.toggleLatencyPanel() },
-                                                            modifier = Modifier.fillMaxSize(),
-                                                        )
-                                                    } else {
-                                                        // Latency tracking not enabled for this session
-                                                        Box(
-                                                            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
-                                                            contentAlignment = Alignment.Center,
-                                                        ) {
-                                                            Text(
-                                                                text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
-                                                                color = AppTheme.Colors.textDisabled,
-                                                                fontSize = 12.sp,
-                                                            )
-                                                        }
-                                                    }
-                                                } ?: Box(
-                                                    modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    Text(
-                                                        text = "No active session",
-                                                        color = AppTheme.Colors.textDisabled,
-                                                        fontSize = 12.sp,
-                                                    )
-                                                }
+                                                AppLatencyPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                                             }
                                         }
                                     }
@@ -937,47 +898,7 @@ private fun AppContent(
                                                             with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
                                                         ),
                                                 ) {
-                                                    viewModel.activeSession?.let { session ->
-                                                        val latencyTrackingService = session.getLatencyTrackingService()
-
-                                                        if (latencyTrackingService != null) {
-                                                            val statistics by latencyTrackingService.statistics.collectAsState()
-                                                            val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
-                                                            val recentPairs by latencyTrackingService.recentPairs.collectAsState()
-
-                                                            LatencyPanel(
-                                                                statistics = statistics,
-                                                                aggregateStatistics = aggregateStatistics,
-                                                                recentPairs = recentPairs,
-                                                                warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
-                                                                criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
-                                                                onClear = { session.clearLatencyStatistics() },
-                                                                onClose = { viewModel.toggleLatencyPanel() },
-                                                                modifier = Modifier.fillMaxSize(),
-                                                            )
-                                                        } else {
-                                                            // Latency tracking not enabled for this session
-                                                            Box(
-                                                                modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
-                                                                contentAlignment = Alignment.Center,
-                                                            ) {
-                                                                Text(
-                                                                    text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
-                                                                    color = AppTheme.Colors.textDisabled,
-                                                                    fontSize = 12.sp,
-                                                                )
-                                                            }
-                                                        }
-                                                    } ?: Box(
-                                                        modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
-                                                        contentAlignment = Alignment.Center,
-                                                    ) {
-                                                        Text(
-                                                            text = "No active session",
-                                                            color = AppTheme.Colors.textDisabled,
-                                                            fontSize = 12.sp,
-                                                        )
-                                                    }
+                                                    AppLatencyPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                                                 }
                                             }
                                         }
@@ -1378,6 +1299,52 @@ private fun AppMessageDetailPanel(
                 },
         )
     }
+}
+
+/**
+ * **The Latency dock: the active session's round trips, or why there are none, under the dock's own header.**
+ *
+ * Its two empty states drew a sentence alone, so the dock a fresh window opens it in — no session up, which is
+ * what a first run looks like — had no title, no name and no way to put it away but its stripe tab. The Order
+ * book had the same hole and was fixed the same way. It was written out twice, once per layout, which is also
+ * why neither copy had been caught.
+ */
+@Composable
+internal fun AppLatencyPanel(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
+    val session = viewModel.activeSession
+    val tracking = session?.getLatencyTrackingService()
+    if (session == null || tracking == null) {
+        Column(modifier = modifier.background(AppTheme.Colors.surface)) {
+            DockHeader(window = ToolWindow.LATENCY, onHide = { viewModel.toggleLatencyPanel() })
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text =
+                        if (session == null) {
+                            "No active session"
+                        } else {
+                            "Latency tracking not enabled.\nEnable it in Settings and reconnect."
+                        },
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 12.sp,
+                    modifier = Modifier.testTag("latency-empty"),
+                )
+            }
+        }
+        return
+    }
+    val statistics by tracking.statistics.collectAsState()
+    val aggregateStatistics by tracking.aggregateStatistics.collectAsState()
+    val recentPairs by tracking.recentPairs.collectAsState()
+    LatencyPanel(
+        statistics = statistics,
+        aggregateStatistics = aggregateStatistics,
+        recentPairs = recentPairs,
+        warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+        criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+        onClear = { session.clearLatencyStatistics() },
+        onClose = { viewModel.toggleLatencyPanel() },
+        modifier = modifier,
+    )
 }
 
 /**

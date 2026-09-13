@@ -147,6 +147,60 @@
             "isFavorite": true
         },
         {
+            "id": "fi-rfq-request-10y-short",
+            "name": "FI RFQ Request 10y, buying, open for 20s",
+            "userTags": [
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 08/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF5"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "167",
+                    "value": "TNOTE"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "10000000"
+                },
+                {
+                    "tag": "126",
+                    "value": "${utcnow+20s}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
             "id": "fi-rfq-request-5y",
             "name": "FI RFQ Request 5y, two-way",
             "userTags": [

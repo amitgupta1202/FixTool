@@ -1,7 +1,7 @@
 {
     "id": "fi-rfq-venue",
     "displayName": "Fixed Income RFQ Platform",
-    "summary": "A US Treasury RFQ platform that carries a negotiation between buy sides and dealers: a buy side asks, the platform asks every dealer online under its own id, each dealer's quote reaches the buy side under another, and a lift is confirmed to both sides with an ExecutionReport and a TradeCaptureReport each while the dealers who lost are told cover or done away. Issues by CUSIP, levels in 32nds and yield, sized in nominal, settling T+1. Two buy sides and two dealers to play by hand, a load client of each whose dealers quote by themselves, templates for both sides, four scenarios that assert both sides, and two load sets.",
+    "summary": "A US Treasury RFQ platform that carries a negotiation between buy sides and dealers: a buy side asks, the platform asks every dealer online under its own id, each dealer's quote reaches the buy side under another, and a lift is confirmed to both sides with an ExecutionReport and a TradeCaptureReport each while the dealers who lost are told cover or done away. Issues by CUSIP, levels in 32nds and yield, sized in nominal, settling T+1. Two buy sides and two dealers to play by hand, a load client of each whose dealers quote by themselves, templates for both sides, five scenarios that assert both sides, and two load sets. An RFQ nobody trades is ended to both sides after a minute.",
     "defaultWorkspaceName": "Fixed Income RFQ",
     "files": [
         "connection_profiles.json",
@@ -10,6 +10,7 @@
         "scenarios/two-dealers-quote-the-better-offer-is-lifted--fi-rfq-s.json",
         "scenarios/a-dealer-cannot-ask-for-a-quote--fi-rfq-s.json",
         "scenarios/an-issue-the-platform-does-not-list-is-refused--fi-rfq-s.json",
+        "scenarios/nobody-trades-and-both-sides-are-told-the-rfq-expired--fi-rfq-s.json",
         "load-sets/fi-rfq-round-trip.json",
         "load-sets/fi-rfq-reactive.json"
     ]

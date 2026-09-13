@@ -5,9 +5,11 @@ import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.PartyRole
 import com.knapsack.fixtool.model.QuoteConstraint
+import com.knapsack.fixtool.model.QuotesStanding
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.RfqConstraint
 import com.knapsack.fixtool.model.SenderRole
+import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
 import com.knapsack.fixtool.model.scenario.Matcher
 
 /**
@@ -557,6 +559,41 @@ object FiRfqPlatformPreset {
                 ),
         )
 
+    // ------------------------------------------------------------------ when the RFQ expires
+
+    /**
+     * **An RFQ nobody traded, ended when its time runs out**, to everyone who is holding part of it.
+     *
+     * A QuoteStatusReport names one quote, so a quoted RFQ ends each quote by name: to the requester once for each
+     * quote it was shown, under the id it was shown, and to each dealer under its own. Every quote ends with the RFQ,
+     * including one whose own validity ran out first, since nobody has said so yet.
+     */
+    private val expiredQuoted =
+        AcceptorResponseRule(
+            whenMsgType = WHEN_RFQ_EXPIRES,
+            whenQuotes = QuotesStanding.SOME.word,
+            steps = listOf(ResponseStep(quoteExpired(), to = "quotes"), ResponseStep(quoteExpired(), to = "quoted")),
+        )
+
+    private fun quoteExpired() =
+        "35=AI|117=\${to.117}|131=\${to.131}|55=\${req.55}|48=\${req.48}|22=1|297=7|" +
+            "58=Expired: the RFQ's time ran out before it traded|60=\${utcnow}"
+
+    /** Nobody quoted: the request is refused to the buy side that made it, under its own QuoteReqID. */
+    private val expiredUnquoted =
+        AcceptorResponseRule(
+            whenMsgType = WHEN_RFQ_EXPIRES,
+            whenQuotes = QuotesStanding.NONE.word,
+            steps =
+                listOf(
+                    ResponseStep(
+                        "35=AG|131=\${to.131}|658=99|146=1|55=\${req.55}|48=\${req.48}|22=1|" +
+                            "58=Expired: no dealer quoted before the RFQ's time ran out",
+                        to = "requester",
+                    ),
+                ),
+        )
+
     /**
      * **Declared backwards to read forwards**, as every bundle here is: [AcceptorPresets.insert] places each
      * conditioned rule above the first rule for its MsgType. Four things depend on the order:
@@ -576,7 +613,9 @@ object FiRfqPlatformPreset {
             listOf(relayQuote(Shape.BID), relayQuote(Shape.OFFER), relayQuote(Shape.TWO_WAY)) +
             // 35=AJ
             listOf(cannotAnswer, rfqUnknown, rfqExpired, rfqDone, otherResponse, notAtTheLevel, counter, pass) +
-            listOf(lift(SELL), lift(BUY))
+            listOf(lift(SELL), lift(BUY)) +
+            // When the RFQ expires: the two can never both hold, so their order is not the reader's concern.
+            listOf(expiredUnquoted, expiredQuoted)
 
     val preset: AcceptorPreset =
         AcceptorPreset(
@@ -585,7 +624,8 @@ object FiRfqPlatformPreset {
             group = AcceptorPresets.GROUP_BUNDLES,
             summary =
                 "${rules.size} rules · a request to every dealer online · each quote shown under the platform's " +
-                    "own id · a lift confirmed to both sides with a trade report each · cover and done away told",
+                    "own id · a lift confirmed to both sides with a trade report each · cover and done away told · " +
+                    "an RFQ nobody trades ended to both sides when it expires",
             rules = rules,
             counterparties = COUNTERPARTIES,
         )

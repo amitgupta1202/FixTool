@@ -278,6 +278,9 @@ class HelpDocTest {
                 "the refusal scenarios prove an absence" to "strict traffic",
                 "the better offer is picked by price" to "picked by its price",
                 "a run brings the dealers up" to "<code>listen</code>",
+                "an RFQ nobody trades ends after a minute" to "60 seconds",
+                "each quote is ended by name" to "<code>297=7</code> Expired",
+                "the expiry scenario" to "Nobody trades, and both sides are told the RFQ expired",
                 "the set is run by name from the CLI, on the example's folder" to
                     "--set fi-rfq-round-trip --home ~/.fixtool/workspaces/fixed-income-rfq",
                 "the CLI does not bring the platform up" to "not the platform",
@@ -310,6 +313,12 @@ class HelpDocTest {
                 "a lift becomes a trade on the quoter's fill" to "sends the quoter an ExecutionReport",
                 "a dealer by rule is an initiator" to "initiator with rules",
                 "the dry run takes a sender" to "<code>from</code>",
+                "a rule can fire when an RFQ's time runs out" to "or when the RFQ expires",
+                "whether a quote stands is a question" to "and quotes standing",
+                "the clock starts on the first relay" to "first relayed to a dealer",
+                "a requester logging out does not stop it" to "does <em>not</em> stop when the requester logs out",
+                "every quote ends with the RFQ" to "every quote ends with the RFQ",
+                "the venue says how long an RFQ lasts" to "An RFQ expires after",
             )
         val flat = chapter.flat()
         val missing = claims.filterValues { it.flat() !in flat }.keys

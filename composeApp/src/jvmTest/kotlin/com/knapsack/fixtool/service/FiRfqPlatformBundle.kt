@@ -61,6 +61,12 @@ internal object FiRfqPlatformBundle {
 
     const val LANES = 5
 
+    /**
+     * How long an RFQ stays open on the platform when its request names no ExpireTime. Long enough to play both sides by
+     * hand, and short enough that an RFQ left alone is seen to end. A dealer's quote stands for thirty seconds of it.
+     */
+    const val RFQ_EXPIRY_SECONDS = 60
+
     /** RFQs a load set asks for. Five dealers answer each one, so a phase of these is five times as many quotes. */
     const val LOAD_COUNT = 1_000
 
@@ -96,6 +102,7 @@ internal object FiRfqPlatformBundle {
                     connectionType = ConnectionType.ACCEPTOR,
                     acceptorResponseRules = AcceptorPresets.insert(emptyList(), FiRfqPlatformPreset.preset).rules,
                     counterparties = FiRfqPlatformPreset.preset.counterparties,
+                    rfqExpirySeconds = RFQ_EXPIRY_SECONDS,
                 ),
             ),
             profile(BUY_SIDE_1, BUY_SIDE_1_NAME, initiator(FiRfqPlatformPreset.BUY_SIDE_1)),
@@ -172,6 +179,12 @@ internal object FiRfqPlatformBundle {
             template("fi-rfq-request-10y", "FI RFQ Request 10y, two-way", buySides, request(null)),
             template("fi-rfq-request-10y-buy", "FI RFQ Request 10y, buying", buySides, request("1")),
             template("fi-rfq-request-10y-sell", "FI RFQ Request 10y, selling", buySides, request("2")),
+            template(
+                "fi-rfq-request-10y-short",
+                "FI RFQ Request 10y, buying, open for 20s",
+                buySides,
+                request("1") + "|126=\${utcnow+20s}",
+            ),
             template(
                 "fi-rfq-request-5y",
                 "FI RFQ Request 5y, two-way",
@@ -499,7 +512,41 @@ internal object FiRfqPlatformBundle {
             strict = true,
         )
 
-    val scenarios: List<Scenario> = listOf(liftDealer1, betterOfferLifted, dealerCannotAsk, notListed)
+    /**
+     * **Nobody trades, and both sides are told the RFQ expired.** The request names its own ExpireTime a few seconds
+     * ahead, so the run waits on that rather than the platform's minute: the buy side is told of Dealer 1's quote under
+     * the id it was shown, and Dealer 1 of its own quote under its own.
+     */
+    private val expired =
+        scenario(
+            id = "fi-rfq-scenario-expired",
+            name = "Nobody trades, and both sides are told the RFQ expired",
+            setup = clear(BUY_SIDE_1_NAME, DEALER_1_NAME),
+            steps =
+                listOf(
+                    send(BUY_SIDE_1_NAME, "35=R", "131=\${rfqId = uuid}", "146=1", TEN_YEAR, "54=1", "38=$TEN_MM", "126=\${utcnow+4s}"),
+                    relayedRequest(DEALER_1_NAME, "dealerRfqId"),
+                    offer(DEALER_1_NAME, "dealerRfqId", "dealerQuoteId", "98.515625", "4.436", "98-16+"),
+                    expect(
+                        BUY_SIDE_1_NAME,
+                        "S",
+                        present(117, "quoteId"),
+                        exact(448, FiRfqPlatformPreset.DEALER_1),
+                        match = listOf(TagValue(448, FiRfqPlatformPreset.DEALER_1)),
+                    ),
+                    expect(
+                        BUY_SIDE_1_NAME,
+                        "AI",
+                        same(117, "quoteId"),
+                        same(131, "rfqId"),
+                        exact(297, "7"),
+                        match = listOf(TagValue(117, "\${quoteId}")),
+                    ),
+                    expect(DEALER_1_NAME, "AI", same(117, "dealerQuoteId"), same(131, "dealerRfqId"), exact(297, "7")),
+                ),
+        )
+
+    val scenarios: List<Scenario> = listOf(liftDealer1, betterOfferLifted, dealerCannotAsk, notListed, expired)
 
     // ------------------------------------------------------------------ load sets
 
@@ -558,6 +605,6 @@ internal object FiRfqPlatformBundle {
             "another, and a lift is confirmed to both sides with an ExecutionReport and a TradeCaptureReport each " +
             "while the dealers who lost are told cover or done away. Issues by CUSIP, levels in 32nds and yield, sized " +
             "in nominal, settling T+1. Two buy sides and two dealers to play by hand, a load client of each whose " +
-            "dealers quote by themselves, templates for both sides, four scenarios that assert both sides, and two " +
-            "load sets."
+            "dealers quote by themselves, templates for both sides, five scenarios that assert both sides, and two " +
+            "load sets. An RFQ nobody trades is ended to both sides after a minute."
 }

@@ -39,6 +39,7 @@ class FiRfqExampleWorkspaceIntegrationTest {
             "fi-rfq-scenario-better-offer-lifted",
             "fi-rfq-scenario-dealer-cannot-ask",
             "fi-rfq-scenario-not-listed",
+            "fi-rfq-scenario-expired",
         )
 
     @Before

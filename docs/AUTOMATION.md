@@ -1163,6 +1163,7 @@ Then a step gains `to`:
 |---|---|
 | absent, or `sender` | whoever sent the trigger — every rule written before this |
 | `requester` | the counterparty that opened the RFQ this message belongs to |
+| `quotes` | the requester, once for each quote it was shown that still stands, with `${to.117}` naming that quote as it was shown |
 | `quoter` | the responder whose quote the trigger names |
 | `cover` | the responder holding the best other live quote on the traded side: the lowest offer when the lift was a buy, the highest bid when it was a sell |
 | `others` | every responder holding a live quote, except the quoter and the cover |
@@ -1187,10 +1188,25 @@ Two trigger conditions ask the venue rather than the message, and they are match
   `open`, `done` or `expired`. On 131 it is found by the QuoteReqID; on 117 by the quote id, and then `open`
   also requires that quote to be its dealer's current one, so a lift of a level since replaced reads `done`.
 
-`"whenResponders": "none"` (or `"some"`) asks whether any responder is logged on. A rule with a step to anyone
-but the sender, or with `whenResponders`, **must** also carry a `role` or `rfq` condition: an older FixTool
-reading the profile ignores the fields it does not know and would run the rule as a reply to the sender, but
-it cannot parse those matchers, so it drops the whole rule instead.
+`"whenResponders": "none"` (or `"some"`) asks whether any responder is logged on, and `"whenQuotes": "none"` (or
+`"some"`) whether any quote stands on the RFQ the message names. A rule with a step to anyone but the sender, or
+with either, **must** also carry a `role` or `rfq` condition: an older FixTool reading the profile ignores the
+fields it does not know and would run the rule as a reply to the sender, but it cannot parse those matchers, so
+it drops the whole rule instead.
+
+**When the RFQ expires.** `"whenMsgType": "@rfq-expired"` fires a rule when an RFQ's time runs out, with nothing
+having sent the venue anything: at the request's ExpireTime(126), or `rfqExpirySeconds` after it was asked when it
+names none (a field on the venue's config). The timer is armed when the RFQ is first relayed to a dealer, and
+disarmed if it trades, passes, is refused or is cleared first; a requester logging out does not disarm it. Its
+tag conditions read the RFQ's opening request, so `${req.55}` is the issue asked for; there is no sender, so every
+step needs a `to`; and `whenQuotes` tells an RFQ that expired quoted from one nobody answered. On an expired RFQ,
+`quotes` and `quoted` mean the last quote each dealer showed, lapsed or not, since every quote ends with the RFQ:
+
+```json
+{"whenMsgType": "@rfq-expired", "whenQuotes": "some", "steps": [
+  {"template": "35=AI|117=${to.117}|131=${to.131}|55=${req.55}|297=7|", "to": "quotes"},
+  {"template": "35=AI|117=${to.117}|131=${to.131}|55=${req.55}|297=7|", "to": "quoted"}]}
+```
 
 The venue **re-keys** what it passes across, because ids are only unique per counterparty. Two references
 read what the far side knows:
@@ -1208,7 +1224,8 @@ a trade, and the RFQ is marked done **the moment the rule fires**, before any st
 already queued behind it reads `done`.
 
 A relayed message's reason says where it came from — *"sent by rule 5 — 35=AJ matched at 09:14:34.551 →
-quoter FIDLR1, relayed from FIBUY1's 35=AJ"*.
+quoter FIDLR1, relayed from FIBUY1's 35=AJ"*, or *"sent by rule 24 — the RFQ expired at 09:15:21.002 → quoted
+FIDLR1, on FIBUY1's RFQ"*.
 
 #### Editing a reply step in the message editor
 

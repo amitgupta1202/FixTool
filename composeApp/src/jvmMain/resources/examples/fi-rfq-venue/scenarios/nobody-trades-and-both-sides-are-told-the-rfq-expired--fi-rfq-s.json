@@ -1,0 +1,211 @@
+{
+    "id": "fi-rfq-scenario-expired",
+    "name": "Nobody trades, and both sides are told the RFQ expired",
+    "binding": "this_run",
+    "createdAt": 1789000000000,
+    "setup": [
+        {
+            "stepId": "9319007c-c607-3384-8199-aef567aa753d",
+            "type": "clearMessages",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "c0715935-e138-3708-a86a-f535ea14b450",
+            "type": "clearMessages",
+            "session": "Dealer 1"
+        }
+    ],
+    "steps": [
+        {
+            "stepId": "f47c5a91-84c0-3c03-a63e-1e00a92b3312",
+            "type": "send",
+            "raw": "35=R|131=${rfqId = uuid}|146=1|55=T 4.25 08/15/36|48=91282CMF5|22=1|167=TNOTE|54=1|38=10000000|126=${utcnow+4s}",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "ba3b5b03-23cc-3d92-9171-9d8b01b2d84a",
+            "type": "expect",
+            "session": "Dealer 1",
+            "direction": "in",
+            "match": {
+                "messageType": "R",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "R",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "presence"
+                        },
+                        "bindAs": "dealerRfqId"
+                    },
+                    {
+                        "tag": 38,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "10000000"
+                        }
+                    },
+                    {
+                        "tag": 48,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "91282CMF5"
+                        }
+                    },
+                    {
+                        "tag": 54,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1"
+                        }
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIBUY1"
+                        }
+                    },
+                    {
+                        "tag": 452,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "13"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "4ee9d497-207d-30d0-a096-d2d98be2d1f1",
+            "type": "send",
+            "raw": "35=S|131=${dealerRfqId}|117=${dealerQuoteId = uuid}|55=T 4.25 08/15/36|48=91282CMF5|22=1|167=TNOTE|54=1|537=1|423=1|15=USD|133=98.515625|135=10000000|634=4.436|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=98-16+|60=${utcnow}",
+            "session": "Dealer 1"
+        },
+        {
+            "stepId": "422f3f14-3fbf-3cb6-aee6-b0fe2b102a60",
+            "type": "expect",
+            "session": "Buy Side 1",
+            "direction": "in",
+            "match": {
+                "messageType": "S",
+                "fields": [
+                    {
+                        "tag": 448,
+                        "value": "FIDLR1"
+                    }
+                ]
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "S",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 117,
+                        "matcher": {
+                            "type": "presence"
+                        },
+                        "bindAs": "quoteId"
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIDLR1"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "106b98df-d94e-3f5e-9a21-e38c01fb2ec9",
+            "type": "expect",
+            "session": "Buy Side 1",
+            "direction": "in",
+            "match": {
+                "messageType": "AI",
+                "fields": [
+                    {
+                        "tag": 117,
+                        "value": "${quoteId}"
+                    }
+                ]
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "AI",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 117,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${quoteId}"
+                        }
+                    },
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${rfqId}"
+                        }
+                    },
+                    {
+                        "tag": 297,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "7"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "7fefd866-5bf7-37ec-95e9-2d13b1a6273c",
+            "type": "expect",
+            "session": "Dealer 1",
+            "direction": "in",
+            "match": {
+                "messageType": "AI",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "AI",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 117,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${dealerQuoteId}"
+                        }
+                    },
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${dealerRfqId}"
+                        }
+                    },
+                    {
+                        "tag": 297,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "7"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "teardown": [],
+    "userTags": [],
+    "version": 1
+}

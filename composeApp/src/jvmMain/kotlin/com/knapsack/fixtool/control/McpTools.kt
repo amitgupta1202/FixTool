@@ -889,8 +889,10 @@ object McpTools {
                 "fixtool_acceptor_rfqs",
                 "Read a RELAYING venue's RFQ book: every negotiation it is carrying between a requester and its " +
                     "responders. A venue relays when its profile declares `counterparties` (CompID + role requester|" +
-                    "responder) and its rules address steps with `to` (requester, quoter, cover, others, quoted, asked, " +
-                    "responders, compId:X). Each RFQ has `rfqId`, `state` (requested, open, refused, passed, done, " +
+                    "responder) and its rules address steps with `to` (requester, quotes, quoter, cover, others, quoted, " +
+                    "asked, responders, compId:X); a rule with whenMsgType `@rfq-expired` fires when an RFQ's " +
+                    "time runs out, and `whenQuotes` (some|none) asks whether any quote stands. " +
+                    "Each RFQ has `rfqId`, `state` (requested, open, refused, passed, done, " +
                     "expired), the `requester` with the QuoteReqID it used, and a leg per responder: the QuoteReqID the " +
                     "venue gave it, its `quotes` (each dealer `quoteId`, the id the requester was `shownAs`, prices, " +
                     "`live`) and its `outcome` (not delivered, passed, lifted, hit, cover, done away). The pair quoteId / " +

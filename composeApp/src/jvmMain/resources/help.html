@@ -841,6 +841,11 @@
     already traded, a request for an issue it does not list and a request from a dealer are each refused, by
     name, to whoever sent them and to nobody else. A buy side that passes (<code>694=6</code>) ends the RFQ,
     and every dealer quoting is told.</p>
+    <p><strong>An RFQ nobody trades is ended after a minute</strong> &mdash; the platform's <strong>An RFQ expires
+    after</strong> is 60 seconds, and a request's own ExpireTime(126) comes first. Each quote is ended by name
+    with a QuoteStatusReport, <code>297=7</code> Expired: to the buy side under the id it was shown, and to the
+    dealer under its own. An RFQ nobody quoted is refused to the buy side instead, <code>658=99</code>.
+    <strong>FI RFQ Request 10y, buying, open for 20s</strong> asks for one that ends sooner.</p>
 
     <h4>A bond desk's vocabulary</h4>
     <p>The mechanics of an RFQ are the same everywhere and the <strong>vocabulary is not</strong>. A desk
@@ -904,6 +909,9 @@
             heard a thing</td></tr>
         <tr><td><strong>An issue the platform does not list is refused</strong></td>
             <td><code>658=1</code> to the buy side, and strict traffic proves no dealer was asked</td></tr>
+        <tr><td><strong>Nobody trades, and both sides are told the RFQ expired</strong></td>
+            <td>The request names an ExpireTime four seconds ahead. When it passes, the buy side is told Dealer 1's
+            quote expired under the id it was shown, and Dealer 1 under its own</td></tr>
     </table>
 
     <h4>Watching it</h4>
@@ -4559,7 +4567,9 @@ ${incoming["D"].valueOfTag(38)}
     raises a request, as a buy side does; a <strong>responder</strong> answers one, as a dealer does. A
     CompID ending in <code>*</code> is a <strong>family</strong>, so <code>FIDLRLG*</code> covers every lane of
     a load client. A logon from a CompID nobody listed is still accepted, and is <em>unlisted</em>: the
-    venue's pane names it, and a rule can refuse it.</p>
+    venue's pane names it, and a rule can refuse it. Beneath the list, <strong>An RFQ expires after</strong>
+    sets how many seconds an RFQ stays open when its request names no ExpireTime(126); blank never expires
+    one.</p>
 
     <h4>What a trigger can ask the venue</h4>
     <table>
@@ -4574,6 +4584,9 @@ ${incoming["D"].valueOfTag(38)}
         <tr><td><strong>and responders online</strong></td><td><code>some</code>, <code>none</code></td>
             <td>Whether any responder is logged on: the difference between relaying a request and refusing it
             because nobody could quote</td></tr>
+        <tr><td><strong>and quotes standing</strong></td><td><code>some</code>, <code>none</code></td>
+            <td>Whether any quote stands on the RFQ: what tells an RFQ that expired quoted, whose quotes each have
+            to be ended by name, from one nobody answered</td></tr>
     </table>
 
     <h4>Who a step goes to</h4>
@@ -4583,6 +4596,8 @@ ${incoming["D"].valueOfTag(38)}
         <tr><th>To</th><th>Who that is</th></tr>
         <tr><td><code>sender</code></td><td>Whoever sent the trigger</td></tr>
         <tr><td><code>requester</code></td><td>The counterparty that opened the RFQ this message belongs to</td></tr>
+        <tr><td><code>quotes</code></td><td>The requester, once for each quote it was shown that still stands, each
+            time naming that quote: <code>${to.117}</code> is the id it was shown it under</td></tr>
         <tr><td><code>responders</code></td><td>Every counterparty listed as a responder: a listed CompID whether or not it is logged on, and every logged-on lane a family covers</td></tr>
         <tr><td><code>asked</code></td><td>Every responder the RFQ was sent to, quoted or not</td></tr>
         <tr><td><code>quoted</code></td><td>Every responder holding a live quote</td></tr>
@@ -4617,6 +4632,20 @@ ${incoming["D"].valueOfTag(38)}
     per responder, and each id shown the way each side knows it (<code>D1-Q-88 &harr; V-Q-1</code>). It is fed
     from the wire like the other two. A rule becomes a trade the moment one of its steps sends the quoter an
     ExecutionReport, so a second lift already on its way reads the RFQ as <em>done</em> and is refused.</p>
+
+    <h4>When the RFQ expires</h4>
+    <p>An RFQ nobody lifts, passes or refuses still ends. A rule card on a relaying venue offers <strong>or when
+    the RFQ expires</strong> beside its MsgType, and a rule chosen that way fires when an RFQ's time runs out, with
+    nothing having sent the venue anything: at its request's ExpireTime(126), or when the venue's <strong>An RFQ
+    expires after</strong> has passed. The clock starts when the RFQ is first relayed to a dealer, so a request
+    refused before anyone was asked is never later told it expired. It stops if the RFQ trades, passes or is
+    refused first, and it does <em>not</em> stop when the requester logs out: its dealers are still owed the end.</p>
+    <p>Nothing sent it, so there is no sender: every step needs a <strong>to</strong>, and the card does not offer
+    <strong>and the sender is</strong> or <strong>and the RFQ is</strong>, which could only say what is always true.
+    <code>${req.55}</code> reads the request that opened the RFQ. <strong>and quotes standing</strong> is the
+    question that matters, and on an RFQ that has expired <code>quotes</code> and <code>quoted</code> mean the last
+    quote each dealer showed, lapsed or not, because every quote ends with the RFQ. The reason on each message says
+    so: <em>sent by rule 24 &mdash; the RFQ expired at 09:15:21.002 &rarr; quoted FIDLR1, on FIBUY1's RFQ</em>.</p>
 
     <h4>The other side, by rule</h4>
     <p>A dealer that quotes relayed RFQs by itself is an <strong>initiator with rules</strong> (see

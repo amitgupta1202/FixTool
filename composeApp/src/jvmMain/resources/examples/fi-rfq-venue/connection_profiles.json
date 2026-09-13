@@ -985,6 +985,30 @@
                                 "template": "35=j|372=AJ|379=${req.693}|380=5|58=A QuoteResponse needs QuoteID (117) and Symbol (55), from a buy side this platform lists"
                             }
                         ]
+                    },
+                    {
+                        "whenMsgType": "@rfq-expired",
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${to.117}|131=${to.131}|55=${req.55}|48=${req.48}|22=1|297=7|58=Expired: the RFQ's time ran out before it traded|60=${utcnow}",
+                                "to": "quotes"
+                            },
+                            {
+                                "template": "35=AI|117=${to.117}|131=${to.131}|55=${req.55}|48=${req.48}|22=1|297=7|58=Expired: the RFQ's time ran out before it traded|60=${utcnow}",
+                                "to": "quoted"
+                            }
+                        ],
+                        "whenQuotes": "some"
+                    },
+                    {
+                        "whenMsgType": "@rfq-expired",
+                        "steps": [
+                            {
+                                "template": "35=AG|131=${to.131}|658=99|146=1|55=${req.55}|48=${req.48}|22=1|58=Expired: no dealer quoted before the RFQ's time ran out",
+                                "to": "requester"
+                            }
+                        ],
+                        "whenQuotes": "none"
                     }
                 ],
                 "counterparties": [
@@ -1012,7 +1036,8 @@
                         "compId": "FIDLRLG*",
                         "role": "responder"
                     }
-                ]
+                ],
+                "rfqExpirySeconds": 60
             },
             "createdAt": 0,
             "lastUsedAt": 0

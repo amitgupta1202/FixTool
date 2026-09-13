@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.QuoteReading
 import com.knapsack.fixtool.model.QuoteState
 import com.knapsack.fixtool.model.RfqReading
 import com.knapsack.fixtool.model.StepAddress
+import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.ui.thirtySeconds
 import org.junit.Test
@@ -59,6 +60,7 @@ class FiRfqPlatformPresetTest {
                     when (address) {
                         StepAddress.Sender -> Recipient(null, trigger.sessionKey, trigger.compId, address)
                         StepAddress.Requester -> Recipient(null, "buy", BUYER, address)
+                        StepAddress.Quotes -> Recipient(null, "buy", BUYER, address, quoteId = "V-Q-1")
                         StepAddress.Cover -> Recipient(null, "d2", "FIDLR2", address, quoteId = "D2-551")
                         else -> Recipient(null, "d1", DEALER, address, quoteId = "D1-Q-88")
                     },
@@ -155,6 +157,9 @@ class FiRfqPlatformPresetTest {
                 "35=AJ|49=$sender|693=BUY-RESP-1|694=${exact(694) ?: "1"}|117=V-Q-1|11=BUY-TRD-7|" +
                     "55=${issue.symbol}|54=${side ?: "1"}|38=10000000|44=$level"
             }
+            // A rule on expiry reads the RFQ's opening request, which is the buy side's.
+            WHEN_RFQ_EXPIRES ->
+                "35=R|49=$BUYER|131=BUY-RFQ-7|146=1|55=${issue.symbol}|48=${issue.cusip}|22=1|54=1|38=10000000"
             else -> error("no sample for 35=${rule.whenMsgType}")
         }
     }
@@ -195,8 +200,9 @@ class FiRfqPlatformPresetTest {
         assertEquals("S role:responder rfq:open@131 117 55 48 62 132 133 134 135 632 634", read.first { it.startsWith("S") })
         assertEquals("S", read.last { it.startsWith("S") })
         assertTrue(read.indexOfFirst { it.startsWith("AJ") && it.contains("694=1 54=1") } < read.indexOf(read.first { it.contains("694=1 55") }))
-        assertEquals("AJ", read.last())
-        assertEquals(23, platform.size, "the summary counts the rules, so the count is the summary")
+        assertEquals("AJ", read.last { it.startsWith("AJ") })
+        assertEquals(setOf("@rfq-expired quotes:some", "@rfq-expired quotes:none"), read.filter { it.startsWith("@") }.toSet())
+        assertEquals(25, platform.size, "the summary counts the rules, so the count is the summary")
     }
 
     private fun describe(rule: AcceptorResponseRule): String =
@@ -210,7 +216,7 @@ class FiRfqPlatformPresetTest {
                 Matcher.Presence -> " ${c.tag}"
                 else -> " ${c.tag}?"
             }
-        } + (rule.whenResponders?.let { " responders:$it" } ?: "")
+        } + (rule.whenResponders?.let { " responders:$it" } ?: "") + (rule.whenQuotes?.let { " quotes:$it" } ?: "")
 
     @Test
     fun `every rule of both bundles is reachable`() {
@@ -234,7 +240,7 @@ class FiRfqPlatformPresetTest {
 
     @Test
     fun `every rule of the platform fires against the message it was written for`() {
-        platform.forEach { rule ->
+        platform.filterNot { it.whenMsgType == WHEN_RFQ_EXPIRES }.forEach { rule ->
             val outcome =
                 AcceptorResponder
                     .explain(listOf(rule), AcceptorResponder.buildMessage(sampleFor(rule), dictionary), null, shown(), readingFor(rule))
@@ -268,6 +274,46 @@ class FiRfqPlatformPresetTest {
     }
 
     // ---------------------------------------------------------------- the platform
+
+    private fun onExpiry(quotesStanding: Boolean) =
+        VenueReading(
+            senderRole = PartyRole.REQUESTER,
+            rfqBy131 = RfqReading("RFQ-1", null, "expired"),
+            rfqBy117 = RfqReading("RFQ-1", null, "expired"),
+            respondersOnline = true,
+            quotesStanding = quotesStanding,
+        )
+
+    /**
+     * **An RFQ nobody traded is ended to everyone holding part of it.** A quoted one: each quote by name, to the buy
+     * side under the id it was shown and to its dealer under its own. An unquoted one: the request refused to the buy
+     * side, under the buy side's own QuoteReqID.
+     */
+    @Test
+    fun `an RFQ that expires is ended quote by quote to both sides, or refused to the buy side when nobody quoted`() {
+        val compiled = AcceptorResponder.compile(platform)
+        val opening = RfqBookService.fieldsOf(AcceptorResponder.buildMessage(sampleFor(platform.last()), dictionary))
+
+        val quoted = assertNotNull(AcceptorResponder.firstMatchOnExpiry(compiled, opening, onExpiry(quotesStanding = true)))
+        val toEach = sends(quoted)
+        assertEquals(listOf("quotes", "quoted"), toEach.map { it.first })
+        toEach.forEach { (_, raw) ->
+            assertEquals("AI", field(raw, 35))
+            assertEquals("7", field(raw, 297), "297=7 is Expired")
+            assertEquals(tenYear.symbol, field(raw, 55))
+        }
+        assertEquals("V-Q-1", field(toEach[0].second, 117), "the buy side is told of the quote as it was shown it")
+        assertEquals("BUY-RFQ-7", field(toEach[0].second, 131), "under its own QuoteReqID")
+        assertEquals("D1-Q-88", field(toEach[1].second, 117), "the dealer is told of its own quote")
+        assertEquals("V-RFQ-1", field(toEach[1].second, 131), "under the QuoteReqID the platform sent it")
+
+        val unquoted = assertNotNull(AcceptorResponder.firstMatchOnExpiry(compiled, opening, onExpiry(quotesStanding = false)))
+        val refusal = sends(unquoted).single()
+        assertEquals("requester", refusal.first)
+        assertEquals("AG", field(refusal.second, 35))
+        assertEquals("99", field(refusal.second, 658))
+        assertEquals("BUY-RFQ-7", field(refusal.second, 131), "the buy side's own id")
+    }
 
     @Test
     fun `a buy side's request reaches the dealers under the platform's id, with who is asking`() {

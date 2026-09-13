@@ -956,6 +956,7 @@ class ExampleWorkspacesTest {
         val platform = profiles.getValue(FiRfqPlatformBundle.VENUE).config
         assertEquals(AcceptorPresets.insert(emptyList(), FiRfqPlatformPreset.preset).rules, platform.acceptorResponseRules)
         assertEquals(FiRfqPlatformPreset.COUNTERPARTIES, platform.counterparties)
+        assertEquals(60, platform.rfqExpirySeconds, "an RFQ left alone is seen to end, a minute after it was asked")
         assertEquals(
             AcceptorPresets.insert(emptyList(), FiRfqPlatformPreset.dealerPreset).rules,
             profiles.getValue(FiRfqPlatformBundle.DEALER_LOAD).config.acceptorResponseRules,
@@ -1099,7 +1100,7 @@ class ExampleWorkspacesTest {
      * other side by saying nothing reached it, which is what a strict run's traffic check is.
      */
     @Test
-    fun `all four fixed-income scenarios come across, and each one watches both sides`() {
+    fun `all five fixed-income scenarios come across, and each one watches both sides`() {
         val scenarios = ScenarioService(customDir = File(openFiRfqInTemp(), "scenarios").absolutePath).list().associateBy { it.id }
         assertEquals(FiRfqPlatformBundle.scenarios.map { it.id }.toSet(), scenarios.keys)
         scenarios.values.forEach { scenario ->
@@ -1118,7 +1119,7 @@ class ExampleWorkspacesTest {
                 .flatMap { it.steps }
                 .filterIsInstance<ScenarioStep.Send>()
                 .filter { "35=R|" in it.raw }
-        assertEquals(4, requests.size, "one QuoteRequest in each scenario")
+        assertEquals(5, requests.size, "one QuoteRequest in each scenario")
         requests.forEach { send ->
             assertTrue(Regex("""\|167=T(NOTE|BOND)\|""").containsMatchIn(send.raw), "a scenario's request names no SecurityType: ${send.raw}")
         }

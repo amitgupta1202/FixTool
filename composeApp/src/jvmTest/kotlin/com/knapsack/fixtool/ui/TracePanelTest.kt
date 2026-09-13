@@ -1,14 +1,19 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.width
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
@@ -23,7 +28,9 @@ import org.junit.Rule
 import org.junit.Test
 import quickfix.Message
 import java.time.LocalDateTime
+import kotlin.math.abs
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * **The Ledger as it appears on screen.**
@@ -295,5 +302,105 @@ class TracePanelTest {
         composeTestRule.onNodeWithTag("trace-close").performClick()
         assertEquals(1, closed)
         assertEquals(0, unfollowed)
+    }
+
+    // ------------------------------------------------------------------ the grid's columns
+
+    private fun right(tag: String) = composeTestRule.onNodeWithTag(tag).getUnclippedBoundsInRoot().right
+
+    private fun assertSameX(
+        expected: Dp,
+        actual: Dp,
+        what: String,
+    ) = assertTrue(abs((expected - actual).value) < 0.5f, "$what: expected $expected, got $actual")
+
+    /**
+     * **Every row ends on the header's last rule.** The trace row used to run 28dp past it for a follow button no
+     * column stood over, and further with fewer than three tag columns, because its notes were held to 360dp
+     * whatever the columns under them added up to; the ungrouped row stopped at Elapsed. None of that could be
+     * seen in a row list — only in the widths the panel lays out.
+     */
+    @Test
+    fun `every kind of row ends where the header ends, with three tag columns and with none`() {
+        val settings = mutableStateOf(AppSettings.default())
+        composeTestRule.setContent {
+            TracePanel(
+                rows = rows(expanded = setOf(TraceKey("CLIENT", "RFQ-A1")), ungroupedExpanded = true),
+                sessionTitles = titles,
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = settings.value,
+            )
+        }
+
+        fun assertFlush(label: String) {
+            val header = right("grid-header")
+            assertSameX(header, right("trace-header-RFQ-A1"), "$label: the trace row's right edge")
+            assertSameX(header, right("trace-ungrouped-header"), "$label: the ungrouped row's right edge")
+            composeTestRule.onAllNodesWithTag("trace-member").fetchSemanticsNodes().indices.forEach { i ->
+                val member = composeTestRule.onAllNodesWithTag("trace-member")[i].getUnclippedBoundsInRoot().right
+                assertSameX(header, member, "$label: member $i's right edge")
+            }
+        }
+
+        assertEquals(3, AppSettings.default().gridViewColumns.size, "the default this test is named for")
+        assertFlush("three tag columns")
+
+        settings.value = AppSettings.default().copy(gridViewColumns = emptyList())
+        composeTestRule.waitForIdle()
+        assertFlush("no tag columns")
+    }
+
+    /** The follow button is in the Session column — a column the header has — not in a cell beyond the last one. */
+    @Test
+    fun `a trace row's follow button stands inside the Session column`() {
+        composeTestRule.setContent {
+            TracePanel(
+                rows = rows(),
+                sessionTitles = titles,
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = AppSettings.default(),
+            )
+        }
+
+        val session = composeTestRule.onNodeWithTag("trace-column-Session").getUnclippedBoundsInRoot()
+        val follow = composeTestRule.onNodeWithTag("follow-trace").getUnclippedBoundsInRoot()
+        assertTrue(
+            follow.left >= session.left && follow.right <= session.right,
+            "follow at ${follow.left}..${follow.right}, Session at ${session.left}..${session.right}",
+        )
+    }
+
+    /** The reported defect: the Ledger's columns could not be resized. Drag one, and the rows go with the header. */
+    @Test
+    fun `dragging a column's edge widens it in the header and in every row`() {
+        composeTestRule.setContent {
+            TracePanel(
+                rows = rows(expanded = setOf(TraceKey("CLIENT", "RFQ-A1"))),
+                sessionTitles = titles,
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = AppSettings.default(),
+            )
+        }
+        val summaryBefore = composeTestRule.onNodeWithTag("trace-column-Summary").getUnclippedBoundsInRoot().width
+        val elapsedBefore = composeTestRule.onNodeWithTag("trace-column-Elapsed").getUnclippedBoundsInRoot().left
+
+        composeTestRule.onNodeWithTag("trace-column-Summary-resize", useUnmergedTree = true).performMouseInput {
+            moveTo(center)
+            press()
+            repeat(6) { moveBy(Offset(10f, 0f)) }
+            release()
+        }
+        composeTestRule.waitForIdle()
+
+        val grown = composeTestRule.onNodeWithTag("trace-column-Summary").getUnclippedBoundsInRoot().width - summaryBefore
+        assertTrue(abs(grown.value - 60f) < 1.5f, "a 60dp drag at 1x widens Summary by 60dp, got $grown")
+        val elapsedAfter = composeTestRule.onNodeWithTag("trace-column-Elapsed").getUnclippedBoundsInRoot().left
+        assertSameX(elapsedBefore + grown, elapsedAfter, "Elapsed moved over")
+        assertSameX(right("grid-header"), right("trace-header-RFQ-A1"), "the trace row followed the header")
+        val member = composeTestRule.onAllNodesWithTag("trace-member")[0].getUnclippedBoundsInRoot().right
+        assertSameX(right("grid-header"), member, "a member row followed the header")
     }
 }

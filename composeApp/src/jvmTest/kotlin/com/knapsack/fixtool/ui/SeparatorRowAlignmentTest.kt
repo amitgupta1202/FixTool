@@ -2,6 +2,7 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import com.knapsack.fixtool.model.AppMessage
 import com.knapsack.fixtool.model.FixDictionaryAdapter
@@ -189,5 +190,30 @@ class SeparatorRowAlignmentTest {
             abs(afterSeparator - rowPitch) < 0.5f,
             "rows after a blank must resume the original pitch: expected $rowPitch, got $afterSeparator",
         )
+    }
+
+    /**
+     * **A blank row is painted as far as the columns go, and no further.** It used to paint its whole minimum
+     * width, the 200dp spacer allowance with it, so every blank line drew a band past the grid's last column —
+     * the phantom column `7174cb87` took off the conversation group row.
+     */
+    @Test
+    fun `a blank row is painted as wide as the grid's columns and no wider`() {
+        composeTestRule.setContent {
+            HierarchicalGridView(
+                messages = listOf(order("ALIGN-1"), Separator(timestamp = LocalDateTime.now()), order("ALIGN-2")),
+                dictionary = dictionary,
+                hideProtocolTags = true,
+                gridViewColumns = listOf(11),
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        val band = composeTestRule.onNodeWithTag("separator-band").getUnclippedBoundsInRoot()
+        val lastColumn = composeTestRule.onNodeWithTag("grid-column-Tag_11").getUnclippedBoundsInRoot()
+        val header = composeTestRule.onNodeWithTag("grid-header").getUnclippedBoundsInRoot()
+
+        assertTrue(abs((band.right - lastColumn.right).value) < 0.5f, "band ends at ${band.right}, the last column at ${lastColumn.right}")
+        assertTrue(abs((band.left - header.left).value) < 0.5f, "band starts at ${band.left}, the header at ${header.left}")
     }
 }

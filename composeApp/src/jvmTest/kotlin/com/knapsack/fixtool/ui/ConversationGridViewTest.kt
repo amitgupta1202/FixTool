@@ -3,8 +3,11 @@ package com.knapsack.fixtool.ui
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.knapsack.fixtool.model.AppMessage
@@ -13,11 +16,13 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.FixMessageHelper
-import java.time.LocalDateTime
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import quickfix.Message
+import java.time.LocalDateTime
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * **The conversation view as the grid actually draws it.**
@@ -136,5 +141,36 @@ class ConversationGridViewTest {
         composeTestRule.onNodeWithText("Ungrouped").assertExists()
         composeTestRule.onAllNodesWithText("Heartbeat").assertCountEquals(0)
         composeTestRule.onAllNodesWithText("ExecutionReport").assertCountEquals(1)
+    }
+
+    /**
+     * **The follow button is in the group row's select column.** It was a 28dp cell after the last column: no
+     * header column stood over it, and in a pane narrower than its grid — most panes — it was scrolled out of
+     * sight. The select column is one the header has, and a group row has no tick to put in it.
+     */
+    @Test
+    fun `a group row's follow button stands in the select column, not past the grid`() {
+        composeTestRule.setContent {
+            HierarchicalGridView(
+                messages = messages,
+                dictionary = dictionary,
+                hideProtocolTags = true,
+                groupByConversation = true,
+                collapsedConversations = collapsed.value,
+                onToggleConversation = {},
+                onFollowTrace = {},
+            )
+        }
+
+        val select = composeTestRule.onNodeWithTag("grid-select-all").getUnclippedBoundsInRoot()
+        val header = composeTestRule.onNodeWithTag("grid-header").getUnclippedBoundsInRoot()
+        val follows = composeTestRule.onAllNodesWithTag("follow-trace")
+        val count = follows.fetchSemanticsNodes().size
+        assertEquals(2, count, "one per conversation, none on Ungrouped")
+        repeat(count) { i ->
+            val follow = follows[i].getUnclippedBoundsInRoot()
+            assertTrue(follow.left >= select.left && follow.right <= select.right, "follow $i at ${follow.left}..${follow.right}")
+            assertTrue(follow.right <= header.right, "follow $i ends inside the grid")
+        }
     }
 }

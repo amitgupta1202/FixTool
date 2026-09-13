@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppSettings
@@ -35,6 +36,8 @@ fun SearchResultsPane(
     appSettings: AppSettings,
     onSelectResult: (FixMessageViewModel.SearchResult) -> Unit,
     onClose: () -> Unit,
+    /** What the columns have been dragged to — held by the dock, so it outlasts switching to the Ledger and back. */
+    columnWidths: GridColumnWidths = remember { GridColumnWidths() },
     modifier: Modifier = Modifier,
 ) {
     // Create a stable username to color mapping based on session usernames
@@ -64,6 +67,8 @@ fun SearchResultsPane(
             tag = "search-results-header",
         )
 
+        val columns = SearchColumns(columnWidths, appSettings.gridViewColumns)
+
         // Grid with scrollbars
         Box(modifier = Modifier.fillMaxSize()) {
             val listState = rememberLazyListState()
@@ -79,8 +84,11 @@ fun SearchResultsPane(
                 Column(modifier = Modifier.fillMaxHeight()) {
                     // Column headers
                     SearchResultsGridHeader(
-                        gridViewColumns = appSettings.gridViewColumns,
+                        columns = columns,
                         dictionary = dictionary,
+                        onFit = { key ->
+                            columnWidths.toggleFit(key) { fittedSearchColumn(key, searchResults, dictionary) }
+                        },
                     )
 
                     HorizontalDivider(color = AppTheme.Colors.border)
@@ -98,8 +106,7 @@ fun SearchResultsPane(
                                 result = result,
                                 isSelected = selectedMessage == result.message,
                                 usernameColorMap = usernameColorMap,
-                                gridViewColumns = appSettings.gridViewColumns,
-                                dictionary = dictionary,
+                                columns = columns,
                                 appSettings = appSettings,
                                 onClick = { onSelectResult(result) },
                             )
@@ -132,6 +139,39 @@ fun SearchResultsPane(
     }
 }
 
+private val SESSION_WIDTH = 100.dp
+private val TIME_WIDTH = 120.dp
+private val DIR_WIDTH = 50.dp
+private val SEQ_WIDTH = 70.dp
+private val MSGTYPE_WIDTH = 100.dp
+private val SUMMARY_WIDTH = 200.dp
+private val TAG_WIDTH = 120.dp
+
+/**
+ * **The search results' columns at the widths they are now.**
+ *
+ * The header and the rows each wrote the same seven literals out for themselves, which agreed only while nothing
+ * could change them. Both read them from here, and a getter reads the dragged width where the cell draws.
+ */
+private class SearchColumns(
+    private val widths: GridColumnWidths,
+    val tags: List<Int>,
+) {
+    val session get() = widths.widthOf("Session", SESSION_WIDTH)
+    val time get() = widths.widthOf("Time", TIME_WIDTH)
+    val dir get() = widths.widthOf("Dir", DIR_WIDTH)
+    val seq get() = widths.widthOf("SeqNum", SEQ_WIDTH)
+    val msgType get() = widths.widthOf("MsgType", MSGTYPE_WIDTH)
+    val summary get() = widths.widthOf("Summary", SUMMARY_WIDTH)
+
+    fun tag(tag: Int): Dp = widths.widthOf("Tag_$tag", TAG_WIDTH)
+
+    fun resize(
+        key: String,
+        default: Dp,
+    ): (Dp) -> Unit = { delta -> widths.resizeBy(key, delta, default) }
+}
+
 /**
  * The search results' columns, on the shared [GridHeader].
  *
@@ -140,19 +180,61 @@ fun SearchResultsPane(
  */
 @Composable
 private fun SearchResultsGridHeader(
-    gridViewColumns: List<Int>,
+    columns: SearchColumns,
     dictionary: FixDictionary,
+    onFit: (String) -> Unit,
 ) {
+    fun resizable(
+        key: String,
+        label: String,
+        width: Dp,
+        default: Dp,
+        align: Alignment = Alignment.Center,
+    ) = GridColumn(
+        label = label,
+        width = width,
+        align = align,
+        tag = "search-column-$key",
+        onResize = columns.resize(key, default),
+        onDoubleClick = { onFit(key) },
+    )
+
     GridHeader(
         listOf(
-            GridColumn("Session", 100.dp),
-            GridColumn("Time", 120.dp),
-            GridColumn("Dir", 50.dp),
-            GridColumn("SeqNum", 70.dp),
-            GridColumn("MsgType", 100.dp),
-            GridColumn("Summary", 200.dp, Alignment.CenterStart),
-        ) + gridViewColumns.map { tag -> GridColumn(dictionary.getFieldName(tag) ?: tag.toString(), 120.dp) },
+            resizable("Session", "Session", columns.session, SESSION_WIDTH),
+            resizable("Time", "Time", columns.time, TIME_WIDTH),
+            resizable("Dir", "Dir", columns.dir, DIR_WIDTH),
+            resizable("SeqNum", "SeqNum", columns.seq, SEQ_WIDTH),
+            resizable("MsgType", "MsgType", columns.msgType, MSGTYPE_WIDTH),
+            resizable("Summary", "Summary", columns.summary, SUMMARY_WIDTH, Alignment.CenterStart),
+        ) +
+            columns.tags.map { tag ->
+                resizable("Tag_$tag", dictionary.getFieldName(tag) ?: tag.toString(), columns.tag(tag), TAG_WIDTH)
+            },
     )
+}
+
+/** The width a double-click fits a search-results column to: its header word and every result's value in it. */
+private fun fittedSearchColumn(
+    key: String,
+    results: List<FixMessageViewModel.SearchResult>,
+    dictionary: FixDictionary,
+): Dp {
+    val tag = key.removePrefix("Tag_").toIntOrNull()
+    val all = results.asSequence()
+    val values: Sequence<String> =
+        when {
+            key == "Session" -> all.map { it.sessionUsername }
+            key == "Time" -> sequenceOf("HH:mm:ss.SSS")
+            key == "Dir" -> sequenceOf("OUT")
+            key == "SeqNum" -> all.map { it.msgSeqNum?.toString().orEmpty() }
+            key == "MsgType" -> all.map { it.message.messageType }
+            key == "Summary" -> all.map { it.messageTypeDescription }
+            tag != null ->
+                all.map { extractTopLevelFieldValue(it.message, tag) } + sequenceOf(dictionary.getFieldName(tag) ?: key)
+            else -> emptySequence()
+        }
+    return fittedColumnWidth(sequenceOf(key) + values)
 }
 
 /**
@@ -163,8 +245,7 @@ private fun SearchResultsGridRow(
     result: FixMessageViewModel.SearchResult,
     isSelected: Boolean,
     usernameColorMap: Map<String, Color>,
-    gridViewColumns: List<Int>,
-    dictionary: FixDictionary,
+    columns: SearchColumns,
     appSettings: AppSettings,
     onClick: () -> Unit,
 ) {
@@ -208,7 +289,7 @@ private fun SearchResultsGridRow(
         Box(
             modifier =
                 Modifier
-                    .width(100.dp)
+                    .width(columns.session)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
@@ -228,7 +309,7 @@ private fun SearchResultsGridRow(
         Box(
             modifier =
                 Modifier
-                    .width(120.dp)
+                    .width(columns.time)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
@@ -238,6 +319,7 @@ private fun SearchResultsGridRow(
                 fontSize = 10.sp,
                 color = textColor,
                 fontFamily = FontFamily.Monospace,
+                maxLines = 1,
             )
         }
 
@@ -245,7 +327,7 @@ private fun SearchResultsGridRow(
         Box(
             modifier =
                 Modifier
-                    .width(50.dp)
+                    .width(columns.dir)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
@@ -262,7 +344,7 @@ private fun SearchResultsGridRow(
         Box(
             modifier =
                 Modifier
-                    .width(70.dp)
+                    .width(columns.seq)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
@@ -272,6 +354,7 @@ private fun SearchResultsGridRow(
                 fontSize = 10.sp,
                 color = tagNumberColor,
                 fontFamily = FontFamily.Monospace,
+                maxLines = 1,
             )
         }
 
@@ -287,7 +370,7 @@ private fun SearchResultsGridRow(
         Box(
             modifier =
                 Modifier
-                    .width(100.dp)
+                    .width(columns.msgType)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
@@ -297,6 +380,7 @@ private fun SearchResultsGridRow(
                 fontSize = 10.sp,
                 color = textColor,
                 fontFamily = FontFamily.Monospace,
+                maxLines = 1,
             )
         }
 
@@ -304,7 +388,7 @@ private fun SearchResultsGridRow(
         Box(
             modifier =
                 Modifier
-                    .width(200.dp)
+                    .width(columns.summary)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -321,12 +405,12 @@ private fun SearchResultsGridRow(
         }
 
         // Custom columns from settings
-        gridViewColumns.forEach { tag ->
+        columns.tags.forEach { tag ->
             val fieldValue = extractTopLevelFieldValue(result.message, tag)
             Box(
                 modifier =
                     Modifier
-                        .width(120.dp)
+                        .width(columns.tag(tag))
                         .fillMaxHeight()
                         .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,

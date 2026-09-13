@@ -1,7 +1,6 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -30,9 +29,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.isSecondaryPressed
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -52,70 +49,31 @@ import com.knapsack.fixtool.service.groupCountSafe
 import kotlinx.coroutines.launch
 import quickfix.Field
 import quickfix.FieldMap
-import java.awt.Cursor
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 /**
- * Resize handle for adjusting column widths
- */
-@Composable
-private fun ResizeHandle(
-    columnKey: String,
-    columnWidths: MutableMap<String, androidx.compose.ui.unit.Dp>,
-    modifier: Modifier = Modifier,
-) {
-    var dragOffset by remember { mutableStateOf(0f) }
-
-    Box(
-        modifier =
-            modifier
-                .width(1.dp)
-                .fillMaxHeight()
-                .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR)))
-                .pointerInput(columnKey) {
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            dragOffset = 0f
-                        },
-                        onDragEnd = {
-                            dragOffset = 0f
-                        },
-                    ) { change, dragAmount ->
-                        change.consume()
-                        dragOffset += dragAmount
-
-                        // Update column width
-                        val currentWidth = columnWidths[columnKey] ?: 120.dp
-                        val newWidth = (currentWidth.value + dragOffset).dp
-
-                        // Enforce min/max constraints
-                        val constrainedWidth = newWidth.coerceIn(50.dp, 400.dp)
-                        columnWidths[columnKey] = constrainedWidth
-
-                        // Reset drag offset after updating width
-                        dragOffset = 0f
-                    }
-                }.background(Color.Transparent),
-    )
-}
-
-/**
- * Header row for the expanded grid showing column names and resize handles
+ * Header row for the expanded grid: the field columns' names, each with its edge to drag.
+ *
+ * Every column including the last carries a grip, as every column carried a seam before; the grips sit inside
+ * the cells now, so the header is exactly as wide as the field rows under it. See [ColumnResizeGrip].
  */
 @Composable
 private fun ExpandedGridHeader(
     columnWidths: MutableMap<String, androidx.compose.ui.unit.Dp>,
     modifier: Modifier = Modifier,
 ) {
-    val totalWidth =
-        (columnWidths["IconColumn"] ?: 40.dp) +
-            (columnWidths["Tag"] ?: 120.dp) +
-            (columnWidths["TagDescription"] ?: 200.dp) +
-            (columnWidths["Value"] ?: 150.dp) +
-            (columnWidths["ValueDescription"] ?: 250.dp)
+    val columns =
+        listOf(
+            "IconColumn" to "",
+            "Tag" to "Tag",
+            "TagDescription" to "Tag Description",
+            "Value" to "Value",
+            "ValueDescription" to "Value Description",
+        )
+    val totalWidth = columns.fold(0.dp) { sum, (key, _) -> sum + (columnWidths[key] ?: expandedGridDefaultWidth(key)) }
 
     Row(
         modifier =
@@ -124,100 +82,51 @@ private fun ExpandedGridHeader(
                 .width(totalWidth)
                 .background(headerBackgroundColor),
     ) {
-        // Icon column
-        Box(
-            modifier =
-                Modifier
-                    .width(columnWidths["IconColumn"] ?: 40.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "",
-                color = headerTextColor,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-            )
+        columns.forEach { (key, label) ->
+            Box(
+                modifier =
+                    Modifier
+                        .width(columnWidths[key] ?: expandedGridDefaultWidth(key))
+                        .fillMaxHeight()
+                        .border(0.5.dp, headerBorderColor),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    color = headerTextColor,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                // The icon column holds the chevron and was never resizable.
+                if (key != "IconColumn") {
+                    ColumnResizeGrip(
+                        onResize = { delta ->
+                            val current = columnWidths[key] ?: expandedGridDefaultWidth(key)
+                            // This grid's own limits, the ones its auto-fit uses: held to the message grid's 400dp, the
+                            // first drag of a column fitted to 500dp snapped it 100dp narrower.
+                            columnWidths[key] =
+                                (current + delta).coerceIn(
+                                    EXPANDED_GRID_MIN_COLUMN_WIDTH.dp,
+                                    EXPANDED_GRID_MAX_COLUMN_WIDTH.dp,
+                                )
+                        },
+                    )
+                }
+            }
         }
-
-        // Tag column
-        Box(
-            modifier =
-                Modifier
-                    .width((columnWidths["Tag"] ?: 120.dp) - 1.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Tag",
-                color = headerTextColor,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-
-        ResizeHandle("Tag", columnWidths)
-
-        // Tag Description column
-        Box(
-            modifier =
-                Modifier
-                    .width((columnWidths["TagDescription"] ?: 200.dp) - 1.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Tag Description",
-                color = headerTextColor,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-
-        ResizeHandle("TagDescription", columnWidths)
-
-        // Value column
-        Box(
-            modifier =
-                Modifier
-                    .width((columnWidths["Value"] ?: 150.dp) - 1.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Value",
-                color = headerTextColor,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-
-        ResizeHandle("Value", columnWidths)
-
-        // Value Description column
-        Box(
-            modifier =
-                Modifier
-                    .width((columnWidths["ValueDescription"] ?: 250.dp) - 1.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Value Description",
-                color = headerTextColor,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-
-        ResizeHandle("ValueDescription", columnWidths)
     }
 }
+
+/** What an expanded-grid column is before anything has fitted or dragged it. */
+private fun expandedGridDefaultWidth(key: String): androidx.compose.ui.unit.Dp =
+    when (key) {
+        "IconColumn" -> 40.dp
+        "Tag" -> 120.dp
+        "TagDescription" -> 200.dp
+        "Value" -> 150.dp
+        "ValueDescription" -> 250.dp
+        else -> 120.dp
+    }
 
 /**
  * Hierarchical grid view showing one row per FIX message
@@ -734,7 +643,7 @@ fun HierarchicalGridView(
                     //
                     // Two hundred and sixty-six lines of Box-border-Text, once per column, where the trace and the search
                     // results each had their own copy of the same row. This one is the odd sibling — every column is
-                    // resizable and double-clicks to fit — so `GridColumn` carries the seam and the double-click rather
+                    // resizable and double-clicks to fit — so `GridColumn` carries the grip and the double-click rather
                     // than the grid carrying its own row.
                     val allFixMessages = messages.filterIsInstance<FixMessage>()
                     // Identity-keyed, so no `messages.indexOf(msg)` per element: that was an O(N^2) scan on every header
@@ -743,13 +652,18 @@ fun HierarchicalGridView(
                         allFixMessages.isNotEmpty() && allFixMessages.all { msg -> selectedMessageIds.contains(getMessageId(msg)) }
                     val someSelected = selectedMessageIds.isNotEmpty() && !allSelected
 
-                    fun resizable(key: String, fallback: Dp, last: Boolean = false) =
+                    fun resizable(key: String, fallback: Dp) =
                         GridColumn(
                             label = key,
-                            // The last column keeps its full width; every other gives 1dp to the seam after it.
-                            width = (columnWidths[key] ?: fallback) - if (last) 0.dp else 1.dp,
+                            // Its full width: the grip is inside the cell, so the header's rules fall
+                            // where the rows' do.
+                            width = columnWidths[key] ?: fallback,
+                            tag = "grid-column-$key",
+                            onResize = { delta ->
+                                val dragged = (columnWidths[key] ?: fallback) + delta
+                                columnWidths[key] = dragged.coerceIn(GRID_COLUMN_MIN_WIDTH, GRID_COLUMN_MAX_WIDTH)
+                            },
                             onDoubleClick = { toggleColumnWidth(key) },
-                            after = { ResizeHandle(key, columnWidths) },
                         )
 
                     GridHeader(
@@ -778,12 +692,11 @@ fun HierarchicalGridView(
                             resizable("Dir", 50.dp),
                             resizable("SeqNum", 70.dp),
                             resizable("MsgType", 100.dp),
-                            resizable("Summary", 200.dp, last = gridViewColumns.isEmpty() && !showLatencyColumn),
+                            resizable("Summary", 200.dp),
                         ) +
                             (if (showLatencyColumn) listOf(resizable("Latency", 90.dp)) else emptyList()) +
-                            gridViewColumns.mapIndexed { index, tag ->
-                                val key = "Tag_$tag"
-                                resizable(key, 120.dp, last = index == gridViewColumns.size - 1)
+                            gridViewColumns.map { tag ->
+                                resizable("Tag_$tag", 120.dp)
                                     .copy(label = dictionary.getFieldName(tag) ?: tag.toString())
                             },
                     )
@@ -821,7 +734,7 @@ fun HierarchicalGridView(
                                     // Separator row - match MessageSummaryRow dimensions exactly
                                     item(key = messageId) {
                                         val latencyColumnWidth = if (showLatencyColumn) (columnWidths["Latency"] ?: 90.dp) else 0.dp
-                                        val minWidth =
+                                        val columnsWidth =
                                             24.dp + // Checkbox column
                                                 (columnWidths["Icon"] ?: 40.dp) +
                                                 (columnWidths["Time"] ?: 120.dp) +
@@ -830,16 +743,25 @@ fun HierarchicalGridView(
                                                 (columnWidths["MsgType"] ?: 100.dp) +
                                                 (columnWidths["Summary"] ?: 200.dp) +
                                                 latencyColumnWidth +
-                                                gridViewColumns.sumOf { tag -> (columnWidths["Tag_$tag"] ?: 120.dp).value.toInt() }.dp +
-                                                200.dp // Extra space for spacer
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .widthIn(min = minWidth)
-                                                    .height(24.dp)
-                                                    .background(separatorBackgroundColor)
-                                                    .border(0.5.dp, cellBorderColor),
-                                        )
+                                                gridViewColumns.fold(0.dp) { sum, t ->
+                                                    sum + (columnWidths["Tag_$t"] ?: 120.dp)
+                                                }
+                                        // Painted as far as the columns go and no further. The whole minimum
+                                        // width used to be painted, spacer allowance included, so a blank line
+                                        // ran a 200dp band past the grid's last column where every other row
+                                        // ends — the phantom column 7174cb87 took off the group row.
+                                        Row(modifier = Modifier.widthIn(min = columnsWidth + 200.dp).height(24.dp)) {
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .width(columnsWidth)
+                                                        .fillMaxHeight()
+                                                        .background(separatorBackgroundColor)
+                                                        .border(0.5.dp, cellBorderColor)
+                                                        .testTag("separator-band"),
+                                            )
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
                                     }
                                 }
 
@@ -998,7 +920,17 @@ private fun ConversationGroupRow(
                 .widthIn(min = minWidth)
                 .clickable { onToggle() },
     ) {
-        cell(24.dp) {}
+        // Follow across sessions, in the select column a group row has no tick for. It used to be a 28dp cell
+        // after the last column, which no header column stood over and which a pane narrower than its grid —
+        // most of them — scrolled out of sight. Absent on the ungrouped bucket: rows that belong to no exchange.
+        cell(24.dp, Alignment.Center) {
+            if (onFollow != null && header.key != ConversationRows.UNGROUPED_KEY) {
+                FollowTraceButton(
+                    following = following,
+                    onClick = { if (following) onUnfollow?.invoke() else onFollow(header.label) },
+                )
+            }
+        }
         cell(columnWidths["Icon"] ?: 40.dp, Alignment.Center) {
             Text(
                 text = if (header.collapsed) "▶" else "▼",
@@ -1066,24 +998,6 @@ private fun ConversationGroupRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 8.dp),
-                )
-            }
-        }
-        // Follow across sessions. Last of the painted cells, so it never displaces a column a reader
-        // is scanning — and absent on the ungrouped bucket, which is rows that belong to no exchange.
-        if (onFollow != null && header.key != ConversationRows.UNGROUPED_KEY) {
-            Box(
-                modifier =
-                    Modifier
-                        .width(28.dp)
-                        .fillMaxHeight()
-                        .background(background)
-                        .border(0.5.dp, cellBorderColor),
-                contentAlignment = Alignment.Center,
-            ) {
-                FollowTraceButton(
-                    following = following,
-                    onClick = { if (following) onUnfollow?.invoke() else onFollow(header.label) },
                 )
             }
         }

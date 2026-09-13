@@ -175,7 +175,6 @@
 1	standard:import-ordering	src/jvmTest/kotlin/com/knapsack/fixtool/integration/TestFixServer.kt
 1	standard:import-ordering	src/jvmTest/kotlin/com/knapsack/fixtool/perf/GroupingBenchmarkTest.kt
 1	standard:import-ordering	src/jvmTest/kotlin/com/knapsack/fixtool/service/ScenarioCodecTest.kt
-1	standard:import-ordering	src/jvmTest/kotlin/com/knapsack/fixtool/ui/ConversationGridViewTest.kt
 1	standard:import-ordering	src/jvmTest/kotlin/com/knapsack/fixtool/ui/DenseIconRowClickTest.kt
 1	standard:import-ordering	src/jvmTest/kotlin/com/knapsack/fixtool/ui/LoadSetsDialogTest.kt
 1	standard:import-ordering	src/jvmTest/kotlin/com/knapsack/fixtool/ui/MatchContextFixtures.kt

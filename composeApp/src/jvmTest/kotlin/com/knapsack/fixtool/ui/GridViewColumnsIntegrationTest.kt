@@ -29,7 +29,7 @@ class GridViewColumnsIntegrationTest {
 
     private lateinit var testDictionaryFile: File
     private lateinit var dictionary: FixDictionaryAdapter
-    private lateinit var originalSettingsFile: File
+    private lateinit var settingsDir: File
     private lateinit var settingsService: AppSettingsService
 
     @Before
@@ -84,15 +84,15 @@ class GridViewColumnsIntegrationTest {
         )
         dictionary = FixDictionaryAdapter.fromFile(testDictionaryFile)
 
-        // Backup settings file
-        originalSettingsFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json.backup_integration")
-        if (originalSettingsFile.exists()) {
-            originalSettingsFile.copyTo(backupFile, overwrite = true)
-            originalSettingsFile.delete()
-        }
-
-        settingsService = AppSettingsService()
+        // A settings directory of the test's own. This used to be the developer's real
+        // ~/.fixtool/app_settings.json, deleted, written by the test and copied back from a backup afterwards —
+        // so a test JVM killed in between left them with the test's settings and their own in a stray backup.
+        settingsDir =
+            File.createTempFile("fixtool-grid-columns", "").apply {
+                delete()
+                mkdirs()
+            }
+        settingsService = AppSettingsService(customSettingsDir = settingsDir.absolutePath)
     }
 
     @After
@@ -100,17 +100,7 @@ class GridViewColumnsIntegrationTest {
         if (testDictionaryFile.exists()) {
             testDictionaryFile.delete()
         }
-
-        // Restore original settings
-        if (originalSettingsFile.exists()) {
-            originalSettingsFile.delete()
-        }
-
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json.backup_integration")
-        if (backupFile.exists()) {
-            backupFile.copyTo(originalSettingsFile, overwrite = true)
-            backupFile.delete()
-        }
+        settingsDir.deleteRecursively()
     }
 
     private fun createTestMessage(

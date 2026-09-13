@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import org.junit.Test
 import quickfix.Message
+import java.io.File
 import kotlin.system.measureTimeMillis
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -17,7 +18,13 @@ import kotlin.test.assertTrue
 class UpdateMessageMapsBenchmarkTest {
     @Test
     fun updateMessageMaps_smokeAndTiming() {
-        val viewModel = FixMessageViewModel()
+        // A settings directory of its own, so a benchmark never reads — or writes — the developer's real ~/.fixtool.
+        val settingsDir =
+            File.createTempFile("fixtool-update-maps", "").apply {
+                delete()
+                mkdirs()
+            }
+        val viewModel = FixMessageViewModel(testSettingsDir = settingsDir.absolutePath)
 
         // Access session list for seeding large histories
         val sessionsField = FixMessageViewModel::class.java.getDeclaredField("_sessions")
@@ -69,5 +76,6 @@ class UpdateMessageMapsBenchmarkTest {
 
         // Clean up to stop polling coroutines in FixMessageSession
         sessions.forEach { it.destroy() }
+        settingsDir.deleteRecursively()
     }
 }

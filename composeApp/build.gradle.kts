@@ -251,6 +251,17 @@ tasks.withType<Test> {
             failOnPassedAfterRetry.set(false)
         }
     }
+
+    // **No test can reach the developer's own ~/.fixtool.** Five did: each moved a real file aside, wrote its
+    // own over it and copied the original back afterwards, so a test JVM killed in between, or a FixTool open
+    // on the same machine, cost the developer their settings or their saved messages. Those five use
+    // directories of their own now, and this makes the next one harmless too: the home a test sees is a
+    // directory under build/, and a FIXTOOL_WORKSPACE exported in the developer's shell does not follow the
+    // tests into the JVM.
+    val testHome = layout.buildDirectory.dir("test-home").get().asFile
+    doFirst { testHome.mkdirs() }
+    systemProperty("user.home", testHome.absolutePath)
+    environment("FIXTOOL_WORKSPACE", "")
 }
 
 // Verification task that runs all quality checks

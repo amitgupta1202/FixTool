@@ -15,7 +15,6 @@ import kotlin.test.assertTrue
 class MessageEditorOperationsTest {
     private lateinit var viewModel: FixMessageViewModel
     private lateinit var testDir: File
-    private lateinit var originalFile: File
 
     @Before
     fun setup() {
@@ -26,33 +25,16 @@ class MessageEditorOperationsTest {
                 mkdirs() // Create as directory
             }
 
-        // Backup and clear saved messages file to ensure test isolation
-        originalFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json.backup")
-
-        if (originalFile.exists()) {
-            originalFile.copyTo(backupFile, overwrite = true)
-            originalFile.delete()
-        }
-
+        // Everything the view model saves lands in testDir: the saved messages resolve beside its
+        // app_settings.json there. This used to also move the developer's real
+        // ~/.fixtool/saved_messages.json aside and put it back afterwards, which cost them the file whenever
+        // the test JVM died between the two.
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
     @After
     fun cleanup() {
-        // Clean up test data and restore original file
-        if (originalFile.exists()) {
-            originalFile.delete()
-            // Clean up test directory
-            testDir.deleteRecursively()
-        }
-
-        // Restore backup if it exists
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json.backup")
-        if (backupFile.exists()) {
-            backupFile.copyTo(originalFile, overwrite = true)
-            backupFile.delete()
-        }
+        testDir.deleteRecursively()
     }
 
     // ========================================

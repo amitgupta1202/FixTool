@@ -64,7 +64,8 @@ internal object FiRfqPlatformBundle {
     /** RFQs a load set asks for. Five dealers answer each one, so a phase of these is five times as many quotes. */
     const val LOAD_COUNT = 1_000
 
-    private const val TEN_YEAR = "55=T 4.25 08/15/36|48=91282CMF5|22=1"
+    /** SecurityType as well as the CUSIP: it is what tells the RFQ book to show a level in 32nds. */
+    private const val TEN_YEAR = "55=T 4.25 08/15/36|48=91282CMF5|22=1|167=TNOTE"
     private const val TEN_MM = "10000000"
     private const val CREATED_AT = 1_789_000_000_000L
 
@@ -148,7 +149,6 @@ internal object FiRfqPlatformBundle {
             "131=\${in.R.131}",
             "117=\${uuid}",
             TEN_YEAR,
-            "167=TNOTE",
             side?.let { "54=$it" },
             "537=1|423=1|15=USD",
             "132=98.500000".takeIf { bid },
@@ -176,7 +176,7 @@ internal object FiRfqPlatformBundle {
                 "fi-rfq-request-5y",
                 "FI RFQ Request 5y, two-way",
                 buySides,
-                "35=R|131=\${uuid}|146=1|55=T 4 09/30/31|48=91282CME8|22=1|38=25000000",
+                "35=R|131=\${uuid}|146=1|55=T 4 09/30/31|48=91282CME8|22=1|167=TNOTE|38=25000000",
             ),
             template(
                 "fi-rfq-lift",
@@ -206,7 +206,7 @@ internal object FiRfqPlatformBundle {
                 "fi-rfq-not-listed",
                 "FI RFQ Request an issue the platform does not list",
                 buySides,
-                "35=R|131=\${uuid}|146=1|55=$NOT_LISTED|48=$NOT_LISTED_CUSIP|22=1|38=$TEN_MM",
+                "35=R|131=\${uuid}|146=1|55=$NOT_LISTED|48=$NOT_LISTED_CUSIP|22=1|167=TBOND|38=$TEN_MM",
             ),
             template("fi-rfq-no-size", "FI RFQ Request with no size", buySides, "35=R|131=\${uuid}|146=1|$TEN_YEAR"),
             template("fi-rfq-quote-10y", "FI RFQ Quote 10y, two-way", dealers, dealerQuote(null)),
@@ -286,7 +286,6 @@ internal object FiRfqPlatformBundle {
             "131=\${$rfq}",
             "117=\${$quote = uuid}",
             TEN_YEAR,
-            "167=TNOTE",
             "54=1",
             "537=1|423=1|15=USD",
             "133=$price",
@@ -485,6 +484,7 @@ internal object FiRfqPlatformBundle {
                         "55=$NOT_LISTED",
                         "48=$NOT_LISTED_CUSIP",
                         "22=1",
+                        "167=TBOND",
                         "54=1",
                         "38=$TEN_MM",
                     ),

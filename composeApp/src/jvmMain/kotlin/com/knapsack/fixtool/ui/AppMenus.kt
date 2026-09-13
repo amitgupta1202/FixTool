@@ -142,7 +142,7 @@ private fun workspaceMenu(
                 MenuItem(OPEN_WORKSPACE_LABEL, "menu-workspace-open", { workspace.onBrowse?.invoke() }),
                 Submenu(RECENT_WORKSPACES_LABEL, "menu-workspace-recent", recent),
                 MenuSeparator("menu-workspace-rule-1"),
-                MenuItem(REVEAL_WORKSPACE_LABEL, "menu-workspace-reveal", { reveal(folder) }),
+                MenuItem(REVEAL_WORKSPACE_LABEL, "menu-workspace-reveal", { revealFolder(folder) }),
                 MenuItem(
                     // The example's own name, as Settings' Storage page prints it, and a plain word on a
                     // workspace that is not one, so the row reads the same whether or not it is greyed.
@@ -595,7 +595,7 @@ private fun plural(count: Int): String = if (count == 1) "" else "s"
  * Quietly nothing where the desktop cannot do either, which is a headless box — and a headless box has no menu
  * bar to have chosen this from.
  */
-private fun reveal(folder: File) {
+private fun revealFolder(folder: File) {
     val desktop = runCatching { Desktop.getDesktop() }.getOrNull() ?: return
     runCatching {
         if (desktop.isSupported(Desktop.Action.BROWSE_FILE_DIR)) {

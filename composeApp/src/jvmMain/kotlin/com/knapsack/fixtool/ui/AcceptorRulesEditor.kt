@@ -47,11 +47,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.PartyRole
 import com.knapsack.fixtool.model.QuoteConstraint
+import com.knapsack.fixtool.model.RespondersOnline
 import com.knapsack.fixtool.model.ResponseStep
+import com.knapsack.fixtool.model.RfqConstraint
+import com.knapsack.fixtool.model.SenderRole
+import com.knapsack.fixtool.model.StepAddress
+import com.knapsack.fixtool.model.roleOf
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.AcceptorPreset
 import com.knapsack.fixtool.service.AcceptorPresets
@@ -97,6 +104,13 @@ fun AcceptorRulesEditor(
      * in. Null is the right answer whenever it cannot — see [RuleCard]'s marking.
      */
     firedRule: RuleFiredMark? = null,
+    /**
+     * Who the venue declares, and the part each plays. Null where there is no venue in hand: a rule's relay
+     * rows then appear only when it already uses them, and nothing is judged against a list nobody gave.
+     */
+    counterparties: List<Counterparty>? = null,
+    /** The CompIDs logged on to the venue now, so a step can say who it would reach. Null: not known. */
+    onlineCompIds: Set<String>? = null,
 ) {
     // ---- why the touch target is set here
     //
@@ -120,6 +134,8 @@ fun AcceptorRulesEditor(
             onOpenStepInEditor,
             editingStep,
             firedRule,
+            counterparties,
+            onlineCompIds,
         )
     }
 }
@@ -133,6 +149,8 @@ private fun AcceptorRulesEditorContent(
     onOpenStepInEditor: ((ruleIndex: Int, stepIndex: Int) -> Unit)?,
     editingStep: Pair<Int, Int>?,
     firedRule: RuleFiredMark?,
+    counterparties: List<Counterparty>?,
+    onlineCompIds: Set<String>?,
 ) {
     // The connection panel is drag-resizable from a tenth of the window to six tenths of it, so this
     // editor is asked to live at anything from ~250dp to ~1000dp. Sized for the narrow end only, it
@@ -254,6 +272,8 @@ private fun AcceptorRulesEditorContent(
                     shadowedBy = AcceptorResponder.shadowingRule(rules, ruleIndex),
                     note = placement?.takeIf { it.first == ruleIndex }?.second,
                     fired = firedRule?.takeIf { it.ruleIndex == ruleIndex },
+                    counterparties = counterparties,
+                    onlineCompIds = onlineCompIds,
                     expanded = ruleIndex in expanded,
                     onToggleExpanded = {
                         expanded = if (ruleIndex in expanded) expanded - ruleIndex else expanded + ruleIndex
@@ -336,14 +356,25 @@ internal fun presetPreview(preset: AcceptorPreset, existing: List<AcceptorRespon
 
 private fun triggerLine(rule: AcceptorResponseRule): String =
     "when 35=${rule.whenMsgType}" +
-        rule.trigger().joinToString("") { condition ->
-            val matcher = condition.parsed()
-            " and ${condition.tag} " + (matcher?.let { ExpectationEvaluator.describe(it) } ?: "?")
-        } +
+        rule.trigger().joinToString("") { condition -> " and " + conditionPhrase(condition) } +
         // Last, and in words, because it is the one constraint that is not about the message at all —
         // reading it as though it were another tag is the misreading worth spending four characters on.
         (rule.whenOrder?.let { " and the order is ${it.word}" } ?: "") +
-        (rule.whenQuote?.let { " and the quote is ${it.word}" } ?: "")
+        (rule.whenQuote?.let { " and the quote is ${it.word}" } ?: "") +
+        (rule.whenResponders?.let { " and responders online: $it" } ?: "")
+
+/**
+ * One condition as the card reads it: `38 range > 10000000`, in the matcher vocabulary — except the two that ask
+ * the venue rather than the tag they sit on, which are said as the rows that edit them say them. `49 role
+ * requester` would read as a claim about SenderCompID's value, and it is not one.
+ */
+private fun conditionPhrase(condition: FieldCondition): String =
+    when (val matcher = condition.parsed()) {
+        is Matcher.CounterpartyRole -> "the sender is ${matcher.role}"
+        is Matcher.RfqState -> "the RFQ is ${matcher.state} (via ${condition.tag})"
+        null -> "${condition.tag} ?"
+        else -> "${condition.tag} " + ExpectationEvaluator.describe(matcher)
+    }
 
 /**
  * **A rule in one line: what has to be true, and what goes back.**
@@ -359,19 +390,16 @@ private fun triggerLine(rule: AcceptorResponseRule): String =
  * the templates are made of.
  */
 private fun ruleDigest(rule: AcceptorResponseRule): String {
-    val conditions =
-        rule.trigger().map { condition ->
-            val matcher = condition.parsed()
-            "${condition.tag} " + (matcher?.let { ExpectationEvaluator.describe(it) } ?: "?")
-        }
+    val conditions = rule.trigger().map(::conditionPhrase)
     // Last, and in words, for the same reason [triggerLine] puts it last: it is the one clause that is
     // not about the message at all.
     val order = rule.whenOrder?.let { "the order is ${it.word}" }
     val quote = rule.whenQuote?.let { "the quote is ${it.word}" }
+    val responders = rule.whenResponders?.let { "responders online: $it" }
     // Said out loud, because "no conditions" is not a rule doing nothing — it is the catch-all, and the
     // reason every card above it in the same MsgType has to be read in order.
     val trigger =
-        (conditions + listOfNotNull(order, quote)).ifEmpty { listOf("any 35=${rule.whenMsgType}") }
+        (conditions + listOfNotNull(order, quote, responders)).ifEmpty { listOf("any 35=${rule.whenMsgType}") }
 
     val steps = rule.sequence()
     val span = steps.sumOf { it.delayMillis.coerceAtLeast(0) }
@@ -381,8 +409,16 @@ private fun ruleDigest(rule: AcceptorResponseRule): String {
             span > 0 -> "${steps.size} steps over ${span}ms"
             else -> "${steps.size} steps"
         }
+    // Who the reply goes to, only once it goes to anyone but the sender: a rule written before relaying reads
+    // exactly as it did, and a relay rule cannot be mistaken for one that answers the counterparty that asked.
+    val addressed =
+        if (rule.relays()) {
+            reply + " to " + steps.map { addressLabel(it.address(), it.to) }.distinct().joinToString(", ")
+        } else {
+            reply
+        }
 
-    return (trigger + reply).joinToString(" · ")
+    return (trigger + addressed + listOfNotNull("books a trade".takeIf { rule.booksATrade() })).joinToString(" · ")
 }
 
 /** The same clock the reply's own `SendReason` line prints, so the card and the message agree. */
@@ -392,9 +428,18 @@ private fun stepLines(rule: AcceptorResponseRule): List<String> {
     var offset = 0L
     return rule.sequence().mapIndexed { index, step ->
         offset += step.delayMillis.coerceAtLeast(0)
-        "${index + 1}. +${offset}ms  ${step.template}"
+        val to = step.address()?.takeIf { it.relays }?.let { " to ${addressLabel(it, step.to)}" }.orEmpty()
+        "${index + 1}. +${offset}ms$to  ${step.template}"
     }
 }
+
+/** An address as a card prints it: the word, or the CompID alone for one named counterparty. */
+internal fun addressLabel(address: StepAddress?, written: String?): String =
+    when (address) {
+        null -> "'$written'"
+        is StepAddress.CompId -> address.compId
+        else -> address.word
+    }
 
 /**
  * Below this the rows stack; at or above it they sit on one line.
@@ -418,6 +463,8 @@ private fun RuleCard(
     note: String?,
     /** Set when this is the rule that answered most recently. */
     fired: RuleFiredMark?,
+    counterparties: List<Counterparty>?,
+    onlineCompIds: Set<String>?,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     onOpenStep: ((Int) -> Unit)?,
@@ -581,7 +628,23 @@ private fun RuleCard(
             fun withConditions(updated: List<FieldCondition>) =
                 onChange(rule.copy(whenFields = emptyMap(), conditions = updated))
 
+            // ---- the venue's rows, and the conditions they stand for
+            //
+            // Shown on a venue that declares who plays what, and on any rule already written in these terms
+            // wherever it is opened — a rule that relays has to show how it is triggered even where nobody
+            // has declared anything, or the refusal below it would name rows the author cannot find. Kept
+            // off every other card, where three rows about RFQs would be furniture on an equity venue.
+            //
+            // The first `role` on 49 and the first `rfq` on 131 or 117 are drawn as rows and left out of the
+            // list; a second of either stays in the list, where the matcher editor still reads it. Nothing a
+            // hand-edited profile carries is hidden.
+            val venueRows =
+                counterparties.orEmpty().isNotEmpty() || rule.asksTheVenue() || rule.whenResponders != null || rule.relays()
+            val senderAt = if (venueRows) senderRowIndex(conditions) else -1
+            val rfqAt = if (venueRows) rfqRowIndex(conditions) else -1
+
             conditions.forEachIndexed { index, condition ->
+                if (index == senderAt || index == rfqAt) return@forEachIndexed
                 ConditionRow(
                     condition = condition,
                     dictionary = dictionary,
@@ -610,6 +673,55 @@ private fun RuleCard(
                 constraint = rule.whenQuote,
                 onChange = { updated -> onChange(rule.copy(whenQuote = updated)) },
             )
+
+            if (venueRows) {
+                val senderRole = (conditions.getOrNull(senderAt)?.parsed() as? Matcher.CounterpartyRole)?.role
+                VenueWordRow(
+                    label = "and the sender is",
+                    current = senderRole,
+                    words = SenderRole.words,
+                    meaning = ::senderRoleMeaning,
+                    tag = "rule-when-sender",
+                    onChange = { word ->
+                        val updated = conditions.withRow(senderAt, TAG_SENDER_COMP_ID, word?.let { Matcher.CounterpartyRole(it) })
+                        if (updated != conditions) withConditions(updated)
+                    },
+                )
+
+                val rfqCondition = conditions.getOrNull(rfqAt)
+                val rfqState = (rfqCondition?.parsed() as? Matcher.RfqState)?.state
+                VenueWordRow(
+                    label = "and the RFQ is",
+                    current = rfqState,
+                    words = RfqConstraint.words,
+                    meaning = { word -> rfqStateMeaning(word, rfqCondition?.tag ?: defaultRfqTag(rule.whenMsgType)) },
+                    tag = "rule-when-rfq",
+                    onChange = { word ->
+                        val tag = rfqCondition?.tag ?: defaultRfqTag(rule.whenMsgType)
+                        val updated = conditions.withRow(rfqAt, tag, word?.let { Matcher.RfqState(it) })
+                        if (updated != conditions) withConditions(updated)
+                    },
+                ) {
+                    // Which id names the RFQ is the author's call and not the MsgType's: a lift names the quote it
+                    // hits (117), a dealer's quote names the request it answers (131), and a QuoteCancel carries
+                    // both. Offered once the row asks anything, because "any" reads nothing through anything.
+                    if (rfqCondition != null && rfqState != null) {
+                        RfqTagMenu(
+                            tag = rfqCondition.tag,
+                            onChange = { tag -> withConditions(conditions.replaced(rfqAt, rfqCondition.copy(tag = tag))) },
+                        )
+                    }
+                }
+
+                VenueWordRow(
+                    label = "and responders online",
+                    current = rule.whenResponders,
+                    words = RespondersOnline.words,
+                    meaning = ::respondersOnlineMeaning,
+                    tag = "rule-responders-online",
+                    onChange = { word -> if (word != rule.whenResponders) onChange(rule.copy(whenResponders = word)) },
+                )
+            }
 
             Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp)) {
                 SlimButton(
@@ -647,16 +759,31 @@ private fun RuleCard(
                     canMoveDown = stepIndex < steps.size - 1,
                     onOpen = onOpenStep?.let { open -> { open(stepIndex) } },
                     editing = editingStep == stepIndex,
+                    counterparties = counterparties,
+                    onlineCompIds = onlineCompIds,
                     onChange = { updated -> withSteps(steps.replaced(stepIndex, updated)) },
                     onDelete = { withSteps(steps.without(stepIndex)) },
                     onMove = { by -> withSteps(steps.moved(stepIndex, by)) },
                 )
             }
+
+            // Said on the card because it is the one thing a relay rule does that no step shows: the book
+            // records the trade when the rule is chosen, before the first step leaves (decision R3), so a
+            // second lift already queued behind this one reads "done" and is refused by whichever rule says so.
+            if (rule.booksATrade()) {
+                Text(
+                    text = "↳ books a trade: the RFQ is done the moment this rule fires, so a second lift reads done",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 9.sp,
+                    modifier = Modifier.padding(top = 2.dp, start = 8.dp).testTag("rule-books-trade-$position"),
+                )
+            }
         }
 
         // Said here because there is nowhere else it can be said: a rule that cannot reply looks
-        // configured, and the engine only warns to a log nobody has open.
-        rule.validationError()?.let { problem ->
+        // configured, and the engine only warns to a log nobody has open. Judged against the venue's
+        // counterparties when the caller has them, which is what the venue itself will judge it against.
+        rule.validationError(counterparties)?.let { problem ->
             Text(
                 text = "⚠ $problem",
                 color = AppTheme.Colors.warning,
@@ -927,6 +1054,247 @@ internal fun orderConstraintMeaning(constraint: OrderConstraint?): String =
         OrderConstraint.DONE -> "filled, canceled, replaced or rejected"
     }
 
+/**
+ * "and the sender is [ requester ▾ ]", and its two siblings: what a trigger asks the **venue**, each one word from
+ * a closed list, drawn the way the order and quote rows are and for the same reason — the vocabulary is the
+ * feature, and a field would invite a value that never matches.
+ *
+ * The words are stored as matchers (`role` on 49, `rfq` on 131 or 117) and as a string, never as fields of their
+ * own, so an older FixTool drops a relay rule rather than running it as a reply to the sender (decision R1). The
+ * row is how an author writes one without having to know that.
+ */
+@Composable
+private fun VenueWordRow(
+    label: String,
+    current: String?,
+    words: List<String>,
+    meaning: (String?) -> String,
+    tag: String,
+    onChange: (String?) -> Unit,
+    trailing: @Composable () -> Unit = {},
+) {
+    var open by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(label, color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+        Box {
+            SlimButton(
+                text = (current ?: "any") + " ▾",
+                onClick = { open = true },
+                color = if (current == null) AppTheme.Colors.textDisabled else AppTheme.Colors.primary,
+                modifier = Modifier.testTag(tag),
+            )
+            DropdownMenu(
+                expanded = open,
+                onDismissRequest = { open = false },
+                modifier = Modifier.background(AppTheme.Colors.surface),
+            ) {
+                (listOf(null) + words).forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(option ?: "any", color = AppTheme.Colors.text, fontSize = 10.sp)
+                                Text(text = meaning(option), color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
+                            }
+                        },
+                        onClick = {
+                            onChange(option)
+                            open = false
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+        trailing()
+    }
+}
+
+/** "via 117 ▾": which id on the trigger names the RFQ the row asks about. */
+@Composable
+private fun RfqTagMenu(tag: Int, onChange: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    Box {
+        SlimButton(
+            text = "via $tag ▾",
+            onClick = { open = true },
+            color = AppTheme.Colors.textSecondary,
+            modifier = Modifier.testTag("rule-when-rfq-tag"),
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.background(AppTheme.Colors.surface),
+        ) {
+            RFQ_TAGS.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("$option", color = AppTheme.Colors.text, fontSize = 10.sp)
+                            Text(rfqTagMeaning(option), color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
+                        }
+                    },
+                    onClick = {
+                        if (option != tag) onChange(option)
+                        open = false
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+private const val TAG_SENDER_COMP_ID = 49
+private const val TAG_QUOTE_REQ_ID = 131
+private const val TAG_QUOTE_ID = 117
+private const val MSG_QUOTE_RESPONSE = "AJ"
+private val RFQ_TAGS = listOf(TAG_QUOTE_REQ_ID, TAG_QUOTE_ID)
+
+/** Where the condition the "sender is" row edits sits in [conditions], or -1 when the rule asks no role. */
+internal fun senderRowIndex(conditions: List<FieldCondition>): Int =
+    conditions.indexOfFirst { it.tag == TAG_SENDER_COMP_ID && it.parsed() is Matcher.CounterpartyRole }
+
+/** Where the condition the "RFQ is" row edits sits in [conditions], or -1 when the rule asks no RFQ state. */
+internal fun rfqRowIndex(conditions: List<FieldCondition>): Int =
+    conditions.indexOfFirst { it.tag in RFQ_TAGS && it.parsed() is Matcher.RfqState }
+
+/**
+ * [this] with a row's condition set to [matcher] on [tag], or removed when [matcher] is null.
+ *
+ * Replaced where it stands rather than moved to the end, because the list's order is the order an author reads
+ * the trigger in and nothing about picking a word from a menu should reorder it.
+ */
+internal fun List<FieldCondition>.withRow(index: Int, tag: Int, matcher: Matcher?): List<FieldCondition> =
+    when {
+        matcher == null && index < 0 -> this
+        matcher == null -> without(index)
+        index < 0 -> this + FieldCondition(tag, MatcherCodec.matcherToJson(matcher))
+        else -> replaced(index, FieldCondition(tag, MatcherCodec.matcherToJson(matcher)))
+    }
+
+/** The id an "RFQ is" row reads through when it is first set: a lift names a quote, everything else a request. */
+internal fun defaultRfqTag(whenMsgType: String): Int = if (whenMsgType.trim() == MSG_QUOTE_RESPONSE) TAG_QUOTE_ID else TAG_QUOTE_REQ_ID
+
+internal fun senderRoleMeaning(word: String?): String =
+    when (SenderRole.byWord(word)) {
+        null -> "the rule does not ask who sent it"
+        SenderRole.REQUESTER -> "declared a requester on this venue"
+        SenderRole.RESPONDER -> "declared a responder on this venue"
+        SenderRole.UNLISTED -> "logged on, but no counterparty the venue declares covers it"
+    }
+
+internal fun rfqStateMeaning(word: String?, tag: Int): String =
+    when (RfqConstraint.byWord(word)) {
+        null -> "the rule does not ask the RFQ book"
+        RfqConstraint.UNKNOWN -> "the venue holds no RFQ the message's $tag names"
+        RfqConstraint.OPEN ->
+            if (tag == TAG_QUOTE_ID) {
+                "still live, and the quote it names is its dealer's latest"
+            } else {
+                "asked, and still able to take a quote"
+            }
+        RfqConstraint.DONE -> "traded, passed or refused"
+        RfqConstraint.EXPIRED -> "its time ran out while it was still live"
+    }
+
+internal fun rfqTagMeaning(tag: Int): String =
+    if (tag == TAG_QUOTE_ID) {
+        "the quote id the sender was given — a lift or a pass"
+    } else {
+        "the QuoteReqID the sender was sent or sent — a quote, a pass, a request"
+    }
+
+internal fun respondersOnlineMeaning(word: String?): String =
+    when (RespondersOnline.byWord(word)) {
+        null -> "the rule does not ask"
+        RespondersOnline.NONE -> "no declared responder is logged on to be asked"
+        RespondersOnline.SOME -> "at least one declared responder is logged on"
+    }
+
+/** What each address in the To menu means, in the words the menu prints beside it. */
+internal fun addressMeaning(address: StepAddress): String =
+    when (address) {
+        StepAddress.Sender -> "whoever sent this message"
+        StepAddress.Requester -> "opened the RFQ it belongs to"
+        StepAddress.Quoter -> "the responder whose quote it names"
+        StepAddress.Cover -> "best other live quote on the traded side"
+        StepAddress.Others -> "live quotes, not the quoter or the cover"
+        StepAddress.Quoted -> "every responder with a live quote"
+        StepAddress.Asked -> "every responder the RFQ went to"
+        StepAddress.Responders -> "every declared responder, as it stands when the rule fires"
+        is StepAddress.CompId -> "one named counterparty"
+    }
+
+/**
+ * The addresses a step's To menu offers: the fixed words, then each counterparty the venue names exactly, then the
+ * one this step already has if it is none of those — so opening the menu never hides where a step goes.
+ */
+internal fun addressOptions(counterparties: List<Counterparty>, current: StepAddress?): List<StepAddress> {
+    val fixed =
+        listOf(
+            StepAddress.Sender,
+            StepAddress.Requester,
+            StepAddress.Quoter,
+            StepAddress.Cover,
+            StepAddress.Others,
+            StepAddress.Quoted,
+            StepAddress.Asked,
+            StepAddress.Responders,
+        )
+    val named = counterparties.filterNot { it.isPrefix }.map { StepAddress.CompId(it.compId) }.distinct()
+    val kept = listOfNotNull((current as? StepAddress.CompId)?.takeIf { it !in named })
+    return fixed + named + kept
+}
+
+/**
+ * **Who a step would reach, said before anything is connected.**
+ *
+ * Only for the two addresses that are knowable from the venue alone — every responder, and one CompID. The rest
+ * are found in the RFQ book when the rule fires, and a preview that guessed at them would be a claim about a
+ * negotiation that has not happened; their menu line already says how they are found. Null for those.
+ *
+ * [online] null is a panel with no venue running: the names are said, and nothing is claimed about sessions.
+ */
+internal fun recipientsPreview(
+    address: StepAddress,
+    counterparties: List<Counterparty>,
+    online: Set<String>?,
+): String? =
+    when (address) {
+        StepAddress.Responders -> respondersPreview(counterparties, online)
+        is StepAddress.CompId -> {
+            val role = roleOf(counterparties, address.compId)
+            val part = role?.word ?: "not a counterparty this venue declares"
+            when {
+                online == null -> "${address.compId} · $part"
+                address.compId in online -> "${address.compId} · $part · logged on"
+                else -> "${address.compId} · $part · not logged on, so counted as not delivered"
+            }
+        }
+        else -> null
+    }
+
+private fun respondersPreview(counterparties: List<Counterparty>, online: Set<String>?): String {
+    val declared = counterparties.filter { PartyRole.byWord(it.role) == PartyRole.RESPONDER }
+    if (declared.isEmpty()) return "no counterparty is declared a responder, so this reaches nobody"
+    if (online == null) return declared.joinToString(", ") { it.compId }
+    val on = online.filter { roleOf(counterparties, it) == PartyRole.RESPONDER }.sorted()
+    // A family (`FIDLRLG*`) is only ever reached through the members that are logged on, so it has no absentees
+    // to count; a CompID named exactly and not logged on is owed the message and counted as not delivered.
+    val off = declared.filterNot { it.isPrefix || it.compId in online }.map { it.compId }
+    return listOfNotNull(
+        on.takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} online now" },
+        off.takeIf { it.isNotEmpty() }?.let { "${it.joinToString(", ")} not logged on, so counted as not delivered" },
+    ).ifEmpty { listOf("no responder is logged on now") }
+        .joinToString(" · ")
+}
+
 @Composable
 private fun StepRow(
     step: ResponseStep,
@@ -940,10 +1308,18 @@ private fun StepRow(
     /** Opens this step in the message editor, where the tags have names and the values have menus. */
     onOpen: (() -> Unit)?,
     editing: Boolean,
+    counterparties: List<Counterparty>?,
+    onlineCompIds: Set<String>?,
     onChange: (ResponseStep) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
 ) {
+    // Offered on a venue that declares counterparties, and on any step that already goes somewhere — never on a
+    // venue with no parties to address, where "to sender" on every step would be a menu with one right answer.
+    val address = step.address()
+    val showTo = counterparties.orEmpty().isNotEmpty() || step.to != null
+    val preview = address?.takeIf { it.relays }?.let { recipientsPreview(it, counterparties.orEmpty(), onlineCompIds) }
+
     val timing: @Composable () -> Unit = {
         Text("$number.", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
         // Beside the step's number, because that is what it opens. Kept away from the template field:
@@ -978,6 +1354,25 @@ private fun StepRow(
         // is what the counterparty experiences, and seeing both is what reveals that this field is
         // relative — the one thing about a sequence that raw JSON cannot warn anybody about.
         Text("ms → ${offsetMillis}ms", color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
+        if (showTo) {
+            StepToMenu(
+                step = step,
+                address = address,
+                counterparties = counterparties.orEmpty(),
+                tag = "step-to-$ruleNumber-$number",
+                onChange = onChange,
+            )
+        }
+    }
+    val recipients: @Composable () -> Unit = {
+        preview?.let {
+            Text(
+                text = "↳ $it",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(start = 16.dp, top = 1.dp).testTag("step-to-preview-$ruleNumber-$number"),
+            )
+        }
     }
     val buttons: @Composable () -> Unit = {
         TooltipIconButton("Move earlier", { onMove(-1) }, Modifier.size(16.dp), enabled = canMoveUp) {
@@ -1016,6 +1411,7 @@ private fun StepRow(
             template(Modifier.weight(1f))
             buttons()
         }
+        recipients()
     } else {
         Column(modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1024,6 +1420,72 @@ private fun StepRow(
                 buttons()
             }
             template(Modifier.fillMaxWidth().padding(top = 2.dp))
+            recipients()
+        }
+    }
+}
+
+/**
+ * "to quoter ▾": who one step goes to.
+ *
+ * Picking the sender writes nothing — `to` stays absent — so a step moved back to the sender is byte-for-byte the
+ * step it was before relaying existed. An address this build cannot read is shown as written, in the warning
+ * colour, and kept until the author picks another: the refusal on the card says what it could have been.
+ */
+@Composable
+private fun StepToMenu(
+    step: ResponseStep,
+    address: StepAddress?,
+    counterparties: List<Counterparty>,
+    tag: String,
+    onChange: (ResponseStep) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+
+    Box {
+        SlimButton(
+            text = "to ${addressLabel(address, step.to)} ▾",
+            onClick = { open = true },
+            color =
+                when {
+                    address == null -> AppTheme.Colors.warning
+                    address.relays -> AppTheme.Colors.primary
+                    else -> AppTheme.Colors.textDisabled
+                },
+            modifier = Modifier.testTag(tag),
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.background(AppTheme.Colors.surface),
+        ) {
+            addressOptions(counterparties, address).forEach { option ->
+                val role = (option as? StepAddress.CompId)?.let { roleOf(counterparties, it.compId)?.word }
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            // The address the step already has, marked, so opening the menu to check where a
+                            // step goes answers the question without anything being picked.
+                            Text(
+                                text = addressLabel(option, null),
+                                color = if (option == (address ?: StepAddress.Sender)) AppTheme.Colors.primary else AppTheme.Colors.text,
+                                fontSize = 10.sp,
+                            )
+                            Text(
+                                text = addressMeaning(option) + (role?.let { " · $it" } ?: ""),
+                                color = AppTheme.Colors.textDisabled,
+                                fontSize = 9.sp,
+                            )
+                        }
+                    },
+                    onClick = {
+                        val written = option.takeIf { it.relays }?.word
+                        if (written != step.to) onChange(step.copy(to = written))
+                        open = false
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }

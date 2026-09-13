@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -104,6 +105,7 @@ fun ConnectionPanel(
     var logonFields by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var acceptorRules by remember { mutableStateOf<List<AcceptorResponseRule>>(emptyList()) }
     var acceptorLatency by remember { mutableStateOf(AcceptorLatencyConfig()) }
+    var counterparties by remember { mutableStateOf<List<Counterparty>>(emptyList()) }
 
     // SSL/TLS state
     var useSSL by remember { mutableStateOf(false) }
@@ -126,6 +128,18 @@ fun ConnectionPanel(
                 onGetProfileSessions(profile.id).ifEmpty { listOfNotNull(onGetProfileSession(profile.id)) }
             }.orEmpty()
     val sessionStates = profileSessions.map { it.connectionState.collectAsState().value }
+
+    // **Who is logged on to this venue now**, by CompID, so a rule's step can say who it would reach. Null for a
+    // profile with no venue running: the editor then names counterparties and claims nothing about sessions.
+    val venueSession = profileSessions.firstOrNull { it.isVenue }
+    val onlineCompIds =
+        venueSession?.let { venue ->
+            sessions
+                .filter { it.isClientOf(venue) }
+                .filter { it.connectionState.collectAsState().value == FixConnectionState.LOGGED_ON }
+                .mapNotNull { it.clientSessionId?.targetCompID }
+                .toSet()
+        }
 
     // **Which rule answered most recently, on any of this profile's sessions.**
     //
@@ -188,6 +202,7 @@ fun ConnectionPanel(
         logonFields = profile.config.logonFields.map { it.key to it.value }
         acceptorRules = profile.config.acceptorResponseRules
         acceptorLatency = profile.config.acceptorLatency
+        counterparties = profile.config.counterparties
         // SSL/TLS
         useSSL = profile.config.useSSL
         keyStorePath = profile.config.keyStorePath
@@ -331,6 +346,7 @@ fun ConnectionPanel(
                             logonFields = logonFields.toMap(),
                             acceptorResponseRules = acceptorRules,
                             acceptorLatency = acceptorLatency,
+                            counterparties = counterparties,
                         )
                     val profile =
                         FixConnectionProfile(
@@ -384,6 +400,7 @@ fun ConnectionPanel(
                         logonFields = emptyList()
                         acceptorRules = emptyList()
                         acceptorLatency = AcceptorLatencyConfig()
+                        counterparties = emptyList()
                     }
                 },
                 onCloneProfile = { profile ->
@@ -426,6 +443,7 @@ fun ConnectionPanel(
                     logonFields = clonedProfile.config.logonFields.map { it.key to it.value }
                     acceptorRules = clonedProfile.config.acceptorResponseRules
                     acceptorLatency = clonedProfile.config.acceptorLatency
+                    counterparties = clonedProfile.config.counterparties
                 },
             )
 
@@ -1532,6 +1550,67 @@ fun ConnectionPanel(
                     }
                 }
 
+                // Counterparties (collapsible) — above the rules, because the rules are written in their terms:
+                // "to the responders" means whoever this list says. Offered on a venue open to any client, the
+                // only acceptor with more than one party to relay between, and on any profile that already
+                // carries a list, so switching TargetCompID away from * never hides what is saved.
+                if (targetCompID.trim() == FixConnectionConfig.ANY_CLIENT || counterparties.isNotEmpty()) {
+                    var showCounterparties by remember { mutableStateOf(false) }
+                    LaunchedEffect(counterparties.isNotEmpty()) {
+                        if (counterparties.isNotEmpty()) showCounterparties = true
+                    }
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { showCounterparties = !showCounterparties }
+                                .padding(vertical = 4.dp)
+                                .testTag("counterparties-section"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.People,
+                            contentDescription = "Counterparties",
+                            tint = AppTheme.Colors.textSecondary,
+                            modifier = iconSize16,
+                        )
+                        Text(
+                            text = "Counterparties",
+                            color = AppTheme.Colors.textSecondary,
+                            fontSize = 10.sp,
+                        )
+                        if (counterparties.isNotEmpty()) {
+                            Text(
+                                text = counterpartySummary(counterparties),
+                                color = AppTheme.Colors.textDisabled,
+                                fontSize = 9.sp,
+                            )
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        Icon(
+                            imageVector = if (showCounterparties) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (showCounterparties) "Collapse" else "Expand",
+                            tint = AppTheme.Colors.textSecondary,
+                            modifier = iconSize16,
+                        )
+                    }
+
+                    if (showCounterparties) {
+                        CounterpartiesEditor(
+                            counterparties = counterparties,
+                            onChange = { counterparties = it },
+                        )
+                    }
+                }
+
                 HorizontalDivider(
                     color = AppTheme.Separators.color,
                     thickness = AppTheme.Separators.dividerThickness,
@@ -1640,6 +1719,8 @@ fun ConnectionPanel(
                             acceptorRules = it
                         },
                         dictionary = dictionary,
+                        counterparties = counterparties,
+                        onlineCompIds = onlineCompIds,
                         // ---- withheld the moment it could be wrong
                         //
                         // The number is a position in the ruleset the *session* is running, which is
@@ -1854,6 +1935,7 @@ fun ConnectionPanel(
                             logonFields = logonFields.toMap(),
                             acceptorResponseRules = acceptorRules,
                             acceptorLatency = acceptorLatency,
+                            counterparties = counterparties,
                         )
                     // Create or update the profile with current form values
                     val profile =

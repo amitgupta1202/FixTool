@@ -367,31 +367,61 @@ private fun LaneRowView(
 
             val fromLane = lanes.laneOf(row.from.session)
             val toLane = row.to?.let { lanes.laneOf(it.session) } ?: -1
-            if (row.to != null && fromLane >= 0 && toLane >= 0) {
-                HopArrow(fromLane = fromLane, toLane = toLane, elapsedMillis = row.hopMillis, relayed = relayed)
-                // The ◀ lands in the receiving lane, on the side facing the sender, so the direction of
-                // travel reads off the geometry as well as off the glyph.
-                Box(
-                    modifier = Modifier.offset(x = LANE_WIDTH * toLane).width(LANE_WIDTH).fillMaxHeight(),
-                    contentAlignment = if (toLane > fromLane) Alignment.CenterStart else Alignment.CenterEnd,
-                ) {
-                    Text(
-                        text = "◀",
-                        fontSize = 10.sp,
-                        color = AppTheme.Colors.messageIncoming,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.testTag("trace-lane-landing").padding(horizontal = 5.dp),
-                    )
+            val hops = row.to != null && fromLane >= 0 && toLane >= 0
+
+            // The hop and the chip at a plain row's height, whatever this row's height is, so a relayed row's
+            // reason gets a strip of its own underneath. Drawn in the same band as the chips, it sat where the
+            // chips and the ◀ are — and between two neighbouring lanes, that is all the room there is.
+            Box(modifier = Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
+                if (hops) {
+                    HopArrow(fromLane = fromLane, toLane = toLane, elapsedMillis = row.hopMillis)
+                    // The ◀ lands in the receiving lane, on the side facing the sender, so the direction of
+                    // travel reads off the geometry as well as off the glyph.
+                    Box(
+                        modifier = Modifier.offset(x = LANE_WIDTH * toLane).width(LANE_WIDTH).fillMaxHeight(),
+                        contentAlignment = if (toLane > fromLane) Alignment.CenterStart else Alignment.CenterEnd,
+                    ) {
+                        Text(
+                            text = "◀",
+                            fontSize = 10.sp,
+                            color = AppTheme.Colors.messageIncoming,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.testTag("trace-lane-landing").padding(horizontal = 5.dp),
+                        )
+                    }
+                }
+                if (fromLane >= 0) {
+                    Box(modifier = Modifier.offset(x = LANE_WIDTH * fromLane).width(LANE_WIDTH).fillMaxHeight()) {
+                        MessageChip(
+                            entry = row.from,
+                            selected = selectedMessage == row.from.message,
+                            dictionary = dictionary,
+                            appSettings = appSettings,
+                            onClick = { onSelectMember(row.from.located, row.from.message) },
+                        )
+                    }
                 }
             }
-            if (fromLane >= 0) {
-                Box(modifier = Modifier.offset(x = LANE_WIDTH * fromLane).width(LANE_WIDTH).fillMaxHeight()) {
-                    MessageChip(
-                        entry = row.from,
-                        selected = selectedMessage == row.from.message,
-                        dictionary = dictionary,
-                        appSettings = appSettings,
-                        onClick = { onSelectMember(row.from.located, row.from.message) },
+
+            if (hops && relayed != null) {
+                val left = minOf(fromLane, toLane)
+                val right = maxOf(fromLane, toLane)
+                Box(
+                    modifier =
+                        Modifier
+                            .offset(x = LANE_WIDTH * left, y = ROW_HEIGHT)
+                            .width(LANE_WIDTH * (right - left + 1)),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Text(
+                        text = relayed,
+                        fontSize = 9.sp,
+                        lineHeight = 12.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("trace-lane-reason"),
                     )
                 }
             }
@@ -415,8 +445,6 @@ private fun HopArrow(
     fromLane: Int,
     toLane: Int,
     elapsedMillis: Long?,
-    /** Why a venue FixTool runs sent this hop, when it relayed it. Drawn under the line. */
-    relayed: String? = null,
 ) {
     val left = minOf(fromLane, toLane)
     val right = maxOf(fromLane, toLane)
@@ -451,23 +479,17 @@ private fun HopArrow(
                         .padding(horizontal = 4.dp),
             )
         }
-        relayed?.let {
-            Text(
-                text = it,
-                fontSize = 9.sp,
-                color = AppTheme.Colors.textDisabled,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 1.dp).testTag("trace-lane-reason"),
-            )
-        }
     }
 }
 
 private val HOP_COLOR = Color(0xFF3E4C5A)
 
-/** A relayed row carries its reason under the arrow, so it is taller than a row that only states a gap. */
-private val RELAYED_ROW_HEIGHT = 38.dp
+/**
+ * A relayed row carries its reason in a strip under the hop, so it is taller than a row that only states a gap.
+ * The strip spans both lanes the hop joins, from edge to edge, because between neighbours the centre-to-centre
+ * span the line is drawn over is one lane wide and the reason is longer than that.
+ */
+private val RELAYED_ROW_HEIGHT = 42.dp
 
 /**
  * One message in its lane: what type it is, what the dictionary calls it, and which ids carried it here.

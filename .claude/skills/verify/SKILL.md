@@ -43,7 +43,8 @@ until curl -s $B/sessions | grep -q LOGGED_ON; do sleep 0.5; done
 curl -s -XPOST $B/send -d '{"raw":"8=FIX.4.4|35=D|11=VRF-1|55=EUR/USD|54=1|38=1000000|40=1|60=20260101-00:00:00|"}'
 curl -s "$B/messages?direction=incoming&messageType=8&limit=1"     # parsed ER back
 curl -s -XPOST $B/select -d '{"messageType":"8","direction":"in"}' # opens detail panel
-curl -s $B/screenshot -o shot.png                                   # main window pixels
+curl -s $B/screenshot -o shot.png                                   # main window pixels (2x on Retina)
+curl -s -XPOST $B/panel -d '{"panel":"pane","session":"<title>","show":true}'  # un-minimize a pane (a venue's starts minimized)
 ```
 
 Scenarios: `POST /scenarios` (JSON per `docs/fixtool-assert-spec.md` / `ScenarioCodec`),
@@ -58,6 +59,9 @@ windows; address one by title with `GET /screenshot?window=main|reconcile|diff:`
   artifacts `VERIFY TEMP …` and DELETE them (`/scenarios`, `/profiles`) when done.
 - Button clicks have no HTTP hook — UI-click-only paths need Compose UI tests or visual
   screenshot evidence; the control surface covers select/send/run/panel toggles.
+- `/screenshot` reads the frame the window drew, not the screen, so it works behind other windows and
+  without macOS Screen Recording or Accessibility permission (a shell without them used to get the
+  desktop wallpaper). `osascript`/`cliclick` still need those permissions and may not have them.
 - Kill your instance by exact PID of the `:composeApp:run --quiet` java process — a
   pkill on the env var string misses it (env isn't in the child cmdline) and risks
   matching the user's wrapper shell instead.

@@ -97,6 +97,9 @@ object McpTools {
                     "rule; Save still persists it, and the response says saved:false) or action:cancel. Apply " +
                     "refuses, by tag, a value carrying the '|' field separator or a tag left with no value — both " +
                     "would put a malformed message on the wire. " +
+                    "`pane` with a `session` (id or title) minimizes that pane to the strip above the grid " +
+                    "(show:false) or puts it back (show:true) — a venue's own pane starts minimized, and it is " +
+                    "where the venue draws its counterparties and RFQ book. " +
                     "`latency` and `terminal` open those two tool windows, the Latency panel and the bottom " +
                     "dock's Terminal tab. " +
                     "`trace` opens the Trace panel (the Ledger: every exchange across every session, with its " +
@@ -116,12 +119,14 @@ object McpTools {
                             "settings",
                             "scenarios",
                             "conversations",
+                            "pane",
                             "trace",
                             "orderbook",
                             "latency",
                             "terminal",
                         ),
                     "show" to boolean("default true"),
+                    "session" to string("pane and conversations: session id or title"),
                     "follow" to string("trace: a whole correlation value to follow, or null to stop following"),
                     "render" to enumStr("ledger", "lanes"),
                     "profile" to string("profile id or name (connection, or editor with a rule)"),

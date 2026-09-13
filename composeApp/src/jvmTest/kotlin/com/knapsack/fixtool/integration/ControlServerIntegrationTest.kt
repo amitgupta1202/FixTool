@@ -358,6 +358,18 @@ class ControlServerIntegrationTest {
         assertFalse(viewModel.showing(com.knapsack.fixtool.ui.ToolWindow.TERMINAL))
     }
 
+    /** A venue's pane starts minimized, and its RFQ book is drawn on it: an agent has to be able to bring it back. */
+    @Test
+    fun `panel pane minimizes one session's pane and brings it back`() {
+        val pane = viewModel.createSessionForTest("Venue ← FIBUY1")
+        assertEquals("ok", status(post("/panel", """{"panel":"pane","session":"Venue ← FIBUY1","show":false}""")))
+        assertTrue(pane.minimized.value)
+        assertEquals("ok", status(post("/panel", """{"panel":"pane","session":"Venue ← FIBUY1"}""")))
+        assertFalse(pane.minimized.value, "show defaults to true, which is the pane on screen")
+        assertEquals("error", status(post("/panel", """{"panel":"pane","session":"nobody"}""")))
+        assertEquals("error", status(post("/panel", """{"panel":"pane"}""")))
+    }
+
     @Test
     fun `select with no sessions returns an error`() {
         assertEquals("error", status(post("/select", """{"session":"0"}""")))

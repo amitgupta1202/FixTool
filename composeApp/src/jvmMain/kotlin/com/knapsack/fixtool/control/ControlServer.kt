@@ -98,7 +98,6 @@ import com.sun.net.httpserver.HttpContext
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpPrincipal
 import com.sun.net.httpserver.HttpServer
-import java.awt.Robot
 import java.awt.Window
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -509,7 +508,7 @@ class ControlServer(
 
     /**
      * Shows or hides a UI panel/dialog for verification screenshots. `panel` is one of connection, editor,
-     * detail, settings, scenarios, orderbook, latency, terminal, trace or conversations; `show` (default true)
+     * detail, settings, scenarios, orderbook, latency, terminal, trace, conversations or pane; `show` (default true)
      * sets the desired state.
      */
     private fun panel(ex: HttpExchange): JsonElement {
@@ -537,6 +536,24 @@ class ControlServer(
                 put("panel", name)
                 put("show", show)
                 sessionKey?.let { put("session", it) }
+            }
+        }
+        // A pane sent to the strip above the grid, and brought back: `show:false` minimizes it, `show:true` puts it
+        // back. Per SESSION, like grouping. A venue's own pane starts minimized, and it is where the venue draws its
+        // counterparties and its RFQ book, so without this the only way to put either on screen was clicking the chip.
+        if (name == "pane") {
+            val sessionKey = body["session"]?.jsonPrimitive?.content ?: return errorObject("'pane' needs a 'session'")
+            val pane =
+                onEdt {
+                    viewModel.sessions
+                        .firstOrNull { it.id == sessionKey || it.title == sessionKey }
+                        ?.also { it.setMinimized(!show) }
+                } ?: return errorObject("session not found: $sessionKey")
+            return buildJsonObject {
+                put("status", "ok")
+                put("panel", name)
+                put("show", show)
+                put("session", pane.title)
             }
         }
         // The Ledger and the followed trace, from one call. `show` puts the panel on screen; `follow`
@@ -642,7 +659,7 @@ class ControlServer(
                 show
             } ?: return errorObject(
                 "unknown panel '$name' " +
-                    "(connection|editor|detail|settings|scenarios|conversations|trace|orderbook|latency|terminal)",
+                    "(connection|editor|detail|settings|scenarios|conversations|pane|trace|orderbook|latency|terminal)",
             )
         return buildJsonObject {
             put("status", "ok")
@@ -4405,8 +4422,7 @@ class ControlServer(
     /** Captures a window as a PNG, or null if the selector names none. Shared by HTTP and MCP. */
     private fun captureWindowPng(selector: String?): ByteArray? {
         val window = selectWindow(selector) ?: return null
-        val bounds = onEdt { window.bounds }
-        val image = Robot().createScreenCapture(bounds)
+        val image = onEdt { WindowCapture.capture(window) }
         return ByteArrayOutputStream().use { out ->
             ImageIO.write(image, "png", out)
             out.toByteArray()

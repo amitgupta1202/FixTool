@@ -73,13 +73,36 @@ class BulkSendIntegrationTest {
                 ),
         )
 
+    /**
+     * Waits for [condition], and when it gives up says **what it saw**, not only what it wanted.
+     *
+     * This class was reported flaky under the full suite, about one run in four, and passing alone. It did not
+     * fail once in fifteen runs on 2026-09-13 — ten of the class alone under twelve CPU-bound processes, three of
+     * the whole integration package, two full suites — so there was no failure to read, and a timeout lengthened
+     * on a guess would only have hidden the next one. What a red run printed was "Timed out after 15000ms waiting
+     * for: 3 sessions logged on", which cannot tell a session that never connected from one the server never
+     * answered from a message that never left. [stateOfPlay] can.
+     */
     private fun await(description: String, timeoutMs: Long = 15_000, condition: () -> Boolean) {
         val start = System.currentTimeMillis()
         while (!condition() && System.currentTimeMillis() - start < timeoutMs) {
             Thread.sleep(100)
         }
-        assertTrue(condition(), "Timed out after ${timeoutMs}ms waiting for: $description")
+        assertTrue(condition(), "Timed out after ${timeoutMs}ms waiting for: $description. ${stateOfPlay()}")
     }
+
+    /** Every session's state, what the server saw of logons and connections, and what reached it. */
+    private fun stateOfPlay(): String =
+        "Sessions: ${viewModel.sessions.joinToString { "${it.title}=${it.connectionState.value}" }}. " +
+            "Server: ${server.logonCount.get()} logon(s) ${synchronized(server.logons) { server.logons.toList() }}, " +
+            "${server.activeConnections.get()} open connection(s), " +
+            "${received().size} application message(s)."
+
+    /**
+     * The messages the server has received, copied under the list's own lock. The server's threads add to it, and
+     * iterating a synchronized list without its lock can throw while one of them does.
+     */
+    private fun received(): List<String> = synchronized(server.applicationMessages) { server.applicationMessages.toList() }
 
     private fun connectAndAwait(sessionCount: Int): FixConnectionProfile {
         val profile = buildProfile(sessionCount)
@@ -112,14 +135,14 @@ class BulkSendIntegrationTest {
 
         val outcomes = viewModel.sendMessageToAllConnectedSessions(orderFields())
 
-        assertEquals(3, outcomes.size)
+        assertEquals(3, outcomes.size, stateOfPlay())
         assertTrue(
             outcomes.none { it.result is SendResult.Failed },
-            "No send should fail: ${outcomes.map { it.result }}",
+            "No send should fail: ${outcomes.map { it.result }}. ${stateOfPlay()}",
         )
 
-        await("server received 3 application messages") { server.applicationMessages.size == 3 }
-        assertTrue(server.applicationMessages.all { TestFixServer.fieldValue(it, 35) == "D" })
+        await("server received 3 application messages") { received().size == 3 }
+        assertTrue(received().all { TestFixServer.fieldValue(it, 35) == "D" })
     }
 
     @Test
@@ -127,21 +150,21 @@ class BulkSendIntegrationTest {
         connectAndAwait(sessionCount = 3)
 
         viewModel.sendMessageToAllConnectedSessions(orderFields())
-        await("server received 3 application messages") { server.applicationMessages.size == 3 }
+        await("server received 3 application messages") { received().size == 3 }
 
         // ${UUID.randomUUID()} in ClOrdID must be re-resolved per session, not shared
-        val clOrdIds = server.applicationMessages.map { TestFixServer.fieldValue(it, 11) }
+        val clOrdIds = received().map { TestFixServer.fieldValue(it, 11) }
         assertEquals(3, clOrdIds.toSet().size, "Each session should get a unique ClOrdID, got: $clOrdIds")
 
         // Seeded per-session variables resolve to each session's own identity
-        val texts = server.applicationMessages.mapNotNull { TestFixServer.fieldValue(it, 58) }
+        val texts = received().mapNotNull { TestFixServer.fieldValue(it, 58) }
         assertEquals(
             setOf("1:LG1X$runId", "2:LG2X$runId", "3:LG3X$runId"),
             texts.toSet(),
         )
 
         // Each message went out over its own session: SenderCompIDs on the wire are distinct
-        val senders = server.applicationMessages.map { TestFixServer.fieldValue(it, 49) }
+        val senders = received().map { TestFixServer.fieldValue(it, 49) }
         assertEquals(setOf("LG1X$runId", "LG2X$runId", "LG3X$runId"), senders.toSet())
     }
 
@@ -154,7 +177,7 @@ class BulkSendIntegrationTest {
             viewModel.notifications.any { it.type == NotificationType.WARNING },
             "A warning notification should be shown when there is nothing to send to",
         )
-        assertEquals(0, server.applicationMessages.size)
+        assertEquals(0, received().size)
     }
 
     @Test
@@ -170,7 +193,7 @@ class BulkSendIntegrationTest {
 
         val outcomes = viewModel.sendMessageToAllConnectedSessions(orderFields())
 
-        assertEquals(2, outcomes.size, "Only the two logged-on sessions should be targeted")
-        await("server received 2 application messages") { server.applicationMessages.size == 2 }
+        assertEquals(2, outcomes.size, "Only the two logged-on sessions should be targeted. ${stateOfPlay()}")
+        await("server received 2 application messages") { received().size == 2 }
     }
 }

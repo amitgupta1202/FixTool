@@ -89,10 +89,8 @@ fun App(
                 name = viewModel.openWorkspaceName,
                 isDefault = viewModel.openWorkspaceIsHome,
                 recents = viewModel.recentWorkspaces,
-                examples = viewModel.exampleEntries().map { (id, name, note) -> ExampleEntry(id, name, note) },
                 onNew = { viewModel.requestNewWorkspace() },
                 onBrowse = browseForWorkspace,
-                onOpenExample = { id -> viewModel.openExample(id) },
                 onOpenRecent = { viewModel.openWorkspace(it) },
                 onClose = { viewModel.closeWorkspace() },
             )
@@ -628,8 +626,6 @@ fun App(
                                                 )
                                             } ?: NoSessionsPlaceholder(
                                                 hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
-                                                examples = workspaceMenu.examples,
-                                                onOpenExample = workspaceMenu.onOpenExample,
                                                 onOpenWorkspace = browseForWorkspace,
                                                 onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
                                                 modifier = Modifier.weight(1f).fillMaxSize(),
@@ -860,8 +856,6 @@ fun App(
                                             Column(modifier = Modifier.weight(1f)) {
                                                 SplitCentre(
                                                     viewModel = viewModel,
-                                                    examples = workspaceMenu.examples,
-                                                    onOpenExample = workspaceMenu.onOpenExample,
                                                     orientation = splitOrientation,
                                                     globalViewMode = globalViewMode,
                                                     selectedMessage = selectedMessage,
@@ -1037,8 +1031,6 @@ fun App(
                                         Column(modifier = Modifier.weight(1f)) {
                                             SplitCentre(
                                                 viewModel = viewModel,
-                                                examples = workspaceMenu.examples,
-                                                onOpenExample = workspaceMenu.onOpenExample,
                                                 orientation = splitOrientation,
                                                 globalViewMode = globalViewMode,
                                                 selectedMessage = selectedMessage,
@@ -1104,9 +1096,6 @@ private fun ScenariosRailDock(
 @Composable
 private fun ColumnScope.SplitCentre(
     viewModel: FixMessageViewModel,
-    /** For the empty state only: the bundled examples the switcher offers, and what opening one does. */
-    examples: List<ExampleEntry>,
-    onOpenExample: ((String) -> Unit)?,
     orientation: SplitOrientation,
     globalViewMode: com.knapsack.fixtool.model.FixMessageSession.ViewMode,
     selectedMessage: FixMessage?,
@@ -1140,8 +1129,6 @@ private fun ColumnScope.SplitCentre(
         onFollowTrace = { id -> viewModel.follow(id) },
         onUnfollowTrace = { viewModel.unfollow() },
         hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
-        examples = examples,
-        onOpenExample = onOpenExample,
         onOpenWorkspace = {
             splitScope.launch {
                 chooseDirectory(title = "Open workspace", startIn = viewModel.defaultWorkspaceLocation())

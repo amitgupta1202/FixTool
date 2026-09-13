@@ -88,6 +88,37 @@ object ExampleWorkspaces {
     fun defaultLocation(): File = WorkspacePaths.home.workspaces
 
     /**
+     * Lays every bundled example down as a folder in [location], leaving alone any folder already there.
+     *
+     * **An example is a folder, not a button.** The app used to list each example in the workspace
+     * switcher and as a button on the empty session area, copying it out only when clicked. That made an
+     * example a second kind of workspace with a verb of its own, and it scaled one button per example:
+     * at five, the empty state's row of buttons no longer fit, and the folders a user went looking for
+     * in `workspaces/` were not there until they had clicked. So the app lays them down at start, where
+     * Open workspace already starts browsing, and opening one is opening a folder.
+     *
+     * **A folder that exists is never touched** — not rewritten, not given an origin file. It may be a
+     * copy with the user's edits, or a workspace of their own that happens to share the name, and
+     * neither is ours to change. A deleted one comes back at the next start, which is also how to get a
+     * pristine one without Reset.
+     *
+     * Returns the folders it created.
+     */
+    fun layDownMissing(
+        location: File,
+        now: Long = System.currentTimeMillis(),
+    ): List<File> =
+        all().mapNotNull { example ->
+            val target = File(location, slug(example.defaultWorkspaceName))
+            if (target.exists() && (!target.isDirectory || target.listFiles().orEmpty().isNotEmpty())) {
+                return@mapNotNull null
+            }
+            open(example.id, example.defaultWorkspaceName, location, now)
+                .onFailure { logger.error("Could not lay down example '{}' in {}", example.id, location, it) }
+                .getOrNull()
+        }
+
+    /**
      * Opens [exampleId] at `<location>/<slug of name>`, copying it out of the build the first time.
      *
      * **Idempotent, because it is called Open.** Opening a workspace you already have must give you

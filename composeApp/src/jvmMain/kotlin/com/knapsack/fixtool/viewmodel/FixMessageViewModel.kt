@@ -5367,24 +5367,6 @@ class FixMessageViewModel(
         }
     }
 
-    /**
-     * The examples, each with a line saying where it lands — and whether it is already there.
-     *
-     * Worth saying because Open is idempotent now: someone who has opened the FX venue before should
-     * be told they are returning to their copy, not being handed a new one.
-     */
-    fun exampleEntries(): List<Triple<String, String, String>> =
-        ExampleWorkspaces.all().map { example ->
-            val at = File(ExampleWorkspaces.defaultLocation(), ExampleWorkspaces.slug(example.defaultWorkspaceName))
-            val note =
-                if (at.isDirectory && at.listFiles().orEmpty().isNotEmpty()) {
-                    "opens ${at.absolutePath}"
-                } else {
-                    "bundled example, copied to ${at.absolutePath}"
-                }
-            Triple(example.id, example.displayName, note)
-        }
-
     /** Every example that ships with the app. */
     fun bundledExamples(): List<ExampleWorkspaces.Example> = ExampleWorkspaces.all()
 

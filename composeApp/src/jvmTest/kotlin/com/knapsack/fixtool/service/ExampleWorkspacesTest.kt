@@ -303,6 +303,61 @@ class ExampleWorkspacesTest {
         assertTrue(File(opened, "connection_profiles.json").isFile)
     }
 
+    // ---------------------------------------------------------------- laid down at start
+
+    /**
+     * An example is a folder in workspaces/, there before anyone clicks anything. It used to exist only
+     * as a button until opened, so the folder a user went looking for was not there.
+     */
+    @Test
+    fun `every example is laid down as its own folder, under the name its manifest gives it`() {
+        val location = Files.createTempDirectory("example-lay-down").toFile()
+
+        val created = ExampleWorkspaces.layDownMissing(location)
+
+        val expected = ExampleWorkspaces.all().map { ExampleWorkspaces.slug(it.defaultWorkspaceName) }
+        assertEquals(expected.sorted(), location.list()!!.sorted())
+        assertEquals(expected.sorted(), created.map { it.name }.sorted())
+        ExampleWorkspaces.all().forEach { example ->
+            val folder = File(location, ExampleWorkspaces.slug(example.defaultWorkspaceName))
+            assertEquals(example.id, ExampleWorkspaces.exampleAt(folder)?.id, "${folder.name} does not know its example")
+            example.files.forEach { assertTrue(File(folder, it).isFile, "${folder.name} is missing $it") }
+        }
+    }
+
+    /**
+     * It runs at every start, so a folder that is already there must come through untouched: it is a
+     * copy with the user's edits in it, or a workspace of their own that shares the name.
+     */
+    @Test
+    fun `a folder already there is never rewritten, and a workspace of your own is not claimed as an example`() {
+        val location = Files.createTempDirectory("example-lay-down-again").toFile()
+        val mine = File(location, "equity-venue").apply { mkdirs() }
+        File(mine, "connection_profiles.json").writeText("[]")
+
+        val first = ExampleWorkspaces.layDownMissing(location)
+        val edited = File(location, "fx-venue/connection_profiles.json").apply { writeText("[]") }
+        val second = ExampleWorkspaces.layDownMissing(location)
+
+        assertFalse("equity-venue" in first.map { it.name }, "a workspace of the user's own was copied over")
+        assertEquals("[]", File(mine, "connection_profiles.json").readText())
+        assertFalse(File(mine, ".fixtool-origin").exists(), "a workspace of the user's own was stamped as an example")
+        assertTrue(second.isEmpty(), "a second start laid down $second again")
+        assertEquals("[]", edited.readText(), "an edited copy was overwritten")
+    }
+
+    @Test
+    fun `a deleted example comes back at the next start, and only that one`() {
+        val location = Files.createTempDirectory("example-lay-down-deleted").toFile()
+        ExampleWorkspaces.layDownMissing(location)
+        File(location, "crypto-venue").deleteRecursively()
+
+        val created = ExampleWorkspaces.layDownMissing(location)
+
+        assertEquals(listOf("crypto-venue"), created.map { it.name })
+        assertTrue(File(location, "crypto-venue/connection_profiles.json").isFile)
+    }
+
     @Test
     fun `a name becomes the folder the example lands in`() {
         val example = assertNotNull(ExampleWorkspaces.byId(ExampleWorkspaces.FX_VENUE))

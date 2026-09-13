@@ -204,8 +204,8 @@
 
     <h3>Quick Start</h3>
     <ol>
-        <li>Click <strong>Open FX Venue example</strong> in the empty session area (or the workspace
-            switcher at the top left &rarr; <strong>Open workspace &rarr; FX Venue</strong>)</li>
+        <li>Open the workspace switcher at the top left &rarr; <strong>Open workspace&hellip;</strong> and pick
+            <code>fx-venue</code> &mdash; the examples are already folders there</li>
         <li>Select one of the <strong>Demo Client</strong> profiles the example brought with it</li>
         <li>Click <strong>Connect</strong> to establish a FIX session</li>
         <li>Use the pre-loaded FX templates to send orders and receive fills</li>
@@ -220,9 +220,9 @@
     <h2 id="demo-server">2. The Examples</h2>
 
     <h3>Overview</h3>
-    <p>FixTool ships <strong>five example venues</strong>, and none is a black box. Each is listed under
-    <strong>Open workspace</strong>, beside Browse&hellip;, and opening one copies a <em>workspace</em>
-    built entirely out of features you already have: an acceptor profile whose venue behaviour is a list
+    <p>FixTool ships <strong>five example venues</strong>, and none is a black box. Each is a
+    <em>workspace</em> folder in <code>~/.fixtool/workspaces/</code>, opened with <strong>Open workspace</strong>
+    like any other, and built entirely out of features you already have: an acceptor profile whose venue behaviour is a list
     of rules you can read, client profiles pointed at it, message templates to drive it, repeatable
     scenarios that run green out of the box, a five-session load client, and a
     <a href="#load-sets">load set</a> that runs without editing anything.</p>
@@ -273,10 +273,9 @@
 
     <p>Everything an example does, you can open, change, reorder or switch off, and everything you learn
     from it applies directly to simulating a real counterparty.</p>
-    <p>An example is a <em>copy</em>, into a folder you name. Nothing is mixed into your own profiles or
+    <p>An example is a <em>copy</em>, in a folder of its own. Nothing is mixed into your own profiles or
     scenarios, so there is nothing to uninstall, and what you change in it is yours to keep or commit.
-    Open it again under a different name whenever you want a clean one. The five venues listen on five
-    different ports, so you can have all of them up at once.</p>
+    The five venues listen on five different ports, so you can have all of them up at once.</p>
     <p>Every example is written to the <strong>bundled FIX 4.4 dictionary</strong>. The dictionary does not
     move with the workspace (see <a href="#settings">Settings</a>), so an installation that has a venue's
     own dictionary loaded under Settings &rarr; Protocol runs the examples against that dialect. Where the
@@ -287,15 +286,15 @@
 
     <h3>Opening an Example</h3>
     <ol>
-        <li>Click the example you want where the sessions would be &mdash; <strong>Open FX Venue
-            example</strong> and one button per venue beside it &mdash; or open the workspace switcher at
-            the top left, choose <strong>Open workspace</strong> and pick it from under Browse&hellip;</li>
-        <li>It is copied to <code>~/.fixtool/workspaces/</code> under its own name:
-            <code>~/.fixtool/workspaces/fx-venue</code>, or <code>rfq-venue</code>,
-            <code>equity-venue</code>, <code>crypto-venue</code>, <code>fixed-income-rfq</code>. No dialog: an example is one of the things
-            Open can open, and opening it asks nothing. Opening it again returns to that same workspace with your
-            edits in it: the copy happens once, because Open means open. For a pristine one, rename or
-            delete the folder</li>
+        <li>Every example is already a folder in <code>~/.fixtool/workspaces/</code>:
+            <code>~/.fixtool/workspaces/fx-venue</code>, <code>rfq-venue</code>, <code>equity-venue</code>,
+            <code>crypto-venue</code> and <code>fixed-income-rfq</code>. FixTool lays down any that is missing
+            when it starts, and never writes over one that is there, so your edits survive every restart and
+            every upgrade: the copy happens once. For a pristine one, rename or delete the folder and start
+            FixTool again, or use <a href="#workspaces">Settings &rarr; Storage &rarr; Reset</a></li>
+        <li>Open the workspace switcher at the top left, choose <strong>Open workspace&hellip;</strong> &mdash;
+            it starts in that folder &mdash; and pick the example you want. There is no separate button for
+            an example: it is a workspace like any other</li>
         <li>The workspace opens with the venue and its client profiles, the templates and the
             scenarios. Connect the venue first, then the clients</li>
         <li>The venue binds its port and the clients log on to it</li>
@@ -479,8 +478,8 @@
     </div>
 
     <div class="warning">
-        <strong>Not there? Your copy is older than the set.</strong> Opening an example
-        <a href="#workspaces">happens once</a>, so a folder you opened before this release has no
+        <strong>Not there? Your copy is older than the set.</strong> An example's folder is
+        <a href="#workspaces">copied once</a>, so a folder laid down before this release has no
         <code>load-sets/</code> directory and no FX Load Client, and nothing in the app mentions either.
         <strong>Settings &rarr; Storage &rarr; Reset</strong> lays the shipped example down again and brings
         both with it. It <em>renames</em> your current copy to
@@ -612,8 +611,8 @@
     <div class="example"><code>fixtool load --set rfq-round-trip --workspace "RFQ Venue"</code></div>
 
     <div class="warning">
-        <strong>Not there? Your copy is older than the set.</strong> Opening an example
-        <a href="#workspaces">happens once</a>, so a folder you opened before this release is the venue as it
+        <strong>Not there? Your copy is older than the set.</strong> An example's folder is
+        <a href="#workspaces">copied once</a>, so a folder laid down before this release is the venue as it
         was: the QuoteID derived as <code>Q-</code> plus the QuoteReqID, prices that never moved, eighteen
         rules, and no <code>load-sets/</code> directory at all, which is why <strong>RFQ round trip</strong> is
         missing from Run &rarr; Load sets and nothing in the app mentions it. <strong>Settings &rarr; Storage
@@ -1448,7 +1447,8 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run
     records you are working with, plus QuickFIX/J's own sequence store and message log. There is one
     kind of workspace and two ways to get one: <strong>New</strong> makes an empty one,
-    <strong>Open</strong> opens a folder you already have or one of the examples FixTool ships.</p>
+    <strong>Open</strong> opens a folder you already have &mdash; and the examples FixTool ships are
+    folders already.</p>
     <p>All of it is on the <strong>switcher at the top left</strong>, which shows the open workspace by
     name and holds New, Open, Recent and Close. It is deliberately not in Connect: that menu
     connects a profile, and opening a workspace changes which profiles there are.</p>
@@ -1457,12 +1457,12 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     &mdash; so nothing had to move on upgrade, the directory just got a name. Default cannot be closed
     and never appears in Recent, because closing any other workspace is what comes back to it.</p>
     <p>An <strong>example</strong> is not a third thing. It is a workspace we ship inside the
-    application, which is why opening one copies it out first: editing it in place would mean editing
-    the installed app, and the next release would overwrite your work. Once copied it is an ordinary
-    workspace with nothing example-ish about it &mdash; same files, same loaders, listed in Recent
-    beside any other.</p>
-    <p>The copy happens <strong>once</strong>. Opening the same example again returns to the workspace
-    you already have, with whatever you changed in it, and the menu says which it will be.</p>
+    application, which is why FixTool copies each one out into <code>~/.fixtool/workspaces/</code> when it
+    starts: editing it in place would mean editing the installed app, and the next release would overwrite
+    your work. Once copied it is an ordinary workspace with nothing example-ish about it &mdash; same
+    files, same loaders, opened with Open and listed in Recent beside any other.</p>
+    <p>The copy happens <strong>once</strong>. A folder that is already there is never written over, so
+    whatever you changed in it survives every start. Delete one and the next start lays it down fresh.</p>
     <p>A copy remembers which example it came from, in a small <code>.fixtool-origin</code> file. That
     is the only thing distinguishing it from a workspace you made yourself, and it is there so
     <strong>Settings &rarr; Storage</strong> can offer <strong>Reset</strong>: the shipped example laid

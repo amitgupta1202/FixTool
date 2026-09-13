@@ -45,15 +45,16 @@ grid, the FX Demo Venue pane beside it, a green scenario run visible in the rail
 **SCREEN:** fresh app, no profiles.
 
 **ACTIONS:**
-1. Click **Open FX Venue example** in the empty session area. No dialog — it copies and opens.
+1. Workspace switcher (top left) **→ Open workspace…** — it starts in `~/.fixtool/workspaces/` — and pick
+   `fx-venue`. The examples are already folders there.
 2. Let the profiles appear: *FX Demo Venue*, *Demo Client 1*, *Demo Client 2*. Connect the venue, then
    the clients.
 3. Let the clients log on; point the cursor at the venue's pane title *FX Demo Venue ← DEMO_CLIENT1*.
 
 **NARRATION** (~150 words):
 
-> I'm starting from an empty install. One click, and FixTool copies a small FX workspace into a folder
-> of its own: one venue, two clients, and a set of message templates. It is a copy, so anything I change
+> I'm starting from an empty install. FixTool ships its examples as ordinary workspace folders, so I just
+> open this one: one venue, two clients, and a set of message templates. It is a copy, so anything I change
 > here is mine.
 >
 > The important thing here is what the venue *is*. It is not a canned simulator — it's FixTool's own
@@ -332,11 +333,11 @@ a spare editor tab before recording. Keep the same line for every take.
 
 - Launch for staging: `FIXTOOL_CONTROL_PORT=8765 ./gradlew :composeApp:run` (the same port the MCP
   chapter uses; enable Automation control in settings once, on camera, in Chapter 6).
-- **Reset between takes:** workspace switcher (top left) **→ Close workspace**, then **Open FX Venue example**
-  again — it returns to the same workspace, so delete `~/.fixtool/workspaces/fx-venue` between takes
-  for a pristine one. A fresh copy is the reset, so nothing has to be un-edited: the venue, clients,
-  templates and bundled scenarios come back in their shipped state and any captured `gbp-fill`
-  scenario or rule edit is left behind in the old folder.
+- **Reset between takes:** quit FixTool, delete `~/.fixtool/workspaces/fx-venue`, and start it again — the
+  start lays the example down fresh — then **Open workspace… → fx-venue**. (`POST /workspace
+  {"example":"fx-venue"}` opens it from the driving agent.) A fresh copy is the reset, so nothing has to
+  be un-edited: the venue, clients, templates and bundled scenarios come back in their shipped state, and
+  a captured `gbp-fill` scenario or rule edit goes with the deleted folder.
 - Chapter 1's opening frame is recorded **last** — it's the end state of a full rehearsal run.
 - Verify during rehearsal, before believing this script: the exact `fixtool` launcher path for
   Chapter 7 on the recording machine, and that the Chapter 6 agent names the scenario `gbp-fill`

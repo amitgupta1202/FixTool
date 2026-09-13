@@ -89,7 +89,6 @@ fun WorkspaceMenu(
             modifier = Modifier.background(AppTheme.Colors.surface).widthIn(min = 220.dp),
         ) {
             when (page) {
-                Page.OPEN -> OpenPage(state, close) { page = Page.ROOT }
                 Page.RECENT -> RecentPage(state, close) { page = Page.ROOT }
                 Page.ROOT -> RootPage(state, close) { page = it }
             }
@@ -97,7 +96,7 @@ fun WorkspaceMenu(
     }
 }
 
-private enum class Page { ROOT, OPEN, RECENT }
+private enum class Page { ROOT, RECENT }
 
 @Composable
 private fun RootPage(
@@ -117,8 +116,13 @@ private fun RootPage(
             onNew()
         }
     }
-    if (state.onBrowse != null) {
-        Item(text = "Open workspace", trailing = true, testTag = "workspace-open") { goTo(Page.OPEN) }
+    // Straight to the folder dialog, which starts in workspaces/. The bundled examples are folders
+    // there, so they need no list of their own — see ExampleWorkspaces.layDownMissing.
+    state.onBrowse?.let { onBrowse ->
+        Item(text = "Open workspace…", testTag = "workspace-open") {
+            close()
+            onBrowse()
+        }
     }
     if (state.recents.isNotEmpty() && state.onOpenRecent != null) {
         Item(text = "Recent workspaces", trailing = true, testTag = "workspace-recent") { goTo(Page.RECENT) }
@@ -129,38 +133,6 @@ private fun RootPage(
         Item(text = "Close workspace", testTag = "workspace-close") {
             close()
             state.onClose.invoke()
-        }
-    }
-}
-
-@Composable
-private fun OpenPage(
-    state: WorkspaceMenuState,
-    close: () -> Unit,
-    back: () -> Unit,
-) {
-    Back(label = "Open workspace", testTag = "workspace-open-back", onClick = back)
-    state.onBrowse?.let { onBrowse ->
-        Item(text = "Browse…", testTag = "workspace-browse") {
-            close()
-            onBrowse()
-        }
-    }
-    if (state.examples.isNotEmpty()) {
-        HorizontalDivider(
-            color = AppTheme.Separators.color,
-            thickness = AppTheme.Separators.dividerThickness,
-            modifier = Modifier.padding(vertical = 4.dp),
-        )
-        state.examples.forEach { example ->
-            TwoLineItem(
-                title = example.displayName,
-                subtitle = example.note,
-                testTag = "workspace-example-${example.id}",
-            ) {
-                close()
-                state.onOpenExample?.invoke(example.id)
-            }
         }
     }
 }
@@ -268,11 +240,8 @@ data class WorkspaceMenuState(
     /** The installation's own directory is open, so there is nothing to close. */
     val isDefault: Boolean = true,
     val recents: List<File> = emptyList(),
-    /** Bundled examples. Open offers these below Browse. */
-    val examples: List<ExampleEntry> = emptyList(),
     val onNew: (() -> Unit)? = null,
     val onBrowse: (() -> Unit)? = null,
-    val onOpenExample: ((String) -> Unit)? = null,
     val onOpenRecent: ((File) -> Unit)? = null,
     val onClose: (() -> Unit)? = null,
 )
@@ -283,16 +252,3 @@ internal fun shortPath(file: File): String {
     val path = file.absolutePath
     return if (home.isNotBlank() && path.startsWith(home)) "~" + path.removePrefix(home) else path
 }
-
-/**
- * A bundled example as the switcher shows it.
- *
- * [note] carries where it will land and whether it is already there, because Open is idempotent:
- * someone who has opened the FX venue before is returning to their copy, not being handed a new one,
- * and the menu is the only place to say so before they click.
- */
-data class ExampleEntry(
-    val id: String,
-    val displayName: String,
-    val note: String,
-)

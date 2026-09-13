@@ -18,6 +18,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.headless.HeadlessRun
+import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.ui.App
 import com.knapsack.fixtool.ui.diff.DiffViewerWindow
@@ -46,6 +47,11 @@ fun main(args: Array<String>) {
         // keeps the two apart the way any other command-line tool would.
         exitProcess(HeadlessRun.execute(args, System.out, System.err))
     }
+
+    // The bundled examples are folders in workspaces/, opened like any other workspace. GUI only: a
+    // headless run against a checked-in `--home` must not grow five venues beside the config it came for.
+    runCatching { ExampleWorkspaces.layDownMissing(WorkspacePaths.home.workspaces) }
+        .onFailure { LoggerFactory.getLogger("ExampleWorkspaces").error("Could not lay down the bundled examples", it) }
 
     // Set up global uncaught exception handler
     val logger = LoggerFactory.getLogger("GlobalExceptionHandler")

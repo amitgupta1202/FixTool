@@ -700,8 +700,12 @@ class HelpDocTest {
 
         val claims =
             mapOf(
-                "the example is listed under Open workspace" to "<strong>Open workspace</strong>",
-                "the empty-state button is named as the app names it" to "Open FX Venue example",
+                "an example is opened with Open workspace" to "<strong>Open workspace</strong>",
+                // There was a button per example until five of them no longer fit; the guide kept
+                // telling readers to click them. An example is a folder now, there before anything is clicked.
+                "the examples are folders laid down at start" to "lays down any that is missing",
+                "a folder already there is never written over" to "never writes over one that is there",
+                "there is no example button to look for" to "There is no separate button",
                 "it lands in workspaces/fx-venue" to "~/.fixtool/workspaces/fx-venue",
                 "opening it again returns the copy with your edits" to "the copy happens once",
                 "a pristine one means renaming or deleting the folder" to "rename or delete the folder",

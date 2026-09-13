@@ -48,57 +48,27 @@ class WorkspaceMenuTest {
     }
 
     /**
-     * The point of the naming: an example is one of the things Open can open, not a second kind of
-     * workspace with a verb of its own.
+     * An example is a folder in workspaces/, where the dialog starts, so Open has nothing to list and
+     * goes straight to the folder dialog. It used to open a submenu of Browse plus one entry per example.
      */
     @Test
-    fun `open offers a folder to browse to and the examples we ship`() {
+    fun `open goes straight to the folder dialog, with no list of examples in front of it`() {
         var browsed = false
-        var opened: String? = null
         rule.setContent {
             WorkspaceMenu(
                 WorkspaceMenuState(
                     name = "Default",
-                    examples = listOf(ExampleEntry("fx-venue", "FX Venue", "opens ~/.fixtool/workspaces/fx-venue")),
                     onNew = { },
                     onBrowse = { browsed = true },
-                    onOpenExample = { opened = it },
                 ),
             )
         }
 
         rule.onNodeWithTag("workspace-menu").performClick()
         rule.onNodeWithTag("workspace-open").performClick()
-        assertTrue(!browsed, "Open asks what to open; it must not go straight to a file dialog")
 
-        rule.onNodeWithText("FX Venue").assertExists()
-        rule.onNodeWithTag("workspace-example-fx-venue").performClick()
-        assertEquals("fx-venue", opened)
-    }
-
-    @Test
-    fun `browse is the other half of open, and back returns to the root`() {
-        var browsed = false
-        rule.setContent {
-            WorkspaceMenu(
-                WorkspaceMenuState(
-                    name = "Default",
-                    examples = listOf(ExampleEntry("fx-venue", "FX Venue", "opens ~/.fixtool/workspaces/fx-venue")),
-                    onNew = { },
-                    onBrowse = { browsed = true },
-                    onOpenExample = { },
-                ),
-            )
-        }
-
-        rule.onNodeWithTag("workspace-menu").performClick()
-        rule.onNodeWithTag("workspace-open").performClick()
-        rule.onNodeWithTag("workspace-open-back").performClick()
-        rule.onNodeWithTag("workspace-new").assertExists()
-
-        rule.onNodeWithTag("workspace-open").performClick()
-        rule.onNodeWithTag("workspace-browse").performClick()
         assertTrue(browsed)
+        rule.onNodeWithTag("workspace-new").assertDoesNotExist()
     }
 
     @Test

@@ -1,56 +1,55 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Rule
 import org.junit.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** The empty session area is where a fresh install meets the bundled example. */
+/** The empty session area is where a fresh install is told where the bundled examples are. */
 class NoSessionsPlaceholderTest {
     @get:Rule
     val rule = createComposeRule()
 
+    /**
+     * The examples are folders where Open starts, so the empty state points there and has no button of
+     * its own for any of them. It had one each, and at five they no longer fit in the row.
+     */
     @Test
-    fun `a fresh install is offered the bundled example and the connection panel`() {
-        val started = mutableListOf<String>()
+    fun `a fresh install is pointed at the examples, and offered Open workspace and the connection panel`() {
+        var browsed = false
         var opened = false
         rule.setContent {
             NoSessionsPlaceholder(
-                examples =
-                    listOf(
-                        ExampleEntry("fx-venue", "FX Venue", "bundled"),
-                        ExampleEntry("rfq-venue", "RFQ Venue", "bundled"),
-                    ),
-                onOpenExample = { started += it },
+                onOpenWorkspace = { browsed = true },
                 onOpenConnectionPanel = { opened = true },
             )
         }
 
         rule.onNodeWithText("No active sessions").assertExists()
-        rule.onNodeWithText("Open FX Venue example").assertExists()
-        rule.onNodeWithTag("empty-open-example-fx-venue").performClick()
-        rule.onNodeWithTag("empty-open-example-rfq-venue").performClick()
+        rule.onNodeWithText("bundled examples are already folders", substring = true).assertExists()
+        rule.onAllNodes(hasClickAction()).assertCountEquals(2)
+        rule.onNodeWithTag("empty-open-workspace").performClick()
         rule.onNodeWithTag("empty-open-connection").performClick()
-        assertEquals(listOf("fx-venue", "rfq-venue"), started)
+        assertTrue(browsed)
         assertTrue(opened)
     }
 
     @Test
-    fun `saved profiles withdraw the example button`() {
+    fun `saved profiles mean reconnecting, and the examples go unmentioned`() {
         rule.setContent {
             NoSessionsPlaceholder(
                 hasProfiles = true,
-                examples = listOf(ExampleEntry("fx-venue", "FX Venue", "bundled")),
-                onOpenExample = { },
+                onOpenWorkspace = { },
                 onOpenConnectionPanel = { },
             )
         }
 
-        rule.onNodeWithTag("empty-open-example-fx-venue").assertDoesNotExist()
+        rule.onNodeWithText("bundled examples", substring = true).assertDoesNotExist()
         rule.onNodeWithTag("empty-open-connection").assertExists()
     }
 }

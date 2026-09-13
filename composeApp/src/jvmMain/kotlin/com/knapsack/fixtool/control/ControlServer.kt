@@ -292,6 +292,9 @@ class ControlServer(
                             put("clientsConnected", acceptor.clientsConnected)
                             put("logonsRefused", acceptor.logonsRefused)
                         }
+                        // Steps owed to a counterparty that was not logged on when they were due. Reported on
+                        // every acceptor, because a named-target acceptor's one client can leave too.
+                        put("notDelivered", acceptor.notDelivered)
                     },
                 )
             }
@@ -3623,6 +3626,9 @@ class ControlServer(
             // same words the rule was written in, and only when the rule asks — an absent key is a rule
             // that does not read the book, which is different from one that asks for `unknown`.
             rule.whenOrder?.let { put("whenOrder", it.word) }
+            // Its sibling, which this rendering left out from the day the quote book shipped: a rule read back
+            // over HTTP and posted again lost its quote constraint without a word.
+            rule.whenQuote?.let { put("whenQuote", it.word) }
             put("responseTemplate", rule.responseTemplate)
             // The reply as it will actually be played, with the offset each step goes out at — a reader
             // asking "what does this rule do" should not have to re-do the accumulation, nor work out

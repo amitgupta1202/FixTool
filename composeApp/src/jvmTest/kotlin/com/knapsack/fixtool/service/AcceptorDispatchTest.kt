@@ -1,8 +1,10 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.SendReason
 import org.junit.Test
 import quickfix.Message
 import quickfix.SessionID
+import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -33,7 +35,9 @@ class AcceptorDispatchTest {
                 send = { _, _ ->
                     sentOn.add(Thread.currentThread().name)
                     arrived.countDown()
+                    true
                 },
+                isLoggedOn = { true },
             )
         dispatch.use {
             it.schedule(sessionId(), delayMillis = 0) { message("A") }
@@ -56,7 +60,9 @@ class AcceptorDispatchTest {
                 send = { message, _ ->
                     sent.add(message.getString(11))
                     arrived.countDown()
+                    true
                 },
+                isLoggedOn = { true },
             )
         dispatch.use {
             val session = sessionId()
@@ -77,7 +83,9 @@ class AcceptorDispatchTest {
                 send = { message, _ ->
                     sent.add(message.getString(11))
                     allThree.countDown()
+                    true
                 },
+                isLoggedOn = { true },
             )
         dispatch.use {
             val session = sessionId()
@@ -92,7 +100,7 @@ class AcceptorDispatchTest {
     @Test
     fun `a session that logs out is not replied to`() {
         val sent = ConcurrentLinkedQueue<String>()
-        val dispatch = AcceptorDispatch(send = { message, _ -> sent.add(message.getString(11)) })
+        val dispatch = AcceptorDispatch(send = { message, _ -> sent.add(message.getString(11)) }, isLoggedOn = { true })
         dispatch.use {
             val goneAway = sessionId("GONE")
             val stillHere = sessionId("HERE")
@@ -125,6 +133,7 @@ class AcceptorDispatchTest {
                     sent.add(clOrdId)
                 },
                 onError = { text, _ -> errors.add(text) },
+                isLoggedOn = { true },
             )
         dispatch.use {
             val session = sessionId()
@@ -136,5 +145,83 @@ class AcceptorDispatchTest {
         assertEquals(listOf("after"), sent.toList(), "one failed send must not cancel the rest of the sequence")
         assertEquals(1, errors.size, "the failure should be reported, not swallowed")
         assertTrue(errors.single().contains("session is gone"), "the report should quote the cause: ${errors.single()}")
+    }
+
+    /**
+     * A step owed to a counterparty that is not logged on when it falls due is **not built and not sent**.
+     *
+     * QuickFIX/J would have taken it anyway: `sendRaw` captures and persists before it checks, so the reply
+     * appeared in the pane as sent and was counted, for a client that never received it.
+     */
+    @Test
+    fun `a step for a counterparty that is not logged on is not built, not sent, and is reported`() {
+        val built = ConcurrentLinkedQueue<String>()
+        val sent = ConcurrentLinkedQueue<String>()
+        val notDelivered = ConcurrentLinkedQueue<SessionID>()
+        val both = CountDownLatch(2)
+        val gone = sessionId("GONE")
+        val here = sessionId("HERE")
+        val dispatch =
+            AcceptorDispatch(
+                send = { message, _ -> sent.add(message.getString(11)) },
+                isLoggedOn = { it == here },
+                onSent = { both.countDown() },
+                onNotDelivered = { session, _ ->
+                    notDelivered.add(session)
+                    both.countDown()
+                },
+            )
+        dispatch.use {
+            it.schedule(gone, delayMillis = 0) { message("owed").also { built.add("owed") } }
+            it.schedule(here, delayMillis = 0) { message("kept").also { built.add("kept") } }
+            assertTrue(both.await(5, TimeUnit.SECONDS), "one step should be sent and one reported")
+        }
+
+        assertEquals(listOf("kept"), built.toList(), "a step nobody can receive must not draw ids or read a book")
+        assertEquals(listOf("kept"), sent.toList())
+        assertEquals(listOf(gone), notDelivered.toList())
+    }
+
+    /** The session can leave between the check and the write; QuickFIX/J's false is a step that did not go. */
+    @Test
+    fun `a send the engine refuses is reported as not delivered, never as sent`() {
+        val outcomes = ConcurrentLinkedQueue<String>()
+        val done = CountDownLatch(1)
+        val dispatch =
+            AcceptorDispatch(
+                send = { _, _ -> false },
+                isLoggedOn = { true },
+                onSent = {
+                    outcomes.add("sent")
+                    done.countDown()
+                },
+                onNotDelivered = { _, _ ->
+                    outcomes.add("not delivered")
+                    done.countDown()
+                },
+            )
+        dispatch.use {
+            it.schedule(sessionId(), delayMillis = 0) { message("A") }
+            assertTrue(done.await(5, TimeUnit.SECONDS))
+        }
+        assertEquals(listOf("not delivered"), outcomes.toList())
+    }
+
+    /** A logout says what it dropped, so each step that was owed can be counted rather than forgotten. */
+    @Test
+    fun `cancelling a session returns the reason each dropped step carried`() {
+        val dispatch = AcceptorDispatch(send = { _, _ -> true }, isLoggedOn = { true })
+        dispatch.use {
+            val session = sessionId()
+            val first = SendReason(source = SendReason.Source.RULE, at = LocalDateTime.now(), ruleIndex = 4)
+            val second = SendReason(source = SendReason.Source.RULE, at = LocalDateTime.now(), ruleIndex = 7)
+            it.schedule(session, delayMillis = 5_000, reason = first) { message("A") }
+            it.schedule(session, delayMillis = 5_000, reason = second) { message("B") }
+
+            val dropped = it.cancelAll(session)
+
+            assertEquals(listOf(4, 7), dropped.map { reason -> reason?.ruleIndex }.sortedBy { index -> index })
+            assertTrue(it.cancelAll(session).isEmpty(), "a second cancel has nothing left to report")
+        }
     }
 }

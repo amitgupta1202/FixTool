@@ -67,6 +67,11 @@ data class AcceptorStatus(
     val clientsConnected: Int = 0,
     /** Logons turned away because they were not addressed to this acceptor — see [VenueEvent.LogonRefused]. */
     val logonsRefused: Long = 0,
+    /**
+     * Steps that were due and never reached a wire, because their counterparty was not logged on when they
+     * would have gone out, or logged out while they waited — see [VenueEvent.NotDelivered].
+     */
+    val notDelivered: Long = 0,
 )
 
 /**
@@ -113,6 +118,20 @@ sealed interface VenueEvent {
         val ruleIndex: Int,
         val whenMsgType: String,
         val steps: Int,
+        override val at: LocalDateTime = LocalDateTime.now(),
+    ) : VenueEvent
+
+    /**
+     * **A step was owed to [sessionId] and did not go**, because that counterparty was not logged on when it
+     * was due, or logged out while it waited.
+     *
+     * Said out loud because the alternative is the quietest failure a venue has: a reply that simply never
+     * arrives, which from the client's side looks exactly like a rule that did not match. [ruleIndex] is the
+     * card that owed it, when a rule did.
+     */
+    data class NotDelivered(
+        override val sessionId: SessionID,
+        val ruleIndex: Int?,
         override val at: LocalDateTime = LocalDateTime.now(),
     ) : VenueEvent
 }
@@ -384,7 +403,19 @@ class QuickFixService(
                 logger.info("Acceptor auto-responded with {}", response.header.getString(35))
             },
             onError = { message, e -> logger.error(message, e) },
+            onNotDelivered = { sessionId, reason -> noteNotDelivered(sessionId, reason) },
         )
+
+    /** Steps owed and never sent — see [AcceptorStatus.notDelivered]. */
+    private val notDelivered =
+        java.util.concurrent.atomic
+            .AtomicLong()
+
+    private fun noteNotDelivered(sessionId: SessionID, reason: SendReason?) {
+        notDelivered.incrementAndGet()
+        logger.info("Acceptor step for {} not delivered: the counterparty is not logged on", sessionId)
+        onVenueEvent?.invoke(VenueEvent.NotDelivered(sessionId, reason?.ruleIndex))
+    }
 
     /**
      * How many inbound messages have matched a rule, and how many replies have actually left.
@@ -424,12 +455,15 @@ class QuickFixService(
             // owed to, and a caller asking "is this acceptor finished?" wants all of them.
             pendingResponses =
                 if (isVenue) {
-                    channels.keys.sumOf { autoResponseDispatch.pendingCount(it) }
+                    // Every session the dispatch holds work for, not only the ones with a pane: a step can be
+                    // owed to a counterparty whose pane was closed.
+                    (channels.keys + autoResponseDispatch.sessionsWithPending()).sumOf { autoResponseDispatch.pendingCount(it) }
                 } else {
                     boundSessionId?.let { autoResponseDispatch.pendingCount(it) } ?: 0
                 },
             clientsConnected = channels.values.count { it.isLoggedOn() },
             logonsRefused = logonsRefused.get(),
+            notDelivered = notDelivered.get(),
         )
     }
 
@@ -468,7 +502,8 @@ class QuickFixService(
         logger.info("QuickFIX Session logged out: {}", sessionId)
         // Replies still queued for a counterparty that has gone away are dropped, not attempted. A
         // half-played sequence whose remaining steps fail one by one buries the logout that caused it.
-        autoResponseDispatch.cancelAll(sessionId)
+        // Each one was owed, though, so each is counted as not delivered rather than silently forgotten.
+        autoResponseDispatch.cancelAll(sessionId).forEach { reason -> noteNotDelivered(sessionId, reason) }
 
         if (isVenue) {
             // One client leaving is not the venue closing. The channel is kept so its pane keeps the

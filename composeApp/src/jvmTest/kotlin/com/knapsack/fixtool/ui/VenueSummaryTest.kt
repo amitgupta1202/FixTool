@@ -25,12 +25,14 @@ class VenueSummaryTest {
         triggered: Long = 41,
         sent: Long = 41,
         pending: Int = 0,
+        notDelivered: Long = 0,
     ) = AcceptorStatus(
         rulesLive = rules,
         latencyActive = latency,
         triggersMatched = triggered,
         responsesSent = sent,
         pendingResponses = pending,
+        notDelivered = notDelivered,
     )
 
     private fun venue(
@@ -68,6 +70,20 @@ class VenueSummaryTest {
         // The inversion is the point: the chip carries no permanent rule count, only the absence.
         assertTrue(venue(status = status(rules = 21)).quiet)
         assertFalse(venue(status = status(rules = 0, triggered = 0, sent = 0)).quiet)
+    }
+
+    /**
+     * A reply owed to a client that logged out is its own finding, with its own cause. Counting it as the red
+     * "sent" shortfall as well would read as the venue failing when a counterparty simply left.
+     */
+    @Test
+    fun `steps nobody was there to receive get their own badge and do not count as a shortfall`() {
+        val summary = venue(status = status(triggered = 41, sent = 38, notDelivered = 3))
+        assertTrue(summary.showNotDelivered)
+        assertFalse(summary.sendsDiverge, "the three missing sends are accounted for")
+        assertFalse(summary.quiet)
+        assertTrue(summary.rulesLabel().contains("3 not delivered"), summary.rulesLabel())
+        assertFalse(venue().showNotDelivered)
     }
 
     @Test

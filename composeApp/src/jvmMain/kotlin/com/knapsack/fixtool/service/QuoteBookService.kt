@@ -128,13 +128,20 @@ class QuoteBookService(
     /**
      * The venue's own answer, which is what decides whether the quote is done.
      *
-     * An ExecutionReport books it. A QuoteStatusReport closes it only when it says `297=11`, a pass:
-     * every other status is a refusal, and a quote the venue refused to trade is still the quote it sent.
+     * An ExecutionReport books it. A QuoteStatusReport closes it when it says `297=11`, a pass, or `297=6`,
+     * removed from market — the answer to a Cover or a Done Away, where the client has said the trade went
+     * elsewhere and there is nothing left for the level to stand behind. Every other status is a refusal, and
+     * a quote the venue refused to trade is still the quote it sent.
+     *
+     * `6` used to leave the quote open, so a client that said Done Away and then lifted the same level got a
+     * fill for a negotiation it had just declared over.
      */
     private fun answered(book: Book, msgType: String, fields: Map<Int, String>): Boolean {
         val respId = fields[TAG_QUOTE_RESP_ID]?.takeIf { it.isNotBlank() } ?: return false
         val quoteId = book.answering[respId] ?: return false
-        val closes = msgType == MSG_EXECUTION_REPORT || fields[TAG_QUOTE_STATUS] == QUOTE_STATUS_PASS
+        val status = fields[TAG_QUOTE_STATUS]
+        val closes =
+            msgType == MSG_EXECUTION_REPORT || status == QUOTE_STATUS_PASS || status == QUOTE_STATUS_REMOVED
         if (closes) {
             book.quotes[quoteId]?.let { book.quotes[quoteId] = it.copy(state = QuoteState.DONE, doneBy = msgType) }
         }
@@ -251,5 +258,8 @@ private const val MSG_QUOTE_RESPONSE = "AJ"
 private const val MSG_EXECUTION_REPORT = "8"
 private const val MSG_QUOTE_STATUS_REPORT = "AI"
 
-/** QuoteStatus 11: the client passed. Every other status on an AI is a refusal, which closes nothing. */
+/** QuoteStatus 11: the client passed. */
 private const val QUOTE_STATUS_PASS = "11"
+
+/** QuoteStatus 6, removed from market: the client said Cover or Done Away. Every other status is a refusal. */
+private const val QUOTE_STATUS_REMOVED = "6"

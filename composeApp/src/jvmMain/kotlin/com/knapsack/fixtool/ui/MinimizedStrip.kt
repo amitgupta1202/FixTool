@@ -205,6 +205,7 @@ private fun VenueBadges(summary: VenueSummary) {
     if (summary.showRefused) Badge("⚠ ${summary.refused} refused", AppTheme.Colors.warning)
     if (summary.noRules) Badge("⚠ no rules", AppTheme.Colors.warning)
     if (summary.showPending) Badge("${summary.pending} pending", AppTheme.Colors.info)
+    if (summary.showNotDelivered) Badge("⚠ ${summary.notDelivered} not delivered", AppTheme.Colors.warning)
     if (summary.sendsDiverge) Badge("⚠ ${summary.divergenceLabel()}", AppTheme.Colors.error)
     if (summary.showLatency) Badge("latency on", AppTheme.Colors.info)
 }

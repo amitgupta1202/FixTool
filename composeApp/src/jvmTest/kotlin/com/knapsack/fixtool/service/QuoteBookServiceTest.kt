@@ -113,7 +113,7 @@ class QuoteBookServiceTest {
     }
 
     @Test
-    fun `a pass closes the quote, and any other status leaves it open`() {
+    fun `a pass closes the quote, and a refusal leaves it open`() {
         book.send(*quote("Q-1"))
         book.send(*quote("Q-2"))
         book.receive(35 to "AJ", 693 to "R-1", 117 to "Q-1", 694 to "6")
@@ -129,6 +129,22 @@ class QuoteBookServiceTest {
             reading(117 to "Q-2").word,
             "a quote the venue refused to trade is still the quote it sent",
         )
+    }
+
+    /**
+     * Cover and Done Away are the client saying the trade went elsewhere. The venue answers `297=6`,
+     * removed from market, and a level it has withdrawn cannot then be lifted. This used to stay open, so
+     * a client that said Done Away and then hit the same quote was filled.
+     */
+    @Test
+    fun `a withdrawn quote is done, so a lift that follows a cover is spent`() {
+        book.send(*quote("Q-1"))
+        book.receive(35 to "AJ", 693 to "R-1", 117 to "Q-1", 694 to "4")
+
+        book.send(35 to "AI", 693 to "R-1", 297 to "6", 58 to "Noted: cover. The level is withdrawn")
+
+        assertEquals(QuoteConstraint.DONE.word, reading(117 to "Q-1").word, "the level was withdrawn")
+        assertEquals("AI", reading(117 to "Q-1").entry?.doneBy)
     }
 
     @Test

@@ -34,6 +34,8 @@ data class VenueSummary(
     val pending: Int,
     val triggered: Long,
     val sent: Long,
+    /** Steps owed to a counterparty that was not there to receive them. */
+    val notDelivered: Long = 0,
 ) {
     /** A client left. Zero departed is the resting state and says nothing. */
     val showGone: Boolean get() = clientsGone > 0
@@ -50,8 +52,18 @@ data class VenueSummary(
     /** No rules loaded, which is why this venue is answering nothing. */
     val noRules: Boolean get() = rulesLive == 0
 
-    /** Replies were owed and not sent. Equal counts are boring; unequal ones are a bug. */
-    val sendsDiverge: Boolean get() = sent < triggered
+    /** Steps were owed to a counterparty that was not logged on. Said on its own badge, not folded into a divergence. */
+    val showNotDelivered: Boolean get() = notDelivered > 0
+
+    /**
+     * Replies were owed and not sent, for a reason the venue cannot name. Equal counts are boring; unequal
+     * ones are a bug.
+     *
+     * Undelivered steps are taken out first. They already have their own badge and their own cause, and
+     * counting them here too would flag a client logging out as the red "sent" divergence, which reads as
+     * the venue failing rather than a counterparty leaving.
+     */
+    val sendsDiverge: Boolean get() = sent + notDelivered < triggered
 
     /**
      * Nothing has deviated, so a chip needs no badges at all.
@@ -60,7 +72,8 @@ data class VenueSummary(
      * hold onto. A venue running normally must reduce to identity plus a client count.
      */
     val quiet: Boolean
-        get() = !showGone && !showRefused && !showPending && !showLatency && !noRules && !sendsDiverge
+        get() =
+            !showGone && !showRefused && !showPending && !showLatency && !noRules && !sendsDiverge && !showNotDelivered
 
     /**
      * "listening on 19876", or "not listening".
@@ -95,6 +108,7 @@ data class VenueSummary(
             append("  ·  $triggered triggered")
             append("  ·  $sent sent")
             if (showPending) append("  ·  $pending pending")
+            if (showNotDelivered) append("  ·  $notDelivered not delivered")
             if (showLatency) append("  ·  latency on")
         }
 
@@ -130,6 +144,7 @@ data class VenueSummary(
                 pending = status?.pendingResponses ?: 0,
                 triggered = status?.triggersMatched ?: 0L,
                 sent = status?.responsesSent ?: 0L,
+                notDelivered = status?.notDelivered ?: 0L,
             )
     }
 }

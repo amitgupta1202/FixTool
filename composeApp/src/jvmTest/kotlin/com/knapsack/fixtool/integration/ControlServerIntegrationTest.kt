@@ -1223,6 +1223,28 @@ class ControlServerIntegrationTest {
         )
     }
 
+    /**
+     * The quote constraint came back from the rules endpoint as nothing at all, from the day the quote book
+     * shipped, so a rule read over HTTP and posted again quietly lost it.
+     */
+    @Test
+    fun `the rules endpoint reports the quote constraint too, and only when there is one`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Quoting","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"AJ","whenQuote":"expired","steps":[{"template":"35=AI|297=7|"}]},
+                       {"whenMsgType":"AJ","steps":[{"template":"35=AI|297=5|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val rules = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray
+
+        assertEquals("expired", rules[0].jsonObject["whenQuote"]!!.jsonPrimitive.content)
+        assertNull(rules[1].jsonObject["whenQuote"], "an absent key is a rule that does not read the quote book")
+    }
+
     /** A rule written over the wire has to arrive as the rule the engine will run. */
     @Test
     fun `a rule posted with a book constraint keeps it, and is placed where it can fire`() {

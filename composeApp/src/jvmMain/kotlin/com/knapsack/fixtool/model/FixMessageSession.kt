@@ -305,6 +305,7 @@ class FixMessageSession(
                 _refusedLogons.value = (_refusedLogons.value + event).takeLast(MAX_REFUSED_LOGONS)
             is VenueEvent.RuleFired -> _lastRuleFired.value = event
             is VenueEvent.ClientArrived -> Unit
+            is VenueEvent.NotDelivered -> Unit
         }
         venueEventListener?.invoke(event)
     }

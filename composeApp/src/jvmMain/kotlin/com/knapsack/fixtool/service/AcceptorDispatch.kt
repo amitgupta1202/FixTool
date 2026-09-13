@@ -33,19 +33,37 @@ import java.util.concurrent.TimeUnit
  * Pending work is tracked per [SessionID] and dropped on logout: a counterparty that has gone away
  * should not be replied to, and the sends would fail one by one and fill the log with the noise of a
  * conversation nobody is having.
+ *
+ * ### Not delivered is not sent
+ *
+ * A reply whose counterparty is not logged on **at the moment it would go out** is not built and not
+ * sent, and [onNotDelivered] is told. This used to be left to QuickFIX/J, which is the wrong place:
+ * `Session.sendRaw` runs `toApp` and persists the message *before* its own logged-on check, so a reply to
+ * a departed client was captured in its pane as sent, booked, and counted in `responsesSent`, while
+ * `sendToTarget`'s `false` went unread. A step that was never on a wire is not a step the venue sent.
  */
 class AcceptorDispatch(
-    /** Seam for tests; production sends through the QuickFIX session. */
-    private val send: (Message, SessionID) -> Unit = { message, sessionId -> Session.sendToTarget(message, sessionId) },
+    /** Seam for tests; production sends through the QuickFIX session and reports whether it went. */
+    private val send: (Message, SessionID) -> Boolean = { message, sessionId -> Session.sendToTarget(message, sessionId) },
     private val onSent: (Message) -> Unit = {},
     private val onError: (String, Throwable) -> Unit = { _, _ -> },
+    /** Whether [SessionID] can be written to right now. A seam, because a test's sessions are never registered. */
+    private val isLoggedOn: (SessionID) -> Boolean = { sessionId -> Session.lookupSession(sessionId)?.isLoggedOn == true },
+    /** A step that was due and did not go, because its counterparty was not there to receive it. */
+    private val onNotDelivered: (SessionID, SendReason?) -> Unit = { _, _ -> },
 ) : Closeable {
     private val executor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "fixtool-acceptor-response").apply { isDaemon = true }
         }
 
-    private val pending = ConcurrentHashMap<SessionID, MutableSet<ScheduledFuture<*>>>()
+    /** One queued step, with the reason it carries, so a logout can say what it dropped and why it was owed. */
+    private class Pending(
+        val future: ScheduledFuture<*>,
+        val reason: SendReason?,
+    )
+
+    private val pending = ConcurrentHashMap<SessionID, MutableSet<Pending>>()
 
     /**
      * Schedules the message [build] returns to be sent to [sessionId] after [delayMillis].
@@ -63,29 +81,38 @@ class AcceptorDispatch(
      * outgoing message so nothing downstream has to reconstruct it — see [SendReason], decision 6a.
      */
     fun schedule(sessionId: SessionID, delayMillis: Long, reason: SendReason? = null, build: () -> Message) {
-        val futures = pending.computeIfAbsent(sessionId) { ConcurrentHashMap.newKeySet() }
+        val queued = pending.computeIfAbsent(sessionId) { ConcurrentHashMap.newKeySet() }
         // Finished work is pruned here rather than by each task removing itself. Self-removal needs
         // the future to be reachable from inside its own body, which it is not until schedule()
         // returns — and a zero-delay task can run before that, so the reference it reads is racily
         // null and the entry never leaves. Pruning on the way in has neither problem.
-        futures.removeIf { it.isDone }
+        queued.removeIf { it.future.isDone }
         val future =
             executor.schedule({ dispatch(build, sessionId, reason) }, delayMillis.coerceAtLeast(0), TimeUnit.MILLISECONDS)
-        futures.add(future)
+        queued.add(Pending(future, reason))
         // Lost the race with cancelAll: the session went away while this was being queued, so the set
         // just added to is one nobody will ever cancel. Identity, not mere presence — a same-named
         // session logging straight back on installs a *different* set, and this future belongs to
         // neither it nor anyone.
-        if (pending[sessionId] !== futures) future.cancel(false)
+        if (pending[sessionId] !== queued) future.cancel(false)
     }
 
-    /** Drops everything still queued for [sessionId] — called when the session logs out. */
-    fun cancelAll(sessionId: SessionID) {
-        pending.remove(sessionId)?.forEach { it.cancel(false) }
-    }
+    /**
+     * Drops everything still queued for [sessionId] — called when the session logs out — and returns the
+     * reason each dropped step carried.
+     *
+     * Returned rather than counted here, because only the caller knows whether a drop is a step that was
+     * owed and never delivered (a logout) or one a person asked to stop (Stop pending). The two are
+     * reported differently and neither may be reported as the other.
+     */
+    fun cancelAll(sessionId: SessionID): List<SendReason?> =
+        pending.remove(sessionId)?.filter { it.future.cancel(false) }?.map { it.reason }.orEmpty()
 
     /** How many sends are still waiting for their moment on [sessionId]. For tests and diagnostics. */
-    fun pendingCount(sessionId: SessionID): Int = pending[sessionId]?.count { !it.isDone } ?: 0
+    fun pendingCount(sessionId: SessionID): Int = pending[sessionId]?.count { !it.future.isDone } ?: 0
+
+    /** Every session with anything still queued, so a venue can count pending work its panes do not name. */
+    fun sessionsWithPending(): Set<SessionID> = pending.filterValues { set -> set.any { !it.future.isDone } }.keys
 
     override fun close() {
         pending.keys.toList().forEach { cancelAll(it) }
@@ -95,12 +122,20 @@ class AcceptorDispatch(
     @Suppress("TooGenericExceptionCaught")
     private fun dispatch(build: () -> Message, sessionId: SessionID, reason: SendReason?) {
         try {
+            // Asked before building, so a step owed to a departed counterparty draws no ExecID and reads
+            // no book: nothing about it happened except that it was due.
+            if (!isLoggedOn(sessionId)) {
+                onNotDelivered(sessionId, reason)
+                return
+            }
             val message = build()
             // Carried, not decided. This class owns *when* a reply goes out; [reason] is what whoever
             // owned *why* wrote down at the time, and it rides as far as the capture in `toApp` so
             // nothing downstream has to reconstruct it. See SendReason, decision 6a.
-            PendingSendReason.during(reason) { send(message, sessionId) }
-            onSent(message)
+            val sent = PendingSendReason.during(reason) { send(message, sessionId) }
+            // The session can go between the check above and the write. QuickFIX/J says so by
+            // returning false, and a false is a step that did not reach the wire.
+            if (sent) onSent(message) else onNotDelivered(sessionId, reason)
         } catch (e: Exception) {
             // The dispatch thread is shared by every pending reply on every session. An exception
             // escaping here would be swallowed into the future nobody reads, and — worse — a throw

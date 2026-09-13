@@ -710,7 +710,7 @@ object McpTools {
             tool(
                 "fixtool_acceptor_rules",
                 "Inspect a profile's acceptor auto-response rules (rules are set via fixtool_save_profile's config, " +
-                    "as acceptorResponseRules:[{whenMsgType, whenFields?, conditions?, whenOrder?, enabled?, " +
+                    "as acceptorResponseRules:[{whenMsgType, whenFields?, conditions?, whenOrder?, whenQuote?, enabled?, " +
                     "steps:[{template, delayMillis}]}]). " +
                     "enabled defaults true; a rule switched off is skipped so the message falls to the next rule. " +
                     "A trigger is whenMsgType plus conditions, ANDed: conditions:[{tag, matcher}] where matcher is " +
@@ -763,7 +763,7 @@ object McpTools {
                     "falls through to the next rule — the fastest way to ask 'what happens without this one'); " +
                     "`index` plus delete:true removes it. Rules are ordered and first-match-wins, so the index is " +
                     "both the rule's identity and its priority; deleting one shifts everything after it up. " +
-                    "A rule is {whenMsgType, conditions?, whenFields?, whenOrder?, enabled?, " +
+                    "A rule is {whenMsgType, conditions?, whenFields?, whenOrder?, whenQuote?, enabled?, " +
                     "steps:[{template, delayMillis}]} — see fixtool_acceptor_rules for the full vocabulary. " +
                     "A step's template can also READ the book: \${order.orderId}, \${order.cumQty}, " +
                     "\${order.leavesQty} and the rest of the names, standing alone or inside arithmetic " +

@@ -5901,6 +5901,9 @@ class FixMessageViewModel(
                     // message the venue answers, which on a busy venue is the notification area
                     // becoming the message log.
                     is VenueEvent.RuleFired -> Unit
+                    // Counted on the venue and shown as its badge; one notification per undelivered step
+                    // would be the same flood RuleFired avoids.
+                    is VenueEvent.NotDelivered -> Unit
                 }
             }
         }

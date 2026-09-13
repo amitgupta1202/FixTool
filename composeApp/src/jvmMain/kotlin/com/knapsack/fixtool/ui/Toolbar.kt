@@ -124,23 +124,23 @@ fun Toolbar(
             WorkspaceMenu(state = workspace)
             GroupDivider(1)
 
-            // The filter, centred in whatever the groups either side leave. Two weighted spacers and a
-            // weighted, capped middle: it grows with the window to a width a regex can be read in, and it
-            // is the last thing to give way when the window shrinks.
-            Spacer(modifier = Modifier.weight(1f))
-            ToolbarFilter(
-                query = filter,
-                onRegexChange = onFilterRegexChange,
-                onIncomingChange = onFilterIncomingChange,
-                onOutgoingChange = onFilterOutgoingChange,
-                onUnfollow = onUnfollow,
-                messageColors = messageColors,
-                focusRequests = filterFocusRequests,
-                modifier =
-                    Modifier
-                        .weight(FILTER_WEIGHT, fill = false)
-                        .widthIn(
-                            min = FILTER_MIN_WIDTH,
+            // **The filter takes everything the groups either side leave, up to a readable maximum, centred.**
+            // It used to sit between two weighted spacers, and a spacer's weight is a share, not a remainder:
+            // each kept an eighth of the room whether or not the filter had reached its minimum, so on a
+            // 1728dp window (a 16-inch MacBook's default) the regex box was squeezed to "Filter all" while
+            // 65dp of empty toolbar sat either side of it. One weighted box now holds the space and centres
+            // the filter inside it, so the margins are only ever what is left after the filter's maximum.
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                ToolbarFilter(
+                    query = filter,
+                    onRegexChange = onFilterRegexChange,
+                    onIncomingChange = onFilterIncomingChange,
+                    onOutgoingChange = onFilterOutgoingChange,
+                    onUnfollow = onUnfollow,
+                    messageColors = messageColors,
+                    focusRequests = filterFocusRequests,
+                    modifier =
+                        Modifier.widthIn(
                             // Room for the Following chip on top of the regex's own, because a named
                             // trace is an answer to the same question and neither should crowd the other.
                             max =
@@ -150,8 +150,8 @@ fun Toolbar(
                                     FILTER_MAX_WIDTH
                                 },
                         ),
-            )
-            Spacer(modifier = Modifier.weight(1f))
+                )
+            }
             GroupDivider(2)
 
             // **What is connected.** Connect ▾ picks a profile and the other two put the box back to
@@ -589,14 +589,6 @@ internal enum class ToolbarFold {
             }
     }
 }
-
-/**
- * The filter's share of the room the groups do not want, against one part for each spacer beside it.
- *
- * The spacers exist to centre it, not to hold space back: a toolbar with room to spare should spend it on
- * the one control here that says what the panes are showing, and at six to one it does.
- */
-private const val FILTER_WEIGHT = 6f
 
 /**
  * Narrow enough to be worth keeping at all: a short pattern, the direction segments, and the chip when it is on.

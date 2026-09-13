@@ -82,6 +82,34 @@ class ToolbarGroupsTest {
         assertLeftToRight(beforeConnect.left, connect.left)
     }
 
+    /**
+     * **A squeezed filter keeps every dp the groups leave.** It sat between two weighted spacers, and a weight
+     * is a share: each spacer kept an eighth of the room while the regex box was squeezed to "Filter all" on a
+     * 1728dp window. Squeezed here by a wide run widget, the filter's edges meet the rules either side, with
+     * nothing between but each rule's own 6dp of padding.
+     */
+    @Test
+    fun `a filter below its maximum takes all the room between its rules`() {
+        composeTestRule.setContent {
+            Box(modifier = Modifier.requiredWidth(1300.dp)) {
+                Toolbar(
+                    connectionProfiles = listOf(profile),
+                    onQuickConnect = { _, _ -> },
+                    onClearAll = { },
+                    runConfiguration = { Box(Modifier.size(900.dp, 28.dp).testTag("run-config")) },
+                )
+            }
+        }
+
+        val afterWorkspace = composeTestRule.onNodeWithTag("toolbar-divider-1").getUnclippedBoundsInRoot()
+        val filter = composeTestRule.onNodeWithTag("toolbar-filter").getUnclippedBoundsInRoot()
+        val beforeConnect = composeTestRule.onNodeWithTag("toolbar-divider-2").getUnclippedBoundsInRoot()
+        check((filter.right - filter.left).value < 419f) { "the filter must be squeezed for this to mean anything" }
+
+        assertEquals(6f, (filter.left - afterWorkspace.right).value, 1f, "no spacer to the filter's left")
+        assertEquals(6f, (beforeConnect.left - filter.right).value, 1f, "and none to its right")
+    }
+
     /** The dangerous one is alone between two rules, which is the only reason those two rules are there. */
     @Test
     fun `Clear all stands on its own between two rules`() {

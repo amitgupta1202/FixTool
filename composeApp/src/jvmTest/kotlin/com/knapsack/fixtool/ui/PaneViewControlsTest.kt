@@ -3,12 +3,15 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.FixMessageSession
@@ -239,22 +242,27 @@ class PaneViewControlsTest {
         onToggleGroupByConversation: () -> Unit = { },
     ) {
         composeTestRule.setContent {
-            Box(modifier = Modifier.requiredWidth(width)) {
-                Toolbar(
-                    viewControls = { folded ->
-                        PaneViewControls(
-                            viewMode = viewMode,
-                            onViewModeChange = onViewModeChange,
-                            sessionViewMode = sessionViewMode,
-                            onToggleGridView = onToggleGridView,
-                            hideProtocolTags = true,
-                            onToggleHideProtocolTags = onToggleHideProtocolTags,
-                            groupByConversation = false,
-                            onToggleGroupByConversation = onToggleGroupByConversation,
-                            folded = folded,
-                        )
-                    },
-                )
+            // At half density, so a 1700dp toolbar is 850px and fits the test window's 1024. The view controls
+            // sit at the toolbar's right edge, and a click the test makes has to land inside the window: they
+            // used to be drawn short of the edge only because the filter's spacers left the row unfilled.
+            CompositionLocalProvider(LocalDensity provides Density(0.5f)) {
+                Box(modifier = Modifier.requiredWidth(width)) {
+                    Toolbar(
+                        viewControls = { folded ->
+                            PaneViewControls(
+                                viewMode = viewMode,
+                                onViewModeChange = onViewModeChange,
+                                sessionViewMode = sessionViewMode,
+                                onToggleGridView = onToggleGridView,
+                                hideProtocolTags = true,
+                                onToggleHideProtocolTags = onToggleHideProtocolTags,
+                                groupByConversation = false,
+                                onToggleGroupByConversation = onToggleGroupByConversation,
+                                folded = folded,
+                            )
+                        },
+                    )
+                }
             }
         }
     }

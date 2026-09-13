@@ -14,6 +14,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * **What a load run leaves behind**: `loads/<id>/load.json`, the wire of every request that went unanswered,
@@ -102,7 +103,12 @@ class LoadRecordStore(
      * [listRecords] walks directories and reads [REPORT_FILE] by name.
      */
     private fun replace(file: File, text: String) {
-        val temp = File(file.parentFile, "${file.name}.${System.nanoTime()}$TEMP_SUFFIX")
+        // A sequence, not the clock. `System.nanoTime()` was the name, and on macOS it hands two threads the
+        // same value all the time (every one of twenty trials of eight threads found repeats), so two writers
+        // could share a temp name after all: one renamed it away, the other's rename failed, and its fallback
+        // wrote the record in place, where a reader caught it half-written.
+        val name = "${file.name}.${ProcessHandle.current().pid()}-${TEMP_SEQUENCE.incrementAndGet()}$TEMP_SUFFIX"
+        val temp = File(file.parentFile, name)
         temp.writeText(text)
         val replace = StandardCopyOption.REPLACE_EXISTING
         try {
@@ -256,5 +262,8 @@ class LoadRecordStore(
          * when both paths are on the same filesystem, which is the whole point of writing it here.
          */
         const val TEMP_SUFFIX = ".writing"
+
+        /** Numbers every temp file this process writes, so no two writes can ever share one. See [replace]. */
+        private val TEMP_SEQUENCE = AtomicLong()
     }
 }

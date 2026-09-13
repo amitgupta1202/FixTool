@@ -130,6 +130,31 @@ sealed interface Matcher {
     data class QuoteField(
         val name: String,
     ) : Matcher
+
+    /**
+     * **The sender's part on this venue**: `requester`, `responder` or `unlisted`. Trigger-only, and only on
+     * tag 49, the SenderCompID the counterparty logged on with.
+     *
+     * A matcher rather than a field of the rule, and that is about older builds rather than elegance. An older
+     * FixTool silently drops a rule field it does not know, so a relay rule's role check would vanish and the
+     * rule would fire for everyone. A matcher type it does not know fails to parse, and its `compile` drops the
+     * whole rule — the safe direction. See `docs/rfq-relay-impl-plan.md`, decision R1.
+     */
+    data class CounterpartyRole(
+        val role: String,
+    ) : Matcher
+
+    /**
+     * **What the venue's RFQ book says about the RFQ this tag names**: `unknown`, `open`, `done` or `expired`.
+     * Trigger-only. On tag 131 it finds the RFQ by the QuoteReqID the sender used or was given; on tag 117, by
+     * the quote id the sender was given — and then `open` also requires that quote to be its dealer's current
+     * one, so a lift of a quote since replaced reads `done`.
+     *
+     * A matcher for the reason [CounterpartyRole] is one.
+     */
+    data class RfqState(
+        val state: String,
+    ) : Matcher
 }
 
 /**
@@ -175,6 +200,12 @@ fun Matcher.validationError(): String? =
         // `FieldCondition.reason()` gives a Reference on the trigger side, and for the same reason.
         is Matcher.QuoteField ->
             "'$name' reads the venue's own quote book, and a scenario has no venue book to resolve it against"
+        // The same refusal for the two relay matchers, and for the same reason: a scenario replays against a
+        // counterparty and holds no venue, so neither could ever be anything but red.
+        is Matcher.CounterpartyRole ->
+            "a sender's role is declared on a venue, and a scenario has no venue to ask"
+        is Matcher.RfqState ->
+            "the state of an RFQ lives in a venue's RFQ book, and a scenario has no venue book to resolve it against"
         is Matcher.Range ->
             when {
                 min == null && max == null -> "range has no bound — it would accept any number"

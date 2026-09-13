@@ -1245,6 +1245,37 @@ class ControlServerIntegrationTest {
         assertNull(rules[1].jsonObject["whenQuote"], "an absent key is a rule that does not read the quote book")
     }
 
+    /**
+     * The rules endpoint renders rules by hand, so every relay field has to be written into it, or a rule read
+     * over HTTP and posted back loses its addresses — the gap `whenQuote` sat in for months.
+     */
+    @Test
+    fun `a relay rule's addresses, role and responders check come back from the rules endpoint`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Platform","config":{"connectionType":"ACCEPTOR","targetCompID":"*",
+                       "counterparties":[{"compId":"FIBUY1","role":"requester"},{"compId":"FIDLR*","role":"responder"}],
+                       "acceptorResponseRules":[
+                       {"whenMsgType":"R","whenResponders":"some",
+                        "conditions":[{"tag":49,"matcher":{"type":"role","role":"requester"}}],
+                        "steps":[{"template":"35=R|131=${'$'}{req.uuid}|","to":"responders"},
+                                 {"template":"35=AG|131=${'$'}{req.131}|658=99|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val rule = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray[0].jsonObject
+
+        assertEquals("some", rule["whenResponders"]!!.jsonPrimitive.content)
+        val trigger = rule["trigger"]!!.jsonArray.single().jsonObject
+        assertEquals("role", trigger["matcher"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        val steps = rule["steps"]!!.jsonArray
+        assertEquals("responders", steps[0].jsonObject["to"]!!.jsonPrimitive.content)
+        assertNull(steps[1].jsonObject["to"], "a step to the sender is written as it always was")
+        assertNull(rule["validationError"], "a well-formed relay rule is not refused: ${rule["validationError"]}")
+    }
+
     /** A rule written over the wire has to arrive as the rule the engine will run. */
     @Test
     fun `a rule posted with a book constraint keeps it, and is placed where it can fire`() {

@@ -40,6 +40,13 @@ data class SendReason(
     val constraint: OrderConstraint? = null,
     /** What the book said at that moment — the half that cannot be re-derived. */
     val reading: BookReading? = null,
+    /**
+     * Set when the step went to someone other than the sender: which message it was relayed from and who it
+     * went to. The venue knows this at the moment it decides and nothing afterwards can work it out — the
+     * two messages share no id once the venue has re-keyed them — which is why it is recorded here and why
+     * Trace joins the two through it. See `docs/rfq-relay-proposal.md`, decision 9.
+     */
+    val relay: RelayRef? = null,
 ) {
     enum class Source {
         /** A rule in the profile's list matched and this is its reply. */
@@ -115,6 +122,24 @@ data class SendReason(
  * Always cleared, on every path, so a send that throws before `toApp` cannot leave its reason to be
  * picked up by whatever this thread sends next. A wrong reason is worse than none.
  */
+/**
+ * **Where a relayed step came from and where it went**, as the venue decided it.
+ *
+ * [triggerUid] is the triggering message's `uid`, process-local and stable for the life of the pane that
+ * holds it; [triggerSession] is that message's session, as `SessionID.toString()`. [address] is the word
+ * the step was addressed with and [recipientCompId] the counterparty it resolved to. [rfqId] is the RFQ
+ * book's own id for the negotiation, or null when the venue held none.
+ */
+data class RelayRef(
+    val triggerUid: Long,
+    val triggerSession: String,
+    val triggerCompId: String,
+    val triggerMsgType: String?,
+    val address: String,
+    val recipientCompId: String,
+    val rfqId: String?,
+)
+
 object PendingSendReason {
     private val current = ThreadLocal<SendReason?>()
 

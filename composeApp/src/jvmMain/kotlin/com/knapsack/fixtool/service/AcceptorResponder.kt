@@ -168,6 +168,9 @@ object AcceptorResponder {
             // which is what "disabled" has to mean under first-match-wins, and is exactly what an
             // author toggling one off is asking to see.
             if (!rule.enabled) return@mapNotNull null
+            // A step addressed to nobody the vocabulary knows would go somewhere its author did not write.
+            // Dropped with the rule, the way an unusable condition is, and named on the card.
+            if (rule.sequence().any { it.address() == null }) return@mapNotNull null
             val trigger = rule.trigger()
             if (trigger.any { it.reason() != null }) return@mapNotNull null
             CompiledRule(rule, trigger.map { it.tag to (it.parsed() ?: return@mapNotNull null) })

@@ -57,6 +57,27 @@ data class FieldCondition(
                     QuoteEntry.FIELDS.joinToString(", ")
             }
         }
+        // The two relay matchers are resolved against the venue, so the scenario-side validationError() must
+        // not be asked about them either. What can be wrong is the tag they sit on and the word they carry.
+        if (parsed is Matcher.CounterpartyRole) {
+            return when {
+                tag != TAG_SENDER_COMP_ID ->
+                    "a role belongs to the sender, so it reads tag 49 (SenderCompID), not tag $tag"
+                SenderRole.byWord(parsed.role) == null ->
+                    "'${parsed.role}' is not a role, and the roles are ${SenderRole.words.joinToString(", ")}"
+                else -> null
+            }
+        }
+        if (parsed is Matcher.RfqState) {
+            return when {
+                tag != TAG_QUOTE_REQ_ID && tag != TAG_QUOTE_ID ->
+                    "an RFQ is found by the QuoteReqID (131) or the quote id (117) a message carries, not by tag $tag"
+                RfqConstraint.byWord(parsed.state) == null ->
+                    "'${parsed.state}' is not a state an RFQ can be in, and the states are " +
+                        RfqConstraint.words.joinToString(", ")
+                else -> null
+            }
+        }
         return parsed.validationError()
     }
 }
@@ -75,7 +96,20 @@ data class FieldCondition(
 data class ResponseStep(
     val template: String,
     val delayMillis: Long = 0,
-)
+    /**
+     * Who this step goes to, as a [StepAddress] word: `requester`, `quoter`, `responders`, `compId:FIDLR1`
+     * and the rest. Null is the sender, which is what every step written before relaying means.
+     *
+     * A string, never an enum, so an older FixTool reading a newer profile loses the field rather than the
+     * file. A rule that uses one must also carry a `role` or `rfq` condition, so that older build drops the
+     * rule instead of answering the sender with a message meant for someone else — see
+     * [AcceptorResponseRule.validationError].
+     */
+    val to: String? = null,
+) {
+    /** The address this step names, or null when [to] is not one. */
+    fun address(): StepAddress? = StepAddress.parse(to)
+}
 
 /**
  * A single acceptor auto-response rule. When FixTool runs as an acceptor and an incoming
@@ -137,6 +171,14 @@ data class AcceptorResponseRule(
      * against the quote its own reply is about to close.
      */
     val whenQuote: QuoteConstraint? = null,
+    /**
+     * Whether a responder is logged on to be asked, `none` or `some` — the one question about a venue no tag
+     * can carry, and what lets a platform refuse an RFQ at once rather than open one nobody will see.
+     *
+     * A string, and only valid on a rule that also carries a `role` or `rfq` condition, for the reason
+     * [ResponseStep.to] is.
+     */
+    val whenResponders: String? = null,
     /**
      * A rule switched off is **kept and skipped**, not deleted.
      *
@@ -205,7 +247,28 @@ data class AcceptorResponseRule(
      * conditioned even with an empty trigger, and a caller that missed that would place it as though
      * it answered everything.
      */
-    fun isUnconditional(): Boolean = trigger().isEmpty() && whenOrder == null && whenQuote == null
+    fun isUnconditional(): Boolean =
+        trigger().isEmpty() && whenOrder == null && whenQuote == null && whenResponders == null
+
+    /** True when the trigger asks the venue something: the sender's role, or the state of an RFQ. */
+    fun asksTheVenue(): Boolean =
+        trigger().any { it.parsed() is Matcher.CounterpartyRole || it.parsed() is Matcher.RfqState }
+
+    /** The `rfq` conditions this trigger carries, as the tag each reads. */
+    private fun rfqTags(): Set<Int> = trigger().filter { it.parsed() is Matcher.RfqState }.map { it.tag }.toSet()
+
+    /** True when the trigger requires the sender to be a requester. */
+    private fun requiresARequester(): Boolean =
+        trigger().any { (it.parsed() as? Matcher.CounterpartyRole)?.role == SenderRole.REQUESTER.word }
+
+    /** True when any step of the reply leaves the conversation the trigger arrived on. */
+    fun relays(): Boolean = sequence().any { it.address()?.relays == true }
+
+    /** True when any step of the reply reads `${to.…}`. */
+    fun readsTheRecipient(): Boolean = sequence().any { TO_REF in it.template }
+
+    /** True when any step of the reply reads `${rfq.…}`. */
+    fun readsTheRfq(): Boolean = sequence().any { RFQ_REF in it.template }
 
     /**
      * True when the venue is **guaranteed** to hold an order by the time this rule's reply is built —
@@ -233,7 +296,17 @@ data class AcceptorResponseRule(
      * reply is a bad rule, not a corrupt profile, and refusing to load it would take every other
      * rule, and every unrelated connection setting, down with it.
      */
-    fun validationError(): String? =
+    fun validationError(): String? = validationError(counterparties = null)
+
+    /**
+     * The same judgement, told what the venue declares.
+     *
+     * [counterparties] null is a caller that has no venue in hand — a preset, a rule on its own — and every
+     * refusal that needs one is skipped rather than made against an empty list, which would flag every relay
+     * rule ever written. Non-null, even empty, is a venue that has said who it expects.
+     */
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
+    fun validationError(counterparties: List<Counterparty>?): String? =
         when {
             whenMsgType.isBlank() -> "the rule has no trigger MsgType, so nothing can match it"
             // A key that is not a tag number can never be read off a message, so the rule silently
@@ -272,8 +345,68 @@ data class AcceptorResponseRule(
                 "step ${steps.indexOfFirst { it.template.isBlank() } + 1} has no message to send"
             steps.any { it.delayMillis < 0 } ->
                 "step ${steps.indexOfFirst { it.delayMillis < 0 } + 1} has a negative delay"
-            else -> null
+            else -> relayError(counterparties)
         }
+
+    /** What is wrong with how this rule addresses other counterparties, or null. See [validationError]. */
+    @Suppress("CyclomaticComplexMethod", "ReturnCount")
+    private fun relayError(counterparties: List<Counterparty>?): String? {
+        val played = sequence()
+        played.forEachIndexed { index, step ->
+            if (step.address() == null) {
+                return "step ${index + 1} is addressed to '${step.to}', and the addresses are " +
+                    StepAddress.words.joinToString(", ")
+            }
+        }
+        if (whenResponders != null && RespondersOnline.byWord(whenResponders) == null) {
+            return "'$whenResponders' is not an answer to whether responders are online; the answers are " +
+                RespondersOnline.words.joinToString(", ")
+        }
+        // Protects the older builds, not this one: a FixTool that predates relaying drops an unknown field
+        // and keeps the rule, so without a matcher it cannot parse it would answer the sender with a message
+        // meant for somebody else. A role or rfq condition makes it drop the rule.
+        if ((relays() || whenResponders != null) && !asksTheVenue()) {
+            val what = if (relays()) "a step addressed to someone other than the sender" else "a responders-online check"
+            return "the rule has $what, so it needs a 'the sender is' or 'the RFQ is' condition as well — " +
+                "an older FixTool reading this profile would otherwise run it as a reply to the sender"
+        }
+        val rfqTags = rfqTags()
+        val opensAnRfq = whenMsgType == MSG_QUOTE_REQUEST && requiresARequester()
+        played.forEachIndexed { index, step ->
+            val address = step.address() ?: return@forEachIndexed
+            val number = index + 1
+            when {
+                address.needsAQuote && TAG_QUOTE_ID !in rfqTags ->
+                    return "step $number goes to the ${address.word}, which is found through the quote the trigger " +
+                        "names — add an 'RFQ is' condition on tag 117"
+                address.needsAnRfq && rfqTags.isEmpty() && !(address == StepAddress.Requester && opensAnRfq) ->
+                    return "step $number goes to ${address.word}, which only an RFQ the venue holds can name — " +
+                        "add an 'RFQ is' condition on tag 131 or 117"
+                TO_REF in step.template && (address == StepAddress.Responders || address is StepAddress.CompId) ->
+                    return "step $number reads \${to.…} and goes to ${address.word}, and a counterparty being asked " +
+                        "has not seen this RFQ, so it has nothing to read — draw an id instead: \${req.uuid} for " +
+                        "every recipient, or \${uuid:10} for each"
+                TO_QUOTE_ID in step.template && address != StepAddress.Requester && !address.needsAQuote &&
+                    address != StepAddress.Quoted ->
+                    return "step $number reads \${to.117} and goes to ${address.word}, and not every one of them " +
+                        "holds a quote — address quoted, quoter, cover or others"
+                TO_QUOTE_ID in step.template && address == StepAddress.Requester && TAG_QUOTE_ID !in rfqTags ->
+                    return "step $number reads \${to.117} for the requester, which is the quote the trigger names — " +
+                        "add an 'RFQ is' condition on tag 117"
+                (TO_REF in step.template || RFQ_REF in step.template) && rfqTags.isEmpty() && !opensAnRfq ->
+                    return "step $number reads the RFQ, and the trigger does not require one — add an 'RFQ is' condition"
+            }
+            RFQ_NAME.findAll(step.template).map { it.groupValues[1] }.firstOrNull { it !in RfqEntryNames.FIELDS }?.let { name ->
+                return "\${rfq.$name} is not a name the RFQ book has, and the names are ${RfqEntryNames.FIELDS.joinToString(", ")}"
+            }
+        }
+        if (counterparties != null && counterparties.isEmpty() && (relays() || asksTheVenue() || whenResponders != null)) {
+            return "this venue declares no counterparties, so nobody is a requester or a responder — " +
+                "add them to the venue's Counterparties"
+        }
+        return null
+    }
+
 }
 
 /**
@@ -288,3 +421,19 @@ private const val ORDER_REF = "\${order."
 
 /** How a template says it reads the quote book. A file-private constant for the reason [ORDER_REF] is. */
 private const val QUOTE_REF = "\${quote."
+
+/** How a template says it reads the recipient's own ids: `${to.117}`. */
+private const val TO_REF = "\${to."
+
+/** `${to.117}` itself, the one recipient reference that needs the recipient to hold a quote. */
+private const val TO_QUOTE_ID = "\${to.117}"
+
+/** How a template says it reads the RFQ book: `${rfq.requester}`. */
+private const val RFQ_REF = "\${rfq."
+
+private val RFQ_NAME = Regex("\\$\\{rfq\\.([A-Za-z][A-Za-z0-9]*)")
+
+private const val TAG_SENDER_COMP_ID = 49
+private const val TAG_QUOTE_REQ_ID = 131
+private const val TAG_QUOTE_ID = 117
+private const val MSG_QUOTE_REQUEST = "R"

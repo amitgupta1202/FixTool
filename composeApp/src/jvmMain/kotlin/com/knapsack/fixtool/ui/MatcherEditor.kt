@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.QuoteEntry
+import com.knapsack.fixtool.model.RfqConstraint
+import com.knapsack.fixtool.model.SenderRole
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TemporalKind
@@ -56,6 +58,8 @@ private val MATCHER_HELP = mapOf(
     "temporal" to "date/time vs now/today",
     "reference" to "equals a \${...} expression",
     "quoteField" to "equals the quote's own value",
+    "role" to "the sender's part on this venue",
+    "rfq" to "the state of the RFQ it names",
 )
 
 /**
@@ -118,6 +122,8 @@ fun matcherTypeName(matcher: Matcher): String =
         is Matcher.Temporal -> "temporal"
         is Matcher.Reference -> "reference"
         is Matcher.QuoteField -> "quoteField"
+        is Matcher.CounterpartyRole -> "role"
+        is Matcher.RfqState -> "rfq"
     }
 
 /** The regex metacharacters, escaped one by one so the seeded pattern stays readable (`1\.5`, not `\Q1.5\E`). */
@@ -152,6 +158,10 @@ fun defaultMatcherForType(type: String, value: String): Matcher =
         // was added for and the offer is the side a buy hits. A wrong pick is one dropdown away and
         // visible in words on the card, unlike a reference's invented expression.
         "quoteField" -> Matcher.QuoteField("offer")
+        // A requester, because the first relay rule a venue needs is the one that opens an RFQ from a buy side.
+        "role" -> Matcher.CounterpartyRole(SenderRole.REQUESTER.word)
+        // Open, because the rules a relay needs most are the ones that carry a live negotiation across.
+        "rfq" -> Matcher.RfqState(RfqConstraint.OPEN.word)
         else -> Matcher.Exact(value)
     }
 
@@ -326,6 +336,25 @@ private fun MatcherParams(
                 options = QuoteEntry.FIELDS,
                 onValueChange = { picked -> picked?.let { onChange(Matcher.QuoteField(it)) } },
                 displayText = { "the quote's $it" },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        // Closed lists for the same reason: a free-text role would invite `dealer` and then never fire.
+        is Matcher.CounterpartyRole -> {
+            SlimDropdown(
+                value = matcher.role,
+                options = SenderRole.words,
+                onValueChange = { picked -> picked?.let { onChange(Matcher.CounterpartyRole(it)) } },
+                displayText = { "the sender is a $it" },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        is Matcher.RfqState -> {
+            SlimDropdown(
+                value = matcher.state,
+                options = RfqConstraint.words,
+                onValueChange = { picked -> picked?.let { onChange(Matcher.RfqState(it)) } },
+                displayText = { "the RFQ is $it" },
                 modifier = Modifier.fillMaxWidth(),
             )
         }

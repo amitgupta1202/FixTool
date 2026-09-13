@@ -126,6 +126,8 @@ object MatcherCodec {
             )
             "reference" -> Matcher.Reference(requireStr(obj, "expression"))
             "quotefield" -> Matcher.QuoteField(requireStr(obj, "name"))
+            "role" -> Matcher.CounterpartyRole(requireStr(obj, "role"))
+            "rfq" -> Matcher.RfqState(requireStr(obj, "state"))
             else -> throw IllegalArgumentException("unknown matcher type '$type'")
         }
     }
@@ -187,6 +189,12 @@ object MatcherCodec {
                 }
                 is Matcher.QuoteField -> {
                     put("type", "quoteField"); put("name", matcher.name)
+                }
+                is Matcher.CounterpartyRole -> {
+                    put("type", "role"); put("role", matcher.role)
+                }
+                is Matcher.RfqState -> {
+                    put("type", "rfq"); put("state", matcher.state)
                 }
             }
         }

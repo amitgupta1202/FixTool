@@ -3629,6 +3629,7 @@ class ControlServer(
             // Its sibling, which this rendering left out from the day the quote book shipped: a rule read back
             // over HTTP and posted again lost its quote constraint without a word.
             rule.whenQuote?.let { put("whenQuote", it.word) }
+            rule.whenResponders?.let { put("whenResponders", it) }
             put("responseTemplate", rule.responseTemplate)
             // The reply as it will actually be played, with the offset each step goes out at — a reader
             // asking "what does this rule do" should not have to re-do the accumulation, nor work out
@@ -3641,6 +3642,9 @@ class ControlServer(
                             buildJsonObject {
                                 put("template", step.template)
                                 put("delayMillis", step.delayMillis)
+                                // Written only when the step leaves the sender's conversation, so a read-and-post
+                                // round trip keeps it and a rule that never relays reads exactly as before.
+                                step.to?.let { put("to", it) }
                             },
                         )
                     }
@@ -3656,6 +3660,7 @@ class ControlServer(
                             buildJsonObject {
                                 put("template", step.template)
                                 put("offsetMillis", offset)
+                                step.to?.let { put("to", it) }
                             },
                         )
                     }

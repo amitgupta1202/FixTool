@@ -56,6 +56,17 @@ data class FixConnectionConfig(
     // Acceptor mode only: how long the venue waits before an auto-response goes out (default: no delay)
     val acceptorLatency: AcceptorLatencyConfig = AcceptorLatencyConfig(),
     /**
+     * Who a venue expects and the part each plays, requester or responder — what lets a rule address "the
+     * dealers" or refuse a QuoteRequest from one. Empty is a venue that relays nothing, which is every venue
+     * written before relaying. See `docs/rfq-relay-proposal.md`, decision 3.
+     */
+    val counterparties: List<Counterparty> = emptyList(),
+    /**
+     * How long an RFQ stays open when its request carries no ExpireTime(126). Null: until something ends it.
+     * Read by the RFQ book's expiry, and ignored by a venue that relays nothing.
+     */
+    val rfqExpirySeconds: Int? = null,
+    /**
      * Where QuickFIX/J keeps this session's sequence numbers and sent messages. [MessageStoreKind.FILE]
      * is the interactive default: resend works and the numbers survive a restart. [MessageStoreKind.MEMORY]
      * is for a load or soak run, where the per-message file appends cap how fast a lane can issue and a

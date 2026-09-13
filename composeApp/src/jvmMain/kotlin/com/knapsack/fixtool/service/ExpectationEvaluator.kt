@@ -383,6 +383,10 @@ object ExpectationEvaluator {
             // before this is asked (`AcceptorResponder.resolveQuoteField`), so anything reaching this
             // branch had no venue book, which is a row that cannot pass rather than one that failed.
             is Matcher.QuoteField -> false to "the quote's ${matcher.name}"
+            // Also never resolved here: the venue decides these before evaluation, and one that reaches this
+            // branch had no venue to ask.
+            is Matcher.CounterpartyRole -> false to "a sender that is a ${matcher.role}"
+            is Matcher.RfqState -> false to "an RFQ that is ${matcher.state}"
         }
 
     /**
@@ -557,6 +561,8 @@ object ExpectationEvaluator {
             is Matcher.Temporal -> "temporal ${temporalExpected(matcher)}"
             is Matcher.Reference -> "reference ${matcher.expression}"
             is Matcher.QuoteField -> "equal to the quote's ${matcher.name}"
+            is Matcher.CounterpartyRole -> "role ${matcher.role}"
+            is Matcher.RfqState -> "rfq ${matcher.state}"
         }
 
     private fun expectedText(matcher: Matcher, referenceResolver: (String) -> String?, now: () -> Instant): String =

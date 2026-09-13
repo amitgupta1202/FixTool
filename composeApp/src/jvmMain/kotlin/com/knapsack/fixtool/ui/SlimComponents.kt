@@ -15,7 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -224,21 +224,25 @@ fun SlimSearchBar(
                 innerTextField()
             },
         )
-        trailing()
+        // **Clear belongs to the field, and it is not a Close.** It sat after the trailing slot drawn as the
+        // same × the pane's search bar closes itself with, so that bar ended in two identical glyphs side by
+        // side and the rightmost — the edge a hand reaches for to close a bar — only emptied the box. It is
+        // the circled × a platform search field clears with now, beside the text it clears.
         if (query.isNotEmpty()) {
             TooltipIconButton(
                 tooltip = "Clear search",
                 onClick = { onQueryChange("") },
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(18.dp).let { if (testTag != null) it.testTag("$testTag-clear") else it },
             ) {
                 Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Clear",
-                    tint = AppTheme.Colors.textSecondary,
+                    Icons.Default.Cancel,
+                    contentDescription = "Clear search",
+                    tint = AppTheme.Colors.textDisabled,
                     modifier = Modifier.size(12.dp),
                 )
             }
         }
+        trailing()
     }
 }
 

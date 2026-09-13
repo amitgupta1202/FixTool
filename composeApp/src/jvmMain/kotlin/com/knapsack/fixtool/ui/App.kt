@@ -600,6 +600,10 @@ fun App(
                                                     onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
                                                     onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },
                                                     showDetailPanel = false,
+                                                    // The tab strip's Search in pane toggles this, and the tabs
+                                                    // layout used to be the one place nothing read it.
+                                                    searchVisible = session.searchVisible.collectAsState().value,
+                                                    onToggleSearch = { session.toggleSearch() },
                                                     hideProtocolTags = viewModel.appSettings.hideProtocolTags,
                                                     gridViewColumns = viewModel.appSettings.gridViewColumns,
                                                     appSettings = viewModel.appSettings,

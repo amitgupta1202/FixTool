@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -159,12 +160,23 @@ fun FixMessageDisplay(
     // Scroll to current search match — by row; a match hidden inside a collapsed group scrolls
     // nowhere rather than to an unrelated row.
     LaunchedEffect(currentMatchIndex, searchMatches.size, rawRows) {
-        if (searchMatches.isNotEmpty() && currentMatchIndex in searchMatches.indices) {
+        if (viewMode == ViewMode.RAW && searchMatches.isNotEmpty() && currentMatchIndex in searchMatches.indices) {
             val (messageIndex, _) = searchMatches[currentMatchIndex]
             val rowIndex = rawRowIndexOf(messageIndex)
             if (rowIndex >= 0) {
                 listState.scrollToItem(rowIndex)
             }
+        }
+    }
+
+    // **The parsed grid owns its own scroll, so a match there is found by selecting it**: the grid already
+    // scrolls to its selection, and a found message that is also the selected one is what find means in a
+    // table. Keyed on the match and the query only, not on the list, so a message arriving while the bar is
+    // open does not take the selection back from somebody who has moved on from the match.
+    LaunchedEffect(currentMatchIndex, searchQuery, searchVisible) {
+        if (viewMode == ViewMode.PARSED && searchVisible && currentMatchIndex in searchMatches.indices) {
+            val found = messages.getOrNull(searchMatches[currentMatchIndex].first) as? FixMessage
+            found?.let { onSelectMessage?.invoke(it) }
         }
     }
 
@@ -481,34 +493,53 @@ private fun MessageDisplayContent(
                             }
                         },
             ) {
-                HierarchicalGridView(
-                    messages = messages,
-                    dictionary = dictionary,
-                    hideProtocolTags = hideProtocolTags,
-                    gridViewColumns = gridViewColumns,
-                    selectedMessage = selectedMessage,
-                    onSelectMessage = onSelectMessage,
-                    onDiffSelected = onDiffSelected,
-                    recentlySentMessageTimestamp = recentlySentMessageTimestamp,
-                    assertionResults = assertionResults,
-                    appSettings = appSettings,
-                    showLatencyColumn = showLatencyColumn,
-                    getLatencyForMessage = getLatencyForMessage,
-                    latencyWarningThresholdMicros = latencyWarningThresholdMicros,
-                    latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
-                    onAtBottomChanged = onAtBottomChanged,
-                    scrollToBottomTrigger = scrollToBottomTrigger,
-                    groupByConversation = groupByConversation,
-                    collapsedConversations = collapsedConversations,
-                    onToggleConversation = onToggleConversation,
-                    followedTraceIds = followedTraceIds,
-                    onFollowTrace = onFollowTrace,
-                    onUnfollowTrace = onUnfollowTrace,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .background(messageBackgroundColor),
-                )
+                // **Above the grid, not over it.** The RAW view floats its bar over the top-right of a list of
+                // lines, where it covers the ends of one or two of them. Floated over the grid it covered the
+                // column headings and the first row — the row a search has just selected, when that is the
+                // match — so here it takes a line of its own and the grid starts under it.
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (searchVisible) {
+                        SearchBar(
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = onSearchQueryChange,
+                            searchMatches = searchMatches,
+                            currentMatchIndex = currentMatchIndex,
+                            onNextMatch = onNextMatch,
+                            onPreviousMatch = onPreviousMatch,
+                            onClose = onToggleSearch,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    HierarchicalGridView(
+                        messages = messages,
+                        dictionary = dictionary,
+                        hideProtocolTags = hideProtocolTags,
+                        gridViewColumns = gridViewColumns,
+                        selectedMessage = selectedMessage,
+                        onSelectMessage = onSelectMessage,
+                        onDiffSelected = onDiffSelected,
+                        recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                        assertionResults = assertionResults,
+                        appSettings = appSettings,
+                        showLatencyColumn = showLatencyColumn,
+                        getLatencyForMessage = getLatencyForMessage,
+                        latencyWarningThresholdMicros = latencyWarningThresholdMicros,
+                        latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
+                        onAtBottomChanged = onAtBottomChanged,
+                        scrollToBottomTrigger = scrollToBottomTrigger,
+                        groupByConversation = groupByConversation,
+                        collapsedConversations = collapsedConversations,
+                        onToggleConversation = onToggleConversation,
+                        followedTraceIds = followedTraceIds,
+                        onFollowTrace = onFollowTrace,
+                        onUnfollowTrace = onUnfollowTrace,
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .background(messageBackgroundColor),
+                    )
+                }
             }
         }
 
@@ -976,7 +1007,11 @@ private fun SearchBar(
                 modifier = Modifier.size(BAR_ICON),
             )
         }
-        TooltipIconButton(tooltip = "Close search", onClick = onClose, modifier = Modifier.size(BAR_BUTTON)) {
+        TooltipIconButton(
+            tooltip = "Close search",
+            onClick = onClose,
+            modifier = Modifier.size(BAR_BUTTON).testTag("pane-search-close"),
+        ) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Close search",

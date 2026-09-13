@@ -454,7 +454,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(55, tools.size)
+        assertEquals(56, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_close_sessions" },
             "a box can be put back to nothing from a script, which is what a load run leaves fifty panes for",

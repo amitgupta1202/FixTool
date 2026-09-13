@@ -3,6 +3,7 @@ package com.knapsack.fixtool.ui
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -154,6 +155,22 @@ class ToolWindowStripeTest {
             val expected = if (isMac) "${window.title} · ⌘$digit" else "${window.title} · Ctrl+$digit"
             composeTestRule.onNodeWithTag(window.testTag).assertContentDescriptionEquals(expected)
         }
+    }
+
+    /**
+     * **The digit is printed on the tab**, before the name, so ⌘1 is read where the window is found. It was in
+     * the tooltip alone, and the stripe shortcuts were asked for as a missing feature months after they shipped.
+     */
+    @Test
+    fun `every tab prints its digit before its name`() {
+        composeTestRule.setContent {
+            ToolWindowStripe(side = StripeSide.LEFT, open = emptySet(), onToggle = {}, documentsOpen = true)
+            ToolWindowStripe(side = StripeSide.RIGHT, open = emptySet(), onToggle = {})
+        }
+
+        composeTestRule.onNodeWithTag(ToolWindow.EDITOR.testTag).assertTextEquals("1  Editor")
+        composeTestRule.onNodeWithTag(ToolWindow.ORDER_BOOK.testTag).assertTextEquals("5  Order book")
+        composeTestRule.onNodeWithTag(ToolWindow.DOCUMENTS.testTag).assertTextEquals("9  Documents")
     }
 
     /** One noun per window, and the numbering a reader of the guide is promised. */

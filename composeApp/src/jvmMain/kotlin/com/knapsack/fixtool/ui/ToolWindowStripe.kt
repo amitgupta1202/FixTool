@@ -25,6 +25,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,7 +131,7 @@ private fun StripeTab(
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                text = window.title,
+                text = stripeLabel(window, if (open) AppTheme.Colors.textSecondary else AppTheme.Colors.textDisabled),
                 color = colour,
                 fontSize = 11.sp,
                 maxLines = 1,
@@ -137,6 +142,27 @@ private fun StripeTab(
         }
     }
 }
+
+/**
+ * **The tab's name with its digit before it, dim**: "1  Editor", IntelliJ's classic "1: Project".
+ *
+ * The digit used to be in the tooltip alone, which taught ⌘1 to nobody who did not hover — the stripe windows
+ * were asked for as a new feature by someone who had used the tool for months. Printed on the tab, the key is
+ * read where the window is found. A window with no digit prints its name alone.
+ */
+internal fun stripeLabel(
+    window: ToolWindow,
+    digitColour: Color,
+): AnnotatedString =
+    buildAnnotatedString {
+        window.shortcut?.let { digit ->
+            withStyle(SpanStyle(color = digitColour, fontFamily = FontFamily.Monospace, fontSize = 10.sp)) {
+                append("$digit")
+            }
+            append("  ")
+        }
+        append(window.title)
+    }
 
 /**
  * The pressed tab's bar, on the outer edge of the window.

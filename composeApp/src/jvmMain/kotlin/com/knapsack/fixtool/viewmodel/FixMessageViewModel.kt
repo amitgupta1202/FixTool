@@ -5599,18 +5599,41 @@ class FixMessageViewModel(
     }
 
     /**
-     * Updates the message maps with the latest messages from all sessions.
-     * This is called before template evaluation to ensure templates can reference recent messages.
+     * Fills the message maps a template reads `${in.S.117}` and `${out.D.11}` from, **as [target] sees them**.
+     *
+     * The message a template means is the one on the session it is about to be sent on: a dealer's quote answers
+     * the request that dealer received, and a buy side's lift names the quote that buy side was shown. So [target]'s
+     * own latest message of a type wins. A type [target] has never seen is still read from another session, the
+     * newest one, so a value received on one session can still be sent on another.
+     *
+     * It used to be every session merged in pane order, the last pane holding a type winning. With one session
+     * that was the same thing; with a venue and its clients in one window it was never the right one. On a
+     * relaying platform the venue's own panes come last and hold every message the clients sent it, so a dealer
+     * quoting `${in.R.131}` read the RFQ a pane had received rather than its own, and a buy side's lift read the
+     * dealer's private QuoteID instead of the one the platform showed it. Both were refused, correctly.
      */
-    fun updateMessageMaps() {
+    fun updateMessageMaps(target: FixMessageSession? = activeSession) {
         _incomingMessagesByType.clear()
         _outgoingMessagesByType.clear()
+        // Per-session caches, so no history is rescanned.
+        _incomingMessagesByType.putAll(latestByType(target) { it.snapshotLatestIncomingByType() })
+        _outgoingMessagesByType.putAll(latestByType(target) { it.snapshotLatestOutgoingByType() })
+    }
 
-        // Use per-session caches to avoid rescanning full message histories
-        _sessions.forEach { session ->
-            _incomingMessagesByType.putAll(session.snapshotLatestIncomingByType())
-            _outgoingMessagesByType.putAll(session.snapshotLatestOutgoingByType())
+    private fun latestByType(
+        target: FixMessageSession?,
+        latest: (FixMessageSession) -> Map<String, FixMessage>,
+    ): Map<String, FixMessage> {
+        val byType = mutableMapOf<String, FixMessage>()
+        _sessions.filter { it !== target }.forEach { session ->
+            latest(session).forEach { (type, message) ->
+                byType.merge(type, message) { held, other ->
+                    if (other.timestamp.isAfter(held.timestamp)) other else held
+                }
+            }
         }
+        target?.let { byType.putAll(latest(it)) }
+        return byType
     }
 
     data class SessionSendOutcome(
@@ -5645,6 +5668,7 @@ class FixMessageViewModel(
 
         val outcomes =
             targets.mapIndexed { index, session ->
+                updateMessageMaps(session)
                 val resolvedFields =
                     fields.resolveTemplates(
                         incomingMessages = incomingMessagesByType,
@@ -5711,7 +5735,7 @@ class FixMessageViewModel(
      */
     fun sendResolvedToSession(raw: String, sessionIndex: Int): com.knapsack.fixtool.service.SendResult? {
         val session = _sessions.getOrNull(sessionIndex) ?: return null
-        updateMessageMaps()
+        updateMessageMaps(session)
         val resolved =
             rawToFields(raw).resolveTemplates(
                 incomingMessages = incomingMessagesByType,

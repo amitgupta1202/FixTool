@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.ui.FixField
 import org.junit.After
@@ -85,6 +86,59 @@ class MessageTemplateIntegrationTest {
         session?.addMessage(fixMessage)
         // Flush the queue to ensure message is immediately available for assertions
         session?.flushMessageQueue()
+    }
+
+    /**
+     * **A template reads the session it is sent on**, and another session only for a type that one has never seen.
+     *
+     * With a venue and its clients in one window, the venue's own panes come after the clients in the list and hold
+     * every message the clients sent it. Merged in pane order, a dealer quoting `${in.R.131}` read the request a
+     * venue pane had received, and the platform refused the quote as answering an RFQ that was no longer open.
+     */
+    @Test
+    fun `a template reads the session it is sent on before any other, and the newest other one after that`() {
+        val now = LocalDateTime.now()
+        val dealer = viewModel.activeSession!!
+        val venuePane = viewModel.createSessionForTest("Platform ← FIDLR1")
+        val buySide = viewModel.createSessionForTest("Buy Side 1")
+
+        fun receive(
+            session: FixMessageSession,
+            type: String,
+            at: LocalDateTime,
+            tag: Pair<Int, String>,
+        ) {
+            session.addMessage(
+                FixMessage(
+                    timestamp = at,
+                    direction = FixMessage.Direction.INCOMING,
+                    rawMessage = "8=FIX.4.4|35=$type|${tag.first}=${tag.second}|",
+                    messageType = type,
+                    quickfixMessage = createQuickFixMessage(type, tag),
+                ),
+            )
+            session.flushMessageQueue()
+        }
+
+        fun read(type: String, tag: Int) =
+            FixMessageTemplate.evaluate(
+                "\${incoming[\"$type\"].valueOfTag($tag)}",
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
+
+        receive(dealer, "R", now.minusSeconds(5), 131 to "V-RFQ-ASKED")
+        receive(venuePane, "R", now, 131 to "DEALER-OWN-RFQ")
+        receive(venuePane, "S", now.minusSeconds(1), 117 to "OLDER-QUOTE")
+        receive(buySide, "S", now, 117 to "NEWER-QUOTE")
+
+        viewModel.updateMessageMaps(dealer)
+        assertEquals("V-RFQ-ASKED", read("R", 131), "the dealer's own request, though a later pane holds a newer one")
+        assertEquals("NEWER-QUOTE", read("S", 117), "a type the dealer never received is the newest anywhere, not the last pane's")
+
+        viewModel.updateMessageMaps(venuePane)
+        assertEquals("DEALER-OWN-RFQ", read("R", 131))
+        assertEquals("OLDER-QUOTE", read("S", 117), "the pane's own quote, though another session holds a newer one")
     }
 
     @Test

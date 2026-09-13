@@ -631,20 +631,27 @@ private fun RuleCard(
             // that *could* ask the book and does not is a thing an author needs to see in order to
             // change, and hiding it behind an "+ add" would make the venue's memory a feature you have
             // to already know about. See decision 1: everything the book causes is on a card that can
-            // be read.
-            OrderConstraintRow(
-                constraint = rule.whenOrder,
-                onChange = { updated -> onChange(rule.copy(whenOrder = updated)) },
-            )
+            // be read. The one exception is a rule on expiry, which has no message to name an order or
+            // a quote, so both rows would only offer a word the rule is refused for; one it already
+            // carries stays, so a hand-edited profile shows what its error is about.
+            val onExpiry = rule.whenMsgType == WHEN_RFQ_EXPIRES
+            if (!onExpiry || rule.whenOrder != null) {
+                OrderConstraintRow(
+                    constraint = rule.whenOrder,
+                    onChange = { updated -> onChange(rule.copy(whenOrder = updated)) },
+                )
+            }
 
             // The quote book's row, on the same terms and for the same reason. Always shown, including
             // at "any": an RFQ venue that could refuse an expired hit and does not is the single most
             // common way a simulated venue stops behaving like a real one, and it must be visible on
             // the card rather than something an author has to know to go looking for.
-            QuoteConstraintRow(
-                constraint = rule.whenQuote,
-                onChange = { updated -> onChange(rule.copy(whenQuote = updated)) },
-            )
+            if (!onExpiry || rule.whenQuote != null) {
+                QuoteConstraintRow(
+                    constraint = rule.whenQuote,
+                    onChange = { updated -> onChange(rule.copy(whenQuote = updated)) },
+                )
+            }
 
             if (drawnAsRows != null) VenueRows(rule, onChange)
 

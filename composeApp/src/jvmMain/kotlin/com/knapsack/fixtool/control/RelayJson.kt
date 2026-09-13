@@ -48,24 +48,26 @@ private fun rfqJson(rfq: RfqEntry, now: Long): JsonObject =
         rfq.securityId?.let { put("securityId", it) }
         rfq.side?.let { put("side", it) }
         rfq.qty?.let { put("qty", it) }
-        put("legs", buildJsonArray { rfq.legs.forEach { add(legJson(it, now)) } })
+        val rfqLive = rfq.lifeAt(now).live
+        put("legs", buildJsonArray { rfq.legs.forEach { add(legJson(it, now, rfqLive)) } })
     }
 
-private fun legJson(leg: RfqLeg, now: Long): JsonObject =
+private fun legJson(leg: RfqLeg, now: Long, rfqLive: Boolean): JsonObject =
     buildJsonObject {
         put("compId", leg.compId)
         leg.venueQuoteReqId?.let { put("quoteReqId", it) }
         leg.outcome?.let { put("outcome", it.word) }
-        put("quotes", buildJsonArray { leg.quotes.forEach { add(quoteJson(it, now)) } })
+        put("quotes", buildJsonArray { leg.quotes.forEach { add(quoteJson(it, now, rfqLive)) } })
     }
 
-private fun quoteJson(quote: LegQuote, now: Long): JsonObject =
+/** A quote is live only while its RFQ is: one still within its own validity on an RFQ that is over cannot be dealt. */
+private fun quoteJson(quote: LegQuote, now: Long, rfqLive: Boolean): JsonObject =
     buildJsonObject {
         put("quoteId", quote.dealerQuoteId)
         quote.venueQuoteId?.let { put("shownAs", it) }
         quote.bid?.let { put("bid", it) }
         quote.offer?.let { put("offer", it) }
-        put("live", quote.liveAt(now))
+        put("live", rfqLive && quote.liveAt(now))
     }
 
 /**

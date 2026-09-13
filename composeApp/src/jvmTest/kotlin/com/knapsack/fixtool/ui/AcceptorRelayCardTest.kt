@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FieldCondition
+import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.StepAddress
 import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
@@ -182,6 +183,8 @@ class AcceptorRelayCardTest {
         composeTestRule.onNodeWithTag("rule-on-expiry-0").assertTextEquals("When the RFQ expires")
         composeTestRule.onNodeWithTag("rule-when-sender").assertDoesNotExist()
         composeTestRule.onNodeWithTag("rule-when-rfq").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rule-when-order").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rule-when-quote").assertDoesNotExist()
 
         pick("rule-quotes-standing", "none")
         assertEquals("none", latest.single().whenQuotes)
@@ -189,6 +192,24 @@ class AcceptorRelayCardTest {
         composeTestRule.onNodeWithTag("rule-on-message-0").performClick()
         composeTestRule.waitForIdle()
         assertEquals("", latest.single().whenMsgType, "back to a MsgType to type")
+        composeTestRule.onNodeWithTag("rule-when-order").assertExists()
+        composeTestRule.onNodeWithTag("rule-when-quote").assertExists()
+    }
+
+    /** Hiding a row must not hide what a hand-edited rule already asks, or its error names something not on screen. */
+    @Test
+    fun `a rule on expiry that already asks the order book still shows that row`() {
+        val carrying =
+            AcceptorResponseRule(
+                whenMsgType = WHEN_RFQ_EXPIRES,
+                whenOrder = OrderConstraint.WORKING,
+                steps = listOf(ResponseStep("35=AG|131=\${to.131}|658=99|", to = "requester")),
+            )
+        render(listOf(carrying))
+        openRule(0)
+
+        composeTestRule.onNodeWithTag("rule-when-order").assertExists()
+        composeTestRule.onNodeWithTag("rule-when-quote").assertDoesNotExist()
     }
 
     @Test

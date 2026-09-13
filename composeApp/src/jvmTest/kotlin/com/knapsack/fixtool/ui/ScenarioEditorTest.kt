@@ -356,6 +356,7 @@ class ScenarioEditorTest {
         render { saved = it }
 
         composeTestRule.onAllNodesWithContentDescription("Remove step")[0].performClick()
+        composeTestRule.onNodeWithTag("step-remove-confirm").performClick()
         composeTestRule.onNodeWithTag("editor-save").performClick()
         composeTestRule.waitForIdle()
 

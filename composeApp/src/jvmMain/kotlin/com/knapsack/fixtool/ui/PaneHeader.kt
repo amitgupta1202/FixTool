@@ -26,11 +26,8 @@ import androidx.compose.material.icons.filled.WrapText
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +37,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixMessageSession
-import kotlinx.coroutines.delay
 
 // ---------------------------------------------------------------------------------------------------
 // The pane vocabulary: one word per action, shared by both layouts and by the folded menu.
@@ -83,12 +79,6 @@ internal const val CLOSE_SESSION_LABEL = "Close session"
 /** ⌘F on macOS, Ctrl+F elsewhere — printed on the button that now answers to it. */
 internal val SEARCH_SHORTCUT: String
     get() = if (System.getProperty("os.name").lowercase().contains("mac")) "⌘F" else "Ctrl+F"
-
-/**
- * How long a Close stays armed. The same few seconds Close all uses: long enough to mean the second click,
- * short enough that an armed button never sits waiting for somebody who has forgotten what it is armed for.
- */
-private const val CLOSE_ARMED_MS = 5_000L
 
 /**
  * **One header for a session pane, in both layouts.**
@@ -309,14 +299,9 @@ private fun paneChrome(
 ): List<BarAction> {
     // **A Close takes the log with it and there is no Recent for a closed session**, so it asks — in the
     // button, the way Close all does, rather than in a dialog over the window. One click arms it, the
-    // second closes, and it gives up on its own.
-    var armed by remember(session) { mutableStateOf(false) }
-    if (armed) {
-        LaunchedEffect(session) {
-            delay(CLOSE_ARMED_MS)
-            armed = false
-        }
-    }
+    // second closes, and it gives up on its own. See [rememberArmed] for the clock.
+    val closing = rememberArmed(session)
+    val armed = closing.value
 
     return listOfNotNull(
         // Leaves the layout for a chip in the strip above. Not a close: the session keeps running and
@@ -334,7 +319,7 @@ private fun paneChrome(
                 icon = Icons.Default.Close,
                 onClick = {
                     if (armed) close()
-                    armed = !armed
+                    closing.value = !armed
                 },
                 tag = "pane-close",
                 hint = if (armed) "click again to confirm" else "click again to confirm — the log goes with it",

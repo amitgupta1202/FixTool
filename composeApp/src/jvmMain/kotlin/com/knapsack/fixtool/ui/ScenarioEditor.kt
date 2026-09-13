@@ -850,13 +850,30 @@ private fun StepRow(
                 modifier = Modifier.size(12.dp),
             )
         }
-        TooltipIconButton(tooltip = "Remove step", onClick = onRemove, modifier = Modifier.size(22.dp)) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = "Remove step",
-                tint = AppTheme.Colors.error,
-                modifier = Modifier.size(12.dp),
-            )
+        // A removed step takes its assertions with it. Asked in the row, the way the rail's Delete is.
+        val armed = rememberArmed(step.stepId)
+        InlineConfirm(
+            armed = armed.value,
+            onConfirm = {
+                armed.value = false
+                onRemove()
+            },
+            onCancel = { armed.value = false },
+            confirm = "Remove",
+            tag = "step-remove-confirm",
+        ) {
+            TooltipIconButton(
+                tooltip = "Remove step",
+                onClick = { armed.value = true },
+                modifier = Modifier.size(22.dp).testTag("step-remove"),
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Remove step",
+                    tint = AppTheme.Colors.error,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
         }
     }
 }

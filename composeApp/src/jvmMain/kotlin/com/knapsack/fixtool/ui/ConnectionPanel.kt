@@ -2087,19 +2087,33 @@ private fun ProfileSection(
                 }
             }
 
-            // Delete profile button
+            // **Delete profile asks, in the row it sat in.** A deleted profile takes its settings with it
+            // and nothing brings them back, so it is one of the six the grammar gives a second look — and
+            // the second look is never a dialog over the window.
             if (selectedProfile != null) {
-                TooltipIconButton(
-                    tooltip = "Delete profile",
-                    onClick = { onDeleteProfile(selectedProfile) },
-                    modifier = iconSize24,
+                val armed = rememberArmed(selectedProfile.id)
+                InlineConfirm(
+                    armed = armed.value,
+                    onConfirm = {
+                        armed.value = false
+                        onDeleteProfile(selectedProfile)
+                    },
+                    onCancel = { armed.value = false },
+                    confirm = "Delete profile",
+                    tag = "connection-delete-profile-confirm",
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete profile",
-                        tint = AppTheme.Colors.warning,
-                        modifier = iconSize16,
-                    )
+                    TooltipIconButton(
+                        tooltip = "Delete profile",
+                        onClick = { armed.value = true },
+                        modifier = iconSize24.testTag("connection-delete-profile"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete profile",
+                            tint = AppTheme.Colors.warning,
+                            modifier = iconSize16,
+                        )
+                    }
                 }
             }
         }

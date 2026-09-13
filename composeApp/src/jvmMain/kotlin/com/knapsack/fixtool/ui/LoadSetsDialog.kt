@@ -311,7 +311,20 @@ private fun SetList(
         ) {
             SetAction("+", "load-sets-new", onNew)
             SetAction("⧉", "load-sets-duplicate", onDuplicate)
-            SetAction("−", "load-sets-delete", onDelete)
+            // A deleted set takes its phases with it, and the records it produced name a file that is no
+            // longer there. Keyed on the selection, so picking another set disarms.
+            val armed = rememberArmed(selected)
+            InlineConfirm(
+                armed = armed.value,
+                onConfirm = {
+                    armed.value = false
+                    onDelete()
+                },
+                onCancel = { armed.value = false },
+                tag = "load-sets-delete-confirm",
+            ) {
+                SetAction("−", "load-sets-delete") { armed.value = true }
+            }
             Text(
                 "saved",
                 color = AppTheme.Colors.textDisabled,

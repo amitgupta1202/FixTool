@@ -241,6 +241,7 @@ class LoadSetsDialogTest {
         show()
 
         composeTestRule.onNodeWithTag("load-sets-delete").performClick()
+        composeTestRule.onNodeWithTag("load-sets-delete-confirm").performClick()
         composeTestRule.waitForIdle()
 
         assertNull(viewModel.loadSet("round-trip"))

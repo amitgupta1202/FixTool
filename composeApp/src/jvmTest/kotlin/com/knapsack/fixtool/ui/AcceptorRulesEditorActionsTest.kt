@@ -247,6 +247,7 @@ class AcceptorRulesEditorActionsTest {
         assertEquals(listOf("D", "F"), latest.map { it.whenMsgType }, "Move earlier on rule 2 puts it back")
 
         composeTestRule.onAllNodesWithContentDescription("Delete rule")[1].performClick()
+        composeTestRule.onNodeWithTag("rule-delete-confirm-1").performClick()
         composeTestRule.waitForIdle()
         assertEquals(listOf("D"), latest.map { it.whenMsgType }, "Delete rule")
     }

@@ -30,7 +30,6 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
-import kotlinx.coroutines.delay
 
 /**
  * **The one row, in five kinds of thing, with the filter down the middle.**
@@ -748,16 +747,12 @@ private fun CloseAllChip(
 ) {
     val offer = viewModel.closeAllOffer(activeLoad, runningIds)
     val panes = viewModel.sessions.size
-    var armed by remember { mutableStateOf(false) }
-    if (armed && !offer.enabled) armed = false
-    // Keyed on the count as well as the arming, so a pane closing or opening under an armed button
-    // restarts the countdown rather than leaving it armed over a number that has changed.
-    if (armed) {
-        LaunchedEffect(panes) {
-            delay(CLOSE_ALL_ARMED_MS)
-            armed = false
-        }
-    }
+    // Keyed on the count, so a pane closing or opening under an armed button restarts the countdown
+    // rather than leaving it armed over a number that has changed. One clock for every armed control in
+    // the app — see [rememberArmed], which this pattern is where it came from.
+    val arming = rememberArmed(panes)
+    if (arming.value && !offer.enabled) arming.value = false
+    val armed = arming.value
     val sentence = if (armed) "Close $panes pane${if (panes == 1) "" else "s"}? Click again." else offer.tooltip
     ToolbarChip(
         icon = Icons.Default.Close,
@@ -770,7 +765,7 @@ private fun CloseAllChip(
             },
         onClick = {
             if (armed) viewModel.closeAllSessions()
-            armed = !armed
+            arming.value = !armed
         },
         tag = "toolbar-close-all",
         words = words,
@@ -787,9 +782,6 @@ private fun CloseAllChip(
  */
 internal val SEARCH_ALL_SHORTCUT: String
     get() = if (System.getProperty("os.name").lowercase().contains("mac")) "⌘⇧F" else "Ctrl+Shift+F"
-
-/** How long Close all stays armed. Long enough to mean the second click, short enough not to lie in wait. */
-private const val CLOSE_ALL_ARMED_MS = 5_000L
 
 /**
  * A 28dp toolbar chip: an icon, a word, and a chevron when it opens a menu.

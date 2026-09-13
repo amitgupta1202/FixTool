@@ -62,7 +62,8 @@ class ScenarioEditorStepIdentityTest {
         }
 
         composeTestRule.onNodeWithTag("step-row-2").performClick() // select step C
-        composeTestRule.onAllNodesWithContentDescription("Remove step")[0].performClick() // delete step A
+        composeTestRule.onAllNodesWithContentDescription("Remove step")[0].performClick()
+        composeTestRule.onNodeWithTag("step-remove-confirm").performClick() // delete step A
         // Steps are now [B, C, D]; the selection must still be on C, and an edit must land on C. (The edit
         // used to be the STRICT toggle, which lived in the expectation builder — deleted, along with the
         // builder. The step editor no longer edits assertions at all; it edits the step, and so does this.)

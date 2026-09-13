@@ -142,6 +142,8 @@ class ConnectionPanelTest {
 
         // Click Delete button
         composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
+        // Delete asks in the row now: the second click is the answer.
+        composeTestRule.onNodeWithTag("connection-delete-profile-confirm").performClick()
 
         // Verify profile was deleted
         assertEquals("delete-me", deletedProfileId)
@@ -646,6 +648,8 @@ class ConnectionPanelTest {
 
         // Delete the profile
         composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
+        // Delete asks in the row now: the second click is the answer.
+        composeTestRule.onNodeWithTag("connection-delete-profile-confirm").performClick()
         composeTestRule.waitForIdle()
 
         // Verify profile was deleted
@@ -692,6 +696,8 @@ class ConnectionPanelTest {
 
         // Delete the profile
         composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
+        // Delete asks in the row now: the second click is the answer.
+        composeTestRule.onNodeWithTag("connection-delete-profile-confirm").performClick()
         composeTestRule.waitForIdle()
 
         // Verify profile name field is cleared
@@ -742,6 +748,8 @@ class ConnectionPanelTest {
 
         // Delete the profile
         composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
+        // Delete asks in the row now: the second click is the answer.
+        composeTestRule.onNodeWithTag("connection-delete-profile-confirm").performClick()
         composeTestRule.waitForIdle()
 
         // Verify fields are reset to defaults
@@ -805,6 +813,8 @@ class ConnectionPanelTest {
 
         // Delete the selected profile
         composeTestRule.onNodeWithContentDescription("Delete profile").performClick()
+        // Delete asks in the row now: the second click is the answer.
+        composeTestRule.onNodeWithTag("connection-delete-profile-confirm").performClick()
         composeTestRule.waitForIdle()
 
         // Verify profile was deleted

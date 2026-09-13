@@ -171,13 +171,26 @@ private fun SettingsHeader(onRestoreDefaults: () -> Unit, onClose: () -> Unit) {
     ) {
         Text(text = "Settings", fontSize = 15.sp, color = AppTheme.Colors.text, fontWeight = FontWeight.Medium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            SettingsButton(
-                text = "Restore defaults",
-                onClick = onRestoreDefaults,
-                containerColor = restoreDefaultsButtonColor,
-                contentColor = AppTheme.Colors.text,
-                modifier = Modifier.testTag("settings-restore-defaults"),
-            )
+            // Restore defaults throws away every setting the box has, so it asks — in place, beside itself.
+            val armed = rememberArmed()
+            InlineConfirm(
+                armed = armed.value,
+                onConfirm = {
+                    armed.value = false
+                    onRestoreDefaults()
+                },
+                onCancel = { armed.value = false },
+                confirm = "Restore defaults",
+                tag = "settings-restore-defaults-confirm",
+            ) {
+                SettingsButton(
+                    text = "Restore defaults",
+                    onClick = { armed.value = true },
+                    containerColor = restoreDefaultsButtonColor,
+                    contentColor = AppTheme.Colors.text,
+                    modifier = Modifier.testTag("settings-restore-defaults"),
+                )
+            }
             TooltipIconButton(tooltip = "Close", onClick = onClose, modifier = Modifier.size(24.dp)) {
                 Icon(
                     imageVector = Icons.Default.Close,

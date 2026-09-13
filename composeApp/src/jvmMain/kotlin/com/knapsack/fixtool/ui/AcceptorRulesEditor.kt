@@ -513,8 +513,26 @@ private fun RuleCard(
             TooltipIconButton("Move later", { onMove(1) }, Modifier.size(16.dp), enabled = position < total - 1) {
                 Icon(Icons.Default.ArrowDownward, "Move rule later", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
             }
-            TooltipIconButton("Delete rule", onDelete, Modifier.size(16.dp)) {
-                Icon(Icons.Default.Close, "Delete rule", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
+            // A deleted rule takes its steps with it, so it asks in the row it sat in. Keyed on the
+            // rule's position, so re-ordering the list disarms rather than leaving the question pointed
+            // at whichever rule slid into that slot.
+            val armed = rememberArmed(position)
+            InlineConfirm(
+                armed = armed.value,
+                onConfirm = {
+                    armed.value = false
+                    onDelete()
+                },
+                onCancel = { armed.value = false },
+                tag = "rule-delete-confirm-$position",
+            ) {
+                TooltipIconButton(
+                    "Delete rule",
+                    { armed.value = true },
+                    Modifier.size(16.dp).testTag("rule-delete-$position"),
+                ) {
+                    Icon(Icons.Default.Close, "Delete rule", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
+                }
             }
             TooltipIconButton(
                 tooltip = if (expanded) "Close this rule" else "Open this rule to edit it",

@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -725,21 +726,32 @@ private fun MessageItem(
             }
         }
 
-        // Delete button
+        // **Delete template asks, in the row.** A template is a message somebody wrote and saved, and
+        // nothing brings one back. Keyed on the message, so scrolling to another row disarms. The button
+        // also gained the tooltip it never had.
         if (onDelete != null) {
-            IconButton(
-                onClick = {
-                    val deleteProfileId = currentProfileId ?: userTags.firstOrNull() ?: ""
-                    onDelete(message.id, deleteProfileId)
+            val armed = rememberArmed(message.id)
+            InlineConfirm(
+                armed = armed.value,
+                onConfirm = {
+                    armed.value = false
+                    onDelete(message.id, currentProfileId ?: userTags.firstOrNull() ?: "")
                 },
-                modifier = Modifier.size(24.dp),
+                onCancel = { armed.value = false },
+                tag = "template-delete-confirm",
             ) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = AppTheme.Colors.error,
-                    modifier = Modifier.size(14.dp),
-                )
+                TooltipIconButton(
+                    tooltip = "Delete template",
+                    onClick = { armed.value = true },
+                    modifier = Modifier.size(24.dp).testTag("template-delete"),
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete template",
+                        tint = AppTheme.Colors.error,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
         }
     }

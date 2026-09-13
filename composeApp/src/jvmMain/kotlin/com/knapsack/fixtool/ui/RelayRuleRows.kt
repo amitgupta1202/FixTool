@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -23,11 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FieldCondition
+import com.knapsack.fixtool.model.QuotesStanding
 import com.knapsack.fixtool.model.RespondersOnline
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.RfqConstraint
 import com.knapsack.fixtool.model.SenderRole
 import com.knapsack.fixtool.model.StepAddress
+import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
 import com.knapsack.fixtool.model.roleOf
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.MatcherCodec
@@ -92,29 +95,42 @@ internal fun VenueRows(rule: AcceptorResponseRule, onChange: (AcceptorResponseRu
         if (updated != conditions) onChange(rule.copy(whenFields = emptyMap(), conditions = updated))
     }
 
+    // A rule on expiry has no sender to ask about and an RFQ that is always expired, so those two rows would only
+    // offer words that can never hold. The questions it can ask are the two below.
+    val onExpiry = rule.whenMsgType == WHEN_RFQ_EXPIRES
     val senderAt = senderRowIndex(conditions)
-    VenueWordRow(
-        menu = WordMenu("and the sender is", "rule-when-sender", SenderRole.words, ::senderRoleMeaning),
-        current = (conditions.getOrNull(senderAt)?.parsed() as? Matcher.CounterpartyRole)?.role,
-        onChange = { word ->
-            withConditions(conditions.withRow(senderAt, TAG_SENDER_COMP_ID, word?.let { Matcher.CounterpartyRole(it) }))
-        },
-    )
+    if (!onExpiry) {
+        VenueWordRow(
+            menu = WordMenu("and the sender is", "rule-when-sender", SenderRole.words, ::senderRoleMeaning),
+            current = (conditions.getOrNull(senderAt)?.parsed() as? Matcher.CounterpartyRole)?.role,
+            onChange = { word ->
+                val role = word?.let { Matcher.CounterpartyRole(it) }
+                withConditions(conditions.withRow(senderAt, TAG_SENDER_COMP_ID, role))
+            },
+        )
+    }
 
     val rfqAt = rfqRowIndex(conditions)
     val rfqCondition = conditions.getOrNull(rfqAt)
     val rfqTag = rfqCondition?.tag ?: defaultRfqTag(rule.whenMsgType)
     val rfqState = (rfqCondition?.parsed() as? Matcher.RfqState)?.state
-    VenueWordRow(
-        menu = WordMenu("and the RFQ is", "rule-when-rfq", RfqConstraint.words) { rfqStateMeaning(it, rfqTag) },
-        current = rfqState,
-        onChange = { word -> withConditions(conditions.withRow(rfqAt, rfqTag, word?.let { Matcher.RfqState(it) })) },
-    ) {
-        // Which id names the RFQ is the author's call and not the MsgType's: a lift names the quote it hits (117), a
-        // dealer's quote names the request it answers (131), and a QuoteCancel carries both. Offered once the row
-        // asks anything, because "any" reads nothing through anything.
-        if (rfqCondition != null && rfqState != null) {
-            RfqTagMenu(tag = rfqTag) { tag -> withConditions(conditions.replaced(rfqAt, rfqCondition.copy(tag = tag))) }
+    if (!onExpiry) {
+        VenueWordRow(
+            menu =
+                WordMenu("and the RFQ is", "rule-when-rfq", RfqConstraint.words) { rfqStateMeaning(it, rfqTag) },
+            current = rfqState,
+            onChange = { word ->
+                withConditions(conditions.withRow(rfqAt, rfqTag, word?.let { Matcher.RfqState(it) }))
+            },
+        ) {
+            // Which id names the RFQ is the author's call and not the MsgType's: a lift names the quote it hits (117),
+            // a dealer's quote names the request it answers (131), and a QuoteCancel carries both. Offered once the row
+            // asks anything, because "any" reads nothing through anything.
+            if (rfqCondition != null && rfqState != null) {
+                RfqTagMenu(tag = rfqTag) { tag ->
+                    withConditions(conditions.replaced(rfqAt, rfqCondition.copy(tag = tag)))
+                }
+            }
         }
     }
 
@@ -129,6 +145,59 @@ internal fun VenueRows(rule: AcceptorResponseRule, onChange: (AcceptorResponseRu
         current = rule.whenResponders,
         onChange = { word -> if (word != rule.whenResponders) onChange(rule.copy(whenResponders = word)) },
     )
+
+    VenueWordRow(
+        menu =
+            WordMenu(
+                label = "and quotes standing",
+                tag = "rule-quotes-standing",
+                words = QuotesStanding.words,
+                meaning = ::quotesStandingMeaning,
+            ),
+        current = rule.whenQuotes,
+        onChange = { word -> if (word != rule.whenQuotes) onChange(rule.copy(whenQuotes = word)) },
+    )
+}
+
+/**
+ * **What fires a rule**: a MsgType typed in, or — on a venue that relays — an RFQ's time running out, which no message
+ * carries. Said in words on the card, because `35=@rfq-expired` is how it is stored and not how anyone thinks of it.
+ */
+@Composable
+internal fun TriggerWord(rule: AcceptorResponseRule, position: Int, onChange: (AcceptorResponseRule) -> Unit) {
+    if (rule.whenMsgType == WHEN_RFQ_EXPIRES) {
+        Text(
+            "When the RFQ expires",
+            color = AppTheme.Colors.text,
+            fontSize = 9.sp,
+            modifier = Modifier.testTag("rule-on-expiry-$position"),
+        )
+        SlimButton(
+            text = "on a message instead",
+            onClick = { onChange(rule.copy(whenMsgType = "")) },
+            color = AppTheme.Colors.textSecondary,
+            modifier = Modifier.testTag("rule-on-message-$position"),
+        )
+        return
+    }
+    Text("When 35=", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+    SlimField(
+        value = rule.whenMsgType,
+        onValueChange = { onChange(rule.copy(whenMsgType = it)) },
+        modifier = Modifier.width(40.dp),
+        monospace = true,
+        tintBlank = true,
+        placeholder = "D",
+    )
+    val relays = LocalRelayContext.current.counterparties
+    if (!relays.isNullOrEmpty()) {
+        SlimButton(
+            text = "or when the RFQ expires",
+            onClick = { onChange(rule.copy(whenMsgType = WHEN_RFQ_EXPIRES)) },
+            color = AppTheme.Colors.textSecondary,
+            modifier = Modifier.testTag("rule-choose-expiry-$position"),
+        )
+    }
 }
 
 /** One venue row's menu: its label, its test tag, the words it offers, and what each means (null: "any"). */

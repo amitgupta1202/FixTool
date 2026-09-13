@@ -53,6 +53,7 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.QuoteConstraint
 import com.knapsack.fixtool.model.ResponseStep
+import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.AcceptorPreset
 import com.knapsack.fixtool.service.AcceptorPresets
@@ -348,13 +349,14 @@ internal fun presetPreview(preset: AcceptorPreset, existing: List<AcceptorRespon
 }
 
 private fun triggerLine(rule: AcceptorResponseRule): String =
-    "when 35=${rule.whenMsgType}" +
+    (if (rule.whenMsgType == WHEN_RFQ_EXPIRES) "when the RFQ expires" else "when 35=${rule.whenMsgType}") +
         rule.trigger().joinToString("") { condition -> " and " + conditionPhrase(condition) } +
         // Last, and in words, because it is the one constraint that is not about the message at all —
         // reading it as though it were another tag is the misreading worth spending four characters on.
         (rule.whenOrder?.let { " and the order is ${it.word}" } ?: "") +
         (rule.whenQuote?.let { " and the quote is ${it.word}" } ?: "") +
-        (rule.whenResponders?.let { " and responders online: $it" } ?: "")
+        (rule.whenResponders?.let { " and responders online: $it" } ?: "") +
+        (rule.whenQuotes?.let { " and quotes standing: $it" } ?: "")
 
 /**
  * One condition as the card reads it: `38 range > 10000000`, in the matcher vocabulary — except the two that ask
@@ -389,10 +391,12 @@ private fun ruleDigest(rule: AcceptorResponseRule): String {
     val order = rule.whenOrder?.let { "the order is ${it.word}" }
     val quote = rule.whenQuote?.let { "the quote is ${it.word}" }
     val responders = rule.whenResponders?.let { "responders online: $it" }
+    val standing = rule.whenQuotes?.let { "quotes standing: $it" }
+    val any = if (rule.whenMsgType == WHEN_RFQ_EXPIRES) "the RFQ expires" else "any 35=${rule.whenMsgType}"
     // Said out loud, because "no conditions" is not a rule doing nothing — it is the catch-all, and the
     // reason every card above it in the same MsgType has to be read in order.
     val trigger =
-        (conditions + listOfNotNull(order, quote, responders)).ifEmpty { listOf("any 35=${rule.whenMsgType}") }
+        (conditions + listOfNotNull(order, quote, responders, standing)).ifEmpty { listOf(any) }
 
     val steps = rule.sequence()
     val span = steps.sumOf { it.delayMillis.coerceAtLeast(0) }
@@ -521,15 +525,7 @@ private fun RuleCard(
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.testTag("rule-number-$position"),
             )
-            Text("When 35=", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
-            SlimField(
-                value = rule.whenMsgType,
-                onValueChange = { onChange(rule.copy(whenMsgType = it)) },
-                modifier = Modifier.width(40.dp),
-                monospace = true,
-                tintBlank = true,
-                placeholder = "D",
-            )
+            TriggerWord(rule, position, onChange)
             Spacer(Modifier.weight(1f))
             fired?.let {
                 Text(

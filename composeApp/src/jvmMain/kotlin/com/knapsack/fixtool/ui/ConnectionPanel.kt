@@ -106,6 +106,7 @@ fun ConnectionPanel(
     var acceptorRules by remember { mutableStateOf<List<AcceptorResponseRule>>(emptyList()) }
     var acceptorLatency by remember { mutableStateOf(AcceptorLatencyConfig()) }
     var counterparties by remember { mutableStateOf<List<Counterparty>>(emptyList()) }
+    var rfqExpirySeconds by remember { mutableStateOf("") }
 
     // SSL/TLS state
     var useSSL by remember { mutableStateOf(false) }
@@ -206,6 +207,7 @@ fun ConnectionPanel(
         acceptorRules = profile.config.acceptorResponseRules
         acceptorLatency = profile.config.acceptorLatency
         counterparties = profile.config.counterparties
+        rfqExpirySeconds = expiryText(profile.config)
         // SSL/TLS
         useSSL = profile.config.useSSL
         keyStorePath = profile.config.keyStorePath
@@ -350,6 +352,7 @@ fun ConnectionPanel(
                             acceptorResponseRules = acceptorRules,
                             acceptorLatency = acceptorLatency,
                             counterparties = counterparties,
+                            rfqExpirySeconds = rfqExpirySeconds.toIntOrNull()?.takeIf { it > 0 },
                         )
                     val profile =
                         FixConnectionProfile(
@@ -404,6 +407,7 @@ fun ConnectionPanel(
                         acceptorRules = emptyList()
                         acceptorLatency = AcceptorLatencyConfig()
                         counterparties = emptyList()
+                        rfqExpirySeconds = ""
                     }
                 },
                 onCloneProfile = { profile ->
@@ -447,6 +451,7 @@ fun ConnectionPanel(
                     acceptorRules = clonedProfile.config.acceptorResponseRules
                     acceptorLatency = clonedProfile.config.acceptorLatency
                     counterparties = clonedProfile.config.counterparties
+                    rfqExpirySeconds = expiryText(clonedProfile.config)
                 },
             )
 
@@ -1612,6 +1617,8 @@ fun ConnectionPanel(
                     CounterpartiesEditor(
                         counterparties = counterparties,
                         onChange = { counterparties = it },
+                        expirySeconds = rfqExpirySeconds,
+                        onExpiryChange = { rfqExpirySeconds = it },
                     )
                 }
             }
@@ -1941,6 +1948,7 @@ fun ConnectionPanel(
                             acceptorResponseRules = acceptorRules,
                             acceptorLatency = acceptorLatency,
                             counterparties = counterparties,
+                            rfqExpirySeconds = rfqExpirySeconds.toIntOrNull()?.takeIf { it > 0 },
                         )
                     // Create or update the profile with current form values
                     val profile =

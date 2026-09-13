@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.Counterparty
@@ -94,7 +95,32 @@ class CounterpartiesEditorTest {
 
         val config = assertNotNull(saved).config
         assertEquals(declared, config.counterparties)
-        assertEquals(60, config.rfqExpirySeconds, "a field with no row in the panel survives Save by being copied")
+        assertEquals(60, config.rfqExpirySeconds, "the RFQ expiry is loaded with the list and saved with it")
+    }
+
+    /** How long an RFQ stays open when its request does not say: the field beside the parties, loaded and saved. */
+    @Test
+    fun `the RFQ expiry is edited beside the counterparties, and blank saves as never`() {
+        open(venueProfile())
+        composeTestRule.onNodeWithTag("rfq-expiry-seconds").performScrollTo().performTextClearance()
+        composeTestRule.onNodeWithTag("rfq-expiry-seconds").performTextInput("45s")
+        composeTestRule.waitForIdle()
+        save()
+        assertEquals(45, assertNotNull(saved).config.rfqExpirySeconds, "digits only: a trailing unit is not a number")
+
+        composeTestRule.onNodeWithTag("rfq-expiry-seconds").performScrollTo().performTextClearance()
+        composeTestRule.waitForIdle()
+        save()
+        assertNull(assertNotNull(saved).config.rfqExpirySeconds)
+    }
+
+    @Test
+    fun `a clone keeps the RFQ expiry`() {
+        open(venueProfile()) { original -> original.copy(id = "clone", name = "RFQ VENUE (Copy)") }
+        composeTestRule.onNodeWithContentDescription("Clone profile").performClick()
+        composeTestRule.waitForIdle()
+        save()
+        assertEquals(60, assertNotNull(saved).config.rfqExpirySeconds)
     }
 
     @Test

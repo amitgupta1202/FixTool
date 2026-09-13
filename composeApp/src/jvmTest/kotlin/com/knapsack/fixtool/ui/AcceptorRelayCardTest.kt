@@ -20,6 +20,7 @@ import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.StepAddress
+import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.MatcherCodec
 import org.junit.Rule
@@ -166,6 +167,35 @@ class AcceptorRelayCardTest {
         pick("rule-responders-online", "none")
 
         assertEquals("none", latest.single().whenResponders)
+    }
+
+    // ------------------------------------------------------------------ when the RFQ expires
+
+    @Test
+    fun `a rule is switched to fire when the RFQ expires, reads so, keeps only the rows it can use, and switches back`() {
+        render(listOf(relayRequest))
+        openRule(0)
+
+        composeTestRule.onNodeWithTag("rule-choose-expiry-0").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(WHEN_RFQ_EXPIRES, latest.single().whenMsgType)
+        composeTestRule.onNodeWithTag("rule-on-expiry-0").assertTextEquals("When the RFQ expires")
+        composeTestRule.onNodeWithTag("rule-when-sender").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rule-when-rfq").assertDoesNotExist()
+
+        pick("rule-quotes-standing", "none")
+        assertEquals("none", latest.single().whenQuotes)
+
+        composeTestRule.onNodeWithTag("rule-on-message-0").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("", latest.single().whenMsgType, "back to a MsgType to type")
+    }
+
+    @Test
+    fun `a venue that declares nobody is not offered a trigger on expiry`() {
+        render(listOf(quoteRequest), counterparties = null)
+        openRule(0)
+        composeTestRule.onNodeWithTag("rule-choose-expiry-0").assertDoesNotExist()
     }
 
     @Test

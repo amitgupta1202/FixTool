@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.Counterparty
+import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.PartyRole
 
 /**
@@ -47,6 +48,10 @@ fun CounterpartiesEditor(
     counterparties: List<Counterparty>,
     onChange: (List<Counterparty>) -> Unit,
     modifier: Modifier = Modifier,
+    /** Seconds an RFQ stays open when its request names no ExpireTime, as typed. Blank: until something ends it. */
+    expirySeconds: String = "",
+    /** Null hides the field, for a caller that edits only the list. */
+    onExpiryChange: ((String) -> Unit)? = null,
 ) {
     // Dense rows of 16dp buttons: the same touch-target override, for the same reason, as AcceptorRulesEditor.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 16.dp) {
@@ -79,9 +84,40 @@ fun CounterpartiesEditor(
                     modifier = Modifier.testTag("counterparty-add"),
                 )
             }
+
+            // Beside the parties rather than among the connection settings, because it is a fact about the RFQs they
+            // negotiate: how long one stays open when its request does not say, which is when a rule on expiry fires.
+            onExpiryChange?.let { change ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text("An RFQ expires after", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+                    SlimField(
+                        value = expirySeconds,
+                        onValueChange = { typed -> change(typed.filter(Char::isDigit)) },
+                        modifier = Modifier.width(44.dp).testTag("rfq-expiry-seconds"),
+                        monospace = true,
+                        placeholder = "never",
+                    )
+                    Text(expiryMeaning(expirySeconds), color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
+                }
+            }
         }
     }
 }
+
+/** A venue's RFQ expiry as the field holds it: the seconds, or blank for never. */
+internal fun expiryText(config: FixConnectionConfig): String = config.rfqExpirySeconds?.let { "$it" } ?: ""
+
+/** What the RFQ expiry field says, beside it. */
+internal fun expiryMeaning(seconds: String): String =
+    if (seconds.toIntOrNull()?.takeIf { it > 0 } == null) {
+        "s, when its request names no ExpireTime: blank never expires one"
+    } else {
+        "s, when its request names no ExpireTime(126)"
+    }
 
 /** A requester first when there is none, a responder after: the order a tester fills an RFQ venue in. */
 internal fun nextRole(counterparties: List<Counterparty>): PartyRole =

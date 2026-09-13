@@ -88,6 +88,8 @@ fun Toolbar(
     onUnfollow: () -> Unit = {},
     /** The grid's direction colours, which the filter's IN and OUT segments print in. */
     messageColors: MessageColorScheme = MessageColorScheme.default(),
+    /** How many times ⌥⌘F has asked for the filter. See [FixMessageViewModel.focusGlobalFilter]. */
+    filterFocusRequests: Int = 0,
     onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
@@ -133,6 +135,7 @@ fun Toolbar(
                 onOutgoingChange = onFilterOutgoingChange,
                 onUnfollow = onUnfollow,
                 messageColors = messageColors,
+                focusRequests = filterFocusRequests,
                 modifier =
                     Modifier
                         .weight(FILTER_WEIGHT, fill = false)
@@ -738,7 +741,7 @@ fun ToolbarSessionControls(
             tag = "toolbar-disconnect-all",
             words = words,
             enabled = offer.enabled,
-            tooltip = offer.tooltip,
+            tooltip = WindowAction.DISCONNECT_ALL.withShortcut(offer.tooltip, offer.enabled),
         )
 
         CloseAllChip(viewModel, activeLoad, runningIds, words)
@@ -774,7 +777,12 @@ private fun CloseAllChip(
     val closing = ClosingAllPanes(panes)
     if (arming.isArmed(closing) && !offer.enabled) arming.disarm()
     val armed = arming.isArmed(closing)
-    val sentence = if (armed) "Close $panes pane${if (panes == 1) "" else "s"}? Click again." else offer.tooltip
+    val sentence =
+        if (armed) {
+            "Close $panes pane${if (panes == 1) "" else "s"}? Click again."
+        } else {
+            WindowAction.CLOSE_ALL.withShortcut(offer.tooltip, offer.enabled)
+        }
     ToolbarChip(
         icon = Icons.Default.Close,
         label = if (armed) "Close $panes?" else WindowAction.CLOSE_ALL.word,
@@ -786,11 +794,30 @@ private fun CloseAllChip(
             },
         onClick = { if (arming.confirm(closing)) viewModel.closeAllSessions() },
         tag = "toolbar-close-all",
-        words = words,
+        // **The question keeps its words on a folded toolbar.** ⌘⇧W or the Session menu can arm this chip
+        // while nobody is hovering it, and a folded chip says its sentence only on hover, so without its
+        // words the question would be asked where it cannot be read. For the few seconds it stands, the row
+        // is a word wider than its fold allowed.
+        words = words || armed,
         enabled = offer.enabled,
         tooltip = sentence,
     )
 }
+
+/**
+ * An offer's sentence with the action's shortcut after its name — "Close all · ⌘⇧W · 12 panes on 3 profiles" —
+ * while the action can be taken. A refused action's sentence is its reason and nothing else, because its key
+ * does nothing then either (see [dispatch]).
+ */
+private fun WindowAction.withShortcut(
+    sentence: String,
+    enabled: Boolean,
+): String =
+    if (enabled && chord != null && sentence.startsWith("$label ·")) {
+        hover + sentence.removePrefix(label)
+    } else {
+        sentence
+    }
 
 /**
  * A 28dp toolbar chip: an icon, a word, and a chevron when it opens a menu.

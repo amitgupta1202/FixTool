@@ -88,6 +88,20 @@ internal object Shortcuts {
     val BLANK_LINE = Chord(Key.B, "B")
     val BLANK_LINE_ALL_PANES = Chord(Key.B, "B", shift = true)
 
+    /**
+     * The toolbar's filter, which narrows every pane. ⌥ rather than the ⇧ its twins take, because ⌘⇧F is already
+     * Search all sessions: ⌘F, ⌘⇧F and ⌥⌘F are the three ways of narrowing what is on screen. Mail's ⌥⌘F is
+     * the same idea, the search field for everything beside ⌘F for the one message.
+     */
+    val FILTER_ALL_PANES = Chord(Key.F, "F", alt = true)
+
+    /** K is "clear" in Terminal and in a browser's console; ⇧ because it clears every pane. */
+    val CLEAR_ALL_PANES = Chord(Key.K, "K", shift = true)
+
+    /** ⇧, because both act on every session, the way ⌘⇧B and ⌘⇧F do. */
+    val DISCONNECT_ALL = Chord(Key.D, "D", shift = true)
+    val CLOSE_ALL = Chord(Key.W, "W", shift = true)
+
     /** ⌘⇧H. Not ⌥⌘H, which every Mac application menu already spends on Hide Others. */
     val HIDE_PROTOCOL_TAGS = Chord(Key.H, "H", shift = true)
 

@@ -1585,10 +1585,14 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     verb, and their shortcuts differ only by <code>&#8679;</code>: <code>&#8984;F</code> searches the active
     pane and <code>&#8984;&#8679;F</code> searches every session; <code>&#8984;B</code> adds a blank line to the
     active pane and <code>&#8984;&#8679;B</code> to every pane at once. With no pane on screen to search,
-    <code>&#8984;F</code> searches every session instead.</p>
+    <code>&#8984;F</code> searches every session instead. The toolbar's whole-window actions take the same
+    <code>&#8679;</code>: <code>&#8984;&#8679;K</code> clears every pane, <code>&#8984;&#8679;D</code>
+    disconnects every session and <code>&#8984;&#8679;W</code> closes every pane. The one that cannot is the
+    toolbar's filter, <code>&#8984;&#8997;F</code>, because <code>&#8984;&#8679;F</code> is already Search all
+    sessions.</p>
 
     <p><strong>Close session and Close all ask in the menu too, and it is the same question.</strong> Choosing
-    either arms it: the row reads <em>Close RFQ Client 1?</em> or <em>Close 3 panes?</em>, the button beside the
+    either arms it, and so does <code>&#8984;&#8679;W</code>: the row reads <em>Close RFQ Client 1?</em> or <em>Close 3 panes?</em>, the button beside the
     thing turns amber and says the same, and choosing the row again &mdash; or clicking the armed button &mdash;
     is the answer. The question gives up by itself after a few seconds. The &times; on a session's tab asks the
     same way; it used to close on a single click, which made the tabs layout the one place a pane's messages
@@ -1609,6 +1613,11 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
         <tr><td><code>&#8984;&#8679;F12</code></td><td>Hide all tool windows, and put them back</td></tr>
         <tr><td><code>&#8984;F</code> / <code>&#8984;&#8679;F</code></td><td>Search in pane / Search all sessions</td></tr>
         <tr><td><code>&#8984;B</code> / <code>&#8984;&#8679;B</code></td><td>Add blank line / Add blank line to all panes</td></tr>
+        <tr><td><code>&#8984;&#8997;F</code></td><td>Filter all panes: the keyboard goes to the toolbar's filter with its
+            pattern selected, and <code>Esc</code> leaves the box with the pattern kept</td></tr>
+        <tr><td><code>&#8984;&#8679;K</code></td><td>Clear all panes, on one press, as the button does</td></tr>
+        <tr><td><code>&#8984;&#8679;D</code></td><td>Disconnect all</td></tr>
+        <tr><td><code>&#8984;&#8679;W</code></td><td>Close all, which asks: press it again to close</td></tr>
         <tr><td><code>&#8984;&#8679;H</code></td><td>Hide protocol tags</td></tr>
         <tr><td><code>&#8963;R</code></td><td>Run or stop what the run widget names</td></tr>
         <tr><td><code>&#8984;,</code></td><td>Settings</td></tr>
@@ -2782,7 +2791,8 @@ ${incoming["D"].valueOfTag(38)}
     <p>It sits in the middle of the toolbar, between the workspace and the connect controls, and it is
     always there.</p>
     <ul>
-        <li><strong>Regex</strong>: <em>Filter all panes (regex)</em>, the box in the middle of the row.</li>
+        <li><strong>Regex</strong>: <em>Filter all panes (regex)</em>, the box in the middle of the row.
+        <code>&#8984;&#8997;F</code> (Ctrl+Alt+F off a Mac) puts the keyboard in it with the pattern selected.</li>
         <li><strong>Both / IN / OUT</strong>: the three segments beside it, the grid's own <code>IN</code> and
         <code>OUT</code> in the grid's colours. The pressed one is what every pane shows: both directions,
         incoming only, or outgoing only. They keep their words at every window width.</li>

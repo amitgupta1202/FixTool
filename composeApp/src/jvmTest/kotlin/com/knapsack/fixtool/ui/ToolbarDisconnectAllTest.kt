@@ -104,7 +104,8 @@ class ToolbarDisconnectAllTest {
             composeTestRule
                 .onNodeWithTag("toolbar-disconnect-all")
                 .assertHasClickAction()
-                .assertContentDescriptionContains("Disconnect all · 2 sessions on 1 profile")
+                // The shortcut after the name, while pressing it would do something.
+                .assertContentDescriptionContains("Disconnect all · ${Shortcuts.DISCONNECT_ALL.label} · 2 sessions on 1 profile")
 
             // No confirmation dialog between the click and the sessions going down.
             composeTestRule.onNodeWithTag("toolbar-disconnect-all").performClick()

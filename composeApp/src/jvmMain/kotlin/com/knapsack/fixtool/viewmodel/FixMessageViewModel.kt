@@ -2128,6 +2128,14 @@ class FixMessageViewModel(
     val globalFilterShowOutgoing: StateFlow<Boolean> = _globalFilterShowOutgoing.asStateFlow()
 
     /**
+     * **How many times the toolbar's filter has been asked for the keyboard.** A count rather than a flag, so
+     * asking twice in a row is two asks: the box takes focus and selects its pattern each time it goes up.
+     * See [focusGlobalFilter].
+     */
+    private val _globalFilterFocusRequests = MutableStateFlow(0)
+    val globalFilterFocusRequests: StateFlow<Int> = _globalFilterFocusRequests.asStateFlow()
+
+    /**
      * **The one followed trace, and the cross-session grouping behind it.**
      *
      * App-level, unlike grouping and collapse, which are per session — see [TraceFollow] for why that
@@ -6895,6 +6903,16 @@ class FixMessageViewModel(
 
     fun setGlobalFilterShowOutgoing(show: Boolean) {
         _globalFilterShowOutgoing.value = show
+    }
+
+    /**
+     * Put the keyboard in the toolbar's filter, with its pattern selected so typing replaces it.
+     *
+     * The filter has been on the toolbar in the open for a while, which settled whether it can be *seen*; this
+     * is whether it can be *reached* without taking a hand off the keyboard. ⌥⌘F, from the Session menu.
+     */
+    fun focusGlobalFilter() {
+        _globalFilterFocusRequests.value += 1
     }
 
     /**

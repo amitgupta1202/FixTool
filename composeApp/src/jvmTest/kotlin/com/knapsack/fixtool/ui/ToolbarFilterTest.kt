@@ -6,13 +6,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import org.junit.Rule
 import org.junit.Test
@@ -31,6 +40,7 @@ import kotlin.test.assertEquals
  * controls are always on screen, so the regex is in its box and one direction segment is pressed whether
  * anybody asked for them or not. These are the tests that stop that being quietly undone.
  */
+@OptIn(ExperimentalTestApi::class)
 class ToolbarFilterTest {
     @get:Rule
     val composeTestRule = createComposeRule()
@@ -154,6 +164,51 @@ class ToolbarFilterTest {
         composeTestRule.onNodeWithTag("toolbar-filter-both").assertTextEquals("Both")
         composeTestRule.onNodeWithTag("toolbar-filter-in").assertTextEquals("IN")
         composeTestRule.onNodeWithTag("toolbar-filter-out").assertTextEquals("OUT")
+    }
+
+    /**
+     * **⌥⌘F puts the keyboard in the box with the pattern selected, and Esc leaves it with the pattern kept.**
+     * A request is a count, so the window opening (zero) does not take the keyboard, and each ask does.
+     */
+    @Test
+    fun `a focus request selects the pattern, and Esc leaves the box without clearing it`() {
+        var regex by mutableStateOf("35=8")
+        var requests by mutableStateOf(0)
+        composeTestRule.setContent {
+            ToolbarFilter(
+                query = FilterQuery(global = MessageFilters.Global(regex = regex)),
+                onRegexChange = { regex = it },
+                focusRequests = requests,
+            )
+        }
+        val box = composeTestRule.onNodeWithTag("toolbar-filter-regex")
+        box.assertIsNotFocused()
+
+        requests++
+        composeTestRule.waitForIdle()
+
+        box.assertIsFocused()
+        assertEquals(
+            TextRange(0, 4),
+            box.fetchSemanticsNode().config[SemanticsProperties.TextSelectionRange],
+            "the whole pattern is selected, so typing replaces it",
+        )
+
+        box.performKeyInput { pressKey(Key.Escape) }
+        composeTestRule.waitForIdle()
+
+        box.assertIsNotFocused()
+        assertEquals("35=8", regex, "leaving the box does not change the filter")
+    }
+
+    /** The placeholder is read before anybody reaches for the box, so it is where the shortcut is taught. */
+    @Test
+    fun `the empty box names its shortcut`() {
+        composeTestRule.setContent { ToolbarFilter() }
+
+        composeTestRule
+            .onNodeWithText("Filter all panes (regex) · ${Shortcuts.FILTER_ALL_PANES.label}")
+            .assertExists()
     }
 
     @Test

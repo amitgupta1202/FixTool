@@ -17,18 +17,33 @@ import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -142,6 +157,8 @@ fun ToolbarFilter(
     onUnfollow: () -> Unit = {},
     /** The grid's direction colours, so `IN` and `OUT` here are the `IN` and `OUT` of every pane. */
     messageColors: MessageColorScheme = MessageColorScheme.default(),
+    /** Goes up each time ⌥⌘F asks for the box. See [FixMessageViewModel.focusGlobalFilter]. */
+    focusRequests: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -163,7 +180,7 @@ fun ToolbarFilter(
         // be the app narrowing a view without saying so.
         if (query.followingLabel != null) FollowingChip(query, onUnfollow)
 
-        RegexField(query.global.regex, onRegexChange, modifier = Modifier.weight(1f))
+        RegexField(query.global.regex, onRegexChange, focusRequests, modifier = Modifier.weight(1f))
 
         DirectionSegments(
             current = DirectionChoice.of(query.global.showIncoming, query.global.showOutgoing),
@@ -231,13 +248,43 @@ private fun FollowingChip(
     }
 }
 
-/** The pattern every pane is narrowed by, typed straight through: a filter that lags is a filter that lies. */
+/**
+ * The pattern every pane is narrowed by, typed straight through: a filter that lags is a filter that lies.
+ *
+ * **⌥⌘F puts the keyboard here with the pattern selected**, so typing replaces it and an arrow keeps it. The
+ * text is always [regex], exactly as the plain-string field this was drew it, and only the selection is held
+ * here, because a selection is the one thing a string cannot carry. Keeping a copy of the text as well would
+ * be a second place for the pattern to live, and the copy would lose keystrokes to the frame the view model's
+ * value takes to come back.
+ *
+ * **Esc leaves the box and keeps the pattern.** Clearing it on Esc would be a filter changing without anybody
+ * choosing to change it, and leaving is what Esc means in every other field.
+ */
 @Composable
 private fun RegexField(
     regex: String,
     onRegexChange: (String) -> Unit,
+    focusRequests: Int,
     modifier: Modifier = Modifier,
 ) {
+    var selection by remember { mutableStateOf(TextRange(regex.length)) }
+    var composition by remember { mutableStateOf<TextRange?>(null) }
+    val field =
+        TextFieldValue(
+            text = regex,
+            selection = TextRange(selection.start.coerceIn(0, regex.length), selection.end.coerceIn(0, regex.length)),
+            composition = composition?.takeIf { it.max <= regex.length },
+        )
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    // Skips the initial zero: a window opening does not put the keyboard in the filter.
+    LaunchedEffect(focusRequests) {
+        if (focusRequests > 0) {
+            selection = TextRange(0, regex.length)
+            // Not composed, as on a toolbar under a dialog, is a request with nowhere to go, not a crash.
+            runCatching { focus.requestFocus() }
+        }
+    }
     Row(
         modifier =
             modifier
@@ -247,9 +294,18 @@ private fun RegexField(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicTextField(
-            value = regex,
-            onValueChange = onRegexChange,
-            modifier = Modifier.fillMaxWidth().testTag("toolbar-filter-regex"),
+            value = field,
+            onValueChange = { next ->
+                selection = next.selection
+                composition = next.composition
+                if (next.text != regex) onRegexChange(next.text)
+            },
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus)
+                    .leavesOnEscape { focusManager.clearFocus() }
+                    .testTag("toolbar-filter-regex"),
             singleLine = true,
             textStyle = TextStyle(fontSize = 11.sp, color = AppTheme.Colors.text),
             cursorBrush = SolidColor(AppTheme.Colors.primary),
@@ -257,7 +313,9 @@ private fun RegexField(
                 Box {
                     if (regex.isEmpty()) {
                         Text(
-                            text = "Filter all panes (regex)",
+                            // The shortcut goes in the placeholder, which is the one place on this box that is
+                            // read before anybody reaches for it.
+                            text = "${WindowAction.FILTER_ALL.label} (regex) · ${Shortcuts.FILTER_ALL_PANES.label}",
                             fontSize = 11.sp,
                             color = AppTheme.Colors.textSecondary,
                             maxLines = 1,
@@ -269,6 +327,14 @@ private fun RegexField(
         )
     }
 }
+
+/** Esc gives the keyboard back, and is consumed so it does not go on to stop a followed trace as well. */
+private fun Modifier.leavesOnEscape(leave: () -> Unit): Modifier =
+    onPreviewKeyEvent { event ->
+        val leaves = event.type == KeyEventType.KeyDown && event.key == Key.Escape
+        if (leaves) leave()
+        leaves
+    }
 
 /**
  * **Both, IN and OUT, joined.** The layout segments' construction, so the toolbar has one pressed look.

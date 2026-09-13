@@ -703,11 +703,34 @@ class HelpDocTest {
                 "quitting logs sessions out" to "Quitting from it logs every session out first",
                 "shortcuts work wherever focus is" to "They work wherever focus is",
                 "the terminal keeps the shell's keys" to "in the terminal is the shell's reverse search, not Run",
+                "the filter takes option, because shift-F is taken" to
+                    "because <code>&#8984;&#8679;F</code> is already Search all sessions",
+                "close all by key asks too" to "and so does <code>&#8984;&#8679;W</code>",
             )
         val flat = chapter.flat()
         val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the menu bar chapter no longer says: $missing")
+    }
+
+    /**
+     * **Every toolbar action's shortcut is in the guide's table.** The table is the one place the shortcuts are
+     * listed, and a shortcut added to a chip and a menu row but not to it is a shortcut a reader of the guide
+     * never learns — which is how the stripe digits went unfound for as long as they did.
+     */
+    @Test
+    fun `every toolbar action's shortcut is in the guide's shortcut table`() {
+        val table = html.substringAfter("The shortcuts, in one place:").substringBefore("</table>")
+        val entities = mapOf('⌘' to "&#8984;", '⇧' to "&#8679;", '⌥' to "&#8997;", '⌃' to "&#8963;")
+
+        val missing =
+            WindowAction.entries
+                .mapNotNull { action -> action.chord?.let { action.label to it.label(mac = true) } }
+                .filterNot { (_, key) ->
+                    "<code>${key.map { entities[it] ?: it.toString() }.joinToString("")}</code>" in table
+                }
+
+        assertTrue(missing.isEmpty(), "shortcuts the guide's table does not list: $missing")
     }
 
     /** The trace chapter, by what makes a trace different from a search box with a regex in it. */

@@ -126,6 +126,7 @@ private fun AppContent(
         val globalFilterRegex by viewModel.globalFilterRegex.collectAsState()
         val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
         val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
+        val globalFilterFocusRequests by viewModel.globalFilterFocusRequests.collectAsState()
 
         /**
          * The toolbar's filter as one value, so both layouts hand [MessageFilters] the same thing.
@@ -311,6 +312,7 @@ private fun AppContent(
                     onFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                     onUnfollow = { viewModel.unfollow() },
                     messageColors = viewModel.appSettings.messageColorScheme,
+                    filterFocusRequests = globalFilterFocusRequests,
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },

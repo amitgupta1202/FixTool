@@ -207,6 +207,7 @@ class AppMenusTest {
                 "—",
                 "Capture scenario from all sessions",
                 "Search all sessions",
+                "Filter all panes",
                 "Add blank line to all panes",
                 "Clear all panes",
             ),
@@ -217,6 +218,13 @@ class AppMenusTest {
         assertEquals("⌘B", item("menu-pane-blank-line").chord?.label(mac = true))
         assertEquals("⌘⇧B", item("menu-blank-line-all").chord?.label(mac = true))
         assertEquals("Ctrl+Shift+B", item("menu-blank-line-all").chord?.label(mac = false))
+        // The toolbar's whole-window actions, each a letter with ⇧ because each acts on every pane or session —
+        // except the filter, whose ⇧F is already Search all sessions, so it takes ⌥.
+        assertEquals("⌘⌥F", item("menu-filter-all").chord?.label(mac = true))
+        assertEquals("Ctrl+Alt+F", item("menu-filter-all").chord?.label(mac = false))
+        assertEquals("⌘⇧K", item("menu-clear-all").chord?.label(mac = true))
+        assertEquals("⌘⇧D", item("menu-disconnect-all").chord?.label(mac = true))
+        assertEquals("⌘⇧W", item("menu-close-all").chord?.label(mac = true))
     }
 
     /** The toolbar is the favourites and the menu bar is the catalogue, so every favourite is in it. */
@@ -270,14 +278,46 @@ class AppMenusTest {
         assertTrue(menus.dispatch(press(Key.H, shift = true)))
         assertEquals(!hidden, viewModel.appSettings.hideProtocolTags)
 
+        // ⌘⌥F is not ⌘F: Option must match, so it asks for the toolbar's filter and opens no search.
+        @OptIn(InternalComposeUiApi::class)
+        val optionF = KeyEvent(Key.F, KeyEventType.KeyDown, isMetaPressed = true, isAltPressed = true)
+        assertTrue(menus.dispatch(optionF))
+        assertEquals(1, viewModel.globalFilterFocusRequests.value)
+        assertFalse(viewModel.showGlobalSearchDialog.value)
+
         // ⌘F with no pane on screen searches every session, as it always has.
         assertTrue(menus.dispatch(press(Key.F)))
         assertTrue(viewModel.showGlobalSearchDialog.value)
+    }
 
-        // ⌘⌥F is not ⌘F: Option must match, so the two stay free to mean different things.
-        @OptIn(InternalComposeUiApi::class)
-        val optionF = KeyEvent(Key.F, KeyEventType.KeyDown, isMetaPressed = true, isAltPressed = true)
-        assertFalse(menus.dispatch(optionF))
+    /**
+     * **Close all by key asks the toolbar's question, and the second press answers it**, because a key is a
+     * door to the same loss the chip guards. Clear all panes does not ask, by key or by click: a cleared pane
+     * refills as soon as traffic flows, which is the line LosingSomething.kt draws.
+     */
+    @Test
+    fun `Close all by key arms and a second press closes, while Clear all panes clears on one press`() {
+        connectedPane("KEYSALL")
+        compose { Column { ToolbarSessionControls(viewModel) } }
+
+        assertTrue(menus.dispatch(press(Key.K, shift = true)), "Clear all panes answers its key")
+
+        assertTrue(menus.dispatch(press(Key.W, shift = true)))
+        rule.waitForIdle()
+        assertEquals(1, viewModel.sessions.size, "the first press asks, it does not close")
+        rule.onNodeWithTag("toolbar-close-all").assertContentDescriptionContains("Close 1 pane? Click again.")
+
+        assertTrue(menus.dispatch(press(Key.W, shift = true)))
+        rule.waitUntil(25_000) { viewModel.sessions.isEmpty() }
+    }
+
+    /** Nothing connected, so Disconnect all is greyed, and a greyed row lets its key through. */
+    @Test
+    fun `Disconnect all by key with nothing connected answers nothing`() {
+        compose()
+
+        assertFalse(item("menu-disconnect-all").enabled)
+        assertFalse(menus.dispatch(press(Key.D, shift = true)))
     }
 
     /**

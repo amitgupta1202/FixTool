@@ -194,39 +194,56 @@ private fun sessionMenu(viewModel: FixMessageViewModel): AppMenu {
                 WindowAction.DISCONNECT_ALL.label,
                 "menu-disconnect-all",
                 { viewModel.disconnectAllSessions() },
+                chord = WindowAction.DISCONNECT_ALL.chord,
                 enabled = viewModel.disconnectAllOffer(activeLoad, runningIds).enabled,
             ),
             MenuItem(
                 if (arming.isArmed(closingAll)) "Close $panes pane${plural(panes)}?" else WindowAction.CLOSE_ALL.label,
                 "menu-close-all",
                 { if (arming.confirm(closingAll)) viewModel.closeAllSessions() },
+                chord = WindowAction.CLOSE_ALL.chord,
                 enabled = closeAll.enabled,
             ),
-        )
-    val everyPane =
-        listOf(
-            MenuItem(WindowAction.CAPTURE.label, "menu-capture", { viewModel.captureAllSessionsToEditor() }),
-            MenuItem(
-                WindowAction.SEARCH_ALL.label,
-                "menu-search-all",
-                { viewModel.toggleGlobalSearchDialog() },
-                chord = WindowAction.SEARCH_ALL.chord,
-            ),
-            MenuItem(
-                WindowAction.BLANK_LINE_ALL.label,
-                "menu-blank-line-all",
-                { viewModel.addSeparatorToAllSessions() },
-                chord = WindowAction.BLANK_LINE_ALL.chord,
-            ),
-            MenuItem(WindowAction.CLEAR_ALL.label, "menu-clear-all", { viewModel.clearAllSessions() }),
         )
     return AppMenu(
         title = "Session",
         rows =
             sessions + MenuSeparator("menu-session-rule-1") + paneRows(viewModel, arming) +
-                MenuSeparator("menu-session-rule-2") + everyPane,
+                MenuSeparator("menu-session-rule-2") + everyPaneRows(viewModel),
     )
 }
+
+/** What every pane can do at once: the toolbar's Capture, Search, filter, Blank line and Clear all. */
+private fun everyPaneRows(viewModel: FixMessageViewModel): List<MenuRow> =
+    listOf(
+        MenuItem(WindowAction.CAPTURE.label, "menu-capture", { viewModel.captureAllSessionsToEditor() }),
+        MenuItem(
+            WindowAction.SEARCH_ALL.label,
+            "menu-search-all",
+            { viewModel.toggleGlobalSearchDialog() },
+            chord = WindowAction.SEARCH_ALL.chord,
+        ),
+        MenuItem(
+            WindowAction.FILTER_ALL.label,
+            "menu-filter-all",
+            { viewModel.focusGlobalFilter() },
+            chord = WindowAction.FILTER_ALL.chord,
+        ),
+        MenuItem(
+            WindowAction.BLANK_LINE_ALL.label,
+            "menu-blank-line-all",
+            { viewModel.addSeparatorToAllSessions() },
+            chord = WindowAction.BLANK_LINE_ALL.chord,
+        ),
+        // One press and one click, as the chip is: a cleared pane refills the moment traffic flows, which is
+        // the line LosingSomething.kt draws between asking and not.
+        MenuItem(
+            WindowAction.CLEAR_ALL.label,
+            "menu-clear-all",
+            { viewModel.clearAllSessions() },
+            chord = WindowAction.CLEAR_ALL.chord,
+        ),
+    )
 
 /**
  * Connect's profiles: pick one and it connects, as the toolbar's Connect ▾ does.

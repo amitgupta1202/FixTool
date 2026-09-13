@@ -14,12 +14,15 @@ internal enum class WindowAction(
     val chord: Chord? = null,
 ) {
     CONNECT("Connect"),
-    DISCONNECT_ALL("Disconnect all"),
-    CLOSE_ALL("Close all"),
+    DISCONNECT_ALL("Disconnect all", chord = Shortcuts.DISCONNECT_ALL),
+    CLOSE_ALL("Close all", chord = Shortcuts.CLOSE_ALL),
     CAPTURE("Capture scenario from all sessions", word = "Capture"),
     SEARCH_ALL("Search all sessions", word = "Search", chord = Shortcuts.SEARCH_ALL_SESSIONS),
+
+    /** The regex box has no chip to print a word; its placeholder prints [label] and the shortcut. */
+    FILTER_ALL("Filter all panes", chord = Shortcuts.FILTER_ALL_PANES),
     BLANK_LINE_ALL("Add blank line to all panes", word = "Blank line", chord = Shortcuts.BLANK_LINE_ALL_PANES),
-    CLEAR_ALL("Clear all panes", word = "Clear all"),
+    CLEAR_ALL("Clear all panes", word = "Clear all", chord = Shortcuts.CLEAR_ALL_PANES),
     SETTINGS("Settings…", word = "Settings", chord = Shortcuts.SETTINGS),
     HELP("Help"),
     ;

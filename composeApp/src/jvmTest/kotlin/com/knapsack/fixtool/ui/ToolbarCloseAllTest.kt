@@ -4,8 +4,10 @@ import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -100,7 +102,9 @@ class ToolbarCloseAllTest {
         composeTestRule
             .onNodeWithTag("toolbar-close-all")
             .assertHasClickAction()
-            .assertContentDescriptionContains("Close all · 2 panes on 1 profile. Their messages go with them.")
+            .assertContentDescriptionContains(
+                "Close all · ${Shortcuts.CLOSE_ALL.label} · 2 panes on 1 profile. Their messages go with them.",
+            )
 
         // Armed, and nothing has happened yet: this is the click a stray press would have cost you.
         composeTestRule.onNodeWithTag("toolbar-close-all").performClick()
@@ -113,6 +117,48 @@ class ToolbarCloseAllTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("toolbar-close-all").assertContentDescriptionContains("No session is open")
     }
+
+    /**
+     * **A folded chip asks its question in words.** ⌘⇧W and the Session menu arm this chip while nobody hovers
+     * it, and a folded chip says its sentence only on hover, so the question would be asked where it cannot be
+     * read. For as long as it is armed it wears its words, whatever the toolbar's fold took from it.
+     */
+    @Test
+    fun `an armed Close all shows its question even on a toolbar folded to glyphs`() {
+        val profile = unreachable("FOLDED", sessions = 1)
+        composeTestRule.setContent { ToolbarSessionControls(viewModel, words = false) }
+        viewModel.connectProfile(profile.id, profile)
+        composeTestRule.waitUntil(25_000) { viewModel.sessions.size == 1 }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Close all").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("toolbar-close-all").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("toolbar-close-all").assertTextContains("Close 1?")
+    }
+
+    private fun unreachable(
+        name: String,
+        sessions: Int,
+    ): FixConnectionProfile =
+        FixConnectionProfile(
+            name = name,
+            config =
+                FixConnectionConfig(
+                    connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                    senderCompID = "$name{nn}${System.nanoTime().toString().takeLast(6)}",
+                    targetCompID = "VENUE",
+                    sessionCount = sessions,
+                    host = "localhost",
+                    port = "1",
+                    socketConnectHost = "localhost",
+                    beginString = "FIX.4.4",
+                    autoReconnect = false,
+                    fileStorePath = File(testDir, "store").absolutePath,
+                    fileLogPath = File(testDir, "log").absolutePath,
+                ),
+        ).also { viewModel.saveConnectionProfile(it) }
 
     /**
      * A live load run refuses this for the same reason it refuses Disconnect all, in the same words: the

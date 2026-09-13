@@ -105,6 +105,8 @@ fun AcceptorRulesEditor(
     counterparties: List<Counterparty>? = null,
     /** The CompIDs logged on to the venue now, so a step can say who it would reach. Null: not known. */
     onlineCompIds: Set<String>? = null,
+    /** True for an initiator's rules, which answer only the counterparty it is connected to. */
+    initiator: Boolean = false,
 ) {
     // ---- why the touch target is set here
     //
@@ -121,7 +123,7 @@ fun AcceptorRulesEditor(
     // each button of each row on this surface.
     CompositionLocalProvider(
         LocalMinimumInteractiveComponentSize provides 16.dp,
-        LocalRelayContext provides RelayContext(counterparties, onlineCompIds),
+        LocalRelayContext provides RelayContext(counterparties, onlineCompIds, initiator),
     ) {
         AcceptorRulesEditorContent(
             rules,
@@ -708,7 +710,8 @@ private fun RuleCard(
         // Said here because there is nowhere else it can be said: a rule that cannot reply looks
         // configured, and the engine only warns to a log nobody has open. Judged against the venue's
         // counterparties when the caller has them, which is what the venue itself will judge it against.
-        rule.validationError(LocalRelayContext.current.counterparties)?.let { problem ->
+        val relay = LocalRelayContext.current
+        rule.validationError(relay.counterparties, relay.initiator)?.let { problem ->
             Text(
                 text = "⚠ $problem",
                 color = AppTheme.Colors.warning,

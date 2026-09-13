@@ -7,9 +7,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.ResponseStep
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -137,6 +139,29 @@ class CounterpartiesEditorTest {
 
         save()
         assertTrue(assertNotNull(saved).config.counterparties.isEmpty())
+    }
+
+    @Test
+    fun `an initiator is offered rules, which it answers by, and never counterparties, which only a venue has`() {
+        val dealer =
+            FixConnectionProfile(
+                id = "dealer-1",
+                name = "DEALER",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "FIDLR1",
+                        targetCompID = "FIRFQ",
+                        host = "localhost",
+                        port = "19880",
+                        acceptorResponseRules =
+                            listOf(AcceptorResponseRule(whenMsgType = "R", steps = listOf(ResponseStep("35=S|131=\${req.131}|")))),
+                    ),
+            )
+        open(dealer)
+
+        composeTestRule.onNodeWithText("Auto-Responses").assertExists()
+        composeTestRule.onNodeWithTag("counterparties-section").assertDoesNotExist()
     }
 
     // ------------------------------------------------------------------ what each row is told

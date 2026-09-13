@@ -3839,10 +3839,12 @@ ${incoming["D"].valueOfTag(38)}
 
     <h3>Where the rules live</h3>
 
-    <p>Open the <strong>Connection</strong> panel and select an acceptor profile. Below the connection
-    fields is a collapsible <strong>Auto-Responses</strong> section &mdash; shown for
-    <strong>acceptor profiles only</strong>, with the rule count beside its title, and already expanded if
-    the profile has any. (A profile whose acceptor answers orders on its own should never look, at a
+    <p>Open the <strong>Connection</strong> panel and select a profile. Below the connection fields is a
+    collapsible <strong>Auto-Responses</strong> section, with the rule count beside its title, and already
+    expanded if the profile has any. An acceptor answers by its rules; an <strong>initiator</strong> answers
+    by them too as soon as it has one &mdash; a dealer that quotes the RFQs a venue relays to it, by itself &mdash;
+    and with none it behaves exactly as it always has. An initiator's rules answer only the counterparty it is
+    connected to. (A profile whose acceptor answers orders on its own should never look, at a
     glance, like one that stays silent.) The header line summarises the whole list: <em>"3 rule(s), first
     match wins · 1 off"</em>.</p>
 

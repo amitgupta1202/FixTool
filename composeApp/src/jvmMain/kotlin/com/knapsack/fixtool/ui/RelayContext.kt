@@ -10,6 +10,8 @@ import com.knapsack.fixtool.model.Counterparty
 internal data class RelayContext(
     val counterparties: List<Counterparty>? = null,
     val onlineCompIds: Set<String>? = null,
+    /** The rules are an initiator's, which can address nobody but the one counterparty it is connected to. */
+    val initiator: Boolean = false,
 )
 
 /**

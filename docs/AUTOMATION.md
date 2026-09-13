@@ -351,7 +351,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | -------------------- | -------------------------------------- | ---------------------------------------------------- |
 | `GET /syntax`        | —                                      | `text/markdown`: the template-expression + matcher reference (see below) |
 | `GET /health`        | —                                      | `{status, sessionCount, version}`                    |
-| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …); an ACCEPTOR session also carries an `acceptor` block, and a venue's per-client session carries `venueClientOf` — see below. A pane sent to the strip above the grid reports `minimized: true`, which is what a caller counting panes on screen needs; it says nothing about the session, which keeps running |
+| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …); a session that answers by rule (an ACCEPTOR, or an INITIATOR with rules) also carries an `acceptor` block, and a venue's per-client session carries `venueClientOf` — see below. A pane sent to the strip above the grid reports `minimized: true`, which is what a caller counting panes on screen needs; it says nothing about the session, which keeps running |
 | `GET /profiles`      | —                                      | array of connection profiles (summary: id, name, type, host, port, CompIDs) |
 | `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
@@ -832,7 +832,11 @@ curl -s $B/sessions      # → Venue (CONNECTED) + "Venue ← BUYSIDE1", "Venue 
 ### Acceptor auto-responses
 
 When FixTool runs as an **acceptor** (`connectionType: ACCEPTOR`), it can auto-respond to incoming
-application messages using rules carried on the profile's config as `acceptorResponseRules`. Each
+application messages using rules carried on the profile's config as `acceptorResponseRules`. An
+**initiator** does too once it has at least one rule: a client that answers what it is sent — a dealer that
+quotes the RFQs a venue relays to it, or every lane of a dealer load client. An initiator's rules answer only
+the counterparty it is connected to, so `to`, roles, RFQ states and `whenResponders` are refused on one, and an
+initiator with no rules behaves exactly as it always has. Each
 rule is `{whenMsgType, conditions?, steps, enabled?}`; the first **enabled** rule whose whole trigger
 matches the incoming message wins. `enabled` defaults true; a rule switched off is kept and skipped, so
 the message falls through to the rule after it — which is what an author toggling one off is asking to
@@ -1250,8 +1254,8 @@ actually read off the message, with `absent: true` when the tag is not there at 
 commonest cause of a rule that never fires and the one an empty string would hide. A rule that never
 reached the matcher says `skipped` (disabled, or an unusable trigger); a rule that matched but lost
 says `shadowedBy: <index>`. For the winner it renders the whole reply — each step's exact FIX text
-with `${req.<tag>}` already substituted, and the offset it goes out at. `inactive` appears when the
-profile is not an `ACCEPTOR`, in which case none of the rules would ever run.
+with `${req.<tag>}` already substituted, and the offset it goes out at. A rule on an `INITIATOR` runs
+too, answering the counterparty that initiator is connected to.
 
 The evaluation is the same code the wire uses (`AcceptorResponder.explain` shares its per-condition
 judgement with `firstMatch`, and the reply comes from `plan`), so a dry run cannot pass where the

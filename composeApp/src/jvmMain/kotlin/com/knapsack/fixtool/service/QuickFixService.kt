@@ -266,6 +266,14 @@ class QuickFixService(
     }
 
     /**
+     * Whether this session answers by rule. Read off the rules **in force**, not off [config]: a save swaps
+     * [authoredRules] under a live session and leaves [config] as it connected, so an initiator connected with no
+     * rules and given one by Save starts answering at the next message. See [FixConnectionConfig.answersByRule].
+     */
+    private fun answersByRule(): Boolean =
+        config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR || authoredRules.isNotEmpty()
+
+    /**
      * Swaps in a ruleset saved since this session connected, without dropping the session.
      *
      * Returns how many rules are now live — which is not necessarily how many were passed, since a
@@ -455,11 +463,11 @@ class QuickFixService(
      * matched and whose reply is still sitting in the dispatch queue behind a delay. Those look the
      * same in the log (nothing there yet) and have completely different causes.
      *
-     * Null for a session that is not an acceptor, so the caller reports the section only where it
+     * Null for a session that does not answer by rule, so the caller reports the section only where it
      * means something rather than showing five zeroes on every initiator.
      */
     fun acceptorStatus(): AcceptorStatus? {
-        if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return null
+        if (!answersByRule()) return null
         return AcceptorStatus(
             rulesLive = compiledRules.size,
             latencyActive = acceptorLatency.isActive(),
@@ -832,16 +840,17 @@ class QuickFixService(
     /**
      * Records one application message against this counterparty's order book.
      *
-     * **Acceptors only.** The book is what a venue is holding *for a client*; a client's own view of
-     * the orders it has sent is a different feature for a different user, and is named as out of
-     * scope in `docs/acceptor-order-state-proposal.md`.
+     * **Only where rules run.** The book is what a venue is holding *for a client*, and what a rule reads;
+     * a client's own view of the orders it has sent is a different feature for a different user, and is
+     * named as out of scope in `docs/acceptor-order-state-proposal.md`. An initiator with rules keeps one
+     * because its rules read it — a dealer's `whenQuote` asks the quotes it sent.
      *
      * Failure here is swallowed on purpose and logged without notifying: the book is a view of the
      * conversation, and no defect in it may cost the user the conversation itself.
      */
     @Suppress("TooGenericExceptionCaught")
     private fun book(sessionId: SessionID, fixMessage: FixMessage, message: Message, sent: Boolean) {
-        if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
+        if (!answersByRule()) return
         try {
             // The RFQ book first, and only on a venue that declares who plays what. It claims one thing: a fill
             // it relayed to a dealer, whose ClOrdID that dealer's order book never saw on an order.
@@ -958,9 +967,8 @@ class QuickFixService(
     }
 
     /**
-     * When running as an acceptor with response rules, replies to [incoming] using the first
-     * matching rule. A no-op for initiators or rule-less acceptors, so existing behaviour is
-     * unchanged.
+     * Replies to [incoming] using the first matching rule, on an acceptor or on an initiator that has
+     * rules. A no-op everywhere else, so a session without rules behaves exactly as it always has.
      *
      * Reading [incoming] happens here, on the callback thread, because that message belongs to this
      * call — so the plan's `${req.<tag>}` substitutions are fixed before anything is queued. The
@@ -981,7 +989,7 @@ class QuickFixService(
         /** The sender's role and the RFQ before this message, on a venue that relays. */
         venueBefore: VenueReading? = null,
     ) {
-        if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
+        if (!answersByRule()) return
         val rule =
             AcceptorResponder.firstMatch(compiledRules, incoming, heldBefore, quotedBefore, venueBefore) ?: return
         triggersMatched.incrementAndGet()

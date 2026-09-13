@@ -803,8 +803,8 @@ object McpTools {
                     "rule that never fires), whether the rule was skipped because it is disabled or unusable, and " +
                     "`shadowedBy` when it matched but an earlier rule won. For the winning rule it renders the " +
                     "whole reply it would play: each step's exact FIX text with \${req.<tag>} already substituted, " +
-                    "and the offset it goes out at. Also reports `inactive` if the profile is not an ACCEPTOR, in " +
-                    "which case none of the rules would ever run. Offsets exclude the simulated latency, which is " +
+                    "and the offset it goes out at. Rules run on an ACCEPTOR, and on an INITIATOR that has any. " +
+                    "Offsets exclude the simulated latency, which is " +
                     "drawn per trigger and reported separately. It reads the profile as saved, which is also what " +
                     "a connected acceptor is running, so a dry run and a live session cannot disagree. " +
                     "A rule can also condition on what the venue is HOLDING (`whenOrder`), and a dry run of one has " +

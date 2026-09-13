@@ -10,7 +10,6 @@ import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.BookSpec
 import com.knapsack.fixtool.model.BookedOrder
-import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -50,6 +49,7 @@ import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
+import com.knapsack.fixtool.model.validationError
 import com.knapsack.fixtool.service.AcceptorPresets
 import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.BookView
@@ -272,13 +272,16 @@ class ControlServer(
             // [FixMessageSession.discarded]. Its absence means nothing was lost.
             val lost = session.discarded.value
             if (lost > 0) put("discarded", lost)
-            // Only on an acceptor, and only once it is running — five zeroes on every initiator would
-            // teach a reader to skip the section, the same reason `discarded` hides itself at zero.
+            // Only on a session that answers by rule — an acceptor, or an initiator with rules — and only once it
+            // is running: five zeroes on every other initiator would teach a reader to skip the section, the same
+            // reason `discarded` hides itself at zero.
             session.acceptorStatus()?.let { acceptor ->
                 put(
                     "acceptor",
                     buildJsonObject {
-                        put("acceptPort", session.currentConfig?.socketAcceptPort ?: "")
+                        val config = session.currentConfig
+                        // An initiator with rules has no port of its own to report.
+                        if (config?.isAcceptor() != false) put("acceptPort", config?.socketAcceptPort ?: "")
                         // Compiled and in force, which is not necessarily how many are saved: a
                         // disabled or unusable rule is compiled away. That difference is the answer
                         // to "I saved it, why does nothing happen".
@@ -466,18 +469,16 @@ class ControlServer(
     }
 
     /**
-     * How many of [profile]'s connected sessions a rule edit just reached, or null when the question
-     * does not arise (not an acceptor, or nothing connected).
+     * How many of [profile]'s connected sessions a rule edit just reached, or null when nothing is connected.
+     * An initiator counts too: its sessions answer by rule as soon as it has one.
      *
      * Reported because a save that changes the file and a save that changes the wire used to look
      * identical from here, and for a live acceptor they were different things. Saving now applies to
      * live sessions — see `FixMessageViewModel.pushAcceptorRulesToLiveSessions` — and this is how the
      * caller sees that it happened rather than having to trust it.
      */
-    private fun liveAcceptorSessions(profile: FixConnectionProfile): Int? {
-        if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return null
-        return viewModel.liveAcceptorSessionCount(profile).takeIf { it > 0 }
-    }
+    private fun liveAcceptorSessions(profile: FixConnectionProfile): Int? =
+        viewModel.liveAcceptorSessionCount(profile).takeIf { it > 0 }
 
     /**
      * Everything wrong with [config]'s acceptor settings, in the author's words.
@@ -489,7 +490,7 @@ class ControlServer(
      */
     private fun acceptorProblems(config: FixConnectionConfig): List<String> =
         config.acceptorResponseRules.mapIndexedNotNull { index, rule ->
-            rule.validationError(config.counterparties)?.let { problem ->
+            rule.validationError(config)?.let { problem ->
                 "rule $index (${rule.whenMsgType.ifBlank { "no MsgType" }}): $problem"
             }
         } + listOfNotNull(config.acceptorLatency.validationError()?.let { "acceptorLatency: $it" })
@@ -3580,7 +3581,7 @@ class ControlServer(
                     }
                 }
                 liveAcceptorSessions(updated)?.let { put("appliedToLiveSessions", it) }
-                rules[position].validationError(updated.config.counterparties)?.let { put("validationError", it) }
+                rules[position].validationError(updated.config)?.let { put("validationError", it) }
                 AcceptorResponder.shadowingRule(rules, position)?.let { put("shadowedBy", it) }
             }
         }
@@ -3653,16 +3654,6 @@ class ControlServer(
             buildJsonObject {
                 put("profile", profile.name)
                 put("connectionType", profile.config.connectionType.name)
-                // Rules on an initiator are inert — nothing reads them — and that is invisible from the
-                // rules alone, which look configured and correct. Said here because this is the surface
-                // someone asks "why does my rule never fire" of.
-                if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) {
-                    put(
-                        "inactive",
-                        "this profile is an ${profile.config.connectionType.name}; auto-response rules " +
-                            "only run when connectionType is ACCEPTOR",
-                    )
-                }
                 put("latency", latencyJson(profile.config.acceptorLatency))
                 put(
                     "rules",
@@ -3673,7 +3664,7 @@ class ControlServer(
                                     ruleIndex,
                                     rule,
                                     AcceptorResponder.shadowingRule(profile.config.acceptorResponseRules, ruleIndex),
-                                    profile.config.counterparties,
+                                    profile.config,
                                 ),
                             )
                         }
@@ -3688,8 +3679,8 @@ class ControlServer(
         index: Int,
         rule: AcceptorResponseRule,
         shadowedBy: Int? = null,
-        /** The venue's counterparties, when there is a venue; null for a preset judged on its own. */
-        counterparties: List<Counterparty>? = null,
+        /** The profile the rule is on; null for a preset judged on its own. */
+        config: FixConnectionConfig? = null,
     ): JsonObject =
         buildJsonObject {
             // The index is the rule's identity for /acceptor/rules POST and DELETE, and its priority
@@ -3761,7 +3752,7 @@ class ControlServer(
             )
             // A rule nobody can act on is worse than no rule: it looks configured. There is no
             // authoring UI to catch this, so the read surface is the only place it can be said.
-            rule.validationError(counterparties)?.let { put("validationError", it) }
+            rule.validationError(config)?.let { put("validationError", it) }
             // The other way a well-formed rule does nothing: an earlier one already answers every
             // message of this type, so this one is unreachable. Named the same as the dry run's field
             // because it is the same fact — this one just did not need a message to establish it.
@@ -3891,7 +3882,6 @@ class ControlServer(
             put("connectionType", profile.config.connectionType.name)
             put("assumedOrderState", assumedStateJson(assumed, given = assumedWord != null))
             put("assumedQuoteState", assumedQuoteJson(quoted, given = quotedWord != null))
-            putIfNotAcceptor(profile)
             put("msgType", incomingType)
             put("matched", winner != null)
             put("latency", latencyJson(profile.config.acceptorLatency))
@@ -3899,7 +3889,7 @@ class ControlServer(
                 "rules",
                 buildJsonArray {
                     outcomes.forEach { outcome ->
-                        add(ruleOutcomeJson(outcome, outcomes, incomingType, profile.config.counterparties))
+                        add(ruleOutcomeJson(outcome, outcomes, incomingType, profile.config))
                     }
                 },
             )
@@ -4047,20 +4037,6 @@ class ControlServer(
         }
 
     /**
-     * Rules on an initiator are inert and that is invisible from the rules themselves, which look
-     * configured and correct. Said on the dry run because this is the surface someone asks "why does
-     * my rule never fire" of.
-     */
-    private fun JsonObjectBuilder.putIfNotAcceptor(profile: FixConnectionProfile) {
-        if (profile.config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) return
-        put(
-            "inactive",
-            "this profile is an ${profile.config.connectionType.name}; the rules below are " +
-                "evaluated for you but would never run — auto-responses need connectionType ACCEPTOR",
-        )
-    }
-
-    /**
      * The tested message as the *request* the engine reads.
      *
      * The expression pass reaches the triggering message through a [FixMessage], exactly as the live
@@ -4156,7 +4132,7 @@ class ControlServer(
         outcome: RuleOutcome,
         all: List<RuleOutcome>,
         incomingType: String,
-        counterparties: List<Counterparty>? = null,
+        config: FixConnectionConfig? = null,
     ): JsonObject =
         buildJsonObject {
             put("index", outcome.index)
@@ -4226,7 +4202,7 @@ class ControlServer(
             outcome.responders?.let { responders ->
                 put("whenResponders", buildJsonObject { respondersVerdict(responders) })
             }
-            outcome.rule.validationError(counterparties)?.let { put("validationError", it) }
+            outcome.rule.validationError(config)?.let { put("validationError", it) }
         }
 
     /** Validates a raw FIX message against the loaded data dictionary. */

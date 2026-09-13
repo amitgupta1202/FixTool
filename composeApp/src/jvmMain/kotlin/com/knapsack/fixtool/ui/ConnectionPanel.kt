@@ -1528,301 +1528,303 @@ fun ConnectionPanel(
                 }
             }
 
-            // Auto-response rules (collapsible) — acceptor only, because that is the only mode in
-            // which they fire (QuickFixService.maybeAutoRespond returns early otherwise). Showing
-            // them to an initiator would offer a setting that does nothing.
-            if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) {
-                var showAcceptorRules by remember { mutableStateOf(false) }
+            // Auto-response rules, on every profile. An acceptor answers by rule, and so does an initiator once
+            // it has one: a dealer that quotes relayed RFQs by itself, or a load lane that does. See
+            // FixConnectionConfig.answersByRule.
+            var showAcceptorRules by remember { mutableStateOf(false) }
 
-                // Open itself when the loaded profile has rules — the same auto-expand the demo
-                // server section does. A profile whose acceptor answers orders on its own should not
-                // be able to look, at a glance, like one that stays silent.
-                LaunchedEffect(acceptorRules.isNotEmpty()) {
-                    if (acceptorRules.isNotEmpty()) showAcceptorRules = true
+            // Open itself when the loaded profile has rules — the same auto-expand the demo
+            // server section does. A profile whose acceptor answers orders on its own should not
+            // be able to look, at a glance, like one that stays silent.
+            LaunchedEffect(acceptorRules.isNotEmpty()) {
+                if (acceptorRules.isNotEmpty()) showAcceptorRules = true
+            }
+
+            // Asked for by name, so it opens even when there is nothing in it to auto-open for.
+            LaunchedEffect(rulesExpandRequest, selectedProfile?.id) {
+                val wanted = rulesExpandRequest ?: return@LaunchedEffect
+                if (selectedProfile?.id == wanted) {
+                    showAcceptorRules = true
+                    onRulesExpandConsumed?.invoke()
+                }
+            }
+
+            // Counterparties (collapsible) — above the rules, because the rules are written in their terms:
+            // "to the responders" means whoever this list says. Offered on a venue open to any client, the
+            // only acceptor with more than one party to relay between, and on any acceptor that already
+            // carries a list, so switching TargetCompID away from * never hides what is saved.
+            val offersCounterparties =
+                connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
+                    (targetCompID.trim() == FixConnectionConfig.ANY_CLIENT || counterparties.isNotEmpty())
+            if (offersCounterparties) {
+                var showParties by remember { mutableStateOf(false) }
+                LaunchedEffect(counterparties.isNotEmpty()) {
+                    if (counterparties.isNotEmpty()) showParties = true
                 }
 
-                // Asked for by name, so it opens even when there is nothing in it to auto-open for.
-                LaunchedEffect(rulesExpandRequest, selectedProfile?.id) {
-                    val wanted = rulesExpandRequest ?: return@LaunchedEffect
-                    if (selectedProfile?.id == wanted) {
-                        showAcceptorRules = true
-                        onRulesExpandConsumed?.invoke()
-                    }
-                }
+                HorizontalDivider(
+                    color = AppTheme.Separators.color,
+                    thickness = AppTheme.Separators.dividerThickness,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
 
-                // Counterparties (collapsible) — above the rules, because the rules are written in their terms:
-                // "to the responders" means whoever this list says. Offered on a venue open to any client, the
-                // only acceptor with more than one party to relay between, and on any profile that already
-                // carries a list, so switching TargetCompID away from * never hides what is saved.
-                if (targetCompID.trim() == FixConnectionConfig.ANY_CLIENT || counterparties.isNotEmpty()) {
-                    var showParties by remember { mutableStateOf(false) }
-                    LaunchedEffect(counterparties.isNotEmpty()) {
-                        if (counterparties.isNotEmpty()) showParties = true
-                    }
-
-                    HorizontalDivider(
-                        color = AppTheme.Separators.color,
-                        thickness = AppTheme.Separators.dividerThickness,
-                        modifier = Modifier.padding(vertical = 4.dp),
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { showParties = !showParties }
+                            .padding(vertical = 4.dp)
+                            .testTag("counterparties-section"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.People,
+                        contentDescription = "Counterparties",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = iconSize16,
                     )
+                    Text(
+                        text = "Counterparties",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 10.sp,
+                    )
+                    if (counterparties.isNotEmpty()) {
+                        Text(
+                            text = counterpartySummary(counterparties),
+                            color = AppTheme.Colors.textDisabled,
+                            fontSize = 9.sp,
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = if (showParties) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (showParties) "Collapse" else "Expand",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = iconSize16,
+                    )
+                }
 
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { showParties = !showParties }
-                                .padding(vertical = 4.dp)
-                                .testTag("counterparties-section"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                if (showParties) {
+                    CounterpartiesEditor(
+                        counterparties = counterparties,
+                        onChange = { counterparties = it },
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                color = AppTheme.Separators.color,
+                thickness = AppTheme.Separators.dividerThickness,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { showAcceptorRules = !showAcceptorRules }
+                        .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QuestionAnswer,
+                    contentDescription = "Auto-Responses",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = iconSize16,
+                )
+                Text(
+                    text = "Auto-Responses",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 10.sp,
+                )
+                if (acceptorRules.isNotEmpty()) {
+                    Text(
+                        text = "(${acceptorRules.size})",
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 9.sp,
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                // A sequence is a claim about time — "then, four seconds later, the fill" — so the
+                // moment an author sees it is the wrong claim they need it to stop now, not after
+                // it has finished being wrong. Offered only while a session exists to stop it on.
+                val liveSessions = selectedProfile?.let { onGetProfileSessions(it.id) }.orEmpty()
+                if (liveSessions.isNotEmpty()) {
+                    TooltipIconButton(
+                        tooltip = "Drop replies still queued on this session",
+                        onClick = { liveSessions.forEach { it.stopPendingResponses() } },
+                        modifier = iconSize18,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.People,
-                            contentDescription = "Counterparties",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = iconSize16,
-                        )
-                        Text(
-                            text = "Counterparties",
-                            color = AppTheme.Colors.textSecondary,
-                            fontSize = 10.sp,
-                        )
-                        if (counterparties.isNotEmpty()) {
-                            Text(
-                                text = counterpartySummary(counterparties),
-                                color = AppTheme.Colors.textDisabled,
-                                fontSize = 9.sp,
-                            )
-                        }
-                        Spacer(modifier = Modifier.weight(1f))
-                        Icon(
-                            imageVector = if (showParties) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (showParties) "Collapse" else "Expand",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = iconSize16,
-                        )
-                    }
-
-                    if (showParties) {
-                        CounterpartiesEditor(
-                            counterparties = counterparties,
-                            onChange = { counterparties = it },
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Stop queued responses",
+                            tint = AppTheme.Colors.warning,
+                            modifier = iconSize14,
                         )
                     }
                 }
-
-                HorizontalDivider(
-                    color = AppTheme.Separators.color,
-                    thickness = AppTheme.Separators.dividerThickness,
-                    modifier = Modifier.padding(vertical = 4.dp),
+                Icon(
+                    imageVector = if (showAcceptorRules) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (showAcceptorRules) "Collapse" else "Expand",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = iconSize16,
                 )
+            }
 
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { showAcceptorRules = !showAcceptorRules }
-                            .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.QuestionAnswer,
-                        contentDescription = "Auto-Responses",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = iconSize16,
-                    )
-                    Text(
-                        text = "Auto-Responses",
-                        color = AppTheme.Colors.textSecondary,
-                        fontSize = 10.sp,
-                    )
-                    if (acceptorRules.isNotEmpty()) {
-                        Text(
-                            text = "(${acceptorRules.size})",
-                            color = AppTheme.Colors.textDisabled,
-                            fontSize = 9.sp,
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    // A sequence is a claim about time — "then, four seconds later, the fill" — so the
-                    // moment an author sees it is the wrong claim they need it to stop now, not after
-                    // it has finished being wrong. Offered only while a session exists to stop it on.
-                    val liveSessions = selectedProfile?.let { onGetProfileSessions(it.id) }.orEmpty()
-                    if (liveSessions.isNotEmpty()) {
-                        TooltipIconButton(
-                            tooltip = "Drop replies still queued on this session",
-                            onClick = { liveSessions.forEach { it.stopPendingResponses() } },
-                            modifier = iconSize18,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = "Stop queued responses",
-                                tint = AppTheme.Colors.warning,
-                                modifier = iconSize14,
-                            )
+            if (showAcceptorRules) {
+                // Applied is not saved. The step is written into the staged list, exactly as
+                // typing into its raw field would have been; Save is still what persists it and,
+                // since rules travel to live sessions, still the only thing the venue notices.
+                var applyNote by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(replyStepApply) {
+                    val applied = replyStepApply ?: return@LaunchedEffect
+                    val profile = selectedProfile
+                    applyNote =
+                        when {
+                            // The panel moved on — a different profile is loaded, so the rule list
+                            // in front of the author is not the one this step came from.
+                            profile == null || profile.id != applied.profileId ->
+                                "the step was applied to a profile that is no longer loaded"
+                            // An index is only an address while the list holds still. Deleting or
+                            // reordering a rule with a step of it open moves what lives here.
+                            acceptorRules
+                                .getOrNull(applied.ruleIndex)
+                                ?.sequence()
+                                ?.getOrNull(applied.stepIndex)
+                                ?.template != applied.snapshot ->
+                                "rule ${applied.ruleIndex + 1} step ${applied.stepIndex + 1} has changed since " +
+                                    "it was opened, so the edit was not applied over it"
+                            else -> {
+                                val rule = acceptorRules[applied.ruleIndex]
+                                val steps =
+                                    rule.sequence().replaced(
+                                        applied.stepIndex,
+                                        rule.sequence()[applied.stepIndex].copy(template = applied.template),
+                                    )
+                                acceptorRules =
+                                    acceptorRules.replaced(
+                                        applied.ruleIndex,
+                                        rule.copy(steps = steps, responseTemplate = ""),
+                                    )
+                                null
+                            }
                         }
-                    }
-                    Icon(
-                        imageVector = if (showAcceptorRules) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (showAcceptorRules) "Collapse" else "Expand",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = iconSize16,
-                    )
+                    onReplyStepConsumed?.invoke()
                 }
 
-                if (showAcceptorRules) {
-                    // Applied is not saved. The step is written into the staged list, exactly as
-                    // typing into its raw field would have been; Save is still what persists it and,
-                    // since rules travel to live sessions, still the only thing the venue notices.
-                    var applyNote by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(replyStepApply) {
-                        val applied = replyStepApply ?: return@LaunchedEffect
-                        val profile = selectedProfile
-                        applyNote =
-                            when {
-                                // The panel moved on — a different profile is loaded, so the rule list
-                                // in front of the author is not the one this step came from.
-                                profile == null || profile.id != applied.profileId ->
-                                    "the step was applied to a profile that is no longer loaded"
-                                // An index is only an address while the list holds still. Deleting or
-                                // reordering a rule with a step of it open moves what lives here.
-                                acceptorRules
-                                    .getOrNull(applied.ruleIndex)
-                                    ?.sequence()
-                                    ?.getOrNull(applied.stepIndex)
-                                    ?.template != applied.snapshot ->
-                                    "rule ${applied.ruleIndex + 1} step ${applied.stepIndex + 1} has changed since " +
-                                        "it was opened, so the edit was not applied over it"
-                                else -> {
-                                    val rule = acceptorRules[applied.ruleIndex]
-                                    val steps =
-                                        rule.sequence().replaced(
-                                            applied.stepIndex,
-                                            rule.sequence()[applied.stepIndex].copy(template = applied.template),
-                                        )
-                                    acceptorRules =
-                                        acceptorRules.replaced(
-                                            applied.ruleIndex,
-                                            rule.copy(steps = steps, responseTemplate = ""),
-                                        )
-                                    null
+                AcceptorRulesEditor(
+                    rules = acceptorRules,
+                    onRulesChange = {
+                        applyNote = null
+                        acceptorRules = it
+                    },
+                    dictionary = dictionary,
+                    counterparties = counterparties,
+                    onlineCompIds = onlineCompIds,
+                    initiator = connectionType == FixConnectionConfig.ConnectionType.INITIATOR,
+                    // ---- withheld the moment it could be wrong
+                    //
+                    // The number is a position in the ruleset the *session* is running, which is
+                    // the one last saved. The list on screen is the staged one, and an unsaved
+                    // insert or reorder moves what lives at that position — so a mark that kept
+                    // showing would point at whichever card had drifted into rule 7's place. That
+                    // is worse than no mark: it is a confident wrong answer to the one question
+                    // this whole feature exists to answer. Equality of the two lists is the cheap
+                    // proof they agree, and the marker comes back the moment Save makes them.
+                    firedRule =
+                        lastRuleFired
+                            ?.takeIf { acceptorRules == selectedProfile?.config?.acceptorResponseRules }
+                            ?.let { RuleFiredMark(ruleIndex = it.ruleIndex, at = it.at) },
+                    onOpenStepInEditor =
+                        onOpenReplyStepInEditor?.let { open ->
+                            { ruleIndex, stepIndex ->
+                                selectedProfile?.let { profile ->
+                                    acceptorRules
+                                        .getOrNull(ruleIndex)
+                                        ?.sequence()
+                                        ?.getOrNull(stepIndex)
+                                        ?.let { step -> open(profile.id, ruleIndex, stepIndex, step.template) }
                                 }
                             }
-                        onReplyStepConsumed?.invoke()
-                    }
-
-                    AcceptorRulesEditor(
-                        rules = acceptorRules,
-                        onRulesChange = {
-                            applyNote = null
-                            acceptorRules = it
                         },
-                        dictionary = dictionary,
-                        counterparties = counterparties,
-                        onlineCompIds = onlineCompIds,
-                        // ---- withheld the moment it could be wrong
-                        //
-                        // The number is a position in the ruleset the *session* is running, which is
-                        // the one last saved. The list on screen is the staged one, and an unsaved
-                        // insert or reorder moves what lives at that position — so a mark that kept
-                        // showing would point at whichever card had drifted into rule 7's place. That
-                        // is worse than no mark: it is a confident wrong answer to the one question
-                        // this whole feature exists to answer. Equality of the two lists is the cheap
-                        // proof they agree, and the marker comes back the moment Save makes them.
-                        firedRule =
-                            lastRuleFired
-                                ?.takeIf { acceptorRules == selectedProfile?.config?.acceptorResponseRules }
-                                ?.let { RuleFiredMark(ruleIndex = it.ruleIndex, at = it.at) },
-                        onOpenStepInEditor =
-                            onOpenReplyStepInEditor?.let { open ->
-                                { ruleIndex, stepIndex ->
-                                    selectedProfile?.let { profile ->
-                                        acceptorRules
-                                            .getOrNull(ruleIndex)
-                                            ?.sequence()
-                                            ?.getOrNull(stepIndex)
-                                            ?.let { step -> open(profile.id, ruleIndex, stepIndex, step.template) }
-                                    }
-                                }
-                            },
-                        editingStep =
-                            editingReplyStep
-                                ?.takeIf { it.profileId == selectedProfile?.id }
-                                ?.let { it.ruleIndex to it.stepIndex },
-                    )
-
-                    applyNote?.let {
-                        Text(
-                            text = "⚠ $it",
-                            color = AppTheme.Colors.warning,
-                            fontSize = 9.sp,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
-                }
-
-                // Latency (collapsible) — its own section beside the rules because it is the other half
-                // of the venue's timing: the rules say what comes back and how far apart, this says how
-                // long the wire takes. Acceptor-only for the same reason the rules are — the delay is
-                // applied in QuickFixService.maybeAutoRespond, which an initiator never reaches.
-                var showAcceptorLatency by remember { mutableStateOf(false) }
-
-                // Open itself when the loaded profile has latency configured, the same auto-expand the
-                // rules section does — a venue that delays its replies should not look, at a glance,
-                // like one that answers instantly.
-                LaunchedEffect(acceptorLatency.isActive()) {
-                    if (acceptorLatency.isActive()) showAcceptorLatency = true
-                }
-
-                HorizontalDivider(
-                    color = AppTheme.Separators.color,
-                    thickness = AppTheme.Separators.dividerThickness,
-                    modifier = Modifier.padding(vertical = 4.dp),
+                    editingStep =
+                        editingReplyStep
+                            ?.takeIf { it.profileId == selectedProfile?.id }
+                            ?.let { it.ruleIndex to it.stepIndex },
                 )
 
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { showAcceptorLatency = !showAcceptorLatency }
-                            .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Timer,
-                        contentDescription = "Latency",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = iconSize16,
-                    )
+                applyNote?.let {
                     Text(
-                        text = "Latency",
-                        color = AppTheme.Colors.textSecondary,
-                        fontSize = 10.sp,
-                    )
-                    if (acceptorLatency.isActive()) {
-                        Text(
-                            text = describeLatency(acceptorLatency),
-                            color = AppTheme.Colors.textDisabled,
-                            fontSize = 9.sp,
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Icon(
-                        imageVector = if (showAcceptorLatency) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (showAcceptorLatency) "Collapse" else "Expand",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = iconSize16,
+                        text = "⚠ $it",
+                        color = AppTheme.Colors.warning,
+                        fontSize = 9.sp,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
+            }
 
-                if (showAcceptorLatency) {
-                    AcceptorLatencyEditor(
-                        latency = acceptorLatency,
-                        onLatencyChange = { acceptorLatency = it },
+            // Latency (collapsible) — its own section beside the rules because it is the other half
+            // of the venue's timing: the rules say what comes back and how far apart, this says how
+            // long the wire takes. Wherever the rules are, because the delay is applied to their replies
+            // in QuickFixService.maybeAutoRespond.
+            var showAcceptorLatency by remember { mutableStateOf(false) }
+
+            // Open itself when the loaded profile has latency configured, the same auto-expand the
+            // rules section does — a venue that delays its replies should not look, at a glance,
+            // like one that answers instantly.
+            LaunchedEffect(acceptorLatency.isActive()) {
+                if (acceptorLatency.isActive()) showAcceptorLatency = true
+            }
+
+            HorizontalDivider(
+                color = AppTheme.Separators.color,
+                thickness = AppTheme.Separators.dividerThickness,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { showAcceptorLatency = !showAcceptorLatency }
+                        .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Timer,
+                    contentDescription = "Latency",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = iconSize16,
+                )
+                Text(
+                    text = "Latency",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 10.sp,
+                )
+                if (acceptorLatency.isActive()) {
+                    Text(
+                        text = describeLatency(acceptorLatency),
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 9.sp,
                     )
                 }
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = if (showAcceptorLatency) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (showAcceptorLatency) "Collapse" else "Expand",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = iconSize16,
+                )
+            }
+
+            if (showAcceptorLatency) {
+                AcceptorLatencyEditor(
+                    latency = acceptorLatency,
+                    onLatencyChange = { acceptorLatency = it },
+                )
             }
         }
 

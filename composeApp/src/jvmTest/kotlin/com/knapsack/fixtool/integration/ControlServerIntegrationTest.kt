@@ -1045,23 +1045,30 @@ class ControlServerIntegrationTest {
     }
 
     @Test
-    fun `the dry run says when the profile is not an acceptor at all`() {
+    fun `a rule on an initiator runs, and one that addresses anyone but its counterparty is refused`() {
         val id =
             obj(
                 post(
                     "/profiles",
-                    """{"name":"Client","config":{"connectionType":"INITIATOR","acceptorResponseRules":[
-                       {"whenMsgType":"D","steps":[{"template":"35=8|"}]}]}}""",
+                    """{"name":"Dealer","config":{"connectionType":"INITIATOR","acceptorResponseRules":[
+                       {"whenMsgType":"R","steps":[{"template":"35=S|131=${'$'}{req.131}|"}]},
+                       {"whenMsgType":"S","conditions":[{"tag":49,"matcher":{"type":"role","role":"responder"}}],
+                        "steps":[{"template":"35=S|","to":"requester"}]}]}}""",
                 ),
             )["id"]!!.jsonPrimitive.content
 
-        val body = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=D|11=ORD-1|"}"""))
-        assertTrue(body["matched"]!!.jsonPrimitive.boolean, "the rule itself does match")
+        val body = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=R|131=V-RFQ-1|"}"""))
+        assertTrue(body["matched"]!!.jsonPrimitive.boolean)
+        assertNull(body["inactive"], "an initiator's rules are not inert any more")
+
+        val rules = obj(get("/acceptor/rules?profile=$id"))
+        assertNull(rules["inactive"])
+        val relay = rules["rules"]!!.jsonArray[1].jsonObject
         assertTrue(
-            body["inactive"]!!.jsonPrimitive.content.contains("ACCEPTOR"),
-            "but it would never run, and that is invisible from the rule",
+            relay["validationError"]!!.jsonPrimitive.content.contains("initiator"),
+            "an initiator answers only the counterparty it is connected to",
         )
-        assertTrue(obj(get("/acceptor/rules?profile=$id"))["inactive"] != null)
+        assertNull(rules["rules"]!!.jsonArray[0].jsonObject["validationError"])
     }
 
     // ------------------------------------------------------------- a dry run of a stateful trigger

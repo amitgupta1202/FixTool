@@ -258,4 +258,27 @@ class RelayModelTest {
             )
         assertEquals("FIDLR1", relayed.relay?.recipientCompId)
     }
+
+    @Test
+    fun `an initiator answers by rule once it has one, and never addresses anyone but its counterparty`() {
+        val quote = AcceptorResponseRule(whenMsgType = "R", steps = listOf(ResponseStep("35=S|131=\${req.131}|")))
+        val relay =
+            AcceptorResponseRule(
+                whenMsgType = "S",
+                conditions = listOf(FieldCondition(49, MatcherCodec.matcherToJson(Matcher.CounterpartyRole("responder")))),
+                steps = listOf(ResponseStep("35=S|", to = "requester")),
+            )
+        val initiator = FixConnectionConfig(connectionType = FixConnectionConfig.ConnectionType.INITIATOR)
+
+        assertFalse(initiator.answersByRule(), "an initiator with no rules is the plain client it always was")
+        assertTrue(initiator.copy(acceptorResponseRules = listOf(quote)).answersByRule())
+        assertTrue(FixConnectionConfig(connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR).answersByRule())
+
+        assertNull(quote.validationError(initiator))
+        assertTrue(relay.validationError(initiator)!!.contains("initiator"))
+        assertFalse(
+            relay.validationError(listOf(Counterparty("FIDLR1", "responder"))).orEmpty().contains("initiator"),
+            "the same rule on a venue is judged as a venue's",
+        )
+    }
 }

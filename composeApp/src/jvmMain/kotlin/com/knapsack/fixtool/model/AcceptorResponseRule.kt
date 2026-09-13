@@ -318,7 +318,11 @@ data class AcceptorResponseRule(
      * rule ever written. Non-null, even empty, is a venue that has said who it expects.
      */
     @Suppress("CyclomaticComplexMethod", "LongMethod")
-    fun validationError(counterparties: List<Counterparty>?): String? =
+    fun validationError(
+        counterparties: List<Counterparty>?,
+        /** True for a rule on an initiator, which answers only the one counterparty it is connected to. */
+        initiator: Boolean = false,
+    ): String? =
         when {
             whenMsgType.isBlank() -> "the rule has no trigger MsgType, so nothing can match it"
             // A key that is not a tag number can never be read off a message, so the rule silently
@@ -357,13 +361,20 @@ data class AcceptorResponseRule(
                 "step ${steps.indexOfFirst { it.template.isBlank() } + 1} has no message to send"
             steps.any { it.delayMillis < 0 } ->
                 "step ${steps.indexOfFirst { it.delayMillis < 0 } + 1} has a negative delay"
-            else -> relayError(counterparties)
+            else -> relayError(counterparties, initiator)
         }
 
     /** What is wrong with how this rule addresses other counterparties, or null. See [validationError]. */
     @Suppress("CyclomaticComplexMethod", "ReturnCount")
-    private fun relayError(counterparties: List<Counterparty>?): String? {
+    private fun relayError(counterparties: List<Counterparty>?, initiator: Boolean): String? {
         val played = sequence()
+        val speaksOfParties = relays() || asksTheVenue() || whenResponders != null
+        // Before anything about how it is addressed: an initiator is one session to one counterparty, so there is
+        // nobody else to reach and no venue to ask who played what.
+        if (initiator && speaksOfParties) {
+            return "this rule is on an initiator, which answers only the counterparty it is connected to — " +
+                "addresses, roles, RFQ states and responders online are for a venue that relays"
+        }
         played.forEachIndexed { index, step ->
             if (step.address() == null) {
                 return "step ${index + 1} is addressed to '${step.to}', and the addresses are " +
@@ -386,7 +397,6 @@ data class AcceptorResponseRule(
         val rfqTags = rfqTags()
         val opensAnRfq = whenMsgType == MSG_QUOTE_REQUEST && requiresARequester()
         played.forEachIndexed { index, step -> stepRelayError(step, index + 1, rfqTags, opensAnRfq)?.let { return it } }
-        val speaksOfParties = relays() || asksTheVenue() || whenResponders != null
         if (counterparties?.isEmpty() == true && speaksOfParties) {
             return "this venue declares no counterparties, so nobody is a requester or a responder — " +
                 "add them to the venue's Counterparties"
@@ -430,6 +440,13 @@ data class AcceptorResponseRule(
         return null
     }
 }
+
+/**
+ * [AcceptorResponseRule.validationError] for a rule on [config] — its counterparties, and whether it runs on an
+ * initiator — or the rule judged on its own when there is no profile in hand.
+ */
+fun AcceptorResponseRule.validationError(config: FixConnectionConfig?): String? =
+    if (config == null) validationError() else validationError(config.counterparties, initiator = !config.isAcceptor())
 
 /**
  * How a template says it reads the book.

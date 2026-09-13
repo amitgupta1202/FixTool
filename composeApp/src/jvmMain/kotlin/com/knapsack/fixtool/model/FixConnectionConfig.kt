@@ -51,9 +51,10 @@ data class FixConnectionConfig(
     val customParameters: Map<String, String> = emptyMap(),
     // Logon message custom fields (tag-value pairs to add to logon message)
     val logonFields: Map<String, String> = emptyMap(),
-    // Acceptor mode only: auto-response rules applied to incoming application messages (first match wins)
+    // Auto-response rules applied to incoming application messages (first match wins). An acceptor always reads
+    // them; an initiator reads them once it has any — a dealer that quotes by itself. See answersByRule().
     val acceptorResponseRules: List<AcceptorResponseRule> = emptyList(),
-    // Acceptor mode only: how long the venue waits before an auto-response goes out (default: no delay)
+    // How long a rule's reply waits before it goes out (default: no delay), wherever the rules run
     val acceptorLatency: AcceptorLatencyConfig = AcceptorLatencyConfig(),
     /**
      * Who a venue expects and the part each plays, requester or responder — what lets a rule address "the
@@ -116,6 +117,15 @@ data class FixConnectionConfig(
 
     /** An acceptor binds a port and waits; an initiator dials one. Which way round decides who goes first. */
     fun isAcceptor(): Boolean = connectionType == ConnectionType.ACCEPTOR
+
+    /**
+     * **Whether this profile's sessions answer incoming messages by rule**, and keep the books rules read.
+     *
+     * An acceptor always does: a venue with no rules is a venue that answers nothing, and says so. An initiator does
+     * once it has a rule, which is how a client plays the other side of a venue that relays — a dealer that quotes
+     * the RFQs relayed to it, or five load lanes that do. Without rules an initiator is exactly what it was.
+     */
+    fun answersByRule(): Boolean = isAcceptor() || acceptorResponseRules.isNotEmpty()
 
     /**
      * **Does this acceptor accept a logon from any counterparty**, creating a session per client?

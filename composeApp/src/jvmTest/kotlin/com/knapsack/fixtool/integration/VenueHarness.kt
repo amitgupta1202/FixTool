@@ -64,25 +64,37 @@ internal class VenueHarness(
         return venuePane()
     }
 
-    fun connectClient(name: String): FixMessageSession {
-        val profile =
-            FixConnectionProfile(
-                name = name,
-                config =
-                    FixConnectionConfig(
-                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
-                        senderCompID = comp(name),
-                        targetCompID = venueCompId,
-                        host = "localhost",
-                        port = port.toString(),
-                        socketConnectHost = "localhost",
-                        beginString = "FIX.4.4",
-                        autoReconnect = false,
-                        resetOnLogon = true,
-                        fileStorePath = File(testDir, "${name}store").absolutePath,
-                        fileLogPath = File(testDir, "${name}log").absolutePath,
-                    ),
-            )
+    /** A client profile for [name], its CompID [compId] (a `{n}` in it numbers lanes), with [rules] of its own. */
+    fun clientProfile(
+        name: String,
+        rules: List<AcceptorResponseRule> = emptyList(),
+        compId: String = comp(name),
+        lanes: Int = 1,
+    ) = FixConnectionProfile(
+        name = name,
+        config =
+            FixConnectionConfig(
+                connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                senderCompID = compId,
+                targetCompID = venueCompId,
+                host = "localhost",
+                port = port.toString(),
+                socketConnectHost = "localhost",
+                beginString = "FIX.4.4",
+                autoReconnect = false,
+                resetOnLogon = true,
+                sessionCount = lanes,
+                fileStorePath = File(testDir, "${name}store").absolutePath,
+                fileLogPath = File(testDir, "${name}log").absolutePath,
+                acceptorResponseRules = rules,
+            ),
+    )
+
+    fun connectClient(
+        name: String,
+        rules: List<AcceptorResponseRule> = emptyList(),
+    ): FixMessageSession {
+        val profile = clientProfile(name, rules)
         viewModel.saveConnectionProfile(profile)
         viewModel.connectProfile(profile.id, profile)
         val session = viewModel.sessions.first { it.title == name }
@@ -96,14 +108,40 @@ internal class VenueHarness(
         return session
     }
 
+    /**
+     * Connects [lanes] sessions of one client profile, each with its own CompID — `<name><runId>_<n>` — and waits for
+     * every one of them to be logged on with a pane at the venue.
+     */
+    fun connectLanes(
+        name: String,
+        lanes: Int,
+        rules: List<AcceptorResponseRule>,
+    ): List<FixMessageSession> {
+        val profile = clientProfile(name, rules, compId = "${comp(name)}_{n}", lanes = lanes)
+        viewModel.saveConnectionProfile(profile)
+        viewModel.connectProfile(profile.id, profile)
+        assertTrue(
+            awaitCondition(20_000) {
+                val sessions = viewModel.getProfileSessions(profile.id)
+                sessions.size == lanes && sessions.all { it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "$lanes lanes of $name should log on",
+        )
+        (1..lanes).forEach { lane -> awaitPaneOf("${comp(name)}_$lane") }
+        return viewModel.getProfileSessions(profile.id)
+    }
+
     /** The venue's pane for [client], once the engine has announced it and the pane has been built. */
-    fun awaitPane(client: String): FixMessageSession {
-        val expected = "VENUE ← ${comp(client)}"
+    fun awaitPane(client: String): FixMessageSession = awaitPaneOf(comp(client))
+
+    /** The venue's pane for the counterparty whose CompID is exactly [compId]. */
+    fun awaitPaneOf(compId: String): FixMessageSession {
+        val expected = "VENUE ← $compId"
         assertTrue(
             awaitCondition(15_000) {
                 viewModel.sessions.any { it.title == expected && it.connectionState.value == FixConnectionState.LOGGED_ON }
             },
-            "the venue should open a pane for $client",
+            "the venue should open a pane for $compId",
         )
         return viewModel.sessions.first { it.title == expected }
     }

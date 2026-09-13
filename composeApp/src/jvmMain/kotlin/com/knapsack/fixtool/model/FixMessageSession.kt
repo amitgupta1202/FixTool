@@ -781,8 +781,9 @@ class FixMessageSession(
         venue?.clearOrderBook(venueSessionId, by) ?: quickFixService?.takeIf { isAcceptor }?.clearOrderBook(by = by)
     }
 
+    /** Whether this session keeps the books its rules read: an acceptor, or an initiator with rules. */
     private val isAcceptor: Boolean
-        get() = _connectionConfig.value?.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR
+        get() = _connectionConfig.value?.answersByRule() == true
 
     /**
      * Applies a ruleset saved since this session connected. Returns how many rules are live, or null

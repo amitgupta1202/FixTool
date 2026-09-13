@@ -6143,7 +6143,8 @@ class FixMessageViewModel(
      * to be asked for rather than done as a side effect of pressing Save.
      */
     private fun pushAcceptorRulesToLiveSessions(profile: FixConnectionProfile) {
-        if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
+        // Every profile, not only acceptors: an initiator's sessions answer by rule once they have one, and one
+        // connected with none has to start when Save gives it one — a dealer lane switched on mid-run.
         getProfileSessions(profile.id).forEach { session ->
             val live =
                 session.reloadAcceptorRules(profile.config.acceptorResponseRules, profile.config.acceptorLatency)

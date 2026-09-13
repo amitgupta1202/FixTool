@@ -52,7 +52,8 @@ enum class StripeGroup(
  * shortcut goes in the tooltip instead, so it is learned by hovering rather than by reading the guide.
  *
  * [DOCUMENTS] is the odd one: it names the scenario editors and run reports open in the bottom dock rather
- * than a window of its own, it has no digit yet, and its tab is present only while a document is open.
+ * than a window of its own, and its tab is present only while a document is open. It takes ⌘9, the next digit
+ * in stripe order, which with no document open is a greyed Window menu row that answers nothing.
  */
 enum class ToolWindow(
     val title: String,
@@ -69,7 +70,7 @@ enum class ToolWindow(
     LATENCY("Latency", StripeGroup.RIGHT, Icons.Default.Timer, 6),
     TERMINAL("Terminal", StripeGroup.LEFT_BOTTOM, Icons.Default.Terminal, 7),
     TRACE("Trace", StripeGroup.LEFT_BOTTOM, Icons.Default.AltRoute, 8),
-    DOCUMENTS("Documents", StripeGroup.LEFT_BOTTOM, Icons.Default.Description),
+    DOCUMENTS("Documents", StripeGroup.LEFT_BOTTOM, Icons.Default.Description, 9),
     ;
 
     /** The tag its tab carries, so a test names a window instead of a position in a row. */
@@ -96,9 +97,9 @@ enum class ToolWindow(
     val hideTooltip: String get() = shortcutLabel?.let { "Hide $title · $it" } ?: "Hide $title"
 
     companion object {
-        /** ⌘1 to ⌘8, in stripe order. Only the top-row digits: a numeric keypad is nobody's window switcher. */
+        /** ⌘1 to ⌘9, in stripe order. Only the top-row digits: a numeric keypad is nobody's window switcher. */
         private val DIGITS =
-            listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight)
+            listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine)
 
         /** The windows in one group, in stripe order. */
         fun inGroup(group: StripeGroup): List<ToolWindow> = entries.filter { it.group == group }

@@ -154,11 +154,12 @@ class AppMenusTest {
         )
         val windows = menu("Window").rows.filterIsInstance<MenuItem>().take(ToolWindow.entries.size)
         assertEquals(
-            listOf("⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", null),
+            listOf("⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"),
             windows.map { it.chord?.label(mac = true) },
         )
         assertEquals(listOf("Detail"), windows.filter { it.checked == true }.map { it.label })
         assertFalse(item("menu-window-documents").enabled, "Documents is greyed while no document is open")
+        assertFalse(menus.dispatch(press(Key.Nine)), "so ⌘9 answers nothing then, rather than opening an empty dock")
     }
 
     /** IntelliJ's ⇧⌘F12: the second press is the reason it is worth a shortcut. */

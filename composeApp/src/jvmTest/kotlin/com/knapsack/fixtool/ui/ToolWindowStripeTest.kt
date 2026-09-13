@@ -148,13 +148,12 @@ class ToolWindowStripeTest {
                 ToolWindow.LATENCY to 6,
                 ToolWindow.TERMINAL to 7,
                 ToolWindow.TRACE to 8,
+                ToolWindow.DOCUMENTS to 9,
             )
         digits.forEach { (window, digit) ->
             val expected = if (isMac) "${window.title} · ⌘$digit" else "${window.title} · Ctrl+$digit"
             composeTestRule.onNodeWithTag(window.testTag).assertContentDescriptionEquals(expected)
         }
-        // Documents has no digit yet, so its tooltip is the noun and nothing else.
-        composeTestRule.onNodeWithTag(ToolWindow.DOCUMENTS.testTag).assertContentDescriptionEquals("Documents")
     }
 
     /** One noun per window, and the numbering a reader of the guide is promised. */
@@ -165,7 +164,7 @@ class ToolWindowStripeTest {
             ToolWindow.entries.map { it.title },
         )
         assertEquals(
-            listOf(1, 2, 3, 4, 5, 6, 7, 8, null),
+            listOf(1, 2, 3, 4, 5, 6, 7, 8, 9),
             ToolWindow.entries.map { it.shortcut },
         )
     }

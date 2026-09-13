@@ -1476,7 +1476,8 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
             (<code>&#8984;&#8679;H</code>) and <strong>Group by conversation</strong> &mdash; the toolbar's layout
             segments and its View &#9662;, row for row.</td></tr>
         <tr><td><strong>Window</strong></td><td>Every tool window with the digit that opens it,
-            <code>&#8984;1</code> to <code>&#8984;8</code>, ticked while it is open, then Documents, then
+            <code>&#8984;1</code> to <code>&#8984;9</code>, ticked while it is open &mdash; Documents last, greyed while no
+            document is open &mdash; then
             <strong>Hide all tool windows</strong> (<code>&#8984;&#8679;F12</code>).</td></tr>
         <tr><td><strong>Help</strong></td><td>This guide, and <strong>Automation reference</strong>, which opens it
             at <a href="#automation">Automation &amp; AI Control</a>.</td></tr>
@@ -1508,7 +1509,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
 
     <table>
         <tr><th>Shortcut</th><th>Does</th></tr>
-        <tr><td><code>&#8984;1</code> &hellip; <code>&#8984;8</code></td><td>Opens or hides the tool window with that digit</td></tr>
+        <tr><td><code>&#8984;1</code> &hellip; <code>&#8984;9</code></td><td>Opens or hides the tool window with that digit; <code>&#8984;9</code> is Documents</td></tr>
         <tr><td><code>&#8984;&#8679;F12</code></td><td>Hide all tool windows, and put them back</td></tr>
         <tr><td><code>&#8984;F</code> / <code>&#8984;&#8679;F</code></td><td>Search in pane / Search all sessions</td></tr>
         <tr><td><code>&#8984;B</code> / <code>&#8984;&#8679;B</code></td><td>Add blank line / Add blank line to all panes</td></tr>
@@ -3303,7 +3304,8 @@ ${incoming["D"].valueOfTag(38)}
     nothing is torn out of composition while it is away, so the scroll position and the field you were
     typing in survive a glance elsewhere. Opening or focusing any document, by clicking a step in the
     rail, following a failure or opening a capture, shows the dock on that document, at that step. The
-    Documents tab is on the stripe only while a document is open.</p>
+    Documents tab is on the stripe only while a document is open, and <code>&#8984;9</code> does what it does:
+    shows the dock on the document you were last in, or hides it.</p>
 
     <p>The point of the dock is what it is <em>not</em>: it is no longer a pane inside the session split, so
     the editor no longer moves or resizes as a side effect of the view mode you happen to be in. The trade

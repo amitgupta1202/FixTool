@@ -456,6 +456,7 @@ no door here yet; `GET /screenshot` still shows its effect.
 | View › Layout ▸, Parsed rows / Raw rows, Hide protocol tags | —, —, ⌘⇧H | — |
 | Window › Editor, Scenarios, Detail, Connection, Order book, Trace | ⌘1–⌘5, ⌘8 | `POST /panel` with `editor`, `scenarios`, `detail`, `connection`, `orderbook`, `trace` |
 | Window › Latency, Terminal | ⌘6, ⌘7 | `POST /panel` with `latency`, `terminal` |
+| Window › Documents | ⌘9 | — (a document opens from the rail, a failure or a capture) |
 | Window › Hide all tool windows | ⌘⇧F12 | — |
 
 Shortcuts are written the Mac way; off a Mac ⌘ and ⌃ are both Ctrl. A greyed row does not answer its

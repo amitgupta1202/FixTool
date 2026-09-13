@@ -9,6 +9,7 @@ import com.knapsack.fixtool.model.RfqConstraint
 import com.knapsack.fixtool.model.RfqReading
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.StepAddress
+import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
 import com.knapsack.fixtool.model.scenario.Matcher
 import org.junit.Test
 import java.time.LocalDateTime
@@ -228,6 +229,63 @@ class AcceptorRelayPlanTest {
             ) != null,
             "explain and firstMatch must agree",
         )
+    }
+
+    // ------------------------------------------------------------------ when the RFQ expires
+
+    private fun expiryRule(whenQuotes: String?, template: String, to: String) =
+        AcceptorResponseRule(whenMsgType = WHEN_RFQ_EXPIRES, whenQuotes = whenQuotes, steps = listOf(ResponseStep(template, to = to)))
+
+    private fun expired(quotesStanding: Boolean) =
+        VenueReading(
+            senderRole = PartyRole.REQUESTER,
+            rfqBy131 = RfqReading("RFQ-1", null, RfqConstraint.EXPIRED.word),
+            rfqBy117 = RfqReading("RFQ-1", null, RfqConstraint.EXPIRED.word),
+            respondersOnline = true,
+            quotesStanding = quotesStanding,
+        )
+
+    /** The example's pair, in its order: the quotes ended by name when any stand, the request refused when none do. */
+    @Test
+    fun `on expiry the first rule for it that holds is chosen, reading the opening request and what still stands`() {
+        val quoted = expiryRule("some", "35=AI|117=\${to.117}|297=7|", "quotes")
+        val unquoted = expiryRule("none", "35=AG|131=\${to.131}|658=99|", "requester")
+        val forTheWire = AcceptorResponseRule(whenMsgType = "R", steps = listOf(ResponseStep("35=AG|658=99|")))
+        val onTheTenYear =
+            AcceptorResponseRule(
+                whenMsgType = WHEN_RFQ_EXPIRES,
+                conditions = listOf(condition(48, Matcher.Exact("91282CMF5")), condition(131, Matcher.RfqState("expired"))),
+                steps = listOf(ResponseStep("35=AG|658=99|", to = "requester")),
+            )
+        val compiled = AcceptorResponder.compile(listOf(forTheWire, onTheTenYear, quoted, unquoted))
+        val tenYear = mapOf(35 to "R", 131 to "BUY-RFQ-7", 48 to "91282CMF5")
+        val fiveYear = mapOf(35 to "R", 131 to "BUY-RFQ-8", 48 to "91282CME8")
+
+        assertEquals(onTheTenYear, AcceptorResponder.firstMatchOnExpiry(compiled, tenYear, expired(quotesStanding = true)))
+        assertEquals(quoted, AcceptorResponder.firstMatchOnExpiry(compiled, fiveYear, expired(quotesStanding = true)))
+        assertEquals(unquoted, AcceptorResponder.firstMatchOnExpiry(compiled, fiveYear, expired(quotesStanding = false)))
+        assertNull(
+            AcceptorResponder.firstMatch(compiled, AcceptorResponder.buildMessage("35=AG|131=X|658=99|"), venue = expired(true)),
+            "no message ever carries the expiry trigger word",
+        )
+    }
+
+    @Test
+    fun `a step to quotes goes to the requester once per quote, each naming the quote it was shown`() {
+        val rule = expiryRule("some", "35=AI|117=\${to.117}|131=\${to.131}|297=7|", "quotes")
+        val venue =
+            TableVenue(
+                mapOf(
+                    StepAddress.Quotes to
+                        Resolution(listOf(recipient("FIBUY1", StepAddress.Quotes, "V-Q-1"), recipient("FIBUY1", StepAddress.Quotes, "V-Q-2"))),
+                ),
+                ids = mapOf(("FIBUY1" to 131) to "BUY-RFQ-7"),
+            )
+
+        val sent = plan(rule, "35=R|131=BUY-RFQ-7|", venue).sends.map { it.render() }
+
+        assertEquals(listOf("V-Q-1", "V-Q-2"), sent.map { field(it, 117) })
+        assertEquals(listOf("BUY-RFQ-7", "BUY-RFQ-7"), sent.map { field(it, 131) })
     }
 
     @Test

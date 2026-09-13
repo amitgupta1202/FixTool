@@ -328,10 +328,13 @@ class QuickFixService(
      * **Every RFQ this venue is carrying between two parties** — the one book that spans sessions, fed only when
      * the venue declares counterparties, so a venue that relays nothing pays nothing. See [RfqBookService].
      */
-    val rfqBook =
+    val rfqBook: RfqBookService =
         RfqBookService(
             initialCap = orderBookCap,
             defaultExpiryMillis = { config.rfqExpirySeconds?.let { it * MILLIS_PER_SECOND } },
+            // The replies are declared after the book and reached only once traffic flows, by which time both exist.
+            onOpened = { rfqId, expireAt -> relayReplies.arm(rfqId, expireAt) },
+            onEnded = { rfqId -> relayReplies.disarm(rfqId) },
         )
 
     /** The sessions and the book, as the relay engine asks about them. See [LiveRelayVenue]. */
@@ -1012,7 +1015,10 @@ class QuickFixService(
             // A rule that addresses anyone but the sender, or reads what a recipient knows, is planned as a relay.
             // Every other rule goes the way it always has, untouched.
             if (rule.relays() || rule.readsTheRecipient() || rule.readsTheRfq()) {
-                relay(rule, ruleNumber, incoming, request, sessionId, heldBefore, latencyMillis)
+                val quote = { quoteReading(sessionId, incoming) }
+                relayReplies.relay(rule, incoming, request, sessionId, heldBefore, latencyMillis, quote) {
+                    orderFields(sessionId, incoming)
+                }
                 return
             }
             // The book, read afresh by each step as it goes out — not once, here. Within one reply the
@@ -1069,42 +1075,46 @@ class QuickFixService(
 
     // ---------------------------------------------------------------- relaying between counterparties
 
-    /**
-     * **Plays a relay rule's reply**: resolves every step to the counterparties it reaches, records a trade the
-     * moment the rule decides one, and schedules each send on its recipient's own session.
-     *
-     * The order inside is the design. Addresses are resolved first, against the RFQ as it stands after the
-     * trigger was recorded, because the opening QuoteRequest must find the RFQ it just opened. The trade is
-     * decided second, on this thread, because a second lift is already queued behind this one on the engine's
-     * single thread and must read `done`. Only then is anything scheduled. See `docs/rfq-relay-impl-plan.md`,
-     * decisions R2 and R3.
-     */
-    @Suppress("LongParameterList")
-    private fun relay(
-        rule: AcceptorResponseRule,
-        ruleNumber: Int?,
-        incoming: Message,
-        request: FixMessage,
-        sessionId: SessionID,
-        heldBefore: BookReading,
-        latencyMillis: Long,
-    ) {
-        val (trigger, plan) =
-            relayVenue.plan(rule, incoming, request, dictionary, sessionId, { quoteReading(sessionId, incoming) }) {
-                orderFields(sessionId, incoming)
-            }
-        ruleNumber?.let { number ->
-            onVenueEvent?.invoke(
-                VenueEvent.RuleFired(sessionId, number, rule.whenMsgType, rule.sequence().size, request.timestamp),
-            )
-        }
-        plan.notDelivered.forEach { (_, recipient) -> noteNotDelivered(recipient.sessionId ?: sessionId, ruleNumber) }
-        plan.sends.forEach { send ->
-            val target = send.to?.sessionId ?: return@forEach
-            val reason = LiveRelayVenue.reasonFor(rule, ruleNumber, request, send, heldBefore, trigger)
-            autoResponseDispatch.schedule(target, send.offsetMillis + latencyMillis, reason, send::build)
-        }
-    }
+    /** A relay rule's reply and an RFQ's expiry, played on this venue's sessions. See [RelayReplies]. */
+    private val relayReplies: RelayReplies =
+        RelayReplies(
+            rfqBook,
+            relayVenue,
+            autoResponseDispatch,
+            object : RelayReplies.Venue {
+                override fun rules(): List<CompiledRule> = compiledRules
+
+                override fun dictionary(): FixDictionary = dictionary
+
+                override fun ruleNumberOf(rule: AcceptorResponseRule): Int? = this@QuickFixService.ruleNumberOf(rule)
+
+                override fun firedOnExpiry(
+                    sessionId: SessionID?,
+                    ruleNumber: Int?,
+                    rule: AcceptorResponseRule,
+                    at: LocalDateTime,
+                ) {
+                    if (!answersByRule()) return
+                    triggersMatched.incrementAndGet()
+                    sessionId?.let { ruleFired(it, ruleNumber, rule, at) }
+                }
+
+                override fun ruleFired(
+                    sessionId: SessionID,
+                    ruleNumber: Int?,
+                    rule: AcceptorResponseRule,
+                    at: LocalDateTime,
+                ) {
+                    val number = ruleNumber ?: return
+                    val steps = rule.sequence().size
+                    onVenueEvent?.invoke(VenueEvent.RuleFired(sessionId, number, rule.whenMsgType, steps, at))
+                }
+
+                override fun notDelivered(sessionId: SessionID, ruleNumber: Int?) {
+                    noteNotDelivered(sessionId, ruleNumber)
+                }
+            },
+        )
 
     /**
      * Drops every auto-response still waiting to go out on this session, and reports how many.

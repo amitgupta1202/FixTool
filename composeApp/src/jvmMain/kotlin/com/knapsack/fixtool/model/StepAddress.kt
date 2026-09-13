@@ -42,6 +42,14 @@ sealed interface StepAddress {
         override val word = "quoted"
     }
 
+    /**
+     * The requester, **once for each quote it was shown that still stands**, each time naming that quote: `${to.117}`
+     * is the id the requester was shown it under. What ends each quote by name, since a QuoteStatusReport carries one.
+     */
+    data object Quotes : StepAddress {
+        override val word = "quotes"
+    }
+
     /** Every responder the RFQ was sent to, quoted or not. */
     data object Asked : StepAddress {
         override val word = "asked"
@@ -71,9 +79,9 @@ sealed interface StepAddress {
     companion object {
         const val COMP_ID_PREFIX = "compId:"
 
-        private val FIXED = listOf(Sender, Requester, Quoter, Cover, Others, Quoted, Asked, Responders)
+        private val FIXED = listOf(Sender, Requester, Quotes, Quoter, Cover, Others, Quoted, Asked, Responders)
 
-        private val RFQ_PARTIES: Set<StepAddress> = setOf(Requester, Quoter, Cover, Others, Quoted, Asked)
+        private val RFQ_PARTIES: Set<StepAddress> = setOf(Requester, Quotes, Quoter, Cover, Others, Quoted, Asked)
 
         /** The vocabulary, as an author would type it, for saying what an unrecognised word could have been. */
         val words: List<String> get() = FIXED.map { it.word } + "${COMP_ID_PREFIX}<CompID>"

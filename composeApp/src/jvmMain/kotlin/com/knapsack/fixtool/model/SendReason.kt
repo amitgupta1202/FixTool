@@ -74,7 +74,12 @@ data class SendReason(
 
     private fun ruleLine(time: String): String {
         val rule = "rule ${(ruleIndex ?: 0) + 1}" + stepSuffix()
-        val matched = whenMsgType?.let { "35=$it matched" } ?: "the rule matched"
+        val matched =
+            when (whenMsgType) {
+                null -> "the rule matched"
+                WHEN_RFQ_EXPIRES -> "the RFQ expired"
+                else -> "35=$whenMsgType matched"
+            }
         val book = reading
         val line =
             when {
@@ -86,8 +91,13 @@ data class SendReason(
             }
         // Said last and only for a relay, so every reason written before relaying reads exactly as it did.
         val relayed = relay ?: return line
-        return "$line → ${relayed.address} ${relayed.recipientCompId}, " +
-            "relayed from ${relayed.triggerCompId}'s 35=${relayed.triggerMsgType ?: "?"}"
+        val from =
+            if (relayed.triggerMsgType == WHEN_RFQ_EXPIRES) {
+                "on ${relayed.triggerCompId}'s RFQ"
+            } else {
+                "relayed from ${relayed.triggerCompId}'s 35=${relayed.triggerMsgType ?: "?"}"
+            }
+        return "$line → ${relayed.address} ${relayed.recipientCompId}, $from"
     }
 
     private fun handLine(time: String): String {

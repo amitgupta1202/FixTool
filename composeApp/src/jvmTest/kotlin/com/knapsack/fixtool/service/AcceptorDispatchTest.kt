@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
@@ -205,6 +206,57 @@ class AcceptorDispatchTest {
             assertTrue(done.await(5, TimeUnit.SECONDS))
         }
         assertEquals(listOf("not delivered"), outcomes.toList())
+    }
+
+    // ------------------------------------------------------------------ timers
+
+    @Test
+    fun `a timer runs its action once, on the dispatch thread, after its delay`() {
+        val ranOn = ConcurrentLinkedQueue<String>()
+        val ran = CountDownLatch(1)
+        AcceptorDispatch(send = { _, _ -> true }, isLoggedOn = { true }).use { dispatch ->
+            dispatch.scheduleTimer("rfq-expiry:RFQ-1", 50) {
+                ranOn.add(Thread.currentThread().name)
+                ran.countDown()
+            }
+            assertEquals(1, dispatch.timerCount())
+            assertTrue(ran.await(5, TimeUnit.SECONDS), "the timer never ran")
+            Thread.sleep(100)
+            assertEquals(listOf("fixtool-acceptor-response"), ranOn.toList(), "once, and on the thread every reply leaves on")
+            assertEquals(0, dispatch.timerCount())
+        }
+    }
+
+    @Test
+    fun `a cancelled timer never runs, and arming a key again replaces it`() {
+        val ran = ConcurrentLinkedQueue<String>()
+        val done = CountDownLatch(1)
+        AcceptorDispatch(send = { _, _ -> true }, isLoggedOn = { true }).use { dispatch ->
+            dispatch.scheduleTimer("a", 200) { ran.add("a") }
+            assertTrue(dispatch.cancelTimer("a"))
+            assertFalse(dispatch.cancelTimer("a"), "nothing left to cancel")
+
+            dispatch.scheduleTimer("b", 200) { ran.add("first b") }
+            dispatch.scheduleTimer("b", 50) {
+                ran.add("second b")
+                done.countDown()
+            }
+            assertTrue(done.await(5, TimeUnit.SECONDS))
+            Thread.sleep(300)
+        }
+        assertEquals(listOf("second b"), ran.toList())
+    }
+
+    @Test
+    fun `a timer that throws is reported and the thread goes on`() {
+        val errors = ConcurrentLinkedQueue<String>()
+        val after = CountDownLatch(1)
+        AcceptorDispatch(send = { _, _ -> true }, isLoggedOn = { true }, onError = { message, _ -> errors.add(message) }).use { dispatch ->
+            dispatch.scheduleTimer("boom", 0) { error("no RFQ") }
+            dispatch.scheduleTimer("next", 50) { after.countDown() }
+            assertTrue(after.await(5, TimeUnit.SECONDS), "the thread died with the first timer")
+        }
+        assertTrue(errors.single().contains("boom"), errors.toString())
     }
 
     /** A logout says what it dropped, so each step that was owed can be counted rather than forgotten. */

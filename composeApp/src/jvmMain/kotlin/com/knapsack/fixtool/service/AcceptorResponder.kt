@@ -11,11 +11,13 @@ import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.QuoteConstraint
 import com.knapsack.fixtool.model.QuoteEntry
 import com.knapsack.fixtool.model.QuoteReading
+import com.knapsack.fixtool.model.QuotesStanding
 import com.knapsack.fixtool.model.RespondersOnline
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.RfqConstraint
 import com.knapsack.fixtool.model.SenderRole
 import com.knapsack.fixtool.model.StepAddress
+import com.knapsack.fixtool.model.WHEN_RFQ_EXPIRES
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.load.CompiledTemplate
 import quickfix.Message
@@ -131,9 +133,14 @@ data class RuleOutcome(
     val quote: QuoteOutcome? = null,
     /** Whether a responder was online, when the rule asked. Null when it did not. */
     val responders: RespondersOutcome? = null,
+    /** Whether a quote stood on the RFQ, when the rule asked, in the same shape. Null when it did not. */
+    val standing: RespondersOutcome? = null,
 )
 
-/** What a rule's `whenResponders` asked and what the venue said. [actual] is null when there was no venue to ask. */
+/**
+ * What a rule's `whenResponders` or `whenQuotes` asked and what the venue said: [wanted] is the word, `some` or `none`,
+ * and [actual] whether there were some. Null when there was nothing to ask.
+ */
 data class RespondersOutcome(
     val wanted: String,
     val actual: Boolean?,
@@ -239,7 +246,32 @@ object AcceptorResponder {
                     conditions.all { (tag, matcher) -> holds(matcher, tag, valueOf(incoming, tag), quote, venue) } &&
                     satisfiesBook(rule, book) &&
                     satisfiesQuote(rule, quote) &&
-                    satisfiesResponders(rule, venue)
+                    satisfiesResponders(rule, venue) &&
+                    satisfiesStanding(rule, venue)
+            }?.rule
+
+    /**
+     * **The first rule that fires because an RFQ expired** — [firstMatch]'s counterpart for the one trigger that is not
+     * a message.
+     *
+     * A separate function rather than a case of [firstMatch], because that one compares the incoming `35` and nothing
+     * carries [WHEN_RFQ_EXPIRES]. Tag conditions read the RFQ's [opening] request, as its groups were read when it
+     * arrived; the venue questions are asked of [venue], which says the RFQ is expired and the requester is the one
+     * who asked. A rule that asks either book never fires here: nothing named an order or a quote.
+     */
+    fun firstMatchOnExpiry(
+        compiled: List<CompiledRule>,
+        opening: Map<Int, String>,
+        venue: VenueReading,
+    ): AcceptorResponseRule? =
+        compiled
+            .firstOrNull { (rule, conditions) ->
+                rule.whenMsgType == WHEN_RFQ_EXPIRES &&
+                    rule.whenOrder == null &&
+                    rule.whenQuote == null &&
+                    conditions.all { (tag, matcher) -> holds(matcher, tag, opening[tag], null, venue) } &&
+                    satisfiesResponders(rule, venue) &&
+                    satisfiesStanding(rule, venue)
             }?.rule
 
     /** Whether [rule]'s book constraint holds, given what [book] said. See [firstMatch] for the null case. */
@@ -260,6 +292,14 @@ object AcceptorResponder {
         val wanted = RespondersOnline.byWord(asked)
         val online = venue?.respondersOnline
         return wanted != null && online != null && (wanted == RespondersOnline.SOME) == online
+    }
+
+    /** Whether a quote stands on the RFQ, as the rule asks. With no RFQ to ask about, a rule asking does not fire. */
+    private fun satisfiesStanding(rule: AcceptorResponseRule, venue: VenueReading?): Boolean {
+        val asked = rule.whenQuotes ?: return true
+        val wanted = QuotesStanding.byWord(asked)
+        val standing = venue?.quotesStanding
+        return wanted != null && standing != null && (wanted == QuotesStanding.SOME) == standing
     }
 
     /**
@@ -377,22 +417,28 @@ object AcceptorResponder {
                         satisfied = quote != null && quote.satisfies(constraint),
                     )
                 }
-            val respondersOutcome =
-                rule.whenResponders?.let { wanted ->
-                    RespondersOutcome(wanted, venue?.respondersOnline, satisfiesResponders(rule, venue))
-                }
+            val respondersOutcome = respondersOutcome(rule, venue)
+            val standingOutcome = standingOutcome(rule, venue)
             val matched =
                 skipped == null &&
                     msgType == rule.whenMsgType &&
                     conditions.all { it.satisfied } &&
                     (order?.satisfied ?: true) &&
                     (quoteOutcome?.satisfied ?: true) &&
-                    (respondersOutcome?.satisfied ?: true)
+                    (respondersOutcome?.satisfied ?: true) &&
+                    (standingOutcome?.satisfied ?: true)
             val selected = matched && !alreadyWon
             if (selected) alreadyWon = true
             RuleOutcome(index, rule, matched, selected, skipped, conditions, order, quoteOutcome, respondersOutcome)
+                .copy(standing = standingOutcome)
         }
     }
+
+    private fun respondersOutcome(rule: AcceptorResponseRule, venue: VenueReading?): RespondersOutcome? =
+        rule.whenResponders?.let { RespondersOutcome(it, venue?.respondersOnline, satisfiesResponders(rule, venue)) }
+
+    private fun standingOutcome(rule: AcceptorResponseRule, venue: VenueReading?): RespondersOutcome? =
+        rule.whenQuotes?.let { RespondersOutcome(it, venue?.quotesStanding, satisfiesStanding(rule, venue)) }
 
     /**
      * The earlier rule that makes the rule at [index] unreachable, or null when nothing proves one does.

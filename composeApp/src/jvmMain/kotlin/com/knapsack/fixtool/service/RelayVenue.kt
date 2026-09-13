@@ -69,4 +69,6 @@ data class VenueReading(
     /** The RFQ behind the quote id the message names through 117, or null when it carries none. */
     val rfqBy117: RfqReading?,
     val respondersOnline: Boolean,
+    /** Whether any quote stands on the RFQ the reading is about. Null when there is no RFQ to ask. */
+    val quotesStanding: Boolean? = null,
 )

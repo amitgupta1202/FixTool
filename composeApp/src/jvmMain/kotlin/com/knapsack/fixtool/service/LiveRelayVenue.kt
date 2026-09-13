@@ -11,12 +11,14 @@ import com.knapsack.fixtool.model.QuoteReading
 import com.knapsack.fixtool.model.RelayRef
 import com.knapsack.fixtool.model.RfqEntry
 import com.knapsack.fixtool.model.RfqLeg
+import com.knapsack.fixtool.model.RfqLife
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.StepAddress
 import com.knapsack.fixtool.model.roleOf
 import quickfix.Message
 import quickfix.Session
 import quickfix.SessionID
+import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -90,6 +92,9 @@ internal class LiveRelayVenue(
         return trigger to plan
     }
 
+    /** The session [compId] is on, among the ones this engine has created, or null when it has never connected. */
+    fun sessionOf(compId: String): SessionID? = sessions[compId]
+
     /** The part [sessionId]'s counterparty plays on this venue, or null when the venue does not declare it. */
     fun roleOf(sessionId: SessionID): PartyRole? = roleOf(counterparties(), sessionId.targetCompID)
 
@@ -97,13 +102,35 @@ internal class LiveRelayVenue(
     fun reading(sessionId: SessionID, message: Message): VenueReading {
         val fields = RfqBookService.fieldsOf(message)
         val key = sessionId.toString()
+        val by131 = fields[TAG_QUOTE_REQ_ID]?.let { book.reading(key, TAG_QUOTE_REQ_ID, fields) }
+        val by117 = fields[TAG_QUOTE_ID]?.let { book.reading(key, TAG_QUOTE_ID, fields) }
         return VenueReading(
             senderRole = roleOf(sessionId),
-            rfqBy131 = fields[TAG_QUOTE_REQ_ID]?.let { book.reading(key, TAG_QUOTE_REQ_ID, fields) },
-            rfqBy117 = fields[TAG_QUOTE_ID]?.let { book.reading(key, TAG_QUOTE_ID, fields) },
-            respondersOnline = sessions.values.any { id -> roleOf(id) == PartyRole.RESPONDER && isLoggedOn(id) },
+            rfqBy131 = by131,
+            rfqBy117 = by117,
+            respondersOnline = respondersOnline(),
+            quotesStanding = (by131?.entry ?: by117?.entry)?.let { standing(it, clock()).isNotEmpty() },
         )
     }
+
+    fun respondersOnline(): Boolean = sessions.values.any { id -> roleOf(id) == PartyRole.RESPONDER && isLoggedOn(id) }
+
+    /**
+     * **The quotes that stand on [entry]**, each with its leg: while the RFQ is open, the ones still live; once it has
+     * expired, the last one each dealer showed the requester, lapsed or not, because every quote ends with the RFQ and
+     * a quote whose own time ran out first has not yet been told so. A leg that passed or traded has nothing standing.
+     */
+    fun standing(entry: RfqEntry, now: Long = clock()): List<Pair<RfqLeg, LegQuote>> =
+        entry.legs.mapNotNull { leg ->
+            if (entry.life == RfqLife.EXPIRED) {
+                leg.quotes
+                    .lastOrNull()
+                    ?.takeIf { leg.outcome == null && !it.superseded && it.venueQuoteId != null }
+                    ?.let { leg to it }
+            } else {
+                leg.currentQuote(now)?.let { leg to it }
+            }
+        }
 
     /** The message a relay rule answers, read **after** it was recorded, so an opening request has its RFQ (R2). */
     private fun trigger(sessionId: SessionID, message: Message): RelayTrigger {
@@ -129,10 +156,11 @@ internal class LiveRelayVenue(
         return when (address) {
             StepAddress.Sender -> Resolution(listOf(sender))
             StepAddress.Requester -> reach(listOfNotNull(entry?.requesterCompId), address)
+            StepAddress.Quotes -> quotes(entry, now)
             StepAddress.Responders -> responders(address)
             is StepAddress.CompId -> reach(listOf(address.compId), address)
             StepAddress.Asked -> reach(legs.filter { it.venueQuoteReqId != null }.map { it.compId }, address)
-            StepAddress.Quoted -> reachLegs(live, address)
+            StepAddress.Quoted -> reachLegs(entry?.let { standing(it, now) }.orEmpty(), address)
             StepAddress.Quoter -> reachLegs(listOfNotNull(quoted(trigger)), address)
             StepAddress.Cover -> reachLegs(listOfNotNull(cover(entry, trigger, now)), address)
             StepAddress.Others -> {
@@ -169,6 +197,19 @@ internal class LiveRelayVenue(
             "state" -> entry.lifeAt(now).word
             else -> null
         }
+    }
+
+    /** The requester once for each standing quote it was shown, each recipient carrying that quote's shown id. */
+    private fun quotes(entry: RfqEntry?, now: Long): Resolution {
+        entry ?: return Resolution()
+        val sessionId = sessions[entry.requesterCompId]
+        return sort(
+            standing(entry, now).mapNotNull { (_, quote) ->
+                quote.venueQuoteId?.let { shownAs ->
+                    Recipient(sessionId, entry.requesterKey, entry.requesterCompId, StepAddress.Quotes, shownAs)
+                }
+            },
+        )
     }
 
     /** The leg and quote the trigger named, when it named one the venue relayed. */
@@ -248,6 +289,28 @@ internal class LiveRelayVenue(
                 reading = heldBefore,
                 relay = send.to?.takeIf { it.address.relays }?.let { relayRef(request.uid, trigger, it) },
             )
+
+        /** The same reason for a step of a rule on expiry, joined in Trace to the request that opened the RFQ. */
+        @Suppress("LongParameterList") // one reason's facts, each from a different place
+        fun reasonOnExpiry(
+            rule: AcceptorResponseRule,
+            ruleNumber: Int?,
+            at: LocalDateTime,
+            send: PlannedSend,
+            trigger: RelayTrigger,
+            openingUid: Long?,
+        ): SendReason =
+            SendReason(
+                source = SendReason.Source.RULE,
+                at = at,
+                ruleIndex = ruleNumber,
+                whenMsgType = rule.whenMsgType,
+                step = send.authoredStep + 1,
+                steps = rule.sequence().size,
+                relay = send.to?.let { relayRef(openingUid ?: NO_UID, trigger, it) },
+            )
+
+        private const val NO_UID = -1L
 
         private fun relayRef(triggerUid: Long, trigger: RelayTrigger, recipient: Recipient) =
             RelayRef(

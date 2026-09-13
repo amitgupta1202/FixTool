@@ -44,6 +44,8 @@ internal class DryRunVenue(
         /** CompID to the ids it knows, by tag — what `${to.<tag>}` reads. */
         val ids: Map<String, Map<Int, String>> = emptyMap(),
         val online: Set<String> = emptySet(),
+        /** A dealer's quote id to the id the requester was shown it under. Absent: shown under its own. */
+        val shown: Map<String, String> = emptyMap(),
     )
 
     fun reading(message: quickfix.Message): VenueReading {
@@ -53,6 +55,7 @@ internal class DryRunVenue(
             rfqBy131 = AcceptorResponder.valueOf(message, TAG_QUOTE_REQ_ID)?.let { RfqReading(null, null, word) },
             rfqBy117 = AcceptorResponder.valueOf(message, TAG_QUOTE_ID)?.let { RfqReading(null, null, word) },
             respondersOnline = rfq.online.any { roleOf(counterparties, it) == PartyRole.RESPONDER },
+            quotesStanding = rfqWord?.takeIf { it != RfqConstraint.UNKNOWN.word }?.let { rfq.quotes.isNotEmpty() },
         )
     }
 
@@ -70,6 +73,8 @@ internal class DryRunVenue(
         when (address) {
             StepAddress.Sender -> reach(listOfNotNull(from), address)
             StepAddress.Requester -> reach(listOfNotNull(rfq.requester), address)
+            // Once per quote the caller said stands, each named as the caller said the requester was shown it.
+            StepAddress.Quotes -> quotesToRequester()
             StepAddress.Quoter -> reach(listOfNotNull(rfq.quoter), address)
             StepAddress.Cover -> reach(listOfNotNull(rfq.cover), address)
             StepAddress.Quoted -> reach(rfq.quotes.keys.toList(), address)
@@ -91,6 +96,13 @@ internal class DryRunVenue(
             "state" -> rfqWord
             else -> null
         }
+
+    private fun quotesToRequester(): Resolution {
+        val requester = rfq.requester ?: return Resolution()
+        val shown = rfq.quotes.values.map { dealerQuote -> rfq.shown[dealerQuote] ?: dealerQuote }
+        val recipients = shown.map { Recipient(null, requester, requester, StepAddress.Quotes, it) }
+        return if (requester in rfq.online) Resolution(recipients) else Resolution(notDelivered = recipients)
+    }
 
     /** Declared responders named exactly, and the online members of a declared responder family. */
     private fun responders(): List<String> {
@@ -127,7 +139,8 @@ internal class DryRunVenue(
             val online =
                 (body["online"] as? JsonArray)?.map { it.jsonPrimitive.content }?.toSet()
                     ?: (counterparties.filterNot { it.isPrefix }.map { it.compId } + named).toSet()
-            val assumed = AssumedRfq(str("requester"), str("quoter"), str("cover"), asked, quotes, ids, online)
+            val shown = (rfq?.get("shown") as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content }
+            val assumed = AssumedRfq(str("requester"), str("quoter"), str("cover"), asked, quotes, ids, online, shown)
             return DryRunVenue(counterparties, from, rfqWord, assumed)
         }
     }

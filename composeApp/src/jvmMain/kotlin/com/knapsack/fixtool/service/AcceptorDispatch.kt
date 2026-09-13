@@ -65,6 +65,14 @@ class AcceptorDispatch(
 
     private val pending = ConcurrentHashMap<SessionID, MutableSet<Pending>>()
 
+    /** One scheduled action, by the key it was armed under. A holder, so a finished timer removes only itself. */
+    private class Timer {
+        @Volatile
+        var future: ScheduledFuture<*>? = null
+    }
+
+    private val timers = ConcurrentHashMap<String, Timer>()
+
     /**
      * Schedules the message [build] returns to be sent to [sessionId] after [delayMillis].
      *
@@ -112,6 +120,43 @@ class AcceptorDispatch(
             ?.map { it.reason }
             .orEmpty()
 
+    /**
+     * **Runs [action] on this dispatch thread after [delayMillis]**, under [key] — the venue's one thing that happens
+     * without a message arriving.
+     *
+     * On this thread and not a timer of its own, so what it does is ordered with every reply: an RFQ's expiry is
+     * decided between two sends, never during one. Arming a key that is already armed replaces it. An action that
+     * throws is reported like a send that throws, and the thread is kept.
+     */
+    fun scheduleTimer(key: String, delayMillis: Long, action: () -> Unit) {
+        val timer = Timer()
+        timers.put(key, timer)?.future?.cancel(false)
+        timer.future =
+            executor.schedule(
+                {
+                    timers.remove(key, timer)
+                    runTimer(key, action)
+                },
+                delayMillis.coerceAtLeast(0),
+                TimeUnit.MILLISECONDS,
+            )
+    }
+
+    /** Disarms [key], and says whether there was anything armed to disarm. */
+    fun cancelTimer(key: String): Boolean = timers.remove(key)?.future?.cancel(false) == true
+
+    /** How many timers are armed and have not run. For tests and diagnostics. */
+    fun timerCount(): Int = timers.values.count { it.future?.isDone != true }
+
+    @Suppress("TooGenericExceptionCaught") // the shared thread outlives any one timer's failure
+    private fun runTimer(key: String, action: () -> Unit) {
+        try {
+            action()
+        } catch (e: Exception) {
+            onError("Scheduled acceptor action '$key' failed: ${e.message}", e)
+        }
+    }
+
     /** How many sends are still waiting for their moment on [sessionId]. For tests and diagnostics. */
     fun pendingCount(sessionId: SessionID): Int = pending[sessionId]?.count { !it.future.isDone } ?: 0
 
@@ -120,6 +165,7 @@ class AcceptorDispatch(
 
     override fun close() {
         pending.keys.toList().forEach { cancelAll(it) }
+        timers.keys.toList().forEach { cancelTimer(it) }
         executor.shutdownNow()
     }
 

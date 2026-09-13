@@ -138,6 +138,10 @@ data class ResponseStep(
  */
 @Serializable
 data class AcceptorResponseRule(
+    /**
+     * The MsgType that fires this rule, or [WHEN_RFQ_EXPIRES] for a rule that fires when an RFQ's time runs out rather
+     * than on a message: nothing sent it, so every step is addressed and the RFQ it reads is the one that expired.
+     */
     val whenMsgType: String,
     val whenFields: Map<String, String> = emptyMap(),
     val conditions: List<FieldCondition> = emptyList(),
@@ -179,6 +183,14 @@ data class AcceptorResponseRule(
      * [ResponseStep.to] is.
      */
     val whenResponders: String? = null,
+    /**
+     * Whether any quote stands on the RFQ, `none` or `some` — what tells an RFQ that expired with quotes, whose quotes
+     * each have to be ended by name, from one nobody answered. On a message, the RFQ it names; on expiry, the one that
+     * expired.
+     *
+     * A string, and on a message it needs an `rfq` condition to say which RFQ, for the reason [whenResponders] does.
+     */
+    val whenQuotes: String? = null,
     /**
      * A rule switched off is **kept and skipped**, not deleted.
      *
@@ -248,7 +260,7 @@ data class AcceptorResponseRule(
      * it answered everything.
      */
     fun isUnconditional(): Boolean =
-        trigger().isEmpty() && whenOrder == null && whenQuote == null && whenResponders == null
+        trigger().isEmpty() && whenOrder == null && whenQuote == null && whenResponders == null && whenQuotes == null
 
     /** True when the trigger asks the venue something: the sender's role, or the state of an RFQ. */
     fun asksTheVenue(): Boolean =
@@ -361,14 +373,15 @@ data class AcceptorResponseRule(
                 "step ${steps.indexOfFirst { it.template.isBlank() } + 1} has no message to send"
             steps.any { it.delayMillis < 0 } ->
                 "step ${steps.indexOfFirst { it.delayMillis < 0 } + 1} has a negative delay"
-            else -> relayError(counterparties, initiator)
+            else -> expiryError() ?: relayError(counterparties, initiator)
         }
 
     /** What is wrong with how this rule addresses other counterparties, or null. See [validationError]. */
     @Suppress("CyclomaticComplexMethod", "ReturnCount")
     private fun relayError(counterparties: List<Counterparty>?, initiator: Boolean): String? {
         val played = sequence()
-        val speaksOfParties = relays() || asksTheVenue() || whenResponders != null
+        val expiry = whenMsgType == WHEN_RFQ_EXPIRES
+        val speaksOfParties = relays() || asksTheVenue() || whenResponders != null || whenQuotes != null || expiry
         // Before anything about how it is addressed: an initiator is one session to one counterparty, so there is
         // nobody else to reach and no venue to ask who played what.
         if (initiator && speaksOfParties) {
@@ -385,18 +398,32 @@ data class AcceptorResponseRule(
             return "'$whenResponders' is not an answer to whether responders are online; the answers are " +
                 RespondersOnline.words.joinToString(", ")
         }
+        if (whenQuotes != null && QuotesStanding.byWord(whenQuotes) == null) {
+            return "'$whenQuotes' is not an answer to whether quotes stand; the answers are " +
+                QuotesStanding.words.joinToString(", ")
+        }
         // Protects the older builds, not this one: a FixTool that predates relaying drops an unknown field
         // and keeps the rule, so without a matcher it cannot parse it would answer the sender with a message
-        // meant for somebody else. A role or rfq condition makes it drop the rule.
-        if ((relays() || whenResponders != null) && !asksTheVenue()) {
+        // meant for somebody else. A role or rfq condition makes it drop the rule. A rule on expiry needs none: no
+        // message carries its trigger word, so an older build never fires it at all.
+        val asksAParty = relays() || whenResponders != null || whenQuotes != null
+        if (asksAParty && !asksTheVenue() && !expiry) {
             val what =
                 if (relays()) "a step addressed to someone other than the sender" else "a responders-online check"
             return "the rule has $what, so it needs a 'the sender is' or 'the RFQ is' condition as well — " +
                 "an older FixTool reading this profile would otherwise run it as a reply to the sender"
         }
         val rfqTags = rfqTags()
+        if (whenQuotes != null && rfqTags.isEmpty() && !expiry) {
+            return "'and quotes standing' asks about the RFQ the message names, so the trigger has to name one — " +
+                "add an 'RFQ is' condition"
+        }
         val opensAnRfq = whenMsgType == MSG_QUOTE_REQUEST && requiresARequester()
-        played.forEachIndexed { index, step -> stepRelayError(step, index + 1, rfqTags, opensAnRfq)?.let { return it } }
+        // On expiry the RFQ is the trigger itself, so every reference to it is backed as though a condition named it.
+        val rfqNamed = opensAnRfq || expiry
+        played.forEachIndexed { index, step ->
+            stepRelayError(step, index + 1, rfqTags, rfqNamed, expiry)?.let { return it }
+        }
         if (counterparties?.isEmpty() == true && speaksOfParties) {
             return "this venue declares no counterparties, so nobody is a requester or a responder — " +
                 "add them to the venue's Counterparties"
@@ -406,13 +433,23 @@ data class AcceptorResponseRule(
 
     /** What is wrong with one step's address or what it reads, given what the trigger requires. See [relayError]. */
     @Suppress("CyclomaticComplexMethod", "ReturnCount")
-    private fun stepRelayError(step: ResponseStep, number: Int, rfqTags: Set<Int>, opensAnRfq: Boolean): String? {
+    private fun stepRelayError(
+        step: ResponseStep,
+        number: Int,
+        rfqTags: Set<Int>,
+        /** The trigger itself names an RFQ: a requester's QuoteRequest opens one, and an expiry is one. */
+        rfqNamed: Boolean,
+        expiry: Boolean,
+    ): String? {
         val address = step.address() ?: return null
+        // Something names the RFQ this address is a part of: a condition, the expiry that is the trigger, or — for its
+        // requester alone — the QuoteRequest that opens it.
+        val rfqBacked = rfqTags.isNotEmpty() || expiry || (address == StepAddress.Requester && rfqNamed)
         when {
             address.needsAQuote && TAG_QUOTE_ID !in rfqTags ->
                 return "step $number goes to the ${address.word}, which is found through the quote the trigger " +
                     "names — add an 'RFQ is' condition on tag 117"
-            address.needsAnRfq && rfqTags.isEmpty() && !(address == StepAddress.Requester && opensAnRfq) ->
+            address.needsAnRfq && !rfqBacked ->
                 return "step $number goes to ${address.word}, which only an RFQ the venue holds can name — " +
                     "add an 'RFQ is' condition on tag 131 or 117"
             TO_REF in step.template && (address == StepAddress.Responders || address is StepAddress.CompId) ->
@@ -422,13 +459,14 @@ data class AcceptorResponseRule(
             TO_QUOTE_ID in step.template &&
                 address != StepAddress.Requester &&
                 !address.needsAQuote &&
-                address != StepAddress.Quoted ->
+                address != StepAddress.Quoted &&
+                address != StepAddress.Quotes ->
                 return "step $number reads \${to.117} and goes to ${address.word}, and not every one of them " +
-                    "holds a quote — address quoted, quoter, cover or others"
+                    "holds a quote — address quotes, quoted, quoter, cover or others"
             TO_QUOTE_ID in step.template && address == StepAddress.Requester && TAG_QUOTE_ID !in rfqTags ->
                 return "step $number reads \${to.117} for the requester, which is the quote the trigger names — " +
                     "add an 'RFQ is' condition on tag 117"
-            (TO_REF in step.template || RFQ_REF in step.template) && rfqTags.isEmpty() && !opensAnRfq ->
+            (TO_REF in step.template || RFQ_REF in step.template) && rfqTags.isEmpty() && !rfqNamed ->
                 return "step $number reads the RFQ, and the trigger does not require one — " +
                     "add an 'RFQ is' condition"
         }
@@ -438,6 +476,44 @@ data class AcceptorResponseRule(
                 RfqEntryNames.FIELDS.joinToString(", ")
         }
         return null
+    }
+}
+
+/**
+ * **What is wrong with a rule that fires when an RFQ expires**, or null — and null for every other rule.
+ *
+ * Nothing sent it. So there is no sender to answer, no message to name an order or a quote, and the RFQ it reads is
+ * always the one that expired: every step has to be addressed, and the parts of a trigger that read a message or a
+ * quote can never hold.
+ */
+private fun AcceptorResponseRule.expiryError(): String? {
+    if (whenMsgType != WHEN_RFQ_EXPIRES) return null
+    val steps = sequence()
+    val toSender = steps.indexOfFirst { it.address() == StepAddress.Sender }
+    val throughAQuote = steps.indexOfFirst { it.address()?.needsAQuote == true }
+    val oneQuote = steps.indexOfFirst { it.address() == StepAddress.Requester && TO_QUOTE_ID in it.template }
+    val notExpired =
+        trigger()
+            .mapNotNull { it.parsed() as? Matcher.RfqState }
+            .firstOrNull { RfqConstraint.byWord(it.state) != RfqConstraint.EXPIRED }
+    return when {
+        whenOrder != null || whenQuote != null ->
+            "nothing sends this rule an order or a quote, so 'when the order is' and 'when the quote is' can never " +
+                "be answered — clear them"
+        comparesTheQuote() ->
+            "nothing names a quote when an RFQ expires, so a condition against the quote's own value can never hold"
+        notExpired != null ->
+            "the RFQ is always expired when this rule fires, so 'the RFQ is ${notExpired.state}' can never hold"
+        toSender >= 0 ->
+            "step ${toSender + 1} goes to the sender, and nobody sent anything when an RFQ expires — address it to " +
+                "requester, quotes, quoted or asked"
+        throughAQuote >= 0 ->
+            "step ${throughAQuote + 1} goes to the ${steps[throughAQuote].address()?.word}, found through the quote " +
+                "a message names, and nothing names one when an RFQ expires — address quotes or quoted"
+        oneQuote >= 0 ->
+            "step ${oneQuote + 1} reads \${to.117} for the requester, and an RFQ that expires names no one quote — " +
+                "address it to quotes, which tells the requester once for each"
+        else -> null
     }
 }
 

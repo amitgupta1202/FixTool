@@ -51,6 +51,13 @@ class RfqBookService(
     initialCap: Int = DEFAULT_CAP,
     /** How long an RFQ lives when its request names no ExpireTime(126). Null: until something ends it. */
     private val defaultExpiryMillis: () -> Long? = { null },
+    /**
+     * Told when an RFQ that has an expiry is first relayed to a responder, with that expiry: when a venue arms the
+     * timer that ends it. Called inside the book's lock, so it must only arm, never wait.
+     */
+    private val onOpened: (rfqId: String, expireAt: Long) -> Unit = { _, _ -> },
+    /** Told when an RFQ stops being live for any reason but its expiry, or leaves the book: the timer is disarmed. */
+    private val onEnded: (rfqId: String) -> Unit = {},
 ) {
     private val logger = LoggerFactory.getLogger(RfqBookService::class.java)
 
@@ -248,7 +255,10 @@ class RfqBookService(
         if (fields[TAG_QUOTE_RESP_TYPE] != RESP_TYPE_PASS) return
         val link = fields[TAG_QUOTE_ID]?.let { links[LinkKey(sessionKey, TAG_QUOTE_ID, it)] } ?: return
         val entry = rfqs[link.rfqId] ?: return
-        if (entry.life.live) rfqs[entry.rfqId] = entry.copy(life = RfqLife.PASSED)
+        if (entry.life.live) {
+            rfqs[entry.rfqId] = entry.copy(life = RfqLife.PASSED)
+            onEnded(entry.rfqId)
+        }
     }
 
     private fun recordSent(
@@ -289,6 +299,7 @@ class RfqBookService(
         val entry = link?.let { rfqs[it.rfqId] }
         if (entry != null && entry.requesterKey == sessionKey && entry.life.live) {
             rfqs[entry.rfqId] = entry.copy(life = RfqLife.REFUSED)
+            onEnded(entry.rfqId)
         }
     }
 
@@ -298,6 +309,8 @@ class RfqBookService(
         val legs = entry.legs.filterNot { it.responderKey == sessionKey } + leg
         val life = if (entry.life == RfqLife.REQUESTED) RfqLife.OPEN else entry.life
         rfqs[entry.rfqId] = entry.copy(legs = legs, life = life)
+        // Armed on the first relay and no sooner: an RFQ refused before anyone was asked is never told it expired.
+        if (entry.life == RfqLife.REQUESTED && entry.expireAt != null) onOpened(entry.rfqId, entry.expireAt)
     }
 
     /**
@@ -346,13 +359,32 @@ class RfqBookService(
                 }
             }
         rfqs[rfqId] = entry.copy(life = RfqLife.DONE, legs = legs)
+        onEnded(rfqId)
         publish()
+    }
+
+    /**
+     * **Ends [rfqId] by its clock**, when it is still live and its time has come, and returns it as it now stands:
+     * expired, with its legs as they were. Null when there is nothing to expire — it traded, passed or was refused
+     * first, it has no expiry, or its time has not come — which is what makes a timer that fires late harmless.
+     */
+    @Synchronized
+    fun expire(rfqId: String): RfqEntry? {
+        val entry = rfqs[rfqId] ?: return null
+        if (!entry.life.live || entry.lifeAt(clock()) != RfqLife.EXPIRED) return null
+        val expired = entry.copy(life = RfqLife.EXPIRED)
+        rfqs[rfqId] = expired
+        publish()
+        return expired
     }
 
     /** Marks [responderKey]'s leg on [rfqId] as not delivered, for a relay that could not reach it. */
     @Synchronized
     fun notDelivered(rfqId: String, responderKey: String, compId: String) {
         val entry = rfqs[rfqId] ?: return
+        // A requester is not a leg: a quote relayed to a buy side that has gone is counted by the venue, and the RFQ
+        // does not grow a responder named after its own requester.
+        if (responderKey == entry.requesterKey) return
         val leg = entry.leg(responderKey) ?: RfqLeg(responderKey = responderKey, compId = compId)
         val owed = leg.copy(outcome = LegOutcome.NOT_DELIVERED)
         val legs = entry.legs.filterNot { it.responderKey == responderKey } + owed
@@ -371,6 +403,7 @@ class RfqBookService(
 
     @Synchronized
     fun clear() {
+        rfqs.keys.forEach(onEnded)
         rfqs.clear()
         links.clear()
         linksByRfq.clear()
@@ -403,6 +436,7 @@ class RfqBookService(
             val now = clock()
             val victim = rfqs.values.firstOrNull { !it.lifeAt(now).live }?.rfqId ?: rfqs.keys.first()
             rfqs.remove(victim)
+            onEnded(victim)
             linksByRfq.remove(victim)?.forEach { links.remove(it) }
             toValues.keys.removeIf { it.first == victim }
             evicted++

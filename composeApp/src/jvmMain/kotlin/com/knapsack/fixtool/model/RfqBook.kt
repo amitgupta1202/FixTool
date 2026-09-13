@@ -80,6 +80,33 @@ enum class RfqConstraint {
     }
 }
 
+/**
+ * **The trigger word for a rule that fires when an RFQ's time runs out**, in `whenMsgType`.
+ *
+ * Not a MsgType, and chosen so no message can ever carry it: an older FixTool reading a rule written with it matches
+ * nothing and stays silent. See `docs/rfq-relay-proposal.md`, decision 10.
+ */
+const val WHEN_RFQ_EXPIRES = "@rfq-expired"
+
+/**
+ * Whether any quote stands on the RFQ a rule is about — the question that tells an RFQ that expired with quotes, whose
+ * quotes each have to be ended by name, from one nobody answered.
+ */
+enum class QuotesStanding {
+    NONE,
+    SOME,
+
+    ;
+
+    val word: String get() = name.lowercase()
+
+    companion object {
+        fun byWord(word: String?): QuotesStanding? = entries.firstOrNull { it.word == word?.trim()?.lowercase() }
+
+        val words: List<String> get() = entries.map { it.word }
+    }
+}
+
 /** Whether any responder is logged on to be asked. The one question about a venue no tag can carry. */
 enum class RespondersOnline {
     NONE,

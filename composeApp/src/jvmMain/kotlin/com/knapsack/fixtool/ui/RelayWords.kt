@@ -2,6 +2,7 @@ package com.knapsack.fixtool.ui
 
 import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.PartyRole
+import com.knapsack.fixtool.model.QuotesStanding
 import com.knapsack.fixtool.model.RespondersOnline
 import com.knapsack.fixtool.model.RfqConstraint
 import com.knapsack.fixtool.model.SenderRole
@@ -55,6 +56,13 @@ internal fun rfqTagMeaning(tag: Int): String =
         "the QuoteReqID the sender was sent or sent — a quote, a pass, a request"
     }
 
+internal fun quotesStandingMeaning(word: String?): String =
+    when (QuotesStanding.byWord(word)) {
+        null -> "the rule does not ask"
+        QuotesStanding.NONE -> "no quote stands on the RFQ: nobody quoted, or every quote has gone"
+        QuotesStanding.SOME -> "at least one quote stands on the RFQ"
+    }
+
 internal fun respondersOnlineMeaning(word: String?): String =
     when (RespondersOnline.byWord(word)) {
         null -> "the rule does not ask"
@@ -67,6 +75,7 @@ internal fun addressMeaning(address: StepAddress): String =
     when (address) {
         StepAddress.Sender -> "whoever sent this message"
         StepAddress.Requester -> "opened the RFQ it belongs to"
+        StepAddress.Quotes -> "the requester, once for each quote that stands"
         StepAddress.Quoter -> "the responder whose quote it names"
         StepAddress.Cover -> "best other live quote on the traded side"
         StepAddress.Others -> "live quotes, not the quoter or the cover"
@@ -93,6 +102,7 @@ internal fun addressOptions(counterparties: List<Counterparty>, current: StepAdd
         listOf(
             StepAddress.Sender,
             StepAddress.Requester,
+            StepAddress.Quotes,
             StepAddress.Quoter,
             StepAddress.Cover,
             StepAddress.Others,

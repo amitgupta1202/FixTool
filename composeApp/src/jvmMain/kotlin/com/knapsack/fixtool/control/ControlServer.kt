@@ -3731,6 +3731,7 @@ class ControlServer(
             // over HTTP and posted again lost its quote constraint without a word.
             rule.whenQuote?.let { put("whenQuote", it.word) }
             rule.whenResponders?.let { put("whenResponders", it) }
+            rule.whenQuotes?.let { put("whenQuotes", it) }
             put("responseTemplate", rule.responseTemplate)
             // The reply as it will actually be played, with the offset each step goes out at — a reader
             // asking "what does this rule do" should not have to re-do the accumulation, nor work out
@@ -3918,6 +3919,7 @@ class ControlServer(
                         put("role", venueAssumed.senderRole?.word ?: "unlisted")
                         put("rfqState", rfqWord ?: RfqConstraint.UNKNOWN.word)
                         put("respondersOnline", if (venueAssumed.respondersOnline) "some" else "none")
+                        venueAssumed.quotesStanding?.let { put("quotesStanding", if (it) "some" else "none") }
                     },
                 )
             }
@@ -4216,11 +4218,15 @@ class ControlServer(
                     },
                 )
             }
-            outcome.responders?.let { responders ->
-                put("whenResponders", buildJsonObject { respondersVerdict(responders) })
-            }
+            venueVerdicts(outcome)
             outcome.rule.validationError(config)?.let { put("validationError", it) }
         }
+
+    /** What a rule asked the venue that no tag can carry, each reported as a book constraint is. */
+    private fun kotlinx.serialization.json.JsonObjectBuilder.venueVerdicts(outcome: RuleOutcome) {
+        outcome.responders?.let { put("whenResponders", buildJsonObject { respondersVerdict(it) }) }
+        outcome.standing?.let { put("whenQuotes", buildJsonObject { respondersVerdict(it) }) }
+    }
 
     /** Validates a raw FIX message against the loaded data dictionary. */
     private fun validate(ex: HttpExchange): JsonElement {

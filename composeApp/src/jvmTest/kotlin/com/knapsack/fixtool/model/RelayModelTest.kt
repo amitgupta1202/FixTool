@@ -281,4 +281,89 @@ class RelayModelTest {
             "the same rule on a venue is judged as a venue's",
         )
     }
+
+    // ------------------------------------------------------------------ when the RFQ expires
+
+    private val parties = listOf(Counterparty("FIBUY1", "requester"), Counterparty("FIDLR1", "responder"))
+
+    private fun onExpiry(vararg steps: ResponseStep, whenQuotes: String? = null, conditions: List<FieldCondition> = emptyList()) =
+        AcceptorResponseRule(whenMsgType = WHEN_RFQ_EXPIRES, conditions = conditions, steps = steps.toList(), whenQuotes = whenQuotes)
+
+    /** The example's two rules: quotes ended by name to both sides, or the request refused when nobody quoted. */
+    @Test
+    fun `a rule on expiry is written with addresses and the quotes-standing question, and needs no RFQ condition`() {
+        val quoted =
+            onExpiry(
+                ResponseStep("35=AI|117=\${to.117}|131=\${to.131}|55=\${req.55}|297=7|", to = "quotes"),
+                ResponseStep("35=AI|117=\${to.117}|131=\${to.131}|55=\${req.55}|297=7|", to = "quoted"),
+                whenQuotes = "some",
+            )
+        val unquoted = onExpiry(ResponseStep("35=AG|131=\${to.131}|658=99|146=1|55=\${req.55}|", to = "requester"), whenQuotes = "none")
+
+        assertNull(quoted.validationError(parties))
+        assertNull(unquoted.validationError(parties))
+        assertEquals(StepAddress.Quotes, StepAddress.parse("quotes"))
+        assertTrue(StepAddress.Quotes.needsAnRfq)
+        assertFalse(StepAddress.Quotes.needsAQuote, "quotes is every quote that stands, not the one a message names")
+    }
+
+    @Test
+    fun `nothing sent a rule on expiry, so it cannot answer the sender or reach a party through a named quote`() {
+        assertTrue(onExpiry(ResponseStep("35=AG|658=99|")).validationError(parties)!!.contains("goes to the sender"))
+        assertTrue(onExpiry(ResponseStep("35=AJ|694=4|117=\${to.117}|", to = "cover")).validationError(parties)!!.contains("quotes or quoted"))
+        assertTrue(
+            onExpiry(ResponseStep("35=AI|117=\${to.117}|297=7|", to = "requester")).validationError(parties)!!.contains("address it to quotes"),
+        )
+        assertTrue(
+            onExpiry(ResponseStep("35=AG|658=99|", to = "requester"), conditions = listOf(rfqOpenBy131))
+                .validationError(parties)!!
+                .contains("always expired"),
+        )
+        assertTrue(
+            onExpiry(ResponseStep("35=AG|658=99|", to = "requester"))
+                .copy(whenQuote = QuoteConstraint.OPEN)
+                .validationError(parties)!!
+                .contains("order or a quote"),
+        )
+    }
+
+    @Test
+    fun `quotes standing is a word, and on a message it needs the RFQ the message names`() {
+        val pass = rule("AJ", fromRequester, rfqOpenBy117, steps = listOf(step("quoted", "35=AJ|694=6|117=\${to.117}|")))
+        assertNull(pass.copy(whenQuotes = "some").validationError(parties))
+        assertTrue(pass.copy(whenQuotes = "many").validationError(parties)!!.contains("the answers are none, some"))
+        val noRfq = rule("R", fromRequester, steps = listOf(step("responders")))
+        assertTrue(noRfq.copy(whenQuotes = "none").validationError(parties)!!.contains("add an 'RFQ is' condition"))
+        assertFalse(noRfq.copy(whenQuotes = "none").isUnconditional())
+    }
+
+    @Test
+    fun `a step to quotes may read the quote it names, and one to every responder still may not`() {
+        val toQuotes = rule("AJ", fromRequester, rfqOpenBy117, steps = listOf(step("quotes", "35=AI|117=\${to.117}|297=11|")))
+        assertNull(toQuotes.validationError(parties))
+        val toAsked = rule("AJ", fromRequester, rfqOpenBy117, steps = listOf(step("asked", "35=AI|117=\${to.117}|297=11|")))
+        assertTrue(toAsked.validationError(parties)!!.contains("address quotes, quoted"))
+    }
+
+    @Test
+    fun `a rule on expiry and the quotes question survive a profile round trip`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val rule = onExpiry(ResponseStep("35=AG|658=99|", to = "requester"), whenQuotes = "none")
+        val decoded = json.decodeFromString(AcceptorResponseRule.serializer(), json.encodeToString(AcceptorResponseRule.serializer(), rule))
+        assertEquals(rule, decoded)
+        assertFalse(json.encodeToString(AcceptorResponseRule.serializer(), rule.copy(whenQuotes = null)).contains("whenQuotes"))
+    }
+
+    @Test
+    fun `a reason for a step sent on expiry says the RFQ expired, and whose RFQ it was`() {
+        val reason =
+            SendReason(
+                source = SendReason.Source.RULE,
+                at = java.time.LocalDateTime.of(2026, 9, 13, 9, 15, 0),
+                ruleIndex = 22,
+                whenMsgType = WHEN_RFQ_EXPIRES,
+                relay = RelayRef(7L, "FIX.4.4:FIRFQ_VENUE->FIBUY1", "FIBUY1", WHEN_RFQ_EXPIRES, "quoted", "FIDLR1", "RFQ-1"),
+            )
+        assertEquals("sent by rule 23 — the RFQ expired at 09:15:00.000 → quoted FIDLR1, on FIBUY1's RFQ", reason.line())
+    }
 }

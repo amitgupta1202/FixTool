@@ -231,12 +231,19 @@ class HelpDocTest {
                 "each port" to "19880",
                 "two of them are one RFQ from two chairs" to "an RFQ seen from two chairs",
                 "every one can be driven at volume" to "at least one load set",
+                "the command line reads the example's folder" to "takes the example's folder as <code>--home</code>",
                 "they can all be up at once" to "five different ports",
             )
         val flat = chapter.flat()
         val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the examples overview no longer says: $missing")
+    }
+
+    /** `fixtool load` has `--home` and no `--workspace`; every example chapter printed the flag it does not have. */
+    @Test
+    fun `no command line in the help names a flag fixtool does not have`() {
+        assertTrue("--workspace" !in html, "fixtool reads a workspace through --home; --workspace is refused")
     }
 
     /**

@@ -271,7 +271,9 @@
     <code>fx-order-book</code>, <code>rfq-round-trip</code>, <code>equity-rest-and-cancel</code>,
     <code>crypto-rest-and-refuse</code>, and two on the fixed-income platform &mdash;
     <code>fi-rfq-round-trip</code> and <code>fi-rfq-reactive</code>. Read each venue's own section for
-    what its set proves.</p>
+    what its set proves. From the command line, <code>fixtool load --set</code> takes the example's folder
+    as <code>--home</code>, and needs the venue up in FixTool first: it opens the load client, not the
+    venue.</p>
 
     <p>Everything an example does, you can open, change, reorder or switch off, and everything you learn
     from it applies directly to simulating a real counterparty.</p>
@@ -441,7 +443,7 @@
     <a href="#load-sets">load set</a>, <strong>FX order book</strong>, in <strong>Run &rarr; Load
     sets</strong> or from the command line:</p>
 
-    <div class="example"><code>fixtool load --set fx-order-book --workspace "FX Venue"</code></div>
+    <div class="example"><code>fixtool load --set fx-order-book --home ~/.fixtool/workspaces/fx-venue</code></div>
 
     <table>
         <tr><th>Phase</th><th>Sends</th><th>Matched on</th><th>Keeps</th></tr>
@@ -618,7 +620,7 @@
     set</a></strong>, and the example ships it as <strong>RFQ round trip</strong>. Pick it from
     <strong>Run &rarr; Load sets</strong>, or run it from the command line:</p>
 
-    <div class="example"><code>fixtool load --set rfq-round-trip --workspace "RFQ Venue"</code></div>
+    <div class="example"><code>fixtool load --set rfq-round-trip --home ~/.fixtool/workspaces/rfq-venue</code></div>
 
     <div class="warning">
         <strong>Not there? Your copy is older than the set.</strong> An example's folder is
@@ -725,7 +727,7 @@
     <p>The <strong>Equity Load Client</strong> is five sessions, <code>EQLG1</code> to <code>EQLG5</code>,
     on a memory store with no log. The example ships <strong>Equity rest and cancel</strong>:</p>
 
-    <div class="example"><code>fixtool load --set equity-rest-and-cancel --workspace "Equity Venue"</code></div>
+    <div class="example"><code>fixtool load --set equity-rest-and-cancel --home ~/.fixtool/workspaces/equity-venue</code></div>
 
     <table>
         <tr><th>Phase</th><th>Sends</th><th>Matched on</th></tr>
@@ -789,7 +791,7 @@
     2,000, and then has 2,000 post-only orders refused — a phase that measures <em>the refusal path</em>
     at volume, which is a thing a venue's operators actually want a number for.</p>
 
-    <div class="example"><code>fixtool load --set crypto-rest-and-refuse --workspace "Crypto Venue"</code></div>
+    <div class="example"><code>fixtool load --set crypto-rest-and-refuse --home ~/.fixtool/workspaces/crypto-venue</code></div>
 
     <h3 id="fi-rfq-venue">The Fixed Income RFQ Platform</h3>
     <p>An <strong>FI RFQ Platform</strong> acceptor on <code>localhost:19880</code> that sits

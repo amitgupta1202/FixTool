@@ -44,11 +44,11 @@ import java.util.concurrent.TimeUnit
  */
 class AcceptorDispatch(
     /** Seam for tests; production sends through the QuickFIX session and reports whether it went. */
-    private val send: (Message, SessionID) -> Boolean = { message, sessionId -> Session.sendToTarget(message, sessionId) },
+    private val send: (Message, SessionID) -> Boolean = Session::sendToTarget,
     private val onSent: (Message) -> Unit = {},
     private val onError: (String, Throwable) -> Unit = { _, _ -> },
     /** Whether [SessionID] can be written to right now. A seam, because a test's sessions are never registered. */
-    private val isLoggedOn: (SessionID) -> Boolean = { sessionId -> Session.lookupSession(sessionId)?.isLoggedOn == true },
+    private val isLoggedOn: (SessionID) -> Boolean = { Session.lookupSession(it)?.isLoggedOn == true },
     /** A step that was due and did not go, because its counterparty was not there to receive it. */
     private val onNotDelivered: (SessionID, SendReason?) -> Unit = { _, _ -> },
 ) : Closeable {
@@ -106,7 +106,11 @@ class AcceptorDispatch(
      * reported differently and neither may be reported as the other.
      */
     fun cancelAll(sessionId: SessionID): List<SendReason?> =
-        pending.remove(sessionId)?.filter { it.future.cancel(false) }?.map { it.reason }.orEmpty()
+        pending
+            .remove(sessionId)
+            ?.filter { it.future.cancel(false) }
+            ?.map { it.reason }
+            .orEmpty()
 
     /** How many sends are still waiting for their moment on [sessionId]. For tests and diagnostics. */
     fun pendingCount(sessionId: SessionID): Int = pending[sessionId]?.count { !it.future.isDone } ?: 0

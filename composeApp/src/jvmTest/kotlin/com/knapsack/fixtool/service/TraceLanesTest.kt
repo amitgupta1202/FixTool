@@ -381,8 +381,11 @@ class TraceLanesTest {
                 snapshots,
                 titles,
                 listOf(LaneRole.INITIATOR, LaneRole.ACCEPTOR, LaneRole.ACCEPTOR, LaneRole.INITIATOR),
-                sessionGroups = listOf(null, "venue-profile", "venue-profile", null),
-                partyRoles = listOf("responder", null, null, "requester"),
+                parties =
+                    TraceLanes.Parties(
+                        sessionGroups = listOf(null, "venue-profile", "venue-profile", null),
+                        partyRoles = listOf("responder", null, null, "requester"),
+                    ),
             )
 
         assertEquals(listOf("requester", "venue", "responder"), lanes.lanes.map { it.party })
@@ -409,7 +412,7 @@ class TraceLanesTest {
                 snapshots,
                 listOf("VENUE ← A", "VENUE ← B"),
                 listOf(LaneRole.ACCEPTOR, LaneRole.ACCEPTOR),
-                sessionGroups = listOf("v", "v"),
+                parties = TraceLanes.Parties(sessionGroups = listOf("v", "v")),
             )
 
         assertEquals(1, lanes.lanes.size)

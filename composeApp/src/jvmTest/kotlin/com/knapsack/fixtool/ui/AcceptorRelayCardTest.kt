@@ -190,13 +190,34 @@ class AcceptorRelayCardTest {
 
         composeTestRule.onNodeWithTag("step-to-0-1").assertTextEquals("to sender ▾")
         pick("step-to-0-1", "responders")
-        assertEquals("responders", latest.single().steps.single().to)
+        assertEquals(
+            "responders",
+            latest
+                .single()
+                .steps
+                .single()
+                .to,
+        )
 
         pick("step-to-0-1", "FIDLR2")
-        assertEquals("compId:FIDLR2", latest.single().steps.single().to)
+        assertEquals(
+            "compId:FIDLR2",
+            latest
+                .single()
+                .steps
+                .single()
+                .to,
+        )
 
         pick("step-to-0-1", "sender")
-        assertNull(latest.single().steps.single().to, "a step moved back to the sender is the step it was before relaying")
+        assertNull(
+            latest
+                .single()
+                .steps
+                .single()
+                .to,
+            "a step moved back to the sender is the step it was before relaying",
+        )
     }
 
     @Test

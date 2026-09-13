@@ -272,7 +272,9 @@ data class AcceptorResponseRule(
      * fires, before any step goes out, so a second lift already queued behind it reads `done`.
      */
     fun booksATrade(): Boolean =
-        sequence().any { step -> step.address() == StepAddress.Quoter && MSG_TYPE_OF.find(step.template)?.groupValues?.get(1) == "8" }
+        sequence().any { step ->
+            step.address() == StepAddress.Quoter && MSG_TYPE_OF.find(step.template)?.groupValues?.get(1) == "8"
+        }
 
     /** True when any step of the reply reads `${to.…}`. */
     fun readsTheRecipient(): Boolean = sequence().any { TO_REF in it.template }
@@ -376,47 +378,57 @@ data class AcceptorResponseRule(
         // and keeps the rule, so without a matcher it cannot parse it would answer the sender with a message
         // meant for somebody else. A role or rfq condition makes it drop the rule.
         if ((relays() || whenResponders != null) && !asksTheVenue()) {
-            val what = if (relays()) "a step addressed to someone other than the sender" else "a responders-online check"
+            val what =
+                if (relays()) "a step addressed to someone other than the sender" else "a responders-online check"
             return "the rule has $what, so it needs a 'the sender is' or 'the RFQ is' condition as well — " +
                 "an older FixTool reading this profile would otherwise run it as a reply to the sender"
         }
         val rfqTags = rfqTags()
         val opensAnRfq = whenMsgType == MSG_QUOTE_REQUEST && requiresARequester()
-        played.forEachIndexed { index, step ->
-            val address = step.address() ?: return@forEachIndexed
-            val number = index + 1
-            when {
-                address.needsAQuote && TAG_QUOTE_ID !in rfqTags ->
-                    return "step $number goes to the ${address.word}, which is found through the quote the trigger " +
-                        "names — add an 'RFQ is' condition on tag 117"
-                address.needsAnRfq && rfqTags.isEmpty() && !(address == StepAddress.Requester && opensAnRfq) ->
-                    return "step $number goes to ${address.word}, which only an RFQ the venue holds can name — " +
-                        "add an 'RFQ is' condition on tag 131 or 117"
-                TO_REF in step.template && (address == StepAddress.Responders || address is StepAddress.CompId) ->
-                    return "step $number reads \${to.…} and goes to ${address.word}, and a counterparty being asked " +
-                        "has not seen this RFQ, so it has nothing to read — draw an id instead: \${req.uuid} for " +
-                        "every recipient, or \${uuid:10} for each"
-                TO_QUOTE_ID in step.template && address != StepAddress.Requester && !address.needsAQuote &&
-                    address != StepAddress.Quoted ->
-                    return "step $number reads \${to.117} and goes to ${address.word}, and not every one of them " +
-                        "holds a quote — address quoted, quoter, cover or others"
-                TO_QUOTE_ID in step.template && address == StepAddress.Requester && TAG_QUOTE_ID !in rfqTags ->
-                    return "step $number reads \${to.117} for the requester, which is the quote the trigger names — " +
-                        "add an 'RFQ is' condition on tag 117"
-                (TO_REF in step.template || RFQ_REF in step.template) && rfqTags.isEmpty() && !opensAnRfq ->
-                    return "step $number reads the RFQ, and the trigger does not require one — add an 'RFQ is' condition"
-            }
-            RFQ_NAME.findAll(step.template).map { it.groupValues[1] }.firstOrNull { it !in RfqEntryNames.FIELDS }?.let { name ->
-                return "\${rfq.$name} is not a name the RFQ book has, and the names are ${RfqEntryNames.FIELDS.joinToString(", ")}"
-            }
-        }
-        if (counterparties != null && counterparties.isEmpty() && (relays() || asksTheVenue() || whenResponders != null)) {
+        played.forEachIndexed { index, step -> stepRelayError(step, index + 1, rfqTags, opensAnRfq)?.let { return it } }
+        val speaksOfParties = relays() || asksTheVenue() || whenResponders != null
+        if (counterparties?.isEmpty() == true && speaksOfParties) {
             return "this venue declares no counterparties, so nobody is a requester or a responder — " +
                 "add them to the venue's Counterparties"
         }
         return null
     }
 
+    /** What is wrong with one step's address or what it reads, given what the trigger requires. See [relayError]. */
+    @Suppress("CyclomaticComplexMethod", "ReturnCount")
+    private fun stepRelayError(step: ResponseStep, number: Int, rfqTags: Set<Int>, opensAnRfq: Boolean): String? {
+        val address = step.address() ?: return null
+        when {
+            address.needsAQuote && TAG_QUOTE_ID !in rfqTags ->
+                return "step $number goes to the ${address.word}, which is found through the quote the trigger " +
+                    "names — add an 'RFQ is' condition on tag 117"
+            address.needsAnRfq && rfqTags.isEmpty() && !(address == StepAddress.Requester && opensAnRfq) ->
+                return "step $number goes to ${address.word}, which only an RFQ the venue holds can name — " +
+                    "add an 'RFQ is' condition on tag 131 or 117"
+            TO_REF in step.template && (address == StepAddress.Responders || address is StepAddress.CompId) ->
+                return "step $number reads \${to.…} and goes to ${address.word}, and a counterparty being asked " +
+                    "has not seen this RFQ, so it has nothing to read — draw an id instead: \${req.uuid} for " +
+                    "every recipient, or \${uuid:10} for each"
+            TO_QUOTE_ID in step.template &&
+                address != StepAddress.Requester &&
+                !address.needsAQuote &&
+                address != StepAddress.Quoted ->
+                return "step $number reads \${to.117} and goes to ${address.word}, and not every one of them " +
+                    "holds a quote — address quoted, quoter, cover or others"
+            TO_QUOTE_ID in step.template && address == StepAddress.Requester && TAG_QUOTE_ID !in rfqTags ->
+                return "step $number reads \${to.117} for the requester, which is the quote the trigger names — " +
+                    "add an 'RFQ is' condition on tag 117"
+            (TO_REF in step.template || RFQ_REF in step.template) && rfqTags.isEmpty() && !opensAnRfq ->
+                return "step $number reads the RFQ, and the trigger does not require one — " +
+                    "add an 'RFQ is' condition"
+        }
+        val names = RFQ_NAME.findAll(step.template).map { it.groupValues[1] }
+        names.firstOrNull { it !in RfqEntryNames.FIELDS }?.let { name ->
+            return "\${rfq.$name} is not a name the RFQ book has, and the names are " +
+                RfqEntryNames.FIELDS.joinToString(", ")
+        }
+        return null
+    }
 }
 
 /**

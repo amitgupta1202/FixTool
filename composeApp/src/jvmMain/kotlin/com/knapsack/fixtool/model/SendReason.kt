@@ -85,8 +85,9 @@ data class SendReason(
                 else -> "sent by $rule — $matched at $time"
             }
         // Said last and only for a relay, so every reason written before relaying reads exactly as it did.
-        return relay?.let { "$line → ${it.address} ${it.recipientCompId}, relayed from ${it.triggerCompId}'s 35=${it.triggerMsgType ?: "?"}" }
-            ?: line
+        val relayed = relay ?: return line
+        return "$line → ${relayed.address} ${relayed.recipientCompId}, " +
+            "relayed from ${relayed.triggerCompId}'s 35=${relayed.triggerMsgType ?: "?"}"
     }
 
     private fun handLine(time: String): String {
@@ -126,6 +127,7 @@ data class SendReason(
  * Always cleared, on every path, so a send that throws before `toApp` cannot leave its reason to be
  * picked up by whatever this thread sends next. A wrong reason is worse than none.
  */
+
 /**
  * **Where a relayed step came from and where it went**, as the venue decided it.
  *

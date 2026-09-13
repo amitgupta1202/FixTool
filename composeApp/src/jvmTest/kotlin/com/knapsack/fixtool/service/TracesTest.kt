@@ -392,7 +392,13 @@ class TracesTest {
                     ruleIndex = 1,
                     relay =
                         com.knapsack.fixtool.model.RelayRef(
-                            trigger.uid, "venue<-FIBUY1", "FIBUY1", "R", address, "FIDLR1", "RFQ-1",
+                            trigger.uid,
+                            "venue<-FIBUY1",
+                            "FIBUY1",
+                            "R",
+                            address,
+                            "FIDLR1",
+                            "RFQ-1",
                         ),
                 ),
         )
@@ -417,7 +423,12 @@ class TracesTest {
         val grouping = Traces.group(snapshots, dictionary)
 
         assertEquals(1, grouping.traces.size, "the buy side's request and the dealer's are one negotiation")
-        assertEquals(4, grouping.traces.single().members.size)
+        assertEquals(
+            4,
+            grouping.traces
+                .single()
+                .members.size,
+        )
         assertEquals(setOf("BUY-RFQ-7", "V-RFQ-1042"), grouping.traces.single().ids, "the edge adds no id of its own")
     }
 

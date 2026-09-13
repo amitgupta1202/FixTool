@@ -62,6 +62,7 @@ internal object CorrelationComponents {
             val first = ids.firstOrNull()?.second ?: continue
             ids.forEach { (_, value) -> union.join(first, value) }
         }
+
         // A message with no id of its own still joins through an edge, under a key no real value can take.
         fun keyOf(position: Int): String = idsPerMessage[position].firstOrNull()?.second ?: "$EDGE_ONLY$position"
         val edged = HashSet<Int>()

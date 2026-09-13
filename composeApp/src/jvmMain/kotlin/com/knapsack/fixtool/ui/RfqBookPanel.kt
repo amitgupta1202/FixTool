@@ -19,10 +19,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.LegOutcome
 import com.knapsack.fixtool.model.LegQuote
-import com.knapsack.fixtool.model.PartyRole
 import com.knapsack.fixtool.model.RfqBookView
 import com.knapsack.fixtool.model.RfqEntry
 import com.knapsack.fixtool.model.RfqLeg
@@ -102,7 +100,9 @@ private fun RfqBookContent(
         view.rfqs.sortedByDescending { it.openedAt }.forEach { entry ->
             RfqRow(entry, now, wide)
             // The legs that reached somebody first, in the order they were asked; the ones owed a message last.
-            entry.legs.sortedBy { it.outcome == LegOutcome.NOT_DELIVERED }.forEach { leg -> LegRow(entry, leg, now, wide) }
+            entry.legs
+                .sortedBy { it.outcome == LegOutcome.NOT_DELIVERED }
+                .forEach { leg -> LegRow(entry, leg, now, wide) }
         }
     }
 }
@@ -123,7 +123,7 @@ private fun RfqRow(entry: RfqEntry, now: Long, wide: Boolean) {
     val requester = "${entry.requesterCompId} ${entry.requesterQuoteReqId}"
 
     if (wide) {
-        Row(modifier = base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(modifier = base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = CELL_GAP) {
             BookCell(entry.rfqId, AppTheme.Colors.text, Modifier.weight(1f), size = 11.sp)
             BookCell(instrumentLabel(entry), AppTheme.Colors.text, Modifier.weight(2f))
             BookCell(sideAndSize(entry), AppTheme.Colors.textSecondary, Modifier.weight(1.2f))
@@ -155,7 +155,7 @@ private fun LegRow(entry: RfqEntry, leg: RfqLeg, now: Long, wide: Boolean) {
     }
 
     if (wide) {
-        Row(modifier = base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(modifier = base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = CELL_GAP) {
             BookCell(leg.compId, AppTheme.Colors.text, Modifier.weight(1f))
             BookCell(legIds(leg), AppTheme.Colors.textSecondary, Modifier.weight(2.2f))
             BookCell(level.orEmpty(), AppTheme.Colors.text, Modifier.weight(2f))
@@ -174,7 +174,7 @@ private fun LegRow(entry: RfqEntry, leg: RfqLeg, now: Long, wide: Boolean) {
 }
 
 @Composable
-private fun BookCell(
+internal fun BookCell(
     text: String,
     color: Color,
     modifier: Modifier = Modifier,
@@ -247,7 +247,8 @@ internal fun rfqStateLabel(entry: RfqEntry, now: Long): String {
     val life = entry.lifeAt(now)
     return when {
         life.live && entry.expireAt != null -> "${life.word} · expires ${clock(entry.expireAt)}"
-        life == RfqLife.DONE -> entry.legs.firstOrNull { it.outcome == LegOutcome.LIFTED }?.let { "done · ${it.compId} lifted" } ?: "done"
+        life == RfqLife.DONE ->
+            entry.legs.firstOrNull { it.outcome == LegOutcome.LIFTED }?.let { "done · ${it.compId} lifted" } ?: "done"
         else -> life.word
     }
 }
@@ -281,6 +282,7 @@ internal fun legStateLabel(leg: RfqLeg, now: Long): String {
  */
 internal fun levelLabel(quote: LegQuote, securityType: String?): String {
     val treasury = securityType?.uppercase() in QUOTED_IN_32NDS
+
     fun price(decimal: String) = (if (treasury) thirtySeconds(decimal) else null)?.let { "$it ($decimal)" } ?: decimal
     return listOfNotNull(
         quote.bid?.let { "${price(it)} bid" },
@@ -296,97 +298,28 @@ internal fun levelLabel(quote: LegQuote, securityType: String?): String {
  * so it is null rather than rounded into one it never was.
  */
 internal fun thirtySeconds(decimal: String): String? {
-    val value = decimal.toBigDecimalOrNull() ?: return null
-    if (value.signum() < 0) return null
-    val scaled = value.multiply(EIGHTHS_OF_A_32ND)
-    if (scaled.stripTrailingZeros().scale() > 0) return null
-    val units = scaled.toBigInteger().toLong()
+    val eighths = decimal.toBigDecimalOrNull()?.takeIf { it.signum() >= 0 }?.multiply(EIGHTHS_OF_A_32ND)
+    // Not a whole number of 256ths is not a 32nds price at all.
+    if (eighths == null || eighths.stripTrailingZeros().scale() > 0) return null
+    val units = eighths.toBigInteger().toLong()
     val handle = units / EIGHTHS_OF_A_32ND_INT
     val ticks = (units % EIGHTHS_OF_A_32ND_INT) / EIGHTHS_PER_TICK
-    val eighths = (units % EIGHTHS_OF_A_32ND_INT) % EIGHTHS_PER_TICK
     val suffix =
-        when (eighths) {
+        when (val rest = (units % EIGHTHS_OF_A_32ND_INT) % EIGHTHS_PER_TICK) {
             0L -> ""
             HALF_TICK -> "+"
-            else -> eighths.toString()
+            else -> rest.toString()
         }
     return "$handle-${ticks.toString().padStart(2, '0')}$suffix"
 }
-
-// ------------------------------------------------------------------ counterparties, as the venue sees them
-
-/** One declared counterparty on a running venue: who it is, whether it is here, and what it has done. */
-internal data class CounterpartyActivity(
-    val compId: String,
-    val role: String,
-    val session: String,
-    val loggedOn: Boolean,
-    val activity: String,
-    val notDelivered: Int,
-)
-
-/**
- * **Each declared counterparty against the sessions and the book**, one row each.
- *
- * Every logged-on CompID is counted against the one entry that decides its role — an exact entry, else the longest
- * family — so a CompID carved out of a family is not counted in both. [clients] is each client pane's CompID and
- * whether it is logged on now.
- */
-internal fun counterpartyActivity(
-    counterparties: List<Counterparty>,
-    clients: List<Pair<String, Boolean>>,
-    view: RfqBookView,
-): List<CounterpartyActivity> {
-    fun decides(compId: String): Counterparty? =
-        counterparties
-            .filter { it.covers(compId) }
-            .sortedWith(compareBy<Counterparty> { it.isPrefix }.thenByDescending { it.compId.length })
-            .firstOrNull()
-
-    return counterparties.map { counterparty ->
-        val members = clients.filter { (compId, _) -> decides(compId) === counterparty }
-        val online = members.count { it.second }
-        val session =
-            when {
-                counterparty.isPrefix -> "$online of ${members.size} logged on"
-                online > 0 -> "logged on"
-                members.isNotEmpty() -> "logged out"
-                else -> "not logged on"
-            }
-        val covered: (String) -> Boolean = { compId -> decides(compId) === counterparty }
-        val legs = view.rfqs.flatMap { it.legs }.filter { covered(it.compId) }
-        val activity =
-            when (PartyRole.byWord(counterparty.role)) {
-                PartyRole.REQUESTER -> view.rfqs.count { covered(it.requesterCompId) }.let { if (it > 0) "$it opened" else "—" }
-                PartyRole.RESPONDER ->
-                    listOfNotNull(
-                        legs.count { it.venueQuoteReqId != null }.takeIf { it > 0 }?.let { "$it asked" },
-                        legs.count { it.quotes.isNotEmpty() }.takeIf { it > 0 }?.let { "$it quoted" },
-                        legs.count { it.outcome == LegOutcome.PASSED }.takeIf { it > 0 }?.let { "$it passed" },
-                        legs.count { it.outcome == LegOutcome.LIFTED }.takeIf { it > 0 }?.let { "$it lifted" },
-                    ).joinToString(" · ").ifEmpty { "—" }
-                null -> "not a role"
-            }
-        CounterpartyActivity(
-            compId = counterparty.compId,
-            role = counterparty.role,
-            session = session,
-            loggedOn = online > 0,
-            activity = activity,
-            notDelivered = legs.count { it.outcome == LegOutcome.NOT_DELIVERED },
-        )
-    }
-}
-
-/** The logged-on CompIDs no declared counterparty covers: on the venue, and nobody in any rule's terms. */
-internal fun unlistedLogons(counterparties: List<Counterparty>, clients: List<Pair<String, Boolean>>): List<String> =
-    clients.filter { (compId, up) -> up && counterparties.none { it.covers(compId) } }.map { it.first }
 
 private fun clock(epochMillis: Long): String = CLOCK.format(Instant.ofEpochMilli(epochMillis))
 
 private val CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
 
 private val MILLION = BigDecimal(1_000_000)
+
+private val CELL_GAP = Arrangement.spacedBy(10.dp)
 
 /** The Treasury coupon securities the cash market quotes in 32nds. Bills trade on discount yield and are left out. */
 private val QUOTED_IN_32NDS = setOf("TNOTE", "TBOND", "UST", "TIPS")

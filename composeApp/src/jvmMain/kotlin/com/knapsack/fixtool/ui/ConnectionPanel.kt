@@ -1555,9 +1555,9 @@ fun ConnectionPanel(
                 // only acceptor with more than one party to relay between, and on any profile that already
                 // carries a list, so switching TargetCompID away from * never hides what is saved.
                 if (targetCompID.trim() == FixConnectionConfig.ANY_CLIENT || counterparties.isNotEmpty()) {
-                    var showCounterparties by remember { mutableStateOf(false) }
+                    var showParties by remember { mutableStateOf(false) }
                     LaunchedEffect(counterparties.isNotEmpty()) {
-                        if (counterparties.isNotEmpty()) showCounterparties = true
+                        if (counterparties.isNotEmpty()) showParties = true
                     }
 
                     HorizontalDivider(
@@ -1570,7 +1570,7 @@ fun ConnectionPanel(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { showCounterparties = !showCounterparties }
+                                .clickable { showParties = !showParties }
                                 .padding(vertical = 4.dp)
                                 .testTag("counterparties-section"),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1596,14 +1596,14 @@ fun ConnectionPanel(
                         }
                         Spacer(modifier = Modifier.weight(1f))
                         Icon(
-                            imageVector = if (showCounterparties) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (showCounterparties) "Collapse" else "Expand",
+                            imageVector = if (showParties) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (showParties) "Collapse" else "Expand",
                             tint = AppTheme.Colors.textSecondary,
                             modifier = iconSize16,
                         )
                     }
 
-                    if (showCounterparties) {
+                    if (showParties) {
                         CounterpartiesEditor(
                             counterparties = counterparties,
                             onChange = { counterparties = it },

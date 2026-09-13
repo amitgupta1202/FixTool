@@ -12,9 +12,7 @@ import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.PendingSendReason
 import com.knapsack.fixtool.model.QuoteReading
-import com.knapsack.fixtool.model.RelayRef
 import com.knapsack.fixtool.model.SendReason
-import com.knapsack.fixtool.model.StepAddress
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
@@ -322,28 +320,14 @@ class QuickFixService(
      * **Every RFQ this venue is carrying between two parties** — the one book that spans sessions, fed only when
      * the venue declares counterparties, so a venue that relays nothing pays nothing. See [RfqBookService].
      */
-    private val rfqBook =
+    val rfqBook =
         RfqBookService(
             initialCap = orderBookCap,
             defaultExpiryMillis = { config.rfqExpirySeconds?.let { it * MILLIS_PER_SECOND } },
         )
 
-    /** The part [sessionId]'s counterparty plays on this venue, or null when the venue does not declare it. */
-    private fun roleOf(sessionId: SessionID): com.knapsack.fixtool.model.PartyRole? =
-        com.knapsack.fixtool.model.roleOf(config.counterparties, sessionId.targetCompID)
-
-    /** What the RFQ book says about the RFQ [message] names through [tag] (131 or 117), for [sessionId]. */
-    fun rfqReading(sessionId: SessionID, message: Message, tag: Int): com.knapsack.fixtool.model.RfqReading =
-        rfqBook.reading(sessionId.toString(), tag, RfqBookService.fieldsOf(message))
-
-    /** The RFQ book, as something a panel can watch. */
-    fun rfqBookFlow(): kotlinx.coroutines.flow.StateFlow<com.knapsack.fixtool.model.RfqBookView> = rfqBook.views()
-
-    /** The RFQ book as it stands this instant. */
-    fun rfqBookView(): com.knapsack.fixtool.model.RfqBookView = rfqBook.view()
-
-    /** Forgets every RFQ this venue holds. */
-    fun clearRfqBook() = rfqBook.clear()
+    /** The sessions and the book, as the relay engine asks about them. See [LiveRelayVenue]. */
+    private val relayVenue = LiveRelayVenue(rfqBook, counterparties = { config.counterparties })
 
     /**
      * Changes how many orders each of this venue's books keeps, on books already open.
@@ -433,7 +417,7 @@ class QuickFixService(
                 logger.info("Acceptor auto-responded with {}", response.header.getString(35))
             },
             onError = { message, e -> logger.error(message, e) },
-            onNotDelivered = { sessionId, reason -> noteNotDelivered(sessionId, reason) },
+            onNotDelivered = { sessionId, reason -> noteNotDelivered(sessionId, reason?.ruleIndex) },
         )
 
     /** Steps owed and never sent — see [AcceptorStatus.notDelivered]. */
@@ -441,10 +425,10 @@ class QuickFixService(
         java.util.concurrent.atomic
             .AtomicLong()
 
-    private fun noteNotDelivered(sessionId: SessionID, reason: SendReason?) {
+    private fun noteNotDelivered(sessionId: SessionID, ruleIndex: Int?) {
         notDelivered.incrementAndGet()
         logger.info("Acceptor step for {} not delivered: the counterparty is not logged on", sessionId)
-        onVenueEvent?.invoke(VenueEvent.NotDelivered(sessionId, reason?.ruleIndex))
+        onVenueEvent?.invoke(VenueEvent.NotDelivered(sessionId, ruleIndex))
     }
 
     /**
@@ -487,7 +471,8 @@ class QuickFixService(
                 if (isVenue) {
                     // Every session the dispatch holds work for, not only the ones with a pane: a step can be
                     // owed to a counterparty whose pane was closed.
-                    (channels.keys + autoResponseDispatch.sessionsWithPending()).sumOf { autoResponseDispatch.pendingCount(it) }
+                    (channels.keys + autoResponseDispatch.sessionsWithPending())
+                        .sumOf { autoResponseDispatch.pendingCount(it) }
                 } else {
                     boundSessionId?.let { autoResponseDispatch.pendingCount(it) } ?: 0
                 },
@@ -509,7 +494,7 @@ class QuickFixService(
         logger.info("QuickFIX Session created: {}", sessionId)
         // Every counterparty session this engine has ever created, by CompID — which is how a relay finds the
         // session a declared counterparty is on. Not `channels`: that holds only clients with a pane.
-        counterpartySessions[sessionId.targetCompID] = sessionId
+        relayVenue.created(sessionId)
         if (isVenue) {
             channelFor(sessionId).state(CONNECTING)
             return
@@ -536,7 +521,7 @@ class QuickFixService(
         // Replies still queued for a counterparty that has gone away are dropped, not attempted. A
         // half-played sequence whose remaining steps fail one by one buries the logout that caused it.
         // Each one was owed, though, so each is counted as not delivered rather than silently forgotten.
-        autoResponseDispatch.cancelAll(sessionId).forEach { reason -> noteNotDelivered(sessionId, reason) }
+        autoResponseDispatch.cancelAll(sessionId).forEach { reason -> noteNotDelivered(sessionId, reason?.ruleIndex) }
 
         if (isVenue) {
             // One client leaving is not the venue closing. The channel is kept so its pane keeps the
@@ -860,19 +845,7 @@ class QuickFixService(
         try {
             // The RFQ book first, and only on a venue that declares who plays what. It claims one thing: a fill
             // it relayed to a dealer, whose ClOrdID that dealer's order book never saw on an order.
-            if (config.counterparties.isNotEmpty()) {
-                val relayClaimed =
-                    rfqBook.record(
-                        sessionKey = sessionId.toString(),
-                        compId = sessionId.targetCompID,
-                        role = roleOf(sessionId),
-                        sent = sent,
-                        fields = RfqBookService.fieldsOf(message),
-                        relay = fixMessage.sendReason?.relay,
-                        messageUid = fixMessage.uid,
-                    )
-                if (relayClaimed) return
-            }
+            if (config.counterparties.isNotEmpty() && relayVenue.record(sessionId, fixMessage, message, sent)) return
             // Offered to the quote book next, and a message it claims stops here. Only one thing is
             // claimed today: an ExecutionReport that books a quote hit. That report carries a ClOrdID
             // the venue never saw on an order, so the order book could only file it as unattributed —
@@ -971,7 +944,8 @@ class QuickFixService(
             val quotedBefore = quoteReading(sessionId, parsedMessage)
 
             // And, on a venue that relays, the sender's role and the RFQ it names — before, for the same reason.
-            val venueBefore = if (config.counterparties.isNotEmpty()) venueReading(sessionId, parsedMessage) else null
+            val relaying = config.counterparties.isNotEmpty()
+            val venueBefore = if (relaying) relayVenue.reading(sessionId, parsedMessage) else null
 
             // Then recorded, so the book and the trail are complete before anything reads them.
             book(sessionId, fixMessage, parsedMessage, sent = false)
@@ -991,7 +965,11 @@ class QuickFixService(
      * Reading [incoming] happens here, on the callback thread, because that message belongs to this
      * call — so the plan's `${req.<tag>}` substitutions are fixed before anything is queued. The
      * rest of each step is built and sent by [autoResponseDispatch], at its own moment.
+     *
+     * Three readings rather than one bundle, because each is taken of a different book at the moment decision 4a
+     * names, and the call site is where a reader checks that they were taken before the message was recorded.
      */
+    @Suppress("LongParameterList")
     private fun maybeAutoRespond(
         incoming: Message,
         request: FixMessage,
@@ -1004,7 +982,8 @@ class QuickFixService(
         venueBefore: VenueReading? = null,
     ) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
-        val rule = AcceptorResponder.firstMatch(compiledRules, incoming, heldBefore, quotedBefore, venueBefore) ?: return
+        val rule =
+            AcceptorResponder.firstMatch(compiledRules, incoming, heldBefore, quotedBefore, venueBefore) ?: return
         triggersMatched.incrementAndGet()
         // Which rule this is in the *profile's* list, which is the number on its card and the index
         // /acceptor/rules addresses it by. compiledRules has the disabled and unusable ones dropped,
@@ -1082,27 +1061,6 @@ class QuickFixService(
 
     // ---------------------------------------------------------------- relaying between counterparties
 
-    /** Every counterparty session this engine has created, by CompID. See [onCreate]. */
-    private val counterpartySessions = java.util.concurrent.ConcurrentHashMap<String, SessionID>()
-
-    private fun isLoggedOn(sessionId: SessionID): Boolean = Session.lookupSession(sessionId)?.isLoggedOn == true
-
-    /** Whether any counterparty this venue declares a responder is logged on right now. */
-    private fun anyResponderOnline(): Boolean =
-        counterpartySessions.values.any { id -> roleOf(id) == com.knapsack.fixtool.model.PartyRole.RESPONDER && isLoggedOn(id) }
-
-    /** What a relay trigger is judged against, taken before the message is recorded (decision 4a). */
-    private fun venueReading(sessionId: SessionID, message: Message): VenueReading {
-        val fields = RfqBookService.fieldsOf(message)
-        val key = sessionId.toString()
-        return VenueReading(
-            senderRole = roleOf(sessionId),
-            rfqBy131 = fields[TAG_QUOTE_REQ_ID]?.let { rfqBook.reading(key, TAG_QUOTE_REQ_ID, fields) },
-            rfqBy117 = fields[TAG_QUOTE_ID]?.let { rfqBook.reading(key, TAG_QUOTE_ID, fields) },
-            respondersOnline = anyResponderOnline(),
-        )
-    }
-
     /**
      * **Plays a relay rule's reply**: resolves every step to the counterparties it reaches, records a trade the
      * moment the rule decides one, and schedules each send on its recipient's own session.
@@ -1123,187 +1081,22 @@ class QuickFixService(
         heldBefore: BookReading,
         latencyMillis: Long,
     ) {
-        val fields = RfqBookService.fieldsOf(incoming)
-        val key = sessionId.toString()
-        val entry = rfqBook.entryFor(key, fields)
-        val quote = fields[TAG_QUOTE_ID]?.let { rfqBook.reading(key, TAG_QUOTE_ID, fields) }?.takeIf { it.quote != null }
-        val trigger =
-            RelayTrigger(
-                sessionId = sessionId,
-                sessionKey = key,
-                compId = sessionId.targetCompID,
-                msgType = fields[TAG_MSG_TYPE_RELAY],
-                fields = fields,
-                rfqId = entry?.rfqId,
-                quote = quote,
-            )
-        val plan =
-            AcceptorResponder.planRelay(
-                rule,
-                incoming,
-                request,
-                dictionary,
-                venue = venueRelay,
-                trigger = trigger,
-                quote = { quoteReading(sessionId, incoming) },
-            ) { orderFields(sessionId, incoming) }
-
-        // Decision R3: a rule that sends the quoter its fill is a trade, recorded now, before anything goes out.
-        val quoter = plan.sends.firstOrNull { it.to?.address == StepAddress.Quoter }?.to
-        if (entry != null && quoter != null && rule.booksATrade()) rfqBook.decideTrade(entry.rfqId, quoter.sessionKey)
-
+        val (trigger, plan) =
+            relayVenue.plan(rule, incoming, request, dictionary, sessionId, { quoteReading(sessionId, incoming) }) {
+                orderFields(sessionId, incoming)
+            }
         ruleNumber?.let { number ->
             onVenueEvent?.invoke(
                 VenueEvent.RuleFired(sessionId, number, rule.whenMsgType, rule.sequence().size, request.timestamp),
             )
         }
-        plan.notDelivered.forEach { (_, recipient) ->
-            entry?.let { rfqBook.notDelivered(it.rfqId, recipient.sessionKey, recipient.compId) }
-            notDelivered.incrementAndGet()
-            onVenueEvent?.invoke(VenueEvent.NotDelivered(recipient.sessionId ?: sessionId, ruleNumber))
-            logger.info("Rule {} addressed {}, who is not logged on", ruleNumber, recipient.compId)
-        }
-        if (plan.nobody.isNotEmpty()) {
-            logger.info("Rule {}: step(s) {} reached nobody on this RFQ", ruleNumber, plan.nobody.map { it + 1 })
-        }
-        val steps = rule.sequence().size
+        plan.notDelivered.forEach { (_, recipient) -> noteNotDelivered(recipient.sessionId ?: sessionId, ruleNumber) }
         plan.sends.forEach { send ->
-            val recipient = send.to ?: return@forEach
-            val target = recipient.sessionId ?: return@forEach
-            val reason =
-                SendReason(
-                    source = SendReason.Source.RULE,
-                    at = request.timestamp,
-                    ruleIndex = ruleNumber,
-                    whenMsgType = rule.whenMsgType,
-                    step = send.authoredStep + 1,
-                    steps = steps,
-                    constraint = rule.whenOrder,
-                    reading = heldBefore,
-                    relay =
-                        if (recipient.address.relays) {
-                            RelayRef(
-                                triggerUid = request.uid,
-                                triggerSession = key,
-                                triggerCompId = sessionId.targetCompID,
-                                triggerMsgType = trigger.msgType,
-                                address = recipient.address.word,
-                                recipientCompId = recipient.compId,
-                                rfqId = entry?.rfqId,
-                            )
-                        } else {
-                            null
-                        },
-                )
+            val target = send.to?.sessionId ?: return@forEach
+            val reason = LiveRelayVenue.reasonFor(rule, ruleNumber, request, send, heldBefore, trigger)
             autoResponseDispatch.schedule(target, send.offsetMillis + latencyMillis, reason, send::build)
         }
     }
-
-    /** How the rule engine asks this venue who an address reaches and what an id is called on the far side. */
-    private val venueRelay =
-        object : RelayVenue {
-            override fun resolve(address: StepAddress, trigger: RelayTrigger): Resolution {
-                val now = System.currentTimeMillis()
-                val entry = trigger.rfqId?.let { rfqBook.entry(it) }
-                return when (address) {
-                    StepAddress.Sender -> Resolution(listOf(Recipient(trigger.sessionId, trigger.sessionKey, trigger.compId, address)))
-                    StepAddress.Requester -> reach(listOfNotNull(entry?.requesterCompId), address)
-                    StepAddress.Responders -> responders(address)
-                    is StepAddress.CompId -> reach(listOf(address.compId), address)
-                    StepAddress.Asked -> reach(entry?.legs.orEmpty().filter { it.venueQuoteReqId != null }.map { it.compId }, address)
-                    StepAddress.Quoted ->
-                        reachLegs(entry?.legs.orEmpty().mapNotNull { leg -> leg.currentQuote(now)?.let { leg to it } }, address)
-                    StepAddress.Quoter ->
-                        reachLegs(listOfNotNull(trigger.quote?.let { q -> q.leg?.let { it to q.quote!! } }), address)
-                    StepAddress.Cover -> reachLegs(listOfNotNull(cover(entry, trigger, now)), address)
-                    StepAddress.Others -> {
-                        val excluded = setOfNotNull(trigger.quote?.leg?.responderKey, cover(entry, trigger, now)?.first?.responderKey)
-                        reachLegs(
-                            entry?.legs.orEmpty()
-                                .filter { it.responderKey !in excluded }
-                                .mapNotNull { leg -> leg.currentQuote(now)?.let { leg to it } },
-                            address,
-                        )
-                    }
-                }
-            }
-
-            override fun toValue(recipient: Recipient, trigger: RelayTrigger, tag: Int): String? {
-                val rfqId = trigger.rfqId ?: return null
-                if (tag == TAG_QUOTE_ID) {
-                    recipient.quoteId?.let { return it }
-                    // To the requester, the quote the trigger named, in the requester's own words.
-                    if (recipient.sessionKey == trigger.sessionKey) trigger.fields[TAG_QUOTE_ID]?.let { return it }
-                }
-                return rfqBook.toValue(rfqId, recipient.sessionKey, tag)
-            }
-
-            override fun rfqField(trigger: RelayTrigger, name: String): String? {
-                val entry = trigger.rfqId?.let { rfqBook.entry(it) } ?: return null
-                val now = System.currentTimeMillis()
-                return when (name) {
-                    "requester" -> entry.requesterCompId
-                    "quoter" -> trigger.quote?.leg?.compId
-                    "asked" -> entry.legs.count { it.venueQuoteReqId != null }.toString()
-                    "quoted" -> entry.legs.count { it.currentQuote(now) != null }.toString()
-                    "state" -> entry.lifeAt(now).word
-                    else -> null
-                }
-            }
-
-            /** The best other live quote on the side that traded: the lowest offer to a buyer, the highest bid to a seller. */
-            private fun cover(
-                entry: com.knapsack.fixtool.model.RfqEntry?,
-                trigger: RelayTrigger,
-                now: Long,
-            ): Pair<com.knapsack.fixtool.model.RfqLeg, com.knapsack.fixtool.model.LegQuote>? {
-                val quoterKey = trigger.quote?.leg?.responderKey ?: return null
-                val side = trigger.fields[TAG_SIDE] ?: entry?.side ?: return null
-                val live =
-                    entry?.legs.orEmpty()
-                        .filter { it.responderKey != quoterKey }
-                        .mapNotNull { leg -> leg.currentQuote(now)?.let { leg to it } }
-                return if (side == SIDE_BUY) {
-                    live.mapNotNull { (leg, q) -> q.offer?.toBigDecimalOrNull()?.let { Triple(leg, q, it) } }.minByOrNull { it.third }
-                } else {
-                    live.mapNotNull { (leg, q) -> q.bid?.toBigDecimalOrNull()?.let { Triple(leg, q, it) } }.maxByOrNull { it.third }
-                }?.let { it.first to it.second }
-            }
-
-            /** Declared responders: exact CompIDs whether or not they are on, and any live session a family covers. */
-            private fun responders(address: StepAddress): Resolution {
-                val declared = config.counterparties.filter { com.knapsack.fixtool.model.PartyRole.byWord(it.role) == com.knapsack.fixtool.model.PartyRole.RESPONDER }
-                val exact = declared.filterNot { it.isPrefix }.map { it.compId }
-                val family = counterpartySessions.keys.filter { compId -> declared.any { it.isPrefix && it.covers(compId) } && compId !in exact }
-                val online = family.filter { compId -> counterpartySessions[compId]?.let(::isLoggedOn) == true }
-                return reach(exact + online, address)
-            }
-
-            private fun reach(compIds: List<String>, address: StepAddress): Resolution {
-                val recipients = mutableListOf<Recipient>()
-                val missing = mutableListOf<Recipient>()
-                compIds.distinct().forEach { compId ->
-                    val id = counterpartySessions[compId]
-                    val recipient = Recipient(id, id?.toString() ?: compId, compId, address)
-                    if (id != null && isLoggedOn(id)) recipients += recipient else missing += recipient
-                }
-                return Resolution(recipients, missing)
-            }
-
-            private fun reachLegs(
-                legs: List<Pair<com.knapsack.fixtool.model.RfqLeg, com.knapsack.fixtool.model.LegQuote>>,
-                address: StepAddress,
-            ): Resolution {
-                val recipients = mutableListOf<Recipient>()
-                val missing = mutableListOf<Recipient>()
-                legs.forEach { (leg, quote) ->
-                    val id = counterpartySessions[leg.compId]
-                    val recipient = Recipient(id, leg.responderKey, leg.compId, address, quoteId = quote.dealerQuoteId)
-                    if (id != null && isLoggedOn(id)) recipients += recipient else missing += recipient
-                }
-                return Resolution(recipients, missing)
-            }
-        }
 
     /**
      * Drops every auto-response still waiting to go out on this session, and reports how many.
@@ -1637,9 +1430,3 @@ class QuickFixService(
 }
 
 private const val MILLIS_PER_SECOND = 1_000L
-
-private const val TAG_MSG_TYPE_RELAY = 35
-private const val TAG_SIDE = 54
-private const val TAG_QUOTE_ID = 117
-private const val TAG_QUOTE_REQ_ID = 131
-private const val SIDE_BUY = "1"

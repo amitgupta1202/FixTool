@@ -18,15 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
-import com.knapsack.fixtool.model.RfqBookView
 import java.awt.Cursor
 import java.time.format.DateTimeFormatter
 
@@ -104,20 +101,8 @@ fun AcceptorOverviewPane(
             }
         }
 
-        // ---- the parties, and what is being negotiated between them
-        //
-        // Only on a venue that relays: one that declares who plays what, or whose book holds anything. The book is
-        // collected here rather than read, because a pane that reads a book once draws the book as it was when the
-        // pane opened — and the flow is remembered per engine, since a Stop and Start builds a new one.
-        val counterparties = venue.currentConfig?.counterparties.orEmpty()
-        val service = venue.venueService()
-        val bookFlow = remember(service) { service?.rfqBookFlow() }
-        val book = bookFlow?.collectAsState()?.value ?: RfqBookView()
-        if (counterparties.isNotEmpty() || book.rfqs.isNotEmpty()) {
-            HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-            if (counterparties.isNotEmpty()) CounterpartyTable(counterparties, clients, book)
-            RfqBookPanel(view = book, onClear = service?.let { engine -> { engine.clearRfqBook() } })
-        }
+        // The parties and what is being negotiated between them, on a venue that relays. See [VenueRelaySection].
+        VenueRelaySection(venue, clients)
 
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
 
@@ -173,70 +158,6 @@ fun rememberVenueSummary(venue: FixMessageSession, clients: List<FixMessageSessi
         refused = refused.size,
         status = venue.acceptorStatus(),
     )
-}
-
-/**
- * The declared counterparties as the running venue sees them: here or not, and what each has done in the book.
- *
- * A declared CompID that is not logged on is the first thing to see when a relay reports "not delivered", so it is
- * a row here whether or not it has ever connected — the client list above only has rows for those that have.
- */
-@Composable
-private fun CounterpartyTable(
-    counterparties: List<Counterparty>,
-    clients: List<FixMessageSession>,
-    book: RfqBookView,
-) {
-    val sessions = clients.map { it.clientSessionId?.targetCompID.orEmpty() to (it.connectionState.collectAsState().value == FixConnectionState.LOGGED_ON) }
-    val rows = counterpartyActivity(counterparties, sessions, book)
-    val unlisted = unlistedLogons(counterparties, sessions)
-
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val wide = maxWidth >= WIDE_BOOK_MIN
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(text = "Counterparties", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
-            rows.forEach { row ->
-                val base =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(AppTheme.Colors.surfaceVariant)
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                        .testTag("venue-counterparty-${row.compId}")
-                val sessionColor = if (row.loggedOn) AppTheme.Colors.success else AppTheme.Colors.textDisabled
-                val owed = if (row.notDelivered > 0) "${row.notDelivered} not delivered" else ""
-                // Stacked on a narrow pane, for the reason the RFQ book stacks: five columns at a third of the
-                // window left "reque…" and "1 asked · 1 q…", which is a table that has stopped saying anything.
-                if (wide) {
-                    Row(modifier = base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Cell(text = row.compId, color = AppTheme.Colors.text, size = 11.sp, modifier = Modifier.weight(1.6f))
-                        Cell(text = row.role, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
-                        Cell(text = row.session, color = sessionColor, modifier = Modifier.weight(1.4f))
-                        Cell(text = row.activity, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(2.2f))
-                        Cell(text = owed, color = AppTheme.Colors.warning, modifier = Modifier.weight(1.2f))
-                    }
-                } else {
-                    Column(modifier = base) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Cell(text = row.compId, color = AppTheme.Colors.text, size = 11.sp, modifier = Modifier.weight(1f))
-                            Cell(text = row.session, color = sessionColor, modifier = Modifier.weight(1f))
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Cell(text = "${row.role} · ${row.activity}", color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
-                            if (owed.isNotEmpty()) Cell(text = owed, color = AppTheme.Colors.warning)
-                        }
-                    }
-                }
-            }
-            if (unlisted.isNotEmpty()) {
-                Text(
-                    text = "Unlisted logons: ${unlisted.joinToString(", ")} — no counterparty covers them, so no relay reaches them",
-                    color = AppTheme.Colors.warning,
-                    fontSize = 10.sp,
-                    modifier = Modifier.testTag("venue-unlisted"),
-                )
-            }
-        }
-    }
 }
 
 @Composable

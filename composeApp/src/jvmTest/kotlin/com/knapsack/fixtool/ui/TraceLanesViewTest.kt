@@ -263,7 +263,9 @@ class TraceLanesViewTest {
                         source = com.knapsack.fixtool.model.SendReason.Source.RULE,
                         at = epoch,
                         ruleIndex = 3,
-                        relay = com.knapsack.fixtool.model.RelayRef(1, "k", "FIBUY1", "R", "responders", "FIDLR1", "RFQ-1"),
+                        relay =
+                            com.knapsack.fixtool.model
+                                .RelayRef(1, "k", "FIBUY1", "R", "responders", "FIDLR1", "RFQ-1"),
                     ),
             )
         val panes =
@@ -279,14 +281,24 @@ class TraceLanesViewTest {
                 panes,
                 listOf("BUY1", "VENUE ← FIBUY1", "DLR1"),
                 listOf(LaneRole.INITIATOR, LaneRole.ACCEPTOR, LaneRole.INITIATOR),
-                sessionGroups = listOf(null, "venue", null),
-                partyRoles = listOf("requester", null, "responder"),
+                parties =
+                    TraceLanes.Parties(
+                        sessionGroups = listOf(null, "venue", null),
+                        partyRoles = listOf("requester", null, "responder"),
+                    ),
             )
 
         composeTestRule.setContent {
             TraceLanesView(
                 lanes = drawn,
-                headers = TraceRows.build(panes, listOf("BUY1", "VENUE ← FIBUY1", "DLR1"), grouping, dictionary).filterIsInstance<TraceRows.Row.Header>(),
+                headers =
+                    TraceRows
+                        .build(
+                            panes,
+                            listOf("BUY1", "VENUE ← FIBUY1", "DLR1"),
+                            grouping,
+                            dictionary,
+                        ).filterIsInstance<TraceRows.Row.Header>(),
                 selectedMessage = null,
                 dictionary = dictionary,
                 appSettings = AppSettings.default(),

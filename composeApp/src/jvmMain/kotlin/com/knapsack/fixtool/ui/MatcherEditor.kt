@@ -46,21 +46,22 @@ val MATCHER_TYPES =
 private val PARAMS_WIDTH = 210.dp
 
 /** One-line explanation per matcher type, shown in the type dropdown for users new to FIX testing. */
-private val MATCHER_HELP = mapOf(
-    "exact" to "value must equal exactly",
-    "notEqual" to "value must be anything else",
-    "presence" to "tag must exist, any value",
-    "absent" to "tag must NOT appear",
-    "oneOf" to "value in a set",
-    "regex" to "value matches a pattern",
-    "numeric" to "number compare ± tolerance",
-    "range" to "number above/below a bound",
-    "temporal" to "date/time vs now/today",
-    "reference" to "equals a \${...} expression",
-    "quoteField" to "equals the quote's own value",
-    "role" to "the sender's part on this venue",
-    "rfq" to "the state of the RFQ it names",
-)
+private val MATCHER_HELP =
+    mapOf(
+        "exact" to "value must equal exactly",
+        "notEqual" to "value must be anything else",
+        "presence" to "tag must exist, any value",
+        "absent" to "tag must NOT appear",
+        "oneOf" to "value in a set",
+        "regex" to "value matches a pattern",
+        "numeric" to "number compare ± tolerance",
+        "range" to "number above/below a bound",
+        "temporal" to "date/time vs now/today",
+        "reference" to "equals a \${...} expression",
+        "quoteField" to "equals the quote's own value",
+        "role" to "the sender's part on this venue",
+        "rfq" to "the state of the RFQ it names",
+    )
 
 /**
  * **The matcher types this field's values cannot honestly carry**, as `type → why not`.

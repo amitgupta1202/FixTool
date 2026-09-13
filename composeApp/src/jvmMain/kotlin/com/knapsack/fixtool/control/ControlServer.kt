@@ -24,16 +24,13 @@ import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.OrderState
-import com.knapsack.fixtool.model.PartyRole
 import com.knapsack.fixtool.model.QuoteConstraint
 import com.knapsack.fixtool.model.QuoteEntry
 import com.knapsack.fixtool.model.QuoteReading
 import com.knapsack.fixtool.model.QuoteState
 import com.knapsack.fixtool.model.RfqConstraint
-import com.knapsack.fixtool.model.RfqReading
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
-import com.knapsack.fixtool.model.StepAddress
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.load.LoadMatch
@@ -45,7 +42,6 @@ import com.knapsack.fixtool.model.load.LoadStatus
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
 import com.knapsack.fixtool.model.load.StoreAndLogOverride
-import com.knapsack.fixtool.model.roleOf
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
@@ -68,12 +64,7 @@ import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
 import com.knapsack.fixtool.service.OrderBookService
 import com.knapsack.fixtool.service.QuoteBookService
-import com.knapsack.fixtool.service.Recipient
-import com.knapsack.fixtool.service.RelayPlan
-import com.knapsack.fixtool.service.RelayTrigger
-import com.knapsack.fixtool.service.RelayVenue
-import com.knapsack.fixtool.service.Resolution
-import com.knapsack.fixtool.service.RfqBookService
+import com.knapsack.fixtool.service.RespondersOutcome
 import com.knapsack.fixtool.service.RuleOutcome
 import com.knapsack.fixtool.service.RunRecordCodec
 import com.knapsack.fixtool.service.RunSets
@@ -84,7 +75,6 @@ import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.service.Traces
-import com.knapsack.fixtool.service.VenueReading
 import com.knapsack.fixtool.service.VenueTagScan
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.WirePaste
@@ -499,7 +489,9 @@ class ControlServer(
      */
     private fun acceptorProblems(config: FixConnectionConfig): List<String> =
         config.acceptorResponseRules.mapIndexedNotNull { index, rule ->
-            rule.validationError(config.counterparties)?.let { "rule $index (${rule.whenMsgType.ifBlank { "no MsgType" }}): $it" }
+            rule.validationError(config.counterparties)?.let { problem ->
+                "rule $index (${rule.whenMsgType.ifBlank { "no MsgType" }}): $problem"
+            }
         } + listOfNotNull(config.acceptorLatency.validationError()?.let { "acceptorLatency: $it" })
 
     private fun deleteProfile(ex: HttpExchange): JsonElement {
@@ -2589,28 +2581,8 @@ class ControlServer(
                                     // trace-only keys. A second one written for this route would be a
                                     // second answer to "what did that message say".
                                     messageJson(message).forEach { (key, value) -> put(key, value) }
-                                    // Why the venue sent it, when a venue FixTool runs did — and, for a relay, which
-                                    // member of this trace it was relayed from. That record is what joined two panes
-                                    // that share no id, so a reader of the trace can see the join and not trust it.
                                     message.sendReason?.let { reason ->
-                                        put(
-                                            "sendReason",
-                                            buildJsonObject {
-                                                put("line", reason.line())
-                                                reason.relay?.let { relay ->
-                                                    val from = messages.indexOfFirst { it.uid == relay.triggerUid }
-                                                    if (from >= 0) {
-                                                        put(
-                                                            "relayedFrom",
-                                                            buildJsonObject {
-                                                                put("position", from)
-                                                                put("session", sessionRef(trace.members[from].session, world))
-                                                            },
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                        )
+                                        put("sendReason", sendReasonJson(reason, messages, trace, world))
                                     }
                                 },
                             )
@@ -2636,6 +2608,31 @@ class ControlServer(
         put("sessions", buildJsonArray { trace.sessions.forEach { add(sessionRef(it, world)) } })
         put("truncatedSessions", buildJsonArray { trace.truncatedSessions.forEach { add(sessionRef(it, world)) } })
     }
+
+    /**
+     * Why the venue sent a trace member, when a venue FixTool runs did — and, for a relay, which member of the same
+     * trace it was relayed from. That record is what joined two panes that share no id, so a reader of the trace
+     * can see the join and not have to trust it.
+     */
+    private fun sendReasonJson(
+        reason: com.knapsack.fixtool.model.SendReason,
+        messages: List<FixMessage>,
+        trace: Traces.Trace,
+        world: TraceWorld,
+    ): JsonObject =
+        buildJsonObject {
+            put("line", reason.line())
+            val from = reason.relay?.let { relay -> messages.indexOfFirst { it.uid == relay.triggerUid } } ?: -1
+            if (from >= 0) {
+                put(
+                    "relayedFrom",
+                    buildJsonObject {
+                        put("position", from)
+                        put("session", sessionRef(trace.members[from].session, world))
+                    },
+                )
+            }
+        }
 
     /** A session by the two names a caller can act on: its index, which `?session=` takes, and its title. */
     private fun sessionRef(session: Int, world: TraceWorld): JsonObject =
@@ -3273,19 +3270,6 @@ class ControlServer(
             else -> acceptorRules(ex)
         }
 
-    /**
-     * **What the venue is holding, over HTTP** — and the reason this endpoint is in the *first* slice
-     * of #35 rather than a later one.
-     *
-     * "Reply With…" shipped with no way to drive it but a mouse, so it could only ever be verified by
-     * hand. The book is the state that everything after it reads, and a state nobody can read from
-     * outside the app is a state nobody can test. So: this lands with the book itself.
-     *
-     * `GET` with no `session` is the roll-up — one line per counterparty, no orders, because a venue
-     * with four clients holding a thousand orders each is not a useful default response. With
-     * `session` it is that book in full, every order carrying its trail, which is the shape an
-     * assertion wants. `order` narrows to one.
-     */
     private fun acceptorRfqsEndpoint(ex: HttpExchange): JsonElement =
         when (ex.requestMethod.uppercase()) {
             "POST" -> clearAcceptorRfqs(ex)
@@ -3313,75 +3297,20 @@ class ControlServer(
     private fun acceptorRfqs(ex: HttpExchange): JsonElement {
         val (venue, error) = liveVenue(readJsonOrQuery(ex, "profile"))
         error?.let { return it }
-        val view = venue!!.venueService()!!.rfqBookView()
-        val now = System.currentTimeMillis()
-        return buildJsonObject {
-            put("profile", venue.title)
-            put("evicted", view.evicted)
-            put(
-                "rfqs",
-                buildJsonArray {
-                    view.rfqs.forEach { rfq ->
-                        add(
-                            buildJsonObject {
-                                put("rfqId", rfq.rfqId)
-                                put("state", rfq.lifeAt(now).word)
-                                put(
-                                    "requester",
-                                    buildJsonObject {
-                                        put("compId", rfq.requesterCompId)
-                                        put("quoteReqId", rfq.requesterQuoteReqId)
-                                    },
-                                )
-                                rfq.symbol?.let { put("symbol", it) }
-                                rfq.securityId?.let { put("securityId", it) }
-                                rfq.side?.let { put("side", it) }
-                                rfq.qty?.let { put("qty", it) }
-                                put(
-                                    "legs",
-                                    buildJsonArray {
-                                        rfq.legs.forEach { leg ->
-                                            add(
-                                                buildJsonObject {
-                                                    put("compId", leg.compId)
-                                                    leg.venueQuoteReqId?.let { put("quoteReqId", it) }
-                                                    leg.outcome?.let { put("outcome", it.word) }
-                                                    put(
-                                                        "quotes",
-                                                        buildJsonArray {
-                                                            leg.quotes.forEach { q ->
-                                                                add(
-                                                                    buildJsonObject {
-                                                                        put("quoteId", q.dealerQuoteId)
-                                                                        q.venueQuoteId?.let { put("shownAs", it) }
-                                                                        q.bid?.let { put("bid", it) }
-                                                                        q.offer?.let { put("offer", it) }
-                                                                        put("live", q.liveAt(now))
-                                                                    },
-                                                                )
-                                                            }
-                                                        },
-                                                    )
-                                                },
-                                            )
-                                        }
-                                    },
-                                )
-                            },
-                        )
-                    }
-                },
-            )
-        }
+        val view = venue!!.venueService()!!.rfqBook.view()
+        return rfqBookJson(venue.title, view, System.currentTimeMillis())
     }
 
     private fun clearAcceptorRfqs(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
-        if (body["clear"]?.jsonPrimitive?.booleanOrNull != true) return errorObject("POST /acceptor/rfqs takes {\"profile\", \"clear\": true}")
+        if (body["clear"]?.jsonPrimitive?.booleanOrNull != true) {
+            return errorObject("POST /acceptor/rfqs takes {\"profile\", \"clear\": true}")
+        }
         val (venue, error) = liveVenue(body["profile"]?.jsonPrimitive?.contentOrNull)
         error?.let { return it }
-        val dropped = venue!!.venueService()!!.rfqBookView().rfqs.size
-        venue.venueService()!!.clearRfqBook()
+        val book = venue!!.venueService()!!.rfqBook
+        val dropped = book.view().rfqs.size
+        book.clear()
         return buildJsonObject {
             put("status", "cleared")
             put("profile", venue.title)
@@ -3393,6 +3322,19 @@ class ControlServer(
     private fun readJsonOrQuery(ex: HttpExchange, key: String): String? =
         readJson(ex)[key]?.jsonPrimitive?.contentOrNull ?: queryParams(ex)[key]
 
+    /**
+     * **What the venue is holding, over HTTP** — and the reason this endpoint is in the *first* slice
+     * of #35 rather than a later one.
+     *
+     * "Reply With…" shipped with no way to drive it but a mouse, so it could only ever be verified by
+     * hand. The book is the state that everything after it reads, and a state nobody can read from
+     * outside the app is a state nobody can test. So: this lands with the book itself.
+     *
+     * `GET` with no `session` is the roll-up — one line per counterparty, no orders, because a venue
+     * with four clients holding a thousand orders each is not a useful default response. With
+     * `session` it is that book in full, every order carrying its trail, which is the shape an
+     * assertion wants. `order` narrows to one.
+     */
     private fun acceptorOrdersEndpoint(ex: HttpExchange): JsonElement =
         when (ex.requestMethod.uppercase()) {
             "POST" -> clearAcceptorOrders(ex)
@@ -3956,7 +3898,9 @@ class ControlServer(
             put(
                 "rules",
                 buildJsonArray {
-                    outcomes.forEach { outcome -> add(ruleOutcomeJson(outcome, outcomes, incomingType, profile.config.counterparties)) }
+                    outcomes.forEach { outcome ->
+                        add(ruleOutcomeJson(outcome, outcomes, incomingType, profile.config.counterparties))
+                    }
                 },
             )
             if (profile.config.counterparties.isNotEmpty()) {
@@ -3975,12 +3919,20 @@ class ControlServer(
                 if (relays) {
                     val relayPlan =
                         AcceptorResponder.planRelay(
-                            selected.rule, incoming, request, dictionary, dryVenue, dryVenue.trigger(incoming),
+                            selected.rule,
+                            incoming,
+                            request,
+                            dictionary,
+                            dryVenue,
+                            dryVenue.trigger(incoming),
                             quote = { quoted },
                         ) { assumedOrder }
                     put("response", relayReplyJson(selected.rule, relayPlan))
                 } else {
-                    put("response", plannedReplyJson(selected.rule, incoming, request, dictionary, assumedOrder, quoted))
+                    put(
+                        "response",
+                        plannedReplyJson(selected.rule, incoming, request, dictionary, assumedOrder, quoted),
+                    )
                 }
                 put(
                     "note",
@@ -4192,158 +4144,11 @@ class ControlServer(
             }
         }
 
-    /**
-     * A relay rule's reply as a dry run shows it: every send with the step it belongs to and who it goes to, then
-     * the recipients a step was owed to and could not reach, and the steps that reached nobody at all.
-     */
-    private fun relayReplyJson(rule: AcceptorResponseRule, plan: RelayPlan): JsonArray =
-        buildJsonArray {
-            val steps = rule.sequence()
-            plan.sends.forEach { planned ->
-                add(
-                    buildJsonObject {
-                        put("offsetMillis", planned.offsetMillis)
-                        put("step", planned.authoredStep + 1)
-                        planned.to?.let { to ->
-                            put(
-                                "to",
-                                buildJsonObject {
-                                    put("address", to.address.word)
-                                    put("compId", to.compId)
-                                },
-                            )
-                        }
-                        try {
-                            put("message", planned.render().replace(SOH, '|'))
-                        } catch (e: Exception) {
-                            put("unrendered", e.message ?: "this step could not be built")
-                            steps.getOrNull(planned.authoredStep)?.let { put("template", it.template) }
-                        }
-                    },
-                )
-            }
-            plan.notDelivered.forEach { (step, recipient) ->
-                add(
-                    buildJsonObject {
-                        put("step", step + 1)
-                        put(
-                            "to",
-                            buildJsonObject {
-                                put("address", recipient.address.word)
-                                put("compId", recipient.compId)
-                            },
-                        )
-                        put("notDelivered", "${recipient.compId} is not logged on, so this step would not be sent")
-                    },
-                )
-            }
-            plan.nobody.forEach { step ->
-                add(
-                    buildJsonObject {
-                        put("step", step + 1)
-                        steps.getOrNull(step)?.to?.let { put("to", buildJsonObject { put("address", it) }) }
-                        put("nobody", "this address reaches nobody on this RFQ, so the step sends nothing")
-                    },
-                )
-            }
-        }
-
-    /**
-     * **A venue a dry run assumes**, built from what its caller said: who sent the message, what state its RFQ is
-     * in, who holds which quote, and who is logged on.
-     *
-     * The same seam the live venue answers through ([RelayVenue]), so a dry run and a connected venue plan a
-     * relay with the one planner. Every answer is one the caller gave or the profile declares; nothing is
-     * guessed. `online` defaults to every counterparty the request names or the profile declares exactly,
-     * because a dry run is usually asked about the day everyone is there.
-     */
-    private class DryRunVenue(
-        private val counterparties: List<Counterparty>,
-        val from: String?,
-        private val rfqWord: String?,
-        private val requester: String?,
-        private val quoter: String?,
-        private val cover: String?,
-        private val asked: List<String>,
-        private val quotes: Map<String, String>,
-        private val ids: Map<String, Map<Int, String>>,
-        private val online: Set<String>,
-    ) : RelayVenue {
-        fun reading(message: quickfix.Message): VenueReading {
-            val word = rfqWord ?: RfqConstraint.UNKNOWN.word
-            return VenueReading(
-                senderRole = from?.let { roleOf(counterparties, it) },
-                rfqBy131 = AcceptorResponder.valueOf(message, 131)?.let { RfqReading(null, null, word) },
-                rfqBy117 = AcceptorResponder.valueOf(message, 117)?.let { RfqReading(null, null, word) },
-                respondersOnline = online.any { roleOf(counterparties, it) == PartyRole.RESPONDER },
-            )
-        }
-
-        fun trigger(message: quickfix.Message) =
-            RelayTrigger(
-                sessionId = null,
-                sessionKey = from ?: "sender",
-                compId = from ?: "sender",
-                msgType = AcceptorResponder.valueOf(message, 35),
-                fields = RfqBookService.fieldsOf(message),
-                rfqId = if (rfqWord == null || rfqWord == RfqConstraint.UNKNOWN.word) null else "assumed",
-            )
-
-        override fun resolve(address: StepAddress, trigger: RelayTrigger): Resolution =
-            when (address) {
-                StepAddress.Sender -> reach(listOfNotNull(from), address)
-                StepAddress.Requester -> reach(listOfNotNull(requester), address)
-                StepAddress.Quoter -> reach(listOfNotNull(quoter), address)
-                StepAddress.Cover -> reach(listOfNotNull(cover), address)
-                StepAddress.Quoted -> reach(quotes.keys.toList(), address)
-                StepAddress.Others -> reach(quotes.keys.filterNot { it == quoter || it == cover }, address)
-                StepAddress.Asked -> reach(asked, address)
-                StepAddress.Responders ->
-                    reach(
-                        counterparties.filter { !it.isPrefix && PartyRole.byWord(it.role) == PartyRole.RESPONDER }.map { it.compId } +
-                            online.filter { compId -> counterparties.any { it.isPrefix && it.covers(compId) && PartyRole.byWord(it.role) == PartyRole.RESPONDER } },
-                        address,
-                    )
-                is StepAddress.CompId -> reach(listOf(address.compId), address)
-            }
-
-        override fun toValue(recipient: Recipient, trigger: RelayTrigger, tag: Int): String? =
-            if (tag == 117 && recipient.quoteId != null) recipient.quoteId else ids[recipient.compId]?.get(tag)
-
-        override fun rfqField(trigger: RelayTrigger, name: String): String? =
-            when (name) {
-                "requester" -> requester
-                "quoter" -> quoter
-                "asked" -> asked.size.toString()
-                "quoted" -> quotes.size.toString()
-                "state" -> rfqWord
-                else -> null
-            }
-
-        private fun reach(compIds: List<String>, address: StepAddress): Resolution {
-            val (on, off) = compIds.distinct().partition { it in online }
-            fun recipient(compId: String) = Recipient(null, compId, compId, address, quotes[compId])
-            return Resolution(on.map(::recipient), off.map(::recipient))
-        }
-
-        companion object {
-            fun of(counterparties: List<Counterparty>, body: JsonObject, rfqWord: String?): DryRunVenue {
-                val rfq = body["rfq"] as? JsonObject
-                fun str(key: String) = rfq?.get(key)?.jsonPrimitive?.contentOrNull
-                val quotes = (rfq?.get("quotes") as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content }
-                val asked = (rfq?.get("asked") as? JsonArray).orEmpty().map { it.jsonPrimitive.content }
-                val ids =
-                    (rfq?.get("ids") as? JsonObject).orEmpty().mapValues { (_, tags) ->
-                        (tags as? JsonObject).orEmpty().mapNotNull { (tag, value) -> tag.toIntOrNull()?.let { it to value.jsonPrimitive.content } }.toMap()
-                    }
-                val from = body["from"]?.jsonPrimitive?.contentOrNull
-                val named = listOfNotNull(from, str("requester"), str("quoter"), str("cover")) + asked + quotes.keys
-                val online =
-                    (body["online"] as? JsonArray)?.map { it.jsonPrimitive.content }?.toSet()
-                        ?: (counterparties.filterNot { it.isPrefix }.map { it.compId } + named).toSet()
-                return DryRunVenue(counterparties, from, rfqWord, str("requester"), str("quoter"), str("cover"), asked, quotes, ids, online)
-            }
-        }
+    /** Whether responders were online, as the dry run judged a rule's `whenResponders`. */
+    private fun kotlinx.serialization.json.JsonObjectBuilder.respondersVerdict(responders: RespondersOutcome) {
+        put("constraint", responders.wanted)
+        responders.actual?.let { put("actual", if (it) "some" else "none") }
+        put("satisfied", responders.satisfied)
     }
 
     /** One rule's verdict on the tested message, with the working that produced it. */
@@ -4419,14 +4224,7 @@ class ControlServer(
                 )
             }
             outcome.responders?.let { responders ->
-                put(
-                    "whenResponders",
-                    buildJsonObject {
-                        put("constraint", responders.wanted)
-                        responders.actual?.let { put("actual", if (it) "some" else "none") }
-                        put("satisfied", responders.satisfied)
-                    },
-                )
+                put("whenResponders", buildJsonObject { respondersVerdict(responders) })
             }
             outcome.rule.validationError(counterparties)?.let { put("validationError", it) }
         }

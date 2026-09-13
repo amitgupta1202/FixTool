@@ -88,7 +88,11 @@ sealed interface StepAddress {
             val trimmed = text?.trim()
             if (trimmed.isNullOrEmpty()) return Sender
             if (trimmed.startsWith(COMP_ID_PREFIX)) {
-                return trimmed.removePrefix(COMP_ID_PREFIX).trim().takeIf { it.isNotEmpty() }?.let { CompId(it) }
+                return trimmed
+                    .removePrefix(COMP_ID_PREFIX)
+                    .trim()
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { CompId(it) }
             }
             return FIXED.firstOrNull { it.word == trimmed }
         }

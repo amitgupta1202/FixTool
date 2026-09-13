@@ -332,13 +332,10 @@ private fun LaneRowView(
     val opens = position == 0 || row.elapsedMillis == null
     val started = row.from.message.timestamp
     val gutter = if (opens) started.format(timeFormatter) else "+${row.elapsedMillis} ms"
-    // Read from the reason the venue recorded when it relayed, never re-derived — see SendReason.relay.
-    val relayed =
-        row.from.message.sendReason?.let { reason ->
-            reason.relay?.let { relay -> "relayed · rule ${(reason.ruleIndex ?: 0) + 1} · to ${relay.address}" }
-        }
+    val relayed = relayedLabel(row.from.message)
+    val height = if (relayed != null && row.to != null) RELAYED_ROW_HEIGHT else ROW_HEIGHT
 
-    Row(modifier = Modifier.height(if (relayed != null && row.to != null) RELAYED_ROW_HEIGHT else ROW_HEIGHT).testTag("trace-lane-row")) {
+    Row(modifier = Modifier.height(height).testTag("trace-lane-row")) {
         Box(modifier = Modifier.width(GUTTER_WIDTH).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {
             Text(
                 text = gutter,
@@ -375,20 +372,7 @@ private fun LaneRowView(
             Box(modifier = Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
                 if (hops) {
                     HopArrow(fromLane = fromLane, toLane = toLane, elapsedMillis = row.hopMillis)
-                    // The ◀ lands in the receiving lane, on the side facing the sender, so the direction of
-                    // travel reads off the geometry as well as off the glyph.
-                    Box(
-                        modifier = Modifier.offset(x = LANE_WIDTH * toLane).width(LANE_WIDTH).fillMaxHeight(),
-                        contentAlignment = if (toLane > fromLane) Alignment.CenterStart else Alignment.CenterEnd,
-                    ) {
-                        Text(
-                            text = "◀",
-                            fontSize = 10.sp,
-                            color = AppTheme.Colors.messageIncoming,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.testTag("trace-lane-landing").padding(horizontal = 5.dp),
-                        )
-                    }
+                    Landing(fromLane = fromLane, toLane = toLane)
                 }
                 if (fromLane >= 0) {
                     Box(modifier = Modifier.offset(x = LANE_WIDTH * fromLane).width(LANE_WIDTH).fillMaxHeight()) {
@@ -403,29 +387,56 @@ private fun LaneRowView(
                 }
             }
 
-            if (hops && relayed != null) {
-                val left = minOf(fromLane, toLane)
-                val right = maxOf(fromLane, toLane)
-                Box(
-                    modifier =
-                        Modifier
-                            .offset(x = LANE_WIDTH * left, y = ROW_HEIGHT)
-                            .width(LANE_WIDTH * (right - left + 1)),
-                    contentAlignment = Alignment.TopCenter,
-                ) {
-                    Text(
-                        text = relayed,
-                        fontSize = 9.sp,
-                        lineHeight = 12.sp,
-                        color = AppTheme.Colors.textDisabled,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("trace-lane-reason"),
-                    )
-                }
-            }
+            if (hops && relayed != null) RelayReason(fromLane = fromLane, toLane = toLane, text = relayed)
         }
+    }
+}
+
+/** Why a venue FixTool runs sent this message, when it relayed it — read from the recorded reason, never re-derived. */
+private fun relayedLabel(message: FixMessage): String? {
+    val reason = message.sendReason ?: return null
+    return reason.relay?.let { relay -> "relayed · rule ${(reason.ruleIndex ?: 0) + 1} · to ${relay.address}" }
+}
+
+/**
+ * The ◀ in the receiving lane, on the side facing the sender, so the direction of travel reads off the geometry as
+ * well as off the glyph.
+ */
+@Composable
+private fun Landing(fromLane: Int, toLane: Int) {
+    Box(
+        modifier = Modifier.offset(x = LANE_WIDTH * toLane).width(LANE_WIDTH).fillMaxHeight(),
+        contentAlignment = if (toLane > fromLane) Alignment.CenterStart else Alignment.CenterEnd,
+    ) {
+        Text(
+            text = "◀",
+            fontSize = 10.sp,
+            color = AppTheme.Colors.messageIncoming,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.testTag("trace-lane-landing").padding(horizontal = 5.dp),
+        )
+    }
+}
+
+/** A relayed row's reason, in the strip under its hop, across both lanes the hop joins. */
+@Composable
+private fun RelayReason(fromLane: Int, toLane: Int, text: String) {
+    val left = minOf(fromLane, toLane)
+    val right = maxOf(fromLane, toLane)
+    Box(
+        modifier = Modifier.offset(x = LANE_WIDTH * left, y = ROW_HEIGHT).width(LANE_WIDTH * (right - left + 1)),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Text(
+            text = text,
+            fontSize = 9.sp,
+            lineHeight = 12.sp,
+            color = AppTheme.Colors.textDisabled,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.testTag("trace-lane-reason"),
+        )
     }
 }
 

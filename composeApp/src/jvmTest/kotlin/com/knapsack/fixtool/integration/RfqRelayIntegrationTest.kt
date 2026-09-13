@@ -224,7 +224,9 @@ class RfqRelayIntegrationTest {
         // Probe P3: the relay's reason is recorded by the recipient's own toApp, on the dealer's pane, which is what
         // Trace will join the two legs through.
         val relayedFill =
-            venue.awaitPane("DLR1").messages.value
+            venue
+                .awaitPane("DLR1")
+                .messages.value
                 .filterIsInstance<com.knapsack.fixtool.model.FixMessage>()
                 .single { it.direction == com.knapsack.fixtool.model.FixMessage.Direction.OUTGOING && venue.field(it, 35) == "8" }
         assertEquals("quoter", relayedFill.sendReason?.relay?.address)
@@ -234,16 +236,30 @@ class RfqRelayIntegrationTest {
         // relay edges the venue recorded are what put them in one trace.
         val panes = venue.viewModel.sessions.toList()
         val snapshots = panes.map { pane -> pane.messages.value.filterIsInstance<com.knapsack.fixtool.model.FixMessage>() }
-        val traces = com.knapsack.fixtool.service.Traces.group(snapshots, null).traces
+        val traces =
+            com.knapsack.fixtool.service.Traces
+                .group(snapshots, null)
+                .traces
         val requestAt = snapshots[panes.indexOf(buyer)].indexOfFirst { venue.field(it, 35) == "R" }
         val fillAt = snapshots[panes.indexOf(dealer1)].indexOfFirst { venue.field(it, 35) == "8" }
-        val negotiation = traces.single { com.knapsack.fixtool.service.Located(panes.indexOf(buyer), requestAt) in it.members }
+        val negotiation =
+            traces.single {
+                com.knapsack.fixtool.service
+                    .Located(panes.indexOf(buyer), requestAt) in it.members
+            }
         assertTrue(
-            com.knapsack.fixtool.service.Located(panes.indexOf(dealer1), fillAt) in negotiation.members,
+            com.knapsack.fixtool.service
+                .Located(panes.indexOf(dealer1), fillAt) in negotiation.members,
             "the dealer's fill is in the buy side's trace",
         )
 
-        val book = venuePane.venueService()!!.rfqBookView().rfqs.single()
+        val book =
+            venuePane
+                .venueService()!!
+                .rfqBook
+                .view()
+                .rfqs
+                .single()
         assertEquals(RfqLife.DONE, book.life)
         assertEquals(LegOutcome.LIFTED, book.legs.single { it.compId == venue.comp("DLR1") }.outcome)
         assertEquals(LegOutcome.COVER, book.legs.single { it.compId == venue.comp("DLR2") }.outcome)

@@ -44,6 +44,7 @@ import java.time.format.DateTimeFormatter
  * [reading] is what a trigger asks, taken before the message is recorded. [entryFor], [link] and [toValue] are
  * what a relay reads after it has been, and are what step 3's addresses and `${to.…}` resolve through.
  */
+@Suppress("TooManyFunctions") // one lock over one book: every reader and recorder has to be a member to share it
 class RfqBookService(
     /** Epoch millis. Injected so a test can step past an expiry without sleeping. */
     private val clock: () -> Long = System::currentTimeMillis,
@@ -56,7 +57,10 @@ class RfqBookService(
     @Volatile
     private var cap: Int = initialCap.coerceAtLeast(1)
 
-    /** How one counterparty's id reaches an RFQ: which RFQ, and — when the id belongs to a responder's part in it — which leg. */
+    /**
+     * How one counterparty's id reaches an RFQ: which RFQ, and — when the id belongs to a responder's part in it —
+     * which leg.
+     */
     data class Link(
         val rfqId: String,
         /** The responder session this id belongs to, or null for an id of the requester's. */
@@ -95,27 +99,26 @@ class RfqBookService(
      */
     @Synchronized
     fun reading(sessionKey: String, tag: Int, fields: Map<Int, String>): RfqReading {
-        val value = fields[tag]?.takeIf { it.isNotBlank() } ?: return RfqReading.unknown()
-        val link = links[LinkKey(sessionKey, tag, value)] ?: return RfqReading.unknown()
-        val entry = rfqs[link.rfqId] ?: return RfqReading.unknown()
+        val link = fields[tag]?.takeIf { it.isNotBlank() }?.let { links[LinkKey(sessionKey, tag, it)] }
+        val entry = link?.let { rfqs[it.rfqId] } ?: return RfqReading.unknown()
         val now = clock()
         val leg = link.legKey?.let { entry.leg(it) }
         val quote = link.dealerQuoteId?.let { id -> leg?.quotes?.lastOrNull { it.dealerQuoteId == id } }
+        // On 117, a quote that no longer stands — replaced, lapsed, or never found — is not a quote that can still be
+        // traded, whatever the RFQ around it is doing.
+        val quoteGone = tag == TAG_QUOTE_ID && link.dealerQuoteId != null && !stillStands(leg, quote, now)
         val word =
             when (entry.lifeAt(now)) {
                 RfqLife.EXPIRED -> RfqConstraint.EXPIRED
                 RfqLife.REFUSED, RfqLife.PASSED, RfqLife.DONE -> RfqConstraint.DONE
-                RfqLife.REQUESTED, RfqLife.OPEN ->
-                    // On 117, a quote that no longer stands — replaced, lapsed, or never found — is not a quote
-                    // that can still be traded, whatever the RFQ around it is doing.
-                    if (tag == TAG_QUOTE_ID && link.dealerQuoteId != null && (quote == null || leg?.currentQuote(now) != quote)) {
-                        RfqConstraint.DONE
-                    } else {
-                        RfqConstraint.OPEN
-                    }
+                RfqLife.REQUESTED, RfqLife.OPEN -> if (quoteGone) RfqConstraint.DONE else RfqConstraint.OPEN
             }
         return RfqReading(entry.rfqId, entry, word.word, leg, quote)
     }
+
+    /** True when [quote] was found and is still its leg's current quote. */
+    private fun stillStands(leg: RfqLeg?, quote: LegQuote?, now: Long): Boolean =
+        quote != null && leg?.currentQuote(now) == quote
 
     /** The RFQ [fields] belong to for [sessionKey], found through 131 then 117, as it stands now. */
     @Synchronized
@@ -153,6 +156,7 @@ class RfqBookService(
      * order book never saw on an order, so offered there too it could only be filed as unattributed.
      */
     @Synchronized
+    @Suppress("LongParameterList") // the facts of one message, named at the one call site that has them all
     fun record(
         sessionKey: String,
         compId: String,
@@ -167,7 +171,7 @@ class RfqBookService(
             if (sent) {
                 recordSent(sessionKey, msgType, fields, relay)
             } else {
-                recordReceived(sessionKey, compId, role, msgType, fields, messageUid)
+                recordReceived(sessionKey, compId, role, fields, messageUid)
                 false
             }
         publish()
@@ -178,10 +182,10 @@ class RfqBookService(
         sessionKey: String,
         compId: String,
         role: PartyRole?,
-        msgType: String,
         fields: Map<Int, String>,
         messageUid: Long?,
     ) {
+        val msgType = fields[TAG_MSG_TYPE]
         when {
             msgType == MSG_QUOTE_REQUEST && role == PartyRole.REQUESTER -> open(sessionKey, compId, fields, messageUid)
             msgType == MSG_QUOTE && role == PartyRole.RESPONDER -> quoted(sessionKey, fields)
@@ -230,7 +234,7 @@ class RfqBookService(
                 validUntil = fields[TAG_VALID_UNTIL]?.let(::utcMillisOf),
             )
         updateLeg(entry, sessionKey) { leg -> leg.copy(quotes = leg.quotes.map { it.copy(superseded = true) } + quote) }
-        linkId(sessionKey, TAG_QUOTE_ID, dealerQuoteId, Link(entry.rfqId, legKey = sessionKey, dealerQuoteId = dealerQuoteId))
+        linkId(sessionKey, TAG_QUOTE_ID, dealerQuoteId, Link(entry.rfqId, sessionKey, dealerQuoteId))
     }
 
     private fun passedByResponder(sessionKey: String, fields: Map<Int, String>) {
@@ -254,60 +258,70 @@ class RfqBookService(
         relay: RelayRef?,
     ): Boolean {
         if (relay == null) {
-            // A refusal to the requester ends an RFQ the venue never relayed. The only unrelayed send that moves
-            // anything: every other reply to a sender is about a message, not about the negotiation.
-            if (msgType == MSG_QUOTE_REQUEST_REJECT) {
-                val link = fields[TAG_QUOTE_REQ_ID]?.let { links[LinkKey(sessionKey, TAG_QUOTE_REQ_ID, it)] }
-                val entry = link?.let { rfqs[it.rfqId] }
-                if (entry != null && entry.requesterKey == sessionKey && entry.life.live) {
-                    rfqs[entry.rfqId] = entry.copy(life = RfqLife.REFUSED)
-                }
-            }
+            if (msgType == MSG_QUOTE_REQUEST_REJECT) refusedByVenue(sessionKey, fields)
             return false
         }
         val entry = relay.rfqId?.let { rfqs[it] } ?: return false
         val toRequester = sessionKey == entry.requesterKey
-        when (msgType) {
-            MSG_QUOTE_REQUEST ->
-                if (!toRequester) {
-                    val leg = RfqLeg(responderKey = sessionKey, compId = relay.recipientCompId, venueQuoteReqId = fields[TAG_QUOTE_REQ_ID])
-                    val legs = entry.legs.filterNot { it.responderKey == sessionKey } + leg
-                    rfqs[entry.rfqId] = entry.copy(legs = legs, life = if (entry.life == RfqLife.REQUESTED) RfqLife.OPEN else entry.life)
-                }
-            MSG_QUOTE ->
-                // A dealer's quote shown to the requester under the venue's own id: the link from that id back to
-                // the dealer's quote is what a lift of it is resolved through.
-                if (toRequester) {
-                    val venueQuoteId = fields[TAG_QUOTE_ID]
-                    val dealerKey = relay.triggerSession
-                    val dealerQuote = entry.leg(dealerKey)?.quotes?.lastOrNull()
-                    if (venueQuoteId != null && dealerQuote != null) {
-                        updateLeg(entry, dealerKey) { leg ->
-                            leg.copy(quotes = leg.quotes.dropLast(1) + dealerQuote.copy(venueQuoteId = venueQuoteId))
-                        }
-                        linkId(
-                            sessionKey,
-                            TAG_QUOTE_ID,
-                            venueQuoteId,
-                            Link(entry.rfqId, legKey = dealerKey, dealerQuoteId = dealerQuote.dealerQuoteId),
-                        )
-                    }
-                }
-            MSG_QUOTE_RESPONSE ->
-                when (fields[TAG_QUOTE_RESP_TYPE]) {
-                    RESP_TYPE_COVER -> updateLeg(entry, sessionKey) { it.copy(outcome = LegOutcome.COVER) }
-                    RESP_TYPE_DONE_AWAY -> updateLeg(entry, sessionKey) { it.copy(outcome = LegOutcome.DONE_AWAY) }
-                }
+        when {
+            msgType == MSG_QUOTE_REQUEST && !toRequester -> asked(entry, sessionKey, fields, relay)
+            msgType == MSG_QUOTE && toRequester -> shownToRequester(entry, sessionKey, fields, relay)
+            msgType == MSG_QUOTE_RESPONSE -> toldResponder(entry, sessionKey, fields)
         }
         // Every correlation id the venue put on a relayed message, for the counterparty it went to — except the
         // ones the cases above linked more precisely.
         LINKED_TAGS.forEach { tag ->
             val value = fields[tag]?.takeIf { it.isNotBlank() } ?: return@forEach
-            val key = LinkKey(sessionKey, tag, value)
-            if (links[key] == null) linkId(sessionKey, tag, value, Link(entry.rfqId, legKey = sessionKey.takeUnless { toRequester }))
+            if (links[LinkKey(sessionKey, tag, value)] == null) {
+                linkId(sessionKey, tag, value, Link(entry.rfqId, legKey = sessionKey.takeUnless { toRequester }))
+            }
         }
         remember(entry.rfqId, sessionKey, fields)
         return msgType == MSG_EXECUTION_REPORT
+    }
+
+    /**
+     * A refusal to the requester ends an RFQ the venue never relayed. The only unrelayed send that moves anything:
+     * every other reply to a sender is about a message, not about the negotiation.
+     */
+    private fun refusedByVenue(sessionKey: String, fields: Map<Int, String>) {
+        val link = fields[TAG_QUOTE_REQ_ID]?.let { links[LinkKey(sessionKey, TAG_QUOTE_REQ_ID, it)] }
+        val entry = link?.let { rfqs[it.rfqId] }
+        if (entry != null && entry.requesterKey == sessionKey && entry.life.live) {
+            rfqs[entry.rfqId] = entry.copy(life = RfqLife.REFUSED)
+        }
+    }
+
+    /** The request relayed to a responder: its leg, and the RFQ open once anybody has been asked. */
+    private fun asked(entry: RfqEntry, sessionKey: String, fields: Map<Int, String>, relay: RelayRef) {
+        val leg = RfqLeg(sessionKey, relay.recipientCompId, venueQuoteReqId = fields[TAG_QUOTE_REQ_ID])
+        val legs = entry.legs.filterNot { it.responderKey == sessionKey } + leg
+        val life = if (entry.life == RfqLife.REQUESTED) RfqLife.OPEN else entry.life
+        rfqs[entry.rfqId] = entry.copy(legs = legs, life = life)
+    }
+
+    /**
+     * A dealer's quote shown to the requester under the venue's own id: the link from that id back to the dealer's
+     * quote is what a lift of it is resolved through.
+     */
+    private fun shownToRequester(entry: RfqEntry, sessionKey: String, fields: Map<Int, String>, relay: RelayRef) {
+        val venueQuoteId = fields[TAG_QUOTE_ID] ?: return
+        val dealerKey = relay.triggerSession
+        val dealerQuote = entry.leg(dealerKey)?.quotes?.lastOrNull() ?: return
+        val shown = dealerQuote.copy(venueQuoteId = venueQuoteId)
+        updateLeg(entry, dealerKey) { leg -> leg.copy(quotes = leg.quotes.dropLast(1) + shown) }
+        linkId(sessionKey, TAG_QUOTE_ID, venueQuoteId, Link(entry.rfqId, dealerKey, dealerQuote.dealerQuoteId))
+    }
+
+    /** A responder told how its quote ended, when it did not trade: cover, or done away. */
+    private fun toldResponder(entry: RfqEntry, sessionKey: String, fields: Map<Int, String>) {
+        val outcome =
+            when (fields[TAG_QUOTE_RESP_TYPE]) {
+                RESP_TYPE_COVER -> LegOutcome.COVER
+                RESP_TYPE_DONE_AWAY -> LegOutcome.DONE_AWAY
+                else -> return
+            }
+        updateLeg(entry, sessionKey) { it.copy(outcome = outcome) }
     }
 
     /**
@@ -336,7 +350,9 @@ class RfqBookService(
     fun notDelivered(rfqId: String, responderKey: String, compId: String) {
         val entry = rfqs[rfqId] ?: return
         val leg = entry.leg(responderKey) ?: RfqLeg(responderKey = responderKey, compId = compId)
-        rfqs[rfqId] = entry.copy(legs = entry.legs.filterNot { it.responderKey == responderKey } + leg.copy(outcome = LegOutcome.NOT_DELIVERED))
+        val owed = leg.copy(outcome = LegOutcome.NOT_DELIVERED)
+        val legs = entry.legs.filterNot { it.responderKey == responderKey } + owed
+        rfqs[rfqId] = entry.copy(legs = legs)
         publish()
     }
 
@@ -366,7 +382,9 @@ class RfqBookService(
     }
 
     private fun remember(rfqId: String, sessionKey: String, fields: Map<Int, String>) {
-        REMEMBERED_TAGS.forEach { tag -> fields[tag]?.takeIf { it.isNotBlank() }?.let { toValues[Triple(rfqId, sessionKey, tag)] = it } }
+        REMEMBERED_TAGS.forEach { tag ->
+            fields[tag]?.takeIf { it.isNotBlank() }?.let { toValues[Triple(rfqId, sessionKey, tag)] = it }
+        }
     }
 
     private fun updateLeg(entry: RfqEntry, legKey: String, change: (RfqLeg) -> RfqLeg) {
@@ -458,10 +476,26 @@ class RfqBookService(
         /** Everything the book reads off a message. */
         private val READ_TAGS =
             setOf(
-                TAG_MSG_TYPE, TAG_QUOTE_REQ_ID, TAG_QUOTE_ID, TAG_QUOTE_RESP_ID, TAG_CL_ORD_ID, TAG_ORDER_ID,
-                TAG_TRADE_REPORT_ID, TAG_QUOTE_RESP_TYPE, TAG_BID_PX, TAG_OFFER_PX, TAG_BID_SIZE, TAG_OFFER_SIZE,
-                TAG_VALID_UNTIL, TAG_EXPIRE_TIME, TAG_SYMBOL, TAG_SECURITY_ID, TAG_SECURITY_ID_SOURCE,
-                TAG_SECURITY_TYPE, TAG_SIDE, TAG_ORDER_QTY,
+                TAG_MSG_TYPE,
+                TAG_QUOTE_REQ_ID,
+                TAG_QUOTE_ID,
+                TAG_QUOTE_RESP_ID,
+                TAG_CL_ORD_ID,
+                TAG_ORDER_ID,
+                TAG_TRADE_REPORT_ID,
+                TAG_QUOTE_RESP_TYPE,
+                TAG_BID_PX,
+                TAG_OFFER_PX,
+                TAG_BID_SIZE,
+                TAG_OFFER_SIZE,
+                TAG_VALID_UNTIL,
+                TAG_EXPIRE_TIME,
+                TAG_SYMBOL,
+                TAG_SECURITY_ID,
+                TAG_SECURITY_ID_SOURCE,
+                TAG_SECURITY_TYPE,
+                TAG_SIDE,
+                TAG_ORDER_QTY,
             )
 
         private val TIME_PATTERNS =

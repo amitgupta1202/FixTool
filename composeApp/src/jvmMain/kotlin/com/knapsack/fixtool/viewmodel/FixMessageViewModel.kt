@@ -6985,8 +6985,10 @@ class FixMessageViewModel(
         return connectionProfiles
             .asSequence()
             .filter { it.config.acceptsAnyClient() && it.config.counterparties.isNotEmpty() }
-            .firstNotNullOfOrNull { com.knapsack.fixtool.model.roleOf(it.config.counterparties, compId) }
-            ?.word
+            .firstNotNullOfOrNull {
+                com.knapsack.fixtool.model
+                    .roleOf(it.config.counterparties, compId)
+            }?.word
     }
 
     /**

@@ -165,35 +165,12 @@ object TraceLanes {
         snapshots: List<List<FixMessage>>,
         sessionTitles: List<String>,
         sessionRoles: List<LaneRole>,
-        /**
-         * Which venue each session is a pane of, positional like the rest — the venue's profile id, or null for a
-         * session that is not one of a venue's per-counterparty panes. Sessions sharing a group are one lane.
-         */
-        sessionGroups: List<String?> = emptyList(),
-        /** The part each session plays on a venue that declares roles: `requester`, `responder`, or null. */
-        partyRoles: List<String?> = emptyList(),
+        parties: Parties = Parties(),
     ): Lanes {
-        val grouped = LinkedHashMap<String, MutableList<Int>>()
-        trace.sessions.forEach { session ->
-            val key = sessionGroups.getOrNull(session)?.let { "venue:$it" } ?: "session:$session"
-            grouped.getOrPut(key) { mutableListOf() } += session
-        }
-        val parties = trace.sessions.any { partyRoles.getOrNull(it) != null }
-        val unordered =
-            grouped.map { (key, sessions) ->
-                val first = sessions.first()
-                val venue = key.startsWith("venue:")
-                val title = sessionTitles.getOrNull(first) ?: "session $first"
-                Lane(
-                    sessions = sessions,
-                    // A merged venue lane is named for the venue, not for whichever counterparty's pane came first.
-                    title = if (venue && sessions.size > 1) "${title.substringBefore(" ← ")} · ${sessions.size} panes" else title,
-                    role = sessionRoles.getOrNull(first) ?: LaneRole.UNKNOWN,
-                    party = if (venue && parties) "venue" else partyRoles.getOrNull(first),
-                )
-            }
+        val withParties = trace.sessions.any { parties.partyRoles.getOrNull(it) != null }
+        val unordered = lanesOf(trace, sessionTitles, sessionRoles, parties, withParties)
         val lanes =
-            if (parties) {
+            if (withParties) {
                 // Requesters, the venue, responders: the picture a desk draws of a negotiation. Stable within each.
                 unordered.sortedBy { PARTY_ORDER[it.party] ?: PARTY_ORDER.size }
             } else {
@@ -212,18 +189,60 @@ object TraceLanes {
             rows = rowsOf(entries) { laneOf[it] ?: -1 },
             // With the venue in the middle there is no single line between the side that dials and the side that is
             // dialled — both edges dial the venue — so the rule is not drawn.
-            acceptorDividerAt =
-                if (parties) {
-                    null
-                } else {
-                    lanes
-                        .indexOfFirst { it.role == LaneRole.ACCEPTOR }
-                        .takeIf { it >= 0 && lanes.any { lane -> lane.role == LaneRole.INITIATOR } }
-                },
+            acceptorDividerAt = if (withParties) null else dividerAt(lanes),
         )
     }
 
+    /**
+     * What a venue FixTool runs says about each session, positional like [build]'s other lists.
+     *
+     * [sessionGroups] is which venue each session is a per-counterparty pane of — the venue's profile id, or null
+     * for any other session; sessions sharing a group are one lane. [partyRoles] is the part each session plays on a
+     * venue that declares roles: `requester`, `responder`, or null.
+     */
+    data class Parties(
+        val sessionGroups: List<String?> = emptyList(),
+        val partyRoles: List<String?> = emptyList(),
+    )
+
+    /** One lane per session, except a venue's panes, which are one lane between them. Unordered. */
+    private fun lanesOf(
+        trace: Traces.Trace,
+        sessionTitles: List<String>,
+        sessionRoles: List<LaneRole>,
+        parties: Parties,
+        withParties: Boolean,
+    ): List<Lane> {
+        val grouped = LinkedHashMap<String, MutableList<Int>>()
+        trace.sessions.forEach { session ->
+            val key = parties.sessionGroups.getOrNull(session)?.let { "venue:$it" } ?: "session:$session"
+            grouped.getOrPut(key) { mutableListOf() } += session
+        }
+        return grouped.map { (key, sessions) ->
+            val first = sessions.first()
+            val merged = key.startsWith("venue:")
+            val title = sessionTitles.getOrNull(first) ?: "session $first"
+            // A merged venue lane is named for the venue, not for whichever counterparty's pane came first.
+            val venueTitle = "${title.substringBefore(VENUE_PANE_MARK)} · ${sessions.size} panes"
+            Lane(
+                sessions = sessions,
+                title = if (merged && sessions.size > 1) venueTitle else title,
+                role = sessionRoles.getOrNull(first) ?: LaneRole.UNKNOWN,
+                party = if (merged && withParties) "venue" else parties.partyRoles.getOrNull(first),
+            )
+        }
+    }
+
+    /** Where the dashed rule between the side that dials and the side that is dialled goes, when there are both. */
+    private fun dividerAt(lanes: List<Lane>): Int? =
+        lanes
+            .indexOfFirst { it.role == LaneRole.ACCEPTOR }
+            .takeIf { it >= 0 && lanes.any { lane -> lane.role == LaneRole.INITIATOR } }
+
     private val PARTY_ORDER = mapOf("requester" to 0, "venue" to 1, "responder" to 2)
+
+    /** What separates a venue's name from its counterparty's in a venue pane's title: `VENUE ← FIBUY1`. */
+    private const val VENUE_PANE_MARK = " ← "
 
     /**
      * The rows, in merged order, with each same-bytes pair folded into the row its OUT opened.
@@ -313,20 +332,24 @@ object TraceLanes {
             // A paired candidate can never match again, so retiring it from the head keeps this
             // amortised rather than walking a lengthening tail of dead entries on every arrival.
             while (queue.isNotEmpty() && partner[queue.first()] != UNPAIRED) queue.removeFirst()
-            for (candidate in queue) {
-                if (best != UNPAIRED && candidate >= best) break
-                if (partner[candidate] != UNPAIRED) continue
-                val out = entries[candidate]
-                if (out.session == incoming.session) continue
-                // Two panes merged into one lane are one column: a hop between them would be an arrow of no length.
-                if (laneOf(out.session) == laneOf(incoming.session)) continue
-                if (!sameBytes(out.message, incoming.message)) continue
-                best = candidate
-                break
-            }
+            // The queue is in arrival order, so nothing at or after the best match so far can beat it.
+            queue
+                .asSequence()
+                .takeWhile { candidate -> best == UNPAIRED || candidate < best }
+                .firstOrNull { partner[it] == UNPAIRED && pairs(entries[it], incoming, laneOf) }
+                ?.let { best = it }
         }
         return best
     }
+
+    /**
+     * True when [out] and [incoming] are one hop: logged by two different lanes, with the same bytes. Two panes
+     * merged into one lane are one column, and a hop between them would be an arrow of no length.
+     */
+    private fun pairs(out: Entry, incoming: Entry, laneOf: (Int) -> Int): Boolean =
+        out.session != incoming.session &&
+            laneOf(out.session) != laneOf(incoming.session) &&
+            sameBytes(out.message, incoming.message)
 
     /**
      * **Are these the same bytes?**

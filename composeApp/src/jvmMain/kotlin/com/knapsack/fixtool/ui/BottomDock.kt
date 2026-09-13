@@ -36,7 +36,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.knapsack.fixtool.service.TraceLanes
 import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.ui.terminal.TerminalPanel
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -358,16 +357,7 @@ private fun DockTracePanel(viewModel: FixMessageViewModel, modifier: Modifier = 
                     ?.grouping
                     ?.traces
                     ?.firstOrNull { anchor != null && anchor in it.ids }
-                    ?.let {
-                        TraceLanes.build(
-                            it,
-                            current.snapshots,
-                            current.sessionTitles,
-                            current.sessionRoles,
-                            current.sessionGroups,
-                            current.partyRoles,
-                        )
-                    }
+                    ?.let { current.lanes(it) }
             }
         }
 

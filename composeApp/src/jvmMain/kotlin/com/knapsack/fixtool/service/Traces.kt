@@ -178,7 +178,10 @@ object Traces {
         entries.forEachIndexed { position, entry -> positionOfUid[entry.message.uid] = position }
         val relayEdges =
             entries.mapIndexedNotNull { position, entry ->
-                entry.message.sendReason?.relay?.let { relay -> positionOfUid[relay.triggerUid]?.let { position to it } }
+                entry.message.sendReason
+                    ?.relay
+                    ?.let { positionOfUid[it.triggerUid] }
+                    ?.let { position to it }
             }
         val components = CorrelationComponents.of(idsPerMessage, relayEdges)
         val traces =

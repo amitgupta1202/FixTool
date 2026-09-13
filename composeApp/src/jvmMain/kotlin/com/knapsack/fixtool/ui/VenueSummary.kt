@@ -52,7 +52,7 @@ data class VenueSummary(
     /** No rules loaded, which is why this venue is answering nothing. */
     val noRules: Boolean get() = rulesLive == 0
 
-    /** Steps were owed to a counterparty that was not logged on. Said on its own badge, not folded into a divergence. */
+    /** Steps were owed to a counterparty that was not logged on: a badge of its own, not folded into a divergence. */
     val showNotDelivered: Boolean get() = notDelivered > 0
 
     /**

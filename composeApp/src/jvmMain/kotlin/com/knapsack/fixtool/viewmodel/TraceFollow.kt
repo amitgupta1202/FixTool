@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.service.LaneRole
 import com.knapsack.fixtool.service.TraceKey
+import com.knapsack.fixtool.service.TraceLanes
 import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.service.Traces
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,7 +43,11 @@ data class TraceIndex(
     val sessionGroups: List<String?> = emptyList(),
     /** The part each session plays on a venue that declares roles, captured with the rest. */
     val partyRoles: List<String?> = emptyList(),
-)
+) {
+    /** [trace] as Lanes draws it, from everything this index captured at the one instant. */
+    fun lanes(trace: Traces.Trace): TraceLanes.Lanes =
+        TraceLanes.build(trace, snapshots, sessionTitles, sessionRoles, TraceLanes.Parties(sessionGroups, partyRoles))
+}
 
 /** Which drawing of the trace the panel is showing. One panel, two renderings of the same rows. */
 enum class TraceRendering {
@@ -300,7 +305,8 @@ class TraceFollow {
         // What labels a lane is part of the key too: a pane whose role, title or venue changes with no new message
         // must redraw, or Lanes names a column with a word that stopped being true a tick ago.
         val labels = inputs.map { listOf(it.title, it.role.name, it.venueGroup, it.partyRole) }
-        if (_traceIndex.value == null || dictionary !== sourceDictionary || !sameSnapshots(incoming) || labels != sourceLabels) {
+        val unchanged = sameSnapshots(incoming) && labels == sourceLabels
+        if (_traceIndex.value == null || dictionary !== sourceDictionary || !unchanged) {
             val snapshots = inputs.map { input -> input.messages.filterIsInstance<FixMessage>() }
             regroupCount++
             _traceIndex.value =

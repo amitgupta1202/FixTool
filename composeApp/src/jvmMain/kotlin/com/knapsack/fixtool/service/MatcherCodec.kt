@@ -191,10 +191,12 @@ object MatcherCodec {
                     put("type", "quoteField"); put("name", matcher.name)
                 }
                 is Matcher.CounterpartyRole -> {
-                    put("type", "role"); put("role", matcher.role)
+                    put("type", "role")
+                    put("role", matcher.role)
                 }
                 is Matcher.RfqState -> {
-                    put("type", "rfq"); put("state", matcher.state)
+                    put("type", "rfq")
+                    put("state", matcher.state)
                 }
             }
         }

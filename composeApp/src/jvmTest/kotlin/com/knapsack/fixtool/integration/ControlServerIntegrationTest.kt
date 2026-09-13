@@ -1305,10 +1305,25 @@ class ControlServerIntegrationTest {
         val fromDealer = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=R|131=Q-1|55=T 4.25 11/15/36|","from":"FIDLR1"}"""))
         val fromBuyer = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=R|131=Q-1|55=T 4.25 11/15/36|","from":"FIBUY1"}"""))
 
-        assertTrue(fromDealer["rules"]!!.jsonArray[0].jsonObject["selected"]!!.jsonPrimitive.boolean)
+        assertTrue(
+            fromDealer["rules"]!!
+                .jsonArray[0]
+                .jsonObject["selected"]!!
+                .jsonPrimitive.boolean,
+        )
         assertEquals("responder", fromDealer["assumedVenue"]!!.jsonObject["role"]!!.jsonPrimitive.content)
-        assertTrue(fromBuyer["rules"]!!.jsonArray[1].jsonObject["selected"]!!.jsonPrimitive.boolean)
-        val fanOut = fromBuyer["response"]!!.jsonArray.map { it.jsonObject["to"]!!.jsonObject["compId"]!!.jsonPrimitive.content }
+        assertTrue(
+            fromBuyer["rules"]!!
+                .jsonArray[1]
+                .jsonObject["selected"]!!
+                .jsonPrimitive.boolean,
+        )
+        val fanOut =
+            fromBuyer["response"]!!.jsonArray.map {
+                it.jsonObject["to"]!!
+                    .jsonObject["compId"]!!
+                    .jsonPrimitive.content
+            }
         assertEquals(listOf("FIDLR1", "FIDLR2"), fanOut, "one send per declared responder")
     }
 

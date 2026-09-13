@@ -11,8 +11,8 @@ import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.QuoteConstraint
 import com.knapsack.fixtool.model.QuoteEntry
 import com.knapsack.fixtool.model.QuoteReading
-import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.RespondersOnline
+import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.RfqConstraint
 import com.knapsack.fixtool.model.SenderRole
 import com.knapsack.fixtool.model.StepAddress
@@ -233,13 +233,14 @@ object AcceptorResponder {
         /** The sender's role and the RFQ state before this message, for a venue that relays. Null: none to ask. */
         venue: VenueReading? = null,
     ): AcceptorResponseRule? =
-        compiled.firstOrNull { (rule, conditions) ->
-            valueOf(incoming, MSG_TYPE_TAG) == rule.whenMsgType &&
-                conditions.all { (tag, matcher) -> holds(matcher, tag, valueOf(incoming, tag), quote, venue) } &&
-                satisfiesBook(rule, book) &&
-                satisfiesQuote(rule, quote) &&
-                satisfiesResponders(rule, venue)
-        }?.rule
+        compiled
+            .firstOrNull { (rule, conditions) ->
+                valueOf(incoming, MSG_TYPE_TAG) == rule.whenMsgType &&
+                    conditions.all { (tag, matcher) -> holds(matcher, tag, valueOf(incoming, tag), quote, venue) } &&
+                    satisfiesBook(rule, book) &&
+                    satisfiesQuote(rule, quote) &&
+                    satisfiesResponders(rule, venue)
+            }?.rule
 
     /** Whether [rule]'s book constraint holds, given what [book] said. See [firstMatch] for the null case. */
     private fun satisfiesBook(rule: AcceptorResponseRule, book: BookReading?): Boolean {
@@ -255,9 +256,10 @@ object AcceptorResponder {
 
     /** Whether a responder is online, as the rule asks. No venue to ask means a rule that asks does not fire. */
     private fun satisfiesResponders(rule: AcceptorResponseRule, venue: VenueReading?): Boolean {
-        val wanted = RespondersOnline.byWord(rule.whenResponders ?: return true) ?: return false
-        val online = venue?.respondersOnline ?: return false
-        return (wanted == RespondersOnline.SOME) == online
+        val asked = rule.whenResponders ?: return true
+        val wanted = RespondersOnline.byWord(asked)
+        val online = venue?.respondersOnline
+        return wanted != null && online != null && (wanted == RespondersOnline.SOME) == online
     }
 
     /**
@@ -506,14 +508,16 @@ object AcceptorResponder {
         rule.sequence().forEachIndexed { index, step ->
             offset += step.delayMillis.coerceAtLeast(0)
             val address = step.address() ?: error("step ${index + 1} names no address the vocabulary has")
-            val resolution = if (address == StepAddress.Sender) Resolution(listOf(sender)) else venue.resolve(address, trigger)
+            val resolution =
+                if (address == StepAddress.Sender) Resolution(listOf(sender)) else venue.resolve(address, trigger)
             resolution.notDelivered.forEach { notDelivered += index to it }
             if (resolution.recipients.isEmpty() && resolution.notDelivered.isEmpty()) nobody += index
             val againstRequest = resolveRequestRefs(step.template, incoming, requestId)
             resolution.recipients.forEach { recipient ->
                 sends +=
                     PlannedSend(offset, dictionary, to = recipient, authoredStep = index) {
-                        val relayed = resolveRfqRefs(resolveToRefs(resolveAtSendTime(againstRequest), venue, recipient, trigger), venue, trigger)
+                        val addressed = resolveToRefs(resolveAtSendTime(againstRequest), venue, recipient, trigger)
+                        val relayed = resolveRfqRefs(addressed, venue, trigger)
                         val books = resolveQuoteRefs(resolveOrderRefs(relayed, order()), quote())
                         resolveExpressions(books, request, dictionary)
                     }
@@ -534,9 +538,7 @@ object AcceptorResponder {
         return TO_REF.replace(template) { match ->
             val tag = match.groupValues[1].toInt()
             venue.toValue(recipient, trigger, tag)
-                ?: throw IllegalStateException(
-                    "\${to.$tag}: ${recipient.compId} has no $tag on this RFQ, so the step cannot say it",
-                )
+                ?: error("\${to.$tag}: ${recipient.compId} has no $tag on this RFQ, so the step cannot say it")
         }
     }
 
@@ -546,7 +548,7 @@ object AcceptorResponder {
         return RFQ_REF.replace(template) { match ->
             val name = match.groupValues[1]
             venue.rfqField(trigger, name)
-                ?: throw IllegalStateException("\${rfq.$name}: the venue holds no $name for this RFQ, so the step cannot say it")
+                ?: error("\${rfq.$name}: the venue holds no $name for this RFQ, so the step cannot say it")
         }
     }
 

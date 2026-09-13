@@ -63,56 +63,82 @@ fun CounterpartiesEditor(
             }
 
             counterparties.forEachIndexed { index, counterparty ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    SlimField(
-                        value = counterparty.compId,
-                        onValueChange = { typed -> onChange(counterparties.replaced(index, counterparty.copy(compId = typed.trim()))) },
-                        modifier = Modifier.width(120.dp).testTag("counterparty-compid-$index"),
-                        monospace = true,
-                        tintBlank = true,
-                        placeholder = "FIBUY1 or FIDLRLG*",
-                    )
-                    RoleMenu(
-                        role = counterparty.role,
-                        tag = "counterparty-role-$index",
-                        onChange = { role -> onChange(counterparties.replaced(index, counterparty.copy(role = role))) },
-                    )
-                    Box(modifier = Modifier.weight(1f))
-                    TooltipIconButton(
-                        tooltip = "Remove counterparty",
-                        onClick = { onChange(counterparties.without(index)) },
-                        modifier = Modifier.size(16.dp).testTag("counterparty-remove-$index"),
-                    ) {
-                        Icon(Icons.Default.Close, "Remove counterparty", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
-                    }
-                }
-                problems[index]?.let { problem ->
-                    Text(
-                        text = "⚠ $problem",
-                        color = AppTheme.Colors.warning,
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(start = 4.dp, top = 1.dp).testTag("counterparty-problem-$index"),
-                    )
-                }
+                CounterpartyRow(
+                    index = index,
+                    counterparty = counterparty,
+                    problem = problems[index],
+                    onEdit = { edited -> onChange(counterparties.replaced(index, edited)) },
+                    onRemove = { onChange(counterparties.without(index)) },
+                )
             }
 
             Row(modifier = Modifier.fillMaxWidth().padding(top = 3.dp)) {
                 SlimButton(
                     text = "+ counterparty",
-                    // A requester first when there is none, a responder after: the order a tester fills an RFQ
-                    // venue in, and the role a second row most often needs.
-                    onClick = {
-                        val role = if (counterparties.none { PartyRole.byWord(it.role) == PartyRole.REQUESTER }) PartyRole.REQUESTER else PartyRole.RESPONDER
-                        onChange(counterparties + Counterparty(compId = "", role = role.word))
-                    },
+                    onClick = { onChange(counterparties + Counterparty("", nextRole(counterparties).word)) },
                     modifier = Modifier.testTag("counterparty-add"),
                 )
             }
         }
+    }
+}
+
+/** A requester first when there is none, a responder after: the order a tester fills an RFQ venue in. */
+internal fun nextRole(counterparties: List<Counterparty>): PartyRole =
+    if (counterparties.any { PartyRole.byWord(it.role) == PartyRole.REQUESTER }) {
+        PartyRole.RESPONDER
+    } else {
+        PartyRole.REQUESTER
+    }
+
+/** One counterparty: its CompID, its role, a way to remove it, and what the venue will make of it. */
+@Composable
+private fun CounterpartyRow(
+    index: Int,
+    counterparty: Counterparty,
+    problem: String?,
+    onEdit: (Counterparty) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        SlimField(
+            value = counterparty.compId,
+            onValueChange = { typed -> onEdit(counterparty.copy(compId = typed.trim())) },
+            modifier = Modifier.width(120.dp).testTag("counterparty-compid-$index"),
+            monospace = true,
+            tintBlank = true,
+            placeholder = "FIBUY1 or FIDLRLG*",
+        )
+        RoleMenu(
+            role = counterparty.role,
+            tag = "counterparty-role-$index",
+            onChange = { role -> onEdit(counterparty.copy(role = role)) },
+        )
+        Box(modifier = Modifier.weight(1f))
+        TooltipIconButton(
+            tooltip = "Remove counterparty",
+            onClick = onRemove,
+            modifier = Modifier.size(16.dp).testTag("counterparty-remove-$index"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Remove counterparty",
+                tint = AppTheme.Colors.textSecondary,
+                modifier = Modifier.size(10.dp),
+            )
+        }
+    }
+    problem?.let {
+        Text(
+            text = "⚠ $it",
+            color = AppTheme.Colors.warning,
+            fontSize = 9.sp,
+            modifier = Modifier.padding(start = 4.dp, top = 1.dp).testTag("counterparty-problem-$index"),
+        )
     }
 }
 

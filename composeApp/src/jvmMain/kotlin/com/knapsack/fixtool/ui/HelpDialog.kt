@@ -2,13 +2,8 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Icon
-import androidx.compose.material.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
@@ -47,29 +42,9 @@ fun HelpDialog(
                     .background(AppTheme.Colors.surface),
         ) {
             // Title bar
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .background(AppTheme.Colors.background)
-                        .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Help",
-                    color = AppTheme.Colors.text,
-                    modifier = Modifier.weight(1f),
-                )
-
-                TooltipIconButton(tooltip = "Close", onClick = onClose) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = AppTheme.Colors.text,
-                    )
-                }
-            }
+            // Material 3 like the rest of the app, and the one dialog header. Help was the last thing
+            // still drawing Material 2 widgets, and the last of its three names went in the sweep.
+            DialogHeader("Help", onClose, tag = "help-header")
 
             // HTML content viewer
             Box(modifier = Modifier.fillMaxSize()) {

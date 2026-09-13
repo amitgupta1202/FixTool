@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -729,273 +730,63 @@ fun HierarchicalGridView(
                         .horizontalScroll(horizontalScrollState),
             ) {
                 Column(modifier = Modifier.fillMaxHeight()) {
-                    // Header row
-                    Row(
-                        modifier =
-                            Modifier
-                                .background(headerBackgroundColor)
-                                .height(24.dp),
-                    ) {
-                        // Checkbox column for Select All
-                        val allFixMessages = messages.filterIsInstance<FixMessage>()
-                        // Identity-keyed, so no `messages.indexOf(msg)` per element: that was an O(N^2)
-                        // scan on every header recomposition, and it resolved by equality, so two
-                        // identical messages both reported the first one's index.
-                        val allSelected =
-                            allFixMessages.isNotEmpty() &&
-                                allFixMessages.all { msg ->
-                                    selectedMessageIds.contains(getMessageId(msg))
-                                }
-                        val someSelected = selectedMessageIds.isNotEmpty() && !allSelected
+                    // **The message grid's own columns, on the shared [GridHeader].**
+                    //
+                    // Two hundred and sixty-six lines of Box-border-Text, once per column, where the trace and the search
+                    // results each had their own copy of the same row. This one is the odd sibling — every column is
+                    // resizable and double-clicks to fit — so `GridColumn` carries the seam and the double-click rather
+                    // than the grid carrying its own row.
+                    val allFixMessages = messages.filterIsInstance<FixMessage>()
+                    // Identity-keyed, so no `messages.indexOf(msg)` per element: that was an O(N^2) scan on every header
+                    // recomposition, and it resolved by equality, so two identical messages both reported the first's index.
+                    val allSelected =
+                        allFixMessages.isNotEmpty() && allFixMessages.all { msg -> selectedMessageIds.contains(getMessageId(msg)) }
+                    val someSelected = selectedMessageIds.isNotEmpty() && !allSelected
 
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width(24.dp)
-                                    .fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor)
-                                    .clickable {
-                                        if (allSelected) {
-                                            // Deselect all
-                                            clearSelection()
-                                        } else {
-                                            // Select all
-                                            selectAll()
-                                        }
-                                    },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector =
-                                    when {
-                                        allSelected -> Icons.Default.CheckBox
-                                        someSelected -> Icons.Default.IndeterminateCheckBox
-                                        else -> Icons.Default.CheckBoxOutlineBlank
-                                    },
-                                contentDescription = if (allSelected) "Deselect all" else "Select all",
-                                tint = if (allSelected || someSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
+                    fun resizable(key: String, fallback: Dp, last: Boolean = false) =
+                        GridColumn(
+                            label = key,
+                            // The last column keeps its full width; every other gives 1dp to the seam after it.
+                            width = (columnWidths[key] ?: fallback) - if (last) 0.dp else 1.dp,
+                            onDoubleClick = { toggleColumnWidth(key) },
+                            after = { ResizeHandle(key, columnWidths) },
+                        )
 
-                        // Icon column (expand/collapse)
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width(columnWidths["Icon"] ?: 40.dp)
-                                    .fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "",
-                                color = headerTextColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-
-                        // Time column
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width((columnWidths["Time"] ?: 120.dp) - 1.dp)
-                                    .fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor)
-                                    .combinedClickable(
-                                        onDoubleClick = { toggleColumnWidth("Time") },
-                                        onClick = {},
-                                    ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "Time",
-                                color = headerTextColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-
-                        // Resize handle
-                        ResizeHandle("Time", columnWidths)
-
-                        // Dir column
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width((columnWidths["Dir"] ?: 50.dp) - 1.dp)
-                                    .fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor)
-                                    .combinedClickable(
-                                        onDoubleClick = { toggleColumnWidth("Dir") },
-                                        onClick = {},
-                                    ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "Dir",
-                                color = headerTextColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-
-                        // Resize handle
-                        ResizeHandle("Dir", columnWidths)
-
-                        // SeqNum column
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width((columnWidths["SeqNum"] ?: 70.dp) - 1.dp)
-                                    .fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor)
-                                    .combinedClickable(
-                                        onDoubleClick = { toggleColumnWidth("SeqNum") },
-                                        onClick = {},
-                                    ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "SeqNum",
-                                color = headerTextColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-
-                        // Resize handle
-                        ResizeHandle("SeqNum", columnWidths)
-
-                        // MsgType column
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width((columnWidths["MsgType"] ?: 100.dp) - 1.dp)
-                                    .fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor)
-                                    .combinedClickable(
-                                        onDoubleClick = { toggleColumnWidth("MsgType") },
-                                        onClick = {},
-                                    ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "MsgType",
-                                color = headerTextColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-
-                        // Resize handle
-                        ResizeHandle("MsgType", columnWidths)
-
-                        // Summary column (moved before custom columns)
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width(
-                                        if (gridViewColumns.isEmpty()) {
-                                            // Summary is last column - don't subtract
-                                            columnWidths["Summary"] ?: 200.dp
-                                        } else {
-                                            // Summary is not last - subtract for resize handle
-                                            (columnWidths["Summary"] ?: 200.dp) - 1.dp
-                                        },
-                                    ).fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor)
-                                    .combinedClickable(
-                                        onDoubleClick = { toggleColumnWidth("Summary") },
-                                        onClick = {},
-                                    ),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            Text(
-                                text = "Summary",
-                                color = headerTextColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 4.dp),
-                            )
-                        }
-
-                        // Resize handle (always add after Summary for resizing functionality)
-                        ResizeHandle("Summary", columnWidths)
-
-                        // Latency column (optional, shown when latency tracking is enabled)
-                        if (showLatencyColumn) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .width(
-                                            if (gridViewColumns.isEmpty()) {
-                                                columnWidths["Latency"] ?: 90.dp
-                                            } else {
-                                                (columnWidths["Latency"] ?: 90.dp) - 1.dp
+                    GridHeader(
+                        listOf(
+                            GridColumn(
+                                label = "",
+                                width = 24.dp,
+                                tag = "grid-select-all",
+                                onClick = { if (allSelected) clearSelection() else selectAll() },
+                                content = {
+                                    Icon(
+                                        imageVector =
+                                            when {
+                                                allSelected -> Icons.Default.CheckBox
+                                                someSelected -> Icons.Default.IndeterminateCheckBox
+                                                else -> Icons.Default.CheckBoxOutlineBlank
                                             },
-                                        ).fillMaxHeight()
-                                        .border(0.5.dp, headerBorderColor)
-                                        .combinedClickable(
-                                            onDoubleClick = { toggleColumnWidth("Latency") },
-                                            onClick = {},
-                                        ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = "Latency",
-                                    color = headerTextColor,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-
-                            ResizeHandle("Latency", columnWidths)
-                        }
-
-                        // Dynamic columns for configured tags (moved after Summary)
-                        gridViewColumns.forEachIndexed { index, tag ->
-                            val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
-                            val columnKey = "Tag_$tag"
-                            val isLastColumn = index == gridViewColumns.size - 1
-
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .width(
-                                            if (isLastColumn) {
-                                                // Last column - don't subtract for alignment
-                                                columnWidths[columnKey] ?: 120.dp
-                                            } else {
-                                                // Not last column - subtract for resize handle
-                                                (columnWidths[columnKey] ?: 120.dp) - 1.dp
-                                            },
-                                        ).fillMaxHeight()
-                                        .border(0.5.dp, headerBorderColor)
-                                        .combinedClickable(
-                                            onDoubleClick = { toggleColumnWidth(columnKey) },
-                                            onClick = {},
-                                        ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = fieldName,
-                                    color = headerTextColor,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                )
-                            }
-
-                            // Resize handle (always add for resizing functionality)
-                            ResizeHandle(columnKey, columnWidths)
-                        }
-
-                        // Spacer to fill remaining width
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
+                                        contentDescription = if (allSelected) "Deselect all" else "Select all",
+                                        tint = if (allSelected || someSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                },
+                            ),
+                            GridColumn("", columnWidths["Icon"] ?: 40.dp),
+                            resizable("Time", 120.dp),
+                            resizable("Dir", 50.dp),
+                            resizable("SeqNum", 70.dp),
+                            resizable("MsgType", 100.dp),
+                            resizable("Summary", 200.dp, last = gridViewColumns.isEmpty() && !showLatencyColumn),
+                        ) +
+                            (if (showLatencyColumn) listOf(resizable("Latency", 90.dp)) else emptyList()) +
+                            gridViewColumns.mapIndexed { index, tag ->
+                                val key = "Tag_$tag"
+                                resizable(key, 120.dp, last = index == gridViewColumns.size - 1)
+                                    .copy(label = dictionary.getFieldName(tag) ?: tag.toString())
+                            },
+                    )
 
                     // Message rows (renderRows is hoisted above the scroll effects — see there)
                     LazyColumn(

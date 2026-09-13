@@ -458,8 +458,8 @@ private fun SaveTemplateDialog(
                 SlimButton(
                     text = "Cancel",
                     onClick = onDismiss,
-                    containerColor = AppTheme.Colors.border,
-                    contentColor = AppTheme.Colors.textSecondary,
+                    color = AppTheme.Colors.textSecondary,
+                    fill = AppTheme.Colors.border,
                     modifier = Modifier.width(90.dp),
                 )
                 if (!editorState.isNew() && onSaveMessageAs != null) {
@@ -476,8 +476,8 @@ private fun SaveTemplateDialog(
                             }
                         },
                         enabled = savable && !(if (renamed) clashesOnUpdate else clashesAsNew),
-                        containerColor = AppTheme.Colors.border,
-                        contentColor = AppTheme.Colors.text,
+                        color = AppTheme.Colors.text,
+                        fill = AppTheme.Colors.border,
                         modifier = Modifier.width(130.dp),
                     )
                 }
@@ -495,8 +495,8 @@ private fun SaveTemplateDialog(
                         }
                     },
                     enabled = savable && !(if (savesAsNew) clashesAsNew else clashesOnUpdate),
-                    containerColor = AppTheme.Colors.primary,
-                    contentColor = AppTheme.Colors.background,
+                    color = AppTheme.Colors.background,
+                    fill = AppTheme.Colors.primary,
                     modifier = Modifier.width(130.dp),
                 )
             }
@@ -1961,34 +1961,6 @@ private fun updateFieldsFromParsed(
         for (i in currentFields.size - 1 downTo parsedFields.size) {
             onFieldDelete(i)
         }
-    }
-}
-
-@Composable
-private fun SlimButton(
-    text: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    containerColor: Color = AppTheme.Colors.primary,
-    contentColor: Color = AppTheme.Colors.background,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier =
-            modifier
-                .height(32.dp)
-                .background(
-                    color = if (enabled) containerColor else AppTheme.Colors.border,
-                    shape = RoundedCornerShape(4.dp),
-                ).clickable(enabled = enabled) { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            color = if (enabled) contentColor else AppTheme.Colors.textDisabled,
-            fontSize = 13.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        )
     }
 }
 

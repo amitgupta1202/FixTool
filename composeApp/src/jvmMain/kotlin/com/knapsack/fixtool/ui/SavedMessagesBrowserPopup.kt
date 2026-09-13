@@ -3,13 +3,10 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,10 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -237,9 +232,11 @@ fun SavedMessagesBrowserPopup(
                 HorizontalDivider(color = AppTheme.Colors.border)
 
                 // Search Input
-                BrowserSearchInput(
+                SlimSearchBar(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
+                    placeholder = "Search",
+                    testTag = "template-browser-search",
                     focusRequester = focusRequester,
                     modifier =
                         Modifier
@@ -512,83 +509,6 @@ private fun ViewModeTab(
             color = if (isSelected) AppTheme.Colors.background else AppTheme.Colors.textSecondary,
             fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
         )
-    }
-}
-
-@Composable
-private fun BrowserSearchInput(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    focusRequester: FocusRequester,
-    modifier: Modifier = Modifier,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    Row(
-        modifier =
-            modifier
-                .height(32.dp)
-                .background(
-                    color = if (isFocused) AppTheme.Colors.surface else AppTheme.Colors.surfaceVariant,
-                    shape = RoundedCornerShape(4.dp),
-                ).border(
-                    width = 1.dp,
-                    color = if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
-                    shape = RoundedCornerShape(4.dp),
-                ).padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(
-            Icons.Default.Search,
-            contentDescription = "Search",
-            tint = AppTheme.Colors.textSecondary,
-            modifier = Modifier.size(14.dp),
-        )
-
-        BasicTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-            textStyle =
-                TextStyle(
-                    fontSize = 12.sp,
-                    color = AppTheme.Colors.text,
-                    fontFamily = FontFamily.Monospace,
-                ),
-            cursorBrush = SolidColor(AppTheme.Colors.primary),
-            interactionSource = interactionSource,
-            singleLine = true,
-            decorationBox = { innerTextField ->
-                Box {
-                    if (query.isEmpty()) {
-                        Text(
-                            text = "Search messages...",
-                            fontSize = 12.sp,
-                            color = AppTheme.Colors.textSecondary,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
-        )
-
-        if (query.isNotEmpty()) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Clear",
-                tint = AppTheme.Colors.textSecondary,
-                modifier =
-                    Modifier
-                        .size(14.dp)
-                        .clickable { onQueryChange("") },
-            )
-        }
     }
 }
 

@@ -133,159 +133,26 @@ fun SearchResultsPane(
 }
 
 /**
- * Header row for the search results grid showing column names
+ * The search results' columns, on the shared [GridHeader].
+ *
+ * It drew its own 150-line copy of a row the trace and the message grid each drew their own copy of. One
+ * list of columns now; the row itself belongs to `GridHeader.kt`.
  */
 @Composable
 private fun SearchResultsGridHeader(
     gridViewColumns: List<Int>,
     dictionary: FixDictionary,
 ) {
-    val headerBackgroundColor = Color(0xFF2D2D2D)
-    val headerTextColor = AppTheme.Colors.textSecondary
-    val headerBorderColor = Color(0xFF454545)
-
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(headerBackgroundColor)
-                .height(24.dp),
-    ) {
-        // Session column
-        Box(
-            modifier =
-                Modifier
-                    .width(100.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Session",
-                fontSize = 10.sp,
-                color = headerTextColor,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            )
-        }
-
-        // Time column
-        Box(
-            modifier =
-                Modifier
-                    .width(120.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Time",
-                fontSize = 10.sp,
-                color = headerTextColor,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            )
-        }
-
-        // Direction column
-        Box(
-            modifier =
-                Modifier
-                    .width(50.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Dir",
-                fontSize = 10.sp,
-                color = headerTextColor,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            )
-        }
-
-        // Sequence number column
-        Box(
-            modifier =
-                Modifier
-                    .width(70.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "SeqNum",
-                fontSize = 10.sp,
-                color = headerTextColor,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            )
-        }
-
-        // Message type column
-        Box(
-            modifier =
-                Modifier
-                    .width(100.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "MsgType",
-                fontSize = 10.sp,
-                color = headerTextColor,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            )
-        }
-
-        // Summary column
-        Box(
-            modifier =
-                Modifier
-                    .width(200.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Text(
-                text = "Summary",
-                fontSize = 10.sp,
-                color = headerTextColor,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        }
-
-        // Custom columns from settings
-        gridViewColumns.forEach { tag ->
-            val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
-            Box(
-                modifier =
-                    Modifier
-                        .width(120.dp)
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = fieldName,
-                    fontSize = 10.sp,
-                    color = headerTextColor,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-
-        // Spacer to fill remaining space
-        Spacer(modifier = Modifier.weight(1f))
-    }
+    GridHeader(
+        listOf(
+            GridColumn("Session", 100.dp),
+            GridColumn("Time", 120.dp),
+            GridColumn("Dir", 50.dp),
+            GridColumn("SeqNum", 70.dp),
+            GridColumn("MsgType", 100.dp),
+            GridColumn("Summary", 200.dp, Alignment.CenterStart),
+        ) + gridViewColumns.map { tag -> GridColumn(dictionary.getFieldName(tag) ?: tag.toString(), 120.dp) },
+    )
 }
 
 /**

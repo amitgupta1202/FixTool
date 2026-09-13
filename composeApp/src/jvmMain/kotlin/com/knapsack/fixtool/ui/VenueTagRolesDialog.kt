@@ -27,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,7 +100,7 @@ fun VenueTagRolesDialog(
                     .testTag("venue-tag-roles"),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Venue tag roles", color = AppTheme.Colors.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            DialogHeader("Venue tag roles", onDismiss, tag = "venue-tag-roles-header")
 
             if (!savable) {
                 // A bundled dictionary is extracted to a temp file, so it *has* a path while having

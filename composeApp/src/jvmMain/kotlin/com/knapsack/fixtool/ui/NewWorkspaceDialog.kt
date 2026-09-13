@@ -133,7 +133,7 @@ private fun NewWorkspaceForm(
                     }
                 },
     ) {
-        Text("New workspace", color = AppTheme.Colors.text, fontSize = 13.sp)
+        DialogHeader("New workspace", onDismiss, tag = "new-workspace-header")
         Text(
             "A folder holding its own profiles, saved messages, scenarios and session store. " +
                 "The dictionary, the window layout and your settings stay with the installation.",

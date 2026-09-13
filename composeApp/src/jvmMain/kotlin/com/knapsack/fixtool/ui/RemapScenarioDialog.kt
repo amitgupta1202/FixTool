@@ -65,7 +65,7 @@ fun RemapScenarioDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.width(440.dp).padding(14.dp).testTag("remap-scenario-dialog"),
             ) {
-                Text("Save as scenario for other sessions", color = AppTheme.Colors.text, fontSize = 13.sp)
+                DialogHeader("Save as scenario for other sessions", onDismiss, tag = "remap-scenario-header")
                 Text(
                     "Creates a copy of '${scenario.name}' whose steps target the sessions on the right — " +
                         "e.g. a QA version of a flow recorded on dev. The copy is its own scenario: run it, " +

@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
@@ -62,6 +63,10 @@ fun SlimField(
     tintBlank: Boolean = false,
     /** Dim hint drawn inside an empty field — the slim replacement for a label that would shift the row. */
     placeholder: String = "",
+    /** A red edge while the value is refused — the Connection panel's required fields wear it. */
+    isError: Boolean = false,
+    /** Password masking. The one field in the app that needs it had its own copy of this component. */
+    visualTransformation: VisualTransformation = VisualTransformation.None,
     /**
      * False = a real text area: the field grows with its lines (up to [maxLines]) instead of hiding every
      * line but the first, which is what a single-line field silently does to a multi-line paste.
@@ -94,11 +99,20 @@ fun SlimField(
         value = value,
         onValueChange = onValueChange,
         enabled = enabled,
+        visualTransformation = visualTransformation,
         modifier =
             modifier
                 .let { if (singleLine) it.height(24.dp) else it.heightIn(min = 24.dp) }
                 .background(background, slimShape)
-                .border(1.dp, if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border, slimShape)
+                .border(
+                    1.dp,
+                    when {
+                        isError -> AppTheme.Colors.error
+                        isFocused -> AppTheme.Colors.primary
+                        else -> AppTheme.Colors.border
+                    },
+                    slimShape,
+                )
                 // Single-line: no vertical padding — the decoration box centers the line instead. A 10sp
                 // line measures taller than 24dp minus two 5dp pads, and BasicTextField top-aligns, so the
                 // fixed pad was clipping the lower half of the text (the rail's "filter…" showed as tops).
@@ -167,6 +181,8 @@ fun SlimSearchBar(
     modifier: Modifier = Modifier,
     placeholder: String = "Search tags, names, or values…",
     testTag: String? = null,
+    /** For a search box that opens with the cursor already in it — the Search all sessions dialog does. */
+    focusRequester: FocusRequester? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -193,6 +209,7 @@ fun SlimSearchBar(
                     .background(AppTheme.Colors.background, slimShape)
                     .border(1.dp, if (focused) AppTheme.Colors.primary else AppTheme.Colors.border, slimShape)
                     .padding(horizontal = 6.dp, vertical = 3.dp)
+                    .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
                     .let { if (testTag != null) it.testTag(testTag) else it },
             textStyle = queryStyle,
             singleLine = true,
@@ -303,15 +320,27 @@ fun SlimButton(
     modifier: Modifier = Modifier,
     color: Color = AppTheme.Colors.text,
     enabled: Boolean = true,
+    /**
+     * A filled ground rather than the surface one — what a primary action wears.
+     *
+     * The Connection panel kept a whole second SlimButton for this, whose only difference from the shared
+     * one was that Connect and Save are filled and everything else is not.
+     */
+    fill: Color? = null,
 ) {
+    val ground = if (enabled) fill ?: AppTheme.Colors.surface else AppTheme.Colors.border
     Box(
         modifier =
             modifier
                 .height(24.dp)
-                .background(AppTheme.Colors.surface, slimShape)
-                .border(1.dp, AppTheme.Colors.border, slimShape)
+                .background(ground, slimShape)
+                .border(1.dp, if (fill == null) AppTheme.Colors.border else ground, slimShape)
                 .let { if (enabled) it.clickable(onClick = onClick) else it }
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp)
+                // **A refused button says so to a test and to a screen reader**, not only by going grey.
+                // The shared button never did; the Connection panel's private copy of it was the only one
+                // whose Connect could be asserted as disabled, which is how the copy survived.
+                .semantics(mergeDescendants = true) { if (!enabled) disabled() },
         contentAlignment = Alignment.Center,
     ) {
         Text(text, color = if (enabled) color else AppTheme.Colors.textDisabled, fontSize = 10.sp, maxLines = 1)

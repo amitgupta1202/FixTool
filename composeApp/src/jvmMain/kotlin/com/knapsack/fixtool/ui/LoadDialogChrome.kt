@@ -14,7 +14,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -347,6 +350,58 @@ internal fun Chip(label: String, on: Boolean, tag: String, modifier: Modifier = 
             softWrap = false,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
+    }
+}
+
+/**
+ * **The dialog header: the dock header, at dialog size.**
+ *
+ * A 14px title where a dock's is 11px, and a Close rather than a Hide — a dialog holds content and the
+ * stripe cannot bring it back. Everything else is the same shape, because a person crossing from a panel
+ * to a dialog should not have to learn a second place to look for the way out.
+ *
+ * Three of the app's dialogs had a 13px title and **no close at all**, so Esc was the only way out of a
+ * window that never said Esc was the way out. The two that had one disagreed about its size and its place.
+ */
+@Composable
+internal fun DialogHeader(
+    title: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    tag: String = "dialog-header",
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(AppTheme.Colors.surfaceHeader)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag(tag),
+        ) {
+            Text(
+                text = title,
+                color = AppTheme.Colors.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                modifier = Modifier.weight(1f).testTag("$tag-title"),
+            )
+            TooltipIconButton(
+                tooltip = "Close",
+                onClick = onClose,
+                modifier = Modifier.size(24.dp).testTag("$tag-close"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
     }
 }
 

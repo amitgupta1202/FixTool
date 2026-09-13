@@ -419,27 +419,18 @@ private fun TraceGridHeader(
     gridViewColumns: List<Int>,
     dictionary: FixDictionary,
 ) {
-    val background = Color(0xFF2D2D2D)
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(background)
-                .height(24.dp),
-    ) {
-        cell(FOLD_WIDTH, background) {}
-        cell(SESSION_WIDTH, background, Alignment.Center) { headerLabel("Session") }
-        cell(TIME_WIDTH, background, Alignment.Center) { headerLabel("Time") }
-        cell(DIR_WIDTH, background, Alignment.Center) { headerLabel("Dir") }
-        cell(SEQ_WIDTH, background, Alignment.Center) { headerLabel("SeqNum") }
-        cell(MSGTYPE_WIDTH, background, Alignment.Center) { headerLabel("MsgType") }
-        cell(SUMMARY_WIDTH, background) { headerLabel("Summary") }
-        cell(ELAPSED_WIDTH, background, Alignment.CenterEnd) { headerLabel("Elapsed") }
-        gridViewColumns.forEach { tag ->
-            cell(TAG_WIDTH, background, Alignment.Center) { headerLabel(dictionary.getFieldName(tag) ?: tag.toString()) }
-        }
-        Spacer(modifier = Modifier.weight(1f))
-    }
+    GridHeader(
+        listOf(
+            GridColumn("", FOLD_WIDTH),
+            GridColumn("Session", SESSION_WIDTH),
+            GridColumn("Time", TIME_WIDTH),
+            GridColumn("Dir", DIR_WIDTH),
+            GridColumn("SeqNum", SEQ_WIDTH),
+            GridColumn("MsgType", MSGTYPE_WIDTH),
+            GridColumn("Summary", SUMMARY_WIDTH, Alignment.CenterStart),
+            GridColumn("Elapsed", ELAPSED_WIDTH, Alignment.CenterEnd),
+        ) + gridViewColumns.map { tag -> GridColumn(dictionary.getFieldName(tag) ?: tag.toString(), TAG_WIDTH) },
+    )
 }
 
 /** The colour a session's rows are badged with — the search-results treatment, keyed by position. */

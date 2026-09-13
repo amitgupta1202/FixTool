@@ -8,10 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -32,7 +29,6 @@ import com.knapsack.fixtool.service.VenueTagScan
 import com.knapsack.fixtool.ui.settings.SettingsButton
 import com.knapsack.fixtool.ui.settings.SettingsContext
 import com.knapsack.fixtool.ui.settings.SettingsDraft
-import com.knapsack.fixtool.ui.settings.SettingsField
 import com.knapsack.fixtool.ui.settings.SettingsPage
 import com.knapsack.fixtool.ui.settings.VenueTagSettings
 import com.knapsack.fixtool.ui.settings.WorkspaceSettings
@@ -101,11 +97,7 @@ fun SettingsDialog(
                 color = AppTheme.Colors.surface,
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    SettingsHeader(
-                        onRestoreDefaults = draft::restoreDefaults,
-                        onClose = requestClose,
-                    )
-                    HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+                    DialogHeader("Settings", requestClose, tag = "settings-header")
 
                     SettingsBody(
                         nav =
@@ -124,6 +116,7 @@ fun SettingsDialog(
                     SettingsFooter(
                         problems = problems,
                         isDirty = draft.isDirty,
+                        onRestoreDefaults = draft::restoreDefaults,
                         onCancel = requestClose,
                         onSave = {
                             onSave(draft.forSaving())
@@ -159,51 +152,6 @@ fun SettingsDialog(
 }
 
 @Composable
-private fun SettingsHeader(onRestoreDefaults: () -> Unit, onClose: () -> Unit) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(AppTheme.Colors.background)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text = "Settings", fontSize = 15.sp, color = AppTheme.Colors.text, fontWeight = FontWeight.Medium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            // Restore defaults throws away every setting the box has, so it asks — in place, beside itself.
-            val armed = rememberArmed()
-            InlineConfirm(
-                armed = armed.value,
-                onConfirm = {
-                    armed.value = false
-                    onRestoreDefaults()
-                },
-                onCancel = { armed.value = false },
-                confirm = "Restore defaults",
-                tag = "settings-restore-defaults-confirm",
-            ) {
-                SettingsButton(
-                    text = "Restore defaults",
-                    onClick = { armed.value = true },
-                    containerColor = restoreDefaultsButtonColor,
-                    contentColor = AppTheme.Colors.text,
-                    modifier = Modifier.testTag("settings-restore-defaults"),
-                )
-            }
-            TooltipIconButton(tooltip = "Close", onClick = onClose, modifier = Modifier.size(24.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(17.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun SettingsSidebar(
     pages: List<SettingsPage>,
     openPage: SettingsPage?,
@@ -221,11 +169,14 @@ private fun SettingsSidebar(
                 .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        SettingsField(
-            value = query,
-            onValueChange = onQueryChange,
-            placeholder = "Search settings",
-            modifier = Modifier.fillMaxWidth().testTag("settings-search"),
+        // One search box in the app, and it says "Search". Four different ones said four different
+        // things, and one of them was a private 55-line copy of this.
+        SlimSearchBar(
+            query = query,
+            onQueryChange = onQueryChange,
+            placeholder = "Search",
+            testTag = "settings-search",
+            modifier = Modifier.fillMaxWidth(),
         )
 
         pages.forEach { page ->
@@ -307,6 +258,7 @@ private fun SettingsPageBody(page: SettingsPage, context: SettingsContext) {
 private fun SettingsFooter(
     problems: List<String>,
     isDirty: Boolean,
+    onRestoreDefaults: () -> Unit,
     onCancel: () -> Unit,
     onSave: () -> Unit,
 ) {
@@ -319,6 +271,29 @@ private fun SettingsFooter(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // **Restore defaults lives here now, not one gap from the Close.** It threw away every setting in
+        // the box from a button sitting beside the way out of the dialog, which is the worst neighbour a
+        // destructive action can have. In the footer it is a text action beside the reason a save is
+        // refused, and it asks before it does anything.
+        val armed = rememberArmed()
+        InlineConfirm(
+            armed = armed.value,
+            onConfirm = {
+                armed.value = false
+                onRestoreDefaults()
+            },
+            onCancel = { armed.value = false },
+            confirm = "Restore defaults",
+            tag = "settings-restore-defaults-confirm",
+        ) {
+            SettingsButton(
+                text = "Restore defaults",
+                onClick = { armed.value = true },
+                containerColor = restoreDefaultsButtonColor,
+                contentColor = AppTheme.Colors.textSecondary,
+                modifier = Modifier.testTag("settings-restore-defaults"),
+            )
+        }
         Text(
             text =
                 when {

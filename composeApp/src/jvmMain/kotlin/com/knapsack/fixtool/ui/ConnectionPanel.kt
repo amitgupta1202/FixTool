@@ -1870,8 +1870,8 @@ fun ConnectionPanel(
                     onConnect(profile.id, profile)
                 },
                 enabled = canConnectAnySession && isFormValid(),
-                containerColor = AppTheme.Colors.primary,
-                contentColor = AppTheme.Colors.background,
+                color = AppTheme.Colors.background,
+                fill = AppTheme.Colors.primary,
                 modifier = Modifier.weight(1f),
             )
 
@@ -1882,8 +1882,8 @@ fun ConnectionPanel(
                     selectedProfile?.let { onDisconnect(it.id) }
                 },
                 enabled = sessionStates.any { it.canDisconnect() },
-                containerColor = AppTheme.Colors.warning,
-                contentColor = AppTheme.Colors.background,
+                color = AppTheme.Colors.background,
+                fill = AppTheme.Colors.warning,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -1944,13 +1944,14 @@ private fun ConnectionField(
             modifier = Modifier.padding(bottom = 2.dp),
         )
 
-        SlimTextField(
+        // The shared field, which grew `isError` and `visualTransformation` so this panel could stop
+        // keeping a whole second copy of it for a red edge and a password mask.
+        SlimField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().height(24.dp),
-            textStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
-            visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
             isError = isError,
+            visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
             enabled = enabled,
         )
 
@@ -1963,47 +1964,6 @@ private fun ConnectionField(
             )
         }
     }
-}
-
-@Composable
-private fun SlimTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    singleLine: Boolean = true,
-    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
-    visualTransformation: VisualTransformation = VisualTransformation.None,
-    isError: Boolean = false,
-    enabled: Boolean = true,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-
-    val fieldBorderColor =
-        when {
-            isError -> AppTheme.Colors.error
-            isFocused -> AppTheme.Colors.primary
-            else -> AppTheme.Colors.border
-        }
-
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier =
-            modifier
-                .background(AppTheme.Colors.surface, inputShape)
-                .border(
-                    width = 1.dp,
-                    color = fieldBorderColor,
-                    shape = inputShape,
-                ).padding(horizontal = 4.dp, vertical = 4.dp),
-        textStyle = textStyle,
-        singleLine = singleLine,
-        cursorBrush = SolidColor(AppTheme.Colors.primary),
-        interactionSource = interactionSource,
-        visualTransformation = visualTransformation,
-        enabled = enabled,
-    )
 }
 
 @Composable
@@ -2121,85 +2081,8 @@ private fun ProfileSection(
 }
 
 /**
- * Slim checkbox component for compact UIs
- */
-@Composable
-private fun SlimCheckbox(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .height(20.dp)
-                .clickable { onCheckedChange(!checked) },
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            color = AppTheme.Colors.textSecondary,
-            fontSize = 9.sp,
-        )
-
-        Box(
-            modifier =
-                checkboxSize16
-                    .background(
-                        color = checkboxBackgroundColor(checked),
-                        shape = checkboxShape,
-                    ).border(
-                        width = 1.dp,
-                        color = checkboxBorderColor(checked),
-                        shape = checkboxShape,
-                    ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (checked) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = AppTheme.Colors.background,
-                    modifier = iconSize12,
-                )
-            }
-        }
-    }
-}
-
-/**
  * Slim button component for compact UIs
  */
-@Composable
-private fun SlimButton(
-    text: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    containerColor: Color = AppTheme.Colors.primary,
-    contentColor: Color = AppTheme.Colors.background,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier =
-            modifier
-                .height(24.dp)
-                .background(
-                    color = if (enabled) containerColor else AppTheme.Colors.border,
-                    shape = RoundedCornerShape(2.dp),
-                ).clickable(enabled = enabled) { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            color = if (enabled) contentColor else AppTheme.Colors.textDisabled,
-            fontSize = 10.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        )
-    }
-}
 
 // Component-specific color constants (not in AppTheme)
 private val errorBackgroundColor = Color(0xFF3A1F1F)

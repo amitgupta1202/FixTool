@@ -433,9 +433,15 @@ fun MessageDetailPanel(
                             Spacer(modifier = Modifier.height(4.dp))
                             Box(modifier = Modifier.weight(1f)) {
                                 if (message != null) {
-                                    // Show message raw content when selected
+                                    // **One scroll state, read by the text and by its bar.** The bar used to be
+                                    // handed a fresh state that nothing scrolled, and it sat outside this branch.
+                                    // An unattached ScrollState reports Int.MAX_VALUE as its maximum, so the bar
+                                    // drew a minimum-height thumb over the empty panel, and over a long message
+                                    // it stood still while the text moved and scrolled nothing when dragged.
+                                    // Keyed on the message, so the next one opens at its first field rather than
+                                    // at the offset this one was left at.
+                                    val rawScrollState = remember(message) { ScrollState(0) }
                                     SelectionContainer {
-                                        val rawScrollState = rememberScrollState()
                                         Text(
                                             text = message.rawMessage,
                                             color = rawMessageTextColor,
@@ -445,9 +451,21 @@ fun MessageDetailPanel(
                                                 Modifier
                                                     .fillMaxSize()
                                                     .verticalScroll(rawScrollState)
-                                                    .padding(end = 16.dp),
+                                                    .padding(end = 16.dp)
+                                                    .testTag("detail-raw-text"),
                                         )
                                     }
+                                    // Compose hides the thumb itself while the text fits, so a short message
+                                    // draws no bar either.
+                                    VerticalScrollbar(
+                                        adapter = rememberScrollbarAdapter(rawScrollState),
+                                        modifier =
+                                            Modifier
+                                                .align(Alignment.CenterEnd)
+                                                .fillMaxHeight()
+                                                .padding(end = 4.dp)
+                                                .testTag("detail-raw-scrollbar"),
+                                    )
                                 } else {
                                     // Show prompt to paste when no message selected
                                     Box(
@@ -462,16 +480,6 @@ fun MessageDetailPanel(
                                         )
                                     }
                                 }
-
-                                // Scrollbar for raw message
-                                VerticalScrollbar(
-                                    adapter = rememberScrollbarAdapter(rememberScrollState()),
-                                    modifier =
-                                        Modifier
-                                            .align(Alignment.CenterEnd)
-                                            .fillMaxHeight()
-                                            .padding(end = 4.dp),
-                                )
                             }
                         }
                     }

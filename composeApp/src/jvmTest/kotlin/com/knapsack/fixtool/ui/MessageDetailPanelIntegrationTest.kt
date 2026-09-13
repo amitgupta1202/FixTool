@@ -1,10 +1,15 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
@@ -16,6 +21,8 @@ import org.junit.Test
 import quickfix.Message
 import quickfix.field.*
 import java.time.LocalDateTime
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * UI Integration tests for MessageDetailPanel
@@ -546,5 +553,60 @@ class MessageDetailPanelIntegrationTest {
         }
 
         composeTestRule.onNodeWithTag("detail-send-reason").assertDoesNotExist()
+    }
+
+    /**
+     * The empty panel is a paste target and nothing else, so there is nothing for a bar to scroll.
+     *
+     * It drew one anyway: the bar sat outside the message branch and was handed a scroll state nothing was
+     * attached to, whose maximum is Int.MAX_VALUE until something lays it out, so it showed a thumb sized for
+     * endless content over a panel with no content at all.
+     */
+    @Test
+    fun `a panel with no message draws no raw scroll bar`() {
+        composeTestRule.setContent {
+            MessageDetailPanel(message = null, dictionary = dictionary, onClose = {})
+        }
+
+        composeTestRule.onNodeWithText("RAW MESSAGE").assertExists()
+        composeTestRule.onNodeWithTag("detail-raw-scrollbar").assertDoesNotExist()
+    }
+
+    /**
+     * **The bar and the text are one scroll.** Dragging the bar is asked of the text's own scroll range, not
+     * of the bar, because the defect was a bar that moved a state of its own: it dragged, and the text stayed
+     * at its first line.
+     */
+    @Test
+    fun `dragging the raw scroll bar scrolls the raw message`() {
+        val short = createQuoteRequest()
+        val long = short.copy(rawMessage = short.rawMessage.repeat(60))
+        composeTestRule.setContent {
+            MessageDetailPanel(
+                message = long,
+                dictionary = dictionary,
+                onClose = {},
+                modifier = Modifier.size(420.dp, 600.dp),
+            )
+        }
+
+        val rawText = composeTestRule.onNodeWithTag("detail-raw-text")
+
+        fun range() = rawText.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+
+        fun scrolled() = range().value()
+
+        check(range().maxValue() > 0f) { "the fixture must overflow the raw section, or there is nothing to scroll" }
+        assertEquals(0f, scrolled())
+
+        composeTestRule.onNodeWithTag("detail-raw-scrollbar").performMouseInput {
+            moveTo(Offset(centerX, 4f))
+            press()
+            moveBy(Offset(0f, height * 0.5f))
+            release()
+        }
+        composeTestRule.waitForIdle()
+
+        assertTrue(scrolled() > 0f, "dragging the bar must move the text it sits beside")
     }
 }

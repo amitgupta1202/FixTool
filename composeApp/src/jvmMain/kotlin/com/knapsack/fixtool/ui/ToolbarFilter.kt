@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,23 +14,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterAlt
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.MessageColorScheme
 
 /** The height of the filter's own chips, a little under the toolbar chips they sit between. */
 private val FILTER_CHIP_HEIGHT = 22.dp
@@ -45,14 +46,41 @@ private val FILTER_CHIP_HEIGHT = 22.dp
 internal val FOLLOWING_CHIP_MAX_WIDTH = 220.dp
 
 /**
- * The width below which `In` and `Out` are their ticks alone.
+ * **Which directions every pane shows, as the three segments draw them.**
  *
- * Everything in the filter but the regex box is fixed: the funnel and two ticks with their words come to
- * about 140dp, so a 200dp filter would leave 60dp to type a pattern into and a narrower one nothing at
- * all. Without the words the same furniture is about 90dp, which is the difference between a box and a
- * sliver.
+ * This was two ticks, `In` and `Out`, and the pair had two defects between them. The ticks were the same
+ * glyph, so the only thing telling them apart was a word, and the filter dropped its words below 300dp by a
+ * rule of its own that [ToolbarFold] never counted: a toolbar with every chip still wearing its word drew two
+ * anonymous ticks in the middle of it, the reverse of the fold order the toolbar promises. And unticking both
+ * was a state that showed nothing at all, which nobody wants and a pair of ticks offers anyway.
+ *
+ * Three segments hold the three states worth having, and their words are the grid's own `IN` and `OUT`, in
+ * the colours the grid prints them in. A word that short never has to fold, so there is nothing left for a
+ * narrow toolbar to take away. Both-off is still reachable through the control surface, which sets the two
+ * booleans separately; it draws with no segment pressed and the funnel lit.
  */
-private val DIRECTION_WORDS_WIDTH = 300.dp
+internal enum class DirectionChoice(
+    /** What the segment prints. */
+    val word: String,
+    /** What it says on hover, and its content description. */
+    val tooltip: String,
+    val tag: String,
+    val showIncoming: Boolean,
+    val showOutgoing: Boolean,
+) {
+    BOTH("Both", "Incoming and outgoing", "toolbar-filter-both", showIncoming = true, showOutgoing = true),
+    IN("IN", "Incoming only", "toolbar-filter-in", showIncoming = true, showOutgoing = false),
+    OUT("OUT", "Outgoing only", "toolbar-filter-out", showIncoming = false, showOutgoing = true),
+    ;
+
+    companion object {
+        /** The segment in force, or null for the both-off state only the control surface can set. */
+        fun of(
+            showIncoming: Boolean,
+            showOutgoing: Boolean,
+        ): DirectionChoice? = entries.firstOrNull { it.showIncoming == showIncoming && it.showOutgoing == showOutgoing }
+    }
+}
 
 /**
  * **One query over every pane: the regex, the two directions, and the followed trace.**
@@ -85,7 +113,7 @@ data class FilterQuery(
      *
      * Only the funnel's tint turns on it now. The rule it used to serve, that a filter must never narrow
      * a view without saying so, is kept by the control being on the toolbar at all times, with its regex
-     * in its box and its ticks on its boxes, rather than by a row that refuses to close.
+     * in its box and its direction segment pressed, rather than by a row that refuses to close.
      */
     val isNarrowing: Boolean
         get() = global.regex.isNotBlank() || !global.showIncoming || !global.showOutgoing || followingLabel != null
@@ -94,55 +122,57 @@ data class FilterQuery(
 /**
  * **The global filter, in the middle of the toolbar.**
  *
- * The regex, the direction boxes and the Following chip had a row of their own under the pane bar for
+ * The regex, the direction segments and the Following chip had a row of their own under the pane bar for
  * exactly one build. That row cost a line of pane height in both layouts to hold four controls, and it
  * bought a rule, *a filter cannot go silent*, that presence buys for nothing: the controls are on the
  * toolbar, always, so a regex narrowing every pane is a regex a reader can see without opening anything.
  * The toolbar's middle was empty, which is where a query over everything belongs.
  *
  * It is the row's flexible child, centred between two weighted spacers, so it takes the room the groups
- * either side do not want, up to a readable maximum. See [Toolbar].
+ * either side do not want, up to a readable maximum. Nothing in it folds: the regex box is the one thing
+ * that gives way. See [Toolbar].
  */
 @Composable
+@Suppress("LongParameterList")
 fun ToolbarFilter(
     query: FilterQuery = FilterQuery(),
     onRegexChange: (String) -> Unit = {},
     onIncomingChange: (Boolean) -> Unit = {},
     onOutgoingChange: (Boolean) -> Unit = {},
     onUnfollow: () -> Unit = {},
+    /** The grid's direction colours, so `IN` and `OUT` here are the `IN` and `OUT` of every pane. */
+    messageColors: MessageColorScheme = MessageColorScheme.default(),
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(modifier = modifier) {
-        // The filter's own fold, and it has exactly one thing worth folding. Everything here but the
-        // regex is a fixed width, so on a narrow toolbar the box a pattern is typed into is the only
-        // thing that can give way, and it was giving way to two words. The ticks keep the state, which
-        // is what those words were labelling, and say their direction on hover.
-        val words = maxWidth >= DIRECTION_WORDS_WIDTH
+    Row(
+        modifier = modifier.fillMaxWidth().testTag("toolbar-filter"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // Static, and the only thing here that is not a control: it says what this run of boxes is,
+        // and it goes bright while any of them is narrowing something.
+        Icon(
+            imageVector = Icons.Default.FilterAlt,
+            contentDescription = null,
+            tint = if (query.isNarrowing) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+            modifier = Modifier.size(14.dp),
+        )
 
-        Row(
-            modifier = Modifier.fillMaxWidth().testTag("toolbar-filter"),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            // Static, and the only thing here that is not a control: it says what this run of boxes is,
-            // and it goes bright while any of them is narrowing something.
-            Icon(
-                imageVector = Icons.Default.FilterAlt,
-                contentDescription = null,
-                tint = if (query.isNarrowing) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                modifier = Modifier.size(14.dp),
-            )
+        // The followed trace, named. It sits beside the regex rather than replacing it: they are two
+        // filters of different kinds and both are in force, so hiding one while the other is on would
+        // be the app narrowing a view without saying so.
+        if (query.followingLabel != null) FollowingChip(query, onUnfollow)
 
-            // The followed trace, named. It sits beside the regex rather than replacing it: they are two
-            // filters of different kinds and both are in force, so hiding one while the other is on would
-            // be the app narrowing a view without saying so.
-            if (query.followingLabel != null) FollowingChip(query, onUnfollow)
+        RegexField(query.global.regex, onRegexChange, modifier = Modifier.weight(1f))
 
-            RegexField(query.global.regex, onRegexChange, modifier = Modifier.weight(1f))
-
-            DirectionBox("In", query.global.showIncoming, "toolbar-filter-in", words, onIncomingChange)
-            DirectionBox("Out", query.global.showOutgoing, "toolbar-filter-out", words, onOutgoingChange)
-        }
+        DirectionSegments(
+            current = DirectionChoice.of(query.global.showIncoming, query.global.showOutgoing),
+            messageColors = messageColors,
+            onSelect = { choice ->
+                onIncomingChange(choice.showIncoming)
+                onOutgoingChange(choice.showOutgoing)
+            },
+        )
     }
 }
 
@@ -241,51 +271,60 @@ private fun RegexField(
 }
 
 /**
- * One direction, ticked or not, over every pane.
+ * **Both, IN and OUT, joined.** The layout segments' construction, so the toolbar has one pressed look.
  *
- * The whole chip is the click target and the box inside it is drawn rather than clickable, so a click on
- * the tick and a click on the word do the same single thing. The pair used to answer separately, which
- * meant a click that landed on the box itself toggled twice and looked like a button that did nothing.
+ * The group's ground is [AppTheme.Colors.border] and the pressed segment is [AppTheme.Colors.surface], the
+ * relation [PaneViewControls] draws. `IN` and `OUT` keep their direction colour whether pressed or not,
+ * because the colour is what names the direction and the fill is what says it is in force; `Both` is plain
+ * text, brighter when pressed.
  */
 @Composable
-private fun DirectionBox(
-    label: String,
-    on: Boolean,
-    tag: String,
-    /** False on a filter with no room for the word, where the tick stands alone and hover says which. */
-    words: Boolean,
-    onChange: (Boolean) -> Unit,
+private fun DirectionSegments(
+    current: DirectionChoice?,
+    messageColors: MessageColorScheme,
+    onSelect: (DirectionChoice) -> Unit,
 ) {
-    val box: @Composable () -> Unit = {
-        Row(
-            modifier =
-                Modifier
-                    .height(FILTER_CHIP_HEIGHT)
-                    .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                    .clickable { onChange(!on) }
-                    .padding(horizontal = if (words) 8.dp else 4.dp)
-                    .semantics {
-                        contentDescription = label
-                        selected = on
-                    }.testTag(tag),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
-                Checkbox(
-                    checked = on,
-                    onCheckedChange = null,
-                    modifier = Modifier.scale(0.75f),
-                    colors =
-                        CheckboxDefaults.colors(
-                            checkedColor = AppTheme.Colors.primary,
-                            uncheckedColor = AppTheme.Colors.textSecondary,
-                            checkmarkColor = AppTheme.Colors.surface,
-                        ),
-                )
+    Row(
+        modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(AppTheme.Colors.border),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(SEGMENT_GAP),
+    ) {
+        DirectionChoice.entries.forEach { choice ->
+            val pressed = choice == current
+            val colour =
+                when (choice) {
+                    DirectionChoice.BOTH -> if (pressed) AppTheme.Colors.text else AppTheme.Colors.textSecondary
+                    DirectionChoice.IN -> messageColors.getIncomingColor(isBright = true)
+                    DirectionChoice.OUT -> messageColors.getOutgoingColor(isBright = true)
+                }
+            AppTooltip(choice.tooltip) {
+                Box(
+                    modifier =
+                        Modifier
+                            .height(SEGMENT_HEIGHT)
+                            .background(if (pressed) AppTheme.Colors.surface else Color.Transparent)
+                            // The segment already in force does nothing when clicked again. A segmented control
+                            // selects; one whose second click went back to Both would be a cycle in disguise.
+                            .clickable { if (!pressed) onSelect(choice) }
+                            .padding(horizontal = 6.dp)
+                            .semantics {
+                                contentDescription = choice.tooltip
+                                selected = pressed
+                            }.testTag(choice.tag),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val badge = choice != DirectionChoice.BOTH
+                    Text(
+                        text = choice.word,
+                        color = colour,
+                        // The grid's own type for IN and OUT: 10sp monospace.
+                        fontSize = if (badge) 10.sp else 11.sp,
+                        fontFamily = if (badge) FontFamily.Monospace else null,
+                        fontWeight = if (pressed) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                    )
+                }
             }
-            if (words) Text(text = label, fontSize = 11.sp, color = AppTheme.Colors.text)
         }
     }
-    if (words) box() else AppTooltip(label) { box() }
 }

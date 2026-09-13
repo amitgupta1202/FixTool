@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.MessageColorScheme
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 
@@ -85,6 +86,8 @@ fun Toolbar(
     onFilterIncomingChange: (Boolean) -> Unit = {},
     onFilterOutgoingChange: (Boolean) -> Unit = {},
     onUnfollow: () -> Unit = {},
+    /** The grid's direction colours, which the filter's IN and OUT segments print in. */
+    messageColors: MessageColorScheme = MessageColorScheme.default(),
     onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
@@ -129,6 +132,7 @@ fun Toolbar(
                 onIncomingChange = onFilterIncomingChange,
                 onOutgoingChange = onFilterOutgoingChange,
                 onUnfollow = onUnfollow,
+                messageColors = messageColors,
                 modifier =
                     Modifier
                         .weight(FILTER_WEIGHT, fill = false)
@@ -591,8 +595,15 @@ internal enum class ToolbarFold {
  */
 private const val FILTER_WEIGHT = 6f
 
-/** Narrow enough to be worth keeping at all: a short pattern, the two ticks, and the chip when it is on. */
-internal val FILTER_MIN_WIDTH = 200.dp
+/**
+ * Narrow enough to be worth keeping at all: a short pattern, the direction segments, and the chip when it is on.
+ *
+ * Everything in the filter but the regex box is a fixed width. The funnel, two gaps and the three segments
+ * (Both 38dp, IN 24dp and OUT 30dp with their padding, and two hairlines) come to about 120dp, which leaves
+ * the box 110dp here: what it had beside the two bare ticks this used to fold to, so the segments cost the
+ * pattern nothing and the toolbar thresholds 30dp each.
+ */
+internal val FILTER_MIN_WIDTH = 230.dp
 
 /** Wide enough for a regex nobody has to scroll, past which the row would just be a long empty box. */
 private val FILTER_MAX_WIDTH = 420.dp
@@ -649,14 +660,18 @@ private fun runWidgetWidth(fold: ToolbarFold): Dp =
 /**
  * The width the row needs to draw itself at a given fold, with the filter at its minimum.
  *
- * At [ToolbarFold.NONE] that is **1669dp**: 16dp of padding, a 180dp workspace, seven 13dp dividers, a
- * 200dp filter, four gaps of 8dp, Connect with its chevron and Disconnect all, Close all and Clear all with
+ * At [ToolbarFold.NONE] that is **1699dp**: 16dp of padding, a 180dp workspace, seven 13dp dividers, a
+ * 230dp filter, four gaps of 8dp, Connect with its chevron and Disconnect all, Close all and Clear all with
  * their words (433.5dp), the three action chips with theirs (269.5dp), the run widget at its widest
  * (209dp), the view controls (174dp) and the two system icons (64dp).
  *
  * What each level saves, in order: the action words 161.5dp, the run chip's kind 50dp, the command words
  * 309.5dp, the run chip itself 91dp, and the layout segments the last 116dp. So the thresholds are
- * **1669, 1507.5, 1457.5, 1148, 1057 and 941dp**.
+ * **1699, 1537.5, 1487.5, 1178, 1087 and 971dp**.
+ *
+ * The filter has no fold of its own to add. Its direction used to be two ticks that dropped their words
+ * below 300dp, a rule this arithmetic never counted, so the filter lost its words before any chip here lost
+ * one. The segments that replaced them are short enough never to fold. See [DirectionChoice].
  *
  * Every figure here is a floor, not a measurement: the chips are measured by what they draw, so a row
  * that folds a little early wastes a word and one that folds late would wrap, and only one of those is a

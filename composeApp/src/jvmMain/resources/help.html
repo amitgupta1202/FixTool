@@ -2783,13 +2783,14 @@ ${incoming["D"].valueOfTag(38)}
     always there.</p>
     <ul>
         <li><strong>Regex</strong>: <em>Filter all panes (regex)</em>, the box in the middle of the row.</li>
-        <li><strong>In / Out</strong>: the two checkboxes beside it, showing or hiding a direction
-        across every pane.</li>
-        <li>Clear it by emptying the box, ticking both directions back on, and dismissing the
+        <li><strong>Both / IN / OUT</strong>: the three segments beside it, the grid's own <code>IN</code> and
+        <code>OUT</code> in the grid's colours. The pressed one is what every pane shows: both directions,
+        incoming only, or outgoing only. They keep their words at every window width.</li>
+        <li>Clear it by emptying the box, pressing <strong>Both</strong>, and dismissing the
         <strong>Following</strong> chip with its own <strong>&times;</strong>.</li>
     </ul>
     <p><strong>It cannot narrow a pane without saying so.</strong> There is nothing to open and nothing to
-    put away: the pattern is in its box and the ticks are on their boxes, in the open, so a pane is never
+    put away: the pattern is in its box and a direction segment is pressed, in the open, so a pane is never
     left filtered by a control nobody can see. Typing here never touches a pane's own filter: clear the
     toolbar and every pane is exactly as its owner left it.</p>
 

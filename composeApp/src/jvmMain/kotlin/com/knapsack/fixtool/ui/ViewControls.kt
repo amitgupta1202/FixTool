@@ -48,11 +48,14 @@ internal const val RAW_ROWS_LABEL = "Raw rows"
 
 internal const val HIDE_PROTOCOL_TAGS_LABEL = "Hide protocol tags"
 
-/** A segment is a tab's height without a tab's chrome, so the group sits inside the bar rather than filling it. */
-private val SEGMENT_HEIGHT = 22.dp
+/**
+ * A segment is a tab's height without a tab's chrome, so the group sits inside the bar rather than filling it.
+ * The filter's direction segments are the same height, so the toolbar has one segmented control, twice.
+ */
+internal val SEGMENT_HEIGHT = 22.dp
 
 /** The gap between two segments, wide enough for the group's own ground to read as a hairline rule. */
-private val SEGMENT_GAP = 1.dp
+internal val SEGMENT_GAP = 1.dp
 
 /** The fixed mark slot every menu row carries, so the four labels start at the same x whatever their state. */
 private val MARK_SLOT = 16.dp

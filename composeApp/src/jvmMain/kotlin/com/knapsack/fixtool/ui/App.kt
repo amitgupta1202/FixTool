@@ -310,6 +310,7 @@ private fun AppContent(
                     onFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
                     onFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                     onUnfollow = { viewModel.unfollow() },
+                    messageColors = viewModel.appSettings.messageColorScheme,
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },

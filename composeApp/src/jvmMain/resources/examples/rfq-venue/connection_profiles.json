@@ -25,11 +25,191 @@
                                 "matcher": {
                                     "type": "presence"
                                 }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
                             }
                         ],
                         "steps": [
                             {
-                                "template": "35=S|131=${req.131}|117=${uuid}|55=EUR/USD|132=${random:1.08990:1.08999:5}|133=${random:1.09010:1.09019:5}|134=${req.38}|135=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=EUR/USD|54=1|537=1|133=${random:1.09010:1.09019:5}|135=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "EUR/USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=EUR/USD|54=2|537=1|132=${random:1.08990:1.08999:5}|134=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "GBP/USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=GBP/USD|54=1|537=1|133=${random:1.27015:1.27024:5}|135=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "GBP/USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=GBP/USD|54=2|537=1|132=${random:1.26985:1.26994:5}|134=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "USD/JPY"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=USD/JPY|54=1|537=1|133=${random:149.510:149.519:3}|135=${req.38}|15=JPY|62=${utcnow+30s}|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "USD/JPY"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=USD/JPY|54=2|537=1|132=${random:149.490:149.499:3}|134=${req.38}|15=JPY|62=${utcnow+30s}|60=${utcnow}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "EUR/USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=EUR/USD|537=1|132=${random:1.08990:1.08999:5}|133=${random:1.09010:1.09019:5}|134=${req.38}|135=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
                             }
                         ]
                     },
@@ -52,7 +232,7 @@
                         ],
                         "steps": [
                             {
-                                "template": "35=S|131=${req.131}|117=${uuid}|55=GBP/USD|132=${random:1.26985:1.26994:5}|133=${random:1.27015:1.27024:5}|134=${req.38}|135=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=GBP/USD|537=1|132=${random:1.26985:1.26994:5}|133=${random:1.27015:1.27024:5}|134=${req.38}|135=${req.38}|15=USD|62=${utcnow+30s}|60=${utcnow}"
                             }
                         ]
                     },
@@ -75,7 +255,7 @@
                         ],
                         "steps": [
                             {
-                                "template": "35=S|131=${req.131}|117=${uuid}|55=USD/JPY|132=${random:149.490:149.499:3}|133=${random:149.510:149.519:3}|134=${req.38}|135=${req.38}|15=JPY|62=${utcnow+30s}|60=${utcnow}"
+                                "template": "35=S|131=${req.131}|117=${uuid}|55=USD/JPY|537=1|132=${random:149.490:149.499:3}|133=${random:149.510:149.519:3}|134=${req.38}|135=${req.38}|15=JPY|62=${utcnow+30s}|60=${utcnow}"
                             }
                         ]
                     },
@@ -317,7 +497,7 @@
                         ],
                         "steps": [
                             {
-                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=Price is not the quoted price|60=${utcnow}"
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=Not the quoted price, or not a side this quote showed|60=${utcnow}"
                             }
                         ],
                         "whenQuote": "open"
@@ -419,6 +599,54 @@
                                 "tag": 694,
                                 "matcher": {
                                     "type": "exact",
+                                    "value": "4"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=6|58=Noted: cover. The quote is withdrawn|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "5"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=6|58=Noted: done away. The quote is withdrawn|60=${utcnow}"
+                            }
+                        ],
+                        "whenQuote": "open"
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
                                     "value": "6"
                                 }
                             }
@@ -442,7 +670,7 @@
                         ],
                         "steps": [
                             {
-                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=QuoteRespType not accepted: hit or lift, counter, or pass|60=${utcnow}"
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${quote.symbol}|297=5|58=QuoteRespType not accepted: hit or lift, counter, pass, cover or done away|60=${utcnow}"
                             }
                         ],
                         "whenQuote": "open"

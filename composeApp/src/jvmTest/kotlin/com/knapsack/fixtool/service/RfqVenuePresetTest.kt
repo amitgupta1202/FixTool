@@ -96,8 +96,11 @@ class RfqVenuePresetTest {
     private fun field(message: String, tag: Int): String? =
         message.split('|').firstOrNull { it.startsWith("$tag=") }?.substringAfter('=')
 
-    private val requestEur = "35=R|131=RFQ-1|146=1|55=EUR/USD|54=1|38=1000000"
-    private val requestJpy = "35=R|131=RFQ-2|146=1|55=USD/JPY|54=1|38=1000000"
+    /** Two-way requests: no side, so the venue shows both. */
+    private val requestEur = "35=R|131=RFQ-1|146=1|55=EUR/USD|38=1000000"
+    private val requestJpy = "35=R|131=RFQ-2|146=1|55=USD/JPY|38=1000000"
+    private val requestEurBuying = "35=R|131=RFQ-6|146=1|55=EUR/USD|54=1|38=1000000"
+    private val requestEurSelling = "35=R|131=RFQ-7|146=1|55=EUR/USD|54=2|38=1000000"
     private val requestNoSize = "35=R|131=RFQ-3|146=1|55=EUR/USD|54=1"
     private val requestUnknown = "35=R|131=RFQ-4|146=1|55=XXX/YYY|54=1|38=1000000"
 
@@ -113,6 +116,12 @@ class RfqVenuePresetTest {
 
         assertEquals(
             listOf(
+                "R 55=EUR/USD 38 54=1",
+                "R 55=EUR/USD 38 54=2",
+                "R 55=GBP/USD 38 54=1",
+                "R 55=GBP/USD 38 54=2",
+                "R 55=USD/JPY 38 54=1",
+                "R 55=USD/JPY 38 54=2",
                 "R 55=EUR/USD 38",
                 "R 55=GBP/USD 38",
                 "R 55=USD/JPY 38",
@@ -127,13 +136,15 @@ class RfqVenuePresetTest {
                 "AJ 117 11 38 694=1 quote:open",
                 "AJ 117 694=1 quote:open",
                 "AJ 117 694=2 quote:open",
+                "AJ 117 694=4 quote:open",
+                "AJ 117 694=5 quote:open",
                 "AJ 117 694=6 quote:open",
                 "AJ 117 quote:open",
                 "AJ",
             ),
             read,
         )
-        assertEquals(17, bundle.size, "the summary counts the rules, so the count is the summary")
+        assertEquals(25, bundle.size, "the summary counts the rules, so the count is the summary")
         assertTrue(bundle.none { it.whenOrder != null }, "this venue reads the quote book, not the order book")
     }
 
@@ -438,7 +449,7 @@ class RfqVenuePresetTest {
     fun `the wrong-price refusal is only reached on the quoted instrument`() {
         val status = answer(hit("EUR/USD", side = "1", price = "1.09000"), quoted(symbol = "EUR/USD"))
 
-        assertEquals("Price is not the quoted price", field(status, 58), status)
+        assertEquals("Not the quoted price, or not a side this quote showed", field(status, 58), status)
     }
 
     @Test
@@ -471,10 +482,43 @@ class RfqVenuePresetTest {
 
     @Test
     fun `any other response type is answered, never left in silence`() {
-        listOf("3", "4", "5").forEach { respType ->
+        val status = answer(hit("EUR/USD", "1", "1.09010", respType = "3"), quoted())
+        assertEquals("5", field(status, 297), "694=3 got $status")
+        assertTrue(field(status, 58)!!.contains("QuoteRespType"), status)
+    }
+
+    /** Cover and done away are the ordinary end of a negotiation the venue did not win, and the quote is withdrawn. */
+    @Test
+    fun `cover and done away are answered, and the quote is withdrawn`() {
+        listOf("4" to "cover", "5" to "done away").forEach { (respType, word) ->
             val status = answer(hit("EUR/USD", "1", "1.09010", respType = respType), quoted())
-            assertEquals("5", field(status, 297), "694=$respType got $status")
-            assertTrue(field(status, 58)!!.contains("QuoteRespType"), status)
+            assertEquals("6", field(status, 297), "694=$respType got $status")
+            assertTrue(field(status, 58)!!.contains(word), status)
+        }
+    }
+
+    // ---------------------------------------------------------------- a disclosed side
+
+    /** Two-way is for a client who withheld direction. A buyer is shown the offer; the bid is the venue's own business. */
+    @Test
+    fun `a request that discloses a side is quoted that side only, and the quote says so`() {
+        val toBuyer = answer(requestEurBuying)
+        assertEquals("1", field(toBuyer, 54), toBuyer)
+        assertNotNull(field(toBuyer, 133), toBuyer)
+        assertEquals(null, field(toBuyer, 132), "a buyer is not shown the bid: $toBuyer")
+        assertEquals("1000000", field(toBuyer, 135))
+        assertEquals(null, field(toBuyer, 134), toBuyer)
+
+        val toSeller = answer(requestEurSelling)
+        assertEquals("2", field(toSeller, 54), toSeller)
+        assertNotNull(field(toSeller, 132), toSeller)
+        assertEquals(null, field(toSeller, 133), "a seller is not shown the offer: $toSeller")
+    }
+
+    @Test
+    fun `every quote says it is tradeable`() {
+        listOf(requestEur, requestEurBuying, requestEurSelling).forEach { raw ->
+            assertEquals("1", field(answer(raw), 537), "QuoteType(537)=1 is Tradeable, on $raw")
         }
     }
 
@@ -546,7 +590,7 @@ class RfqVenuePresetTest {
 
         val symbol = exact(55) ?: fromQuote(55) ?: "EUR/USD"
         return when (rule.whenMsgType) {
-            "R" -> "35=R|131=RFQ-1|146=1|55=$symbol|54=1|38=1000000"
+            "R" -> "35=R|131=RFQ-1|146=1|55=$symbol" + (exact(54)?.let { "|54=$it" } ?: "") + "|38=1000000"
             "AJ" ->
                 hit(
                     symbol,

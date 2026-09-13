@@ -534,8 +534,10 @@
             <td>QuoteStatusReport, 297=7 Expired</td></tr>
         <tr><td>A second QuoteResponse about a quote already hit or passed</td>
             <td>QuoteStatusReport, 297=5, &ldquo;Quote already answered&rdquo;</td></tr>
-        <tr><td>QuoteRequest (35=R) for a priced pair, with OrderQty</td>
-            <td>Quote (35=S): a fresh <code>117</code>, a drawn bid and offer, your size, <code>62</code> thirty seconds out</td></tr>
+        <tr><td>QuoteRequest (35=R) for a priced pair naming a side (<code>54</code>), with OrderQty</td>
+            <td>Quote (35=S) <strong>one way</strong>: the offer to a buyer, the bid to a seller, with <code>54</code> naming the side shown, <code>537=1</code> Tradeable, a fresh <code>117</code>, your size, <code>62</code> thirty seconds out</td></tr>
+        <tr><td>QuoteRequest for a priced pair with no side, with OrderQty</td>
+            <td>Quote (35=S) <strong>two-way</strong>: a drawn bid and offer, <code>537=1</code>, your size on both sides</td></tr>
         <tr><td>QuoteRequest for a priced pair without OrderQty</td>
             <td>QuoteRequestReject (35=AG), 658=99, &ldquo;this venue quotes a size&rdquo;</td></tr>
         <tr><td>QuoteRequest for anything else</td>
@@ -543,13 +545,15 @@
         <tr><td>QuoteResponse 694=1 hit or lift on a live quote, on the quoted side <strong>at the price that quote carried</strong>, with ClOrdID and OrderQty</td>
             <td>ExecutionReport (35=8), 150=F 39=2, filled at <code>${quote.offer}</code> or <code>${quote.bid}</code>, echoing your 11 and 693</td></tr>
         <tr><td>Hit or lift on the quoted instrument at any other price</td>
-            <td>QuoteStatusReport, 297=5, &ldquo;Price is not the quoted price&rdquo;</td></tr>
+            <td>QuoteStatusReport, 297=5, &ldquo;Not the quoted price, or not a side this quote showed&rdquo;</td></tr>
         <tr><td>Hit or lift naming an instrument the quote did not</td>
             <td>QuoteStatusReport, 297=5, &ldquo;Instrument is not the quoted one&rdquo;</td></tr>
         <tr><td>Hit or lift without ClOrdID or OrderQty</td>
             <td>QuoteStatusReport, 297=5, naming the two tags a booking needs</td></tr>
         <tr><td>QuoteResponse 694=2 counter</td>
             <td>QuoteStatusReport, 297=5, &ldquo;this venue quotes firm&rdquo;</td></tr>
+        <tr><td>QuoteResponse 694=4 cover or 694=5 done away</td>
+            <td>QuoteStatusReport, 297=6 Removed from market: the quote is withdrawn, because the client traded elsewhere</td></tr>
         <tr><td>QuoteResponse 694=6 pass</td>
             <td>QuoteStatusReport, 297=11 Pass, and the quote is now spent</td></tr>
         <tr><td>Any other QuoteRespType</td>
@@ -557,7 +561,11 @@
         <tr><td>QuoteResponse without a QuoteID, or naming an unknown quote without a Symbol</td>
             <td>BusinessMessageReject (35=j), 380=5, because a QuoteStatusReport needs both to name</td></tr>
     </table>
-    <p>Seventeen rules, where the first slice of this venue needed eighteen and said less. Two of them are
+    <p>A disclosed side is quoted one way because two-way is for a client who withheld direction, and every
+    quote carries <code>QuoteType(537)=1</code> because this venue books at the price it showed. Cover and
+    done away are the ordinary end of a multi-dealer negotiation the venue did not win, so they are answered
+    rather than refused.</p>
+    <p>Twenty-five rules, where the first slice of this venue needed eighteen and said less. Two of them are
     the whole booking: because the symbol and the price are read off the quote
     (<a href="#when-quote"><code>quoteField</code></a> in the trigger, <code>${quote.&hellip;}</code> in
     the reply), the three pairs are one buy rule and one sell rule rather than six. None of them asks the
@@ -568,7 +576,7 @@
     <table>
         <tr><th>Template</th><th>Type</th><th>Notes</th></tr>
         <tr><td>RFQ Quote Request EUR/USD, GBP/USD, USD/JPY</td><td>35=R</td>
-            <td>Symbol inside NoRelatedSym, with a size, as a real client sends it</td></tr>
+            <td>Symbol inside NoRelatedSym, with a size and no side, so the venue quotes two-way</td></tr>
         <tr><td>RFQ Lift last quote (buy at the offer)</td><td>35=AJ</td>
             <td>Reads the last Quote received: its QuoteID, symbol, size and offer</td></tr>
         <tr><td>RFQ Hit last quote (sell at the bid)</td><td>35=AJ</td><td>The same, at the bid</td></tr>
@@ -801,7 +809,7 @@
             <td><code>SettlType(63)=0</code> regular, with the T+1 <code>SettlDate(64)</code> spelled out</td></tr>
     </table>
 
-    <h4>Three things this desk does that the FX one does not</h4>
+    <h4>Three things an RFQ client reads off every quote</h4>
     <p><strong>A disclosed side is quoted one way.</strong> Two-way is what a dealer shows a client who
     withheld direction — that is what it is <em>for</em>. Ask this desk for a price naming
     <code>54=1</code> and you are shown the offer and nothing else, with <code>Side(54)</code> on the quote

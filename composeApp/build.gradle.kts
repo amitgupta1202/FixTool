@@ -268,6 +268,10 @@ tasks.withType<Test> {
     doFirst { testHome.mkdirs() }
     systemProperty("user.home", testHome.absolutePath)
     environment("FIXTOOL_WORKSPACE", "")
+
+    // `./gradlew :composeApp:jvmTest --tests '*ExampleBundleGenerator' -Dfixtool.regenerate=<example id>` rewrites that
+    // example's bundle from its presets. Forwarded, because the test JVM inherits no system property of its own.
+    systemProperty("fixtool.regenerate", providers.systemProperty("fixtool.regenerate").getOrElse(""))
 }
 
 // **ktlint, judged per file and per rule against a budget of the findings that were already there.**

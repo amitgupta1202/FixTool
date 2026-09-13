@@ -47,6 +47,17 @@ import java.math.RoundingMode
  * offer band a full spread above it, so **no draw can put a bid at or above an offer**: an inverted
  * quote is not a quote, and a venue that emitted one would be teaching a client to accept one.
  * `RfqVenuePresetTest` asserts the bands are disjoint rather than trusting the arithmetic here.
+ *
+ * ### What an RFQ client can read off every quote
+ *
+ * Three things this venue once got wrong, and the fixed-income desk got right first:
+ *
+ * - **A disclosed side is quoted one way.** Two-way is for a client who withheld direction. A request naming
+ *   `54=1` is shown the offer and nothing else, with `Side(54)` on the quote naming the side shown.
+ * - **The quote says it is tradeable**: `QuoteType(537)=1`, because indicative-versus-firm is the first thing a
+ *   client needs to know about a price, and this venue books at the price it showed.
+ * - **Cover (`694=4`) and Done Away (`694=5`) are answered, not refused.** They are the ordinary end of a
+ *   multi-dealer negotiation the venue did not win, and the level is withdrawn (`297=6`).
  */
 object RfqVenuePreset {
     /** The id [AcceptorPresets.byId] answers to, and what the RFQ example workspace carries. */
@@ -92,26 +103,40 @@ object RfqVenuePreset {
     // ------------------------------------------------------------------ templates
 
     /**
-     * A two-way quote, priced by the venue and valid for [validitySeconds].
+     * A quote, priced by the venue and valid for [validitySeconds]: **two-way** for a request that named no side,
+     * and **one way** — the offer to a buyer, the bid to a seller, with `54` naming the side shown — for one that
+     * named [side]. The other side is the venue's own business.
      *
-     * `117` is opaque, so the only way to answer this quote is to have read it. The sizes echo the
-     * request's `38`, because an RFQ names an amount and quoting a different one would be the venue
-     * answering a question nobody asked.
+     * `117` is opaque, so the only way to answer this quote is to have read it. The sizes echo the request's `38`,
+     * because an RFQ names an amount and quoting a different one would be the venue answering a question nobody
+     * asked.
      */
-    private fun quote(quoted: Quoted, validitySeconds: Int): String =
-        listOf(
+    private fun quote(quoted: Quoted, validitySeconds: Int, side: String? = null): String {
+        val decimals = quoted.pair.decimals
+        val bid = side != BUY
+        val offer = side != SELL
+        return listOfNotNull(
             "35=S",
             "131=\${req.131}",
             "117=\${uuid}",
             "55=${quoted.symbol}",
-            "132=${random(quoted.bid, quoted.pair.decimals)}",
-            "133=${random(quoted.offer, quoted.pair.decimals)}",
-            "134=\${req.38}",
-            "135=\${req.38}",
+            side?.let { "54=$it" },
+            TRADEABLE,
+            "132=${random(quoted.bid, decimals)}".takeIf { bid },
+            "133=${random(quoted.offer, decimals)}".takeIf { offer },
+            "134=\${req.38}".takeIf { bid },
+            "135=\${req.38}".takeIf { offer },
             "15=${quoted.pair.quoteCurrency}",
             "62=\${utcnow+${validitySeconds}s}",
             "60=\${utcnow}",
         ).joinToString("|")
+    }
+
+    /** `QuoteType(537)=1`, Tradeable: this venue books at the price it showed. */
+    private const val TRADEABLE = "537=1"
+
+    private const val BUY = "1"
+    private const val SELL = "2"
 
     /** `${random:low:high:decimals}` — rendered natively, so a burst of four thousand costs microseconds. */
     private fun random(band: Band, decimals: Int): String = "\${random:${band.low}:${band.high}:$decimals}"
@@ -171,6 +196,9 @@ object RfqVenuePreset {
             "58=A QuoteResponse needs QuoteID (117), and one naming a quote this venue did not send needs Symbol (55)"
 
     private const val REJECTED = "5"
+    private const val WITHDRAWN = "6"
+    private const val COVERED = "Noted: cover. The quote is withdrawn"
+    private const val DONE_AWAY = "Noted: done away. The quote is withdrawn"
     private const val PASS = "11"
     private const val NOT_FOUND = "9"
     private const val EXPIRED = "7"
@@ -198,6 +226,21 @@ object RfqVenuePreset {
             conditions = listOf(AcceptorPresets.condition(55, Matcher.Exact(quoted.symbol)), quantityPresent),
             steps = listOf(ResponseStep(quote(quoted, validitySeconds))),
         )
+
+    /** A pair's two one-way rules: its two-way rule plus a `54`, sell declared first so the buy reads first. */
+    private fun oneWayRules(quoted: Quoted, validitySeconds: Int) =
+        listOf(SELL, BUY).map { side ->
+            AcceptorResponseRule(
+                whenMsgType = "R",
+                conditions =
+                    listOf(
+                        AcceptorPresets.condition(55, Matcher.Exact(quoted.symbol)),
+                        quantityPresent,
+                        AcceptorPresets.condition(54, Matcher.Exact(side)),
+                    ),
+                steps = listOf(ResponseStep(quote(quoted, validitySeconds, side))),
+            )
+        }
 
     private val quoteNoSize =
         AcceptorResponseRule(
@@ -284,7 +327,9 @@ object RfqVenuePreset {
             whenQuote = QuoteConstraint.OPEN,
             steps =
                 listOf(
-                    ResponseStep(quoteStatus(REJECTED, QUOTE_SYMBOL, "Price is not the quoted price")),
+                    ResponseStep(
+                        quoteStatus(REJECTED, QUOTE_SYMBOL, "Not the quoted price, or not a side this quote showed"),
+                    ),
                 ),
         )
 
@@ -333,6 +378,27 @@ object RfqVenuePreset {
                 ),
         )
 
+    /**
+     * **Cover and Done Away end a negotiation the venue did not win**, and are answered rather than refused:
+     * `297=6` is Removed from market, which is what has become of the level once the client says where the
+     * trade went.
+     */
+    private val cover =
+        AcceptorResponseRule(
+            whenMsgType = "AJ",
+            conditions = listOf(quoteIdPresent, respType("4")),
+            whenQuote = QuoteConstraint.OPEN,
+            steps = listOf(ResponseStep(quoteStatus(WITHDRAWN, QUOTE_SYMBOL, COVERED))),
+        )
+
+    private val doneAway =
+        AcceptorResponseRule(
+            whenMsgType = "AJ",
+            conditions = listOf(quoteIdPresent, respType("5")),
+            whenQuote = QuoteConstraint.OPEN,
+            steps = listOf(ResponseStep(quoteStatus(WITHDRAWN, QUOTE_SYMBOL, DONE_AWAY))),
+        )
+
     private val pass =
         AcceptorResponseRule(
             whenMsgType = "AJ",
@@ -352,7 +418,7 @@ object RfqVenuePreset {
                         quoteStatus(
                             REJECTED,
                             QUOTE_SYMBOL,
-                            "QuoteRespType not accepted: hit or lift, counter, or pass",
+                            "QuoteRespType not accepted: hit or lift, counter, pass, cover or done away",
                         ),
                     ),
                 ),
@@ -376,12 +442,15 @@ object RfqVenuePreset {
      * without waiting thirty seconds for it.
      */
     internal fun rules(validitySeconds: Int): List<AcceptorResponseRule> =
-        // 35=R: the three priced pairs, then a request without a size, then the FX refusal by name.
+        // 35=R: each pair one way for a disclosed side, then two-way, then a request without a size, then the FX
+        // refusal by name. The one-way rules are the two-way ones plus a 54, so they must read first.
         listOf(quoteNoSize) +
             QUOTED.reversed().map { quoteRule(it, validitySeconds) } +
+            QUOTED.reversed().flatMap { oneWayRules(it, validitySeconds) } +
             FxVenuePreset.quoteUnknownSymbol +
             // 35=AJ: what the book says first, then the bookings, then every other response answered.
-            listOf(otherResponse, pass, counter, cannotBook, wrongInstrument, wrongPrice, sellHit, buyHit) +
+            listOf(otherResponse, pass, doneAway, cover, counter, cannotBook, wrongInstrument, wrongPrice) +
+            listOf(sellHit, buyHit) +
             listOf(doneQuote, expiredQuote, unknownQuote) +
             cannotAnswer
 
@@ -391,8 +460,9 @@ object RfqVenuePreset {
             name = "RFQ venue: EUR/USD, GBP/USD, USD/JPY quoted live",
             group = AcceptorPresets.GROUP_BUNDLES,
             summary =
-                "${rules(VALIDITY_SECONDS).size} rules · a fresh price per quote · hits booked at the " +
-                    "quoted price · stale, spent and unknown quotes refused by name",
+                "${rules(VALIDITY_SECONDS).size} rules · a fresh firm price per quote · one-way on a disclosed " +
+                    "side · hits booked at the quoted price · cover and done away answered · stale, spent and " +
+                    "unknown quotes refused by name",
             rules = rules(VALIDITY_SECONDS),
         )
 }

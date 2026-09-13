@@ -19,7 +19,7 @@
     {
       "stepId": "6a210353-62f7-4272-bc93-382c87f3fecb",
       "type": "send",
-      "raw": "35=R|131=DEMO-RFQ-2|146=1|55=GBP/USD|54=1|38=500000",
+      "raw": "35=R|131=DEMO-RFQ-2|146=1|55=GBP/USD|38=500000",
       "session": "RFQ Client 1"
     },
     {
@@ -128,7 +128,7 @@
             "tag": 58,
             "matcher": {
               "type": "regex",
-              "pattern": ".*quoted price"
+              "pattern": ".*quoted price.*"
             }
           },
           {

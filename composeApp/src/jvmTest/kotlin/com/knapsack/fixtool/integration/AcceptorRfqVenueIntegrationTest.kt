@@ -69,7 +69,8 @@ class AcceptorRfqVenueIntegrationTest {
         startVenue()
         val client = connectClient()
 
-        client.sendFixMessage("35=R|131=RFQ-1|146=1|55=EUR/USD|54=1|38=1000000", viewModel.dictionary)
+        // No side, so the venue quotes both: a two-way quote is what this test reads the bands off.
+        client.sendFixMessage("35=R|131=RFQ-1|146=1|55=EUR/USD|38=1000000", viewModel.dictionary)
 
         assertTrue(
             awaitCondition(15_000) { incoming(client, "S").isNotEmpty() },
@@ -270,7 +271,8 @@ class AcceptorRfqVenueIntegrationTest {
             "35=R|131=RFQ-3|146=1|55=XXX/YYY|54=1|38=1000000",
             "35=AJ|693=RESP-1|694=1|117=$quoteId|55=EUR/USD|54=1|44=$offer",
             "35=AJ|693=RESP-2|694=2|117=$quoteId|11=TRADE-2|55=EUR/USD|54=1|38=1000000|44=1.00000",
-            "35=AJ|693=RESP-3|694=4|117=$quoteId|55=EUR/USD",
+            // 694=3, not a cover: a cover withdraws the quote now, and the booking below needs it standing.
+            "35=AJ|693=RESP-3|694=3|117=$quoteId|55=EUR/USD",
             "35=AJ|693=RESP-4|694=1|117=$quoteId|11=TRADE-4|55=EUR/USD|54=1|38=1000000|44=1.00000",
             "35=AJ|693=RESP-5|694=1|117=never-sent|11=TRADE-5|55=EUR/USD|54=1|38=1000000|44=1.00000",
             "35=AJ|693=RESP-6|694=1|11=TRADE-6|55=EUR/USD|54=1|38=1000000|44=$offer",

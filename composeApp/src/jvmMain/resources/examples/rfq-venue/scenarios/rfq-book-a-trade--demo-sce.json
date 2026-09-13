@@ -42,6 +42,13 @@
         "mode": "open",
         "fields": [
           {
+            "tag": 54,
+            "matcher": {
+              "type": "exact",
+              "value": "1"
+            }
+          },
+          {
             "tag": 117,
             "matcher": {
               "type": "presence"
@@ -55,15 +62,16 @@
             }
           },
           {
-            "tag": 132,
+            "tag": 133,
             "matcher": {
               "type": "presence"
             }
           },
           {
-            "tag": 133,
+            "tag": 537,
             "matcher": {
-              "type": "presence"
+              "type": "exact",
+              "value": "1"
             }
           }
         ]

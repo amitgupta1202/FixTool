@@ -78,8 +78,14 @@ enum class ToolWindow(
     /** What the tab says on hover: "Editor · ⌘1" on macOS, "Editor · Ctrl+1" elsewhere, "Documents" bare. */
     val tooltip: String get() = shortcutLabel?.let { "$title · $it" } ?: title
 
+    /**
+     * The digit as a shortcut: what the stripe prints, what the Window menu draws, and what the window's key
+     * handler answers, all read off one value. Null for a window with no digit.
+     */
+    internal val chord: Chord? get() = shortcut?.let { Chord(DIGITS[it - 1], "$it") }
+
     /** The shortcut as a reader of this platform writes it, or null for a window with no digit. */
-    val shortcutLabel: String? get() = shortcut?.let { if (IS_MAC) "⌘$it" else "Ctrl+$it" }
+    val shortcutLabel: String? get() = chord?.label
 
     /**
      * What a dock's Hide says on hover: "Hide Detail · ⌘3".
@@ -90,19 +96,11 @@ enum class ToolWindow(
     val hideTooltip: String get() = shortcutLabel?.let { "Hide $title · $it" } ?: "Hide $title"
 
     companion object {
-        private val IS_MAC = System.getProperty("os.name").lowercase().contains("mac")
-
         /** ⌘1 to ⌘8, in stripe order. Only the top-row digits: a numeric keypad is nobody's window switcher. */
         private val DIGITS =
             listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight)
 
-        private val byKey: Map<Key, ToolWindow> =
-            entries.mapNotNull { window -> window.shortcut?.let { DIGITS[it - 1] to window } }.toMap()
-
         /** The windows in one group, in stripe order. */
         fun inGroup(group: StripeGroup): List<ToolWindow> = entries.filter { it.group == group }
-
-        /** The window a Cmd or Ctrl digit toggles, or null for any other key. */
-        fun forKey(key: Key): ToolWindow? = byKey[key]
     }
 }

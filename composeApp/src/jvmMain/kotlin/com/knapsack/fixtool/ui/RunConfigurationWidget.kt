@@ -22,7 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -109,30 +109,116 @@ internal const val NOTHING_SAVED_TO_RUN = "Nothing saved to run"
 internal const val ANOTHER_RUN_IN_PROGRESS = "Another run is in progress. Wait for it, or stop it first."
 
 /**
- * ⌃R as the button spells it, decided once at class-load rather than per recomposition.
+ * **What the widget's dialogs are doing, held apart from the widget** so the Run menu can open them too.
  *
- * Mac users read `⌃R` and nobody else does, and the handler in `App` takes Meta or Ctrl on every platform,
- * so the difference is in the printing and not in the binding.
+ * The toolbar hosts the two dialogs because the menu that opens them is behind its chip. The menu bar's Run
+ * menu opens the same two, and a second copy of either dialog would be two drafts of one load run. So the
+ * flags live here, one set per window, and both doors write them.
  */
-private val RUN_SHORTCUT_WORD =
-    if (System.getProperty("os.name").lowercase().contains("mac")) "⌃R" else "Ctrl+R"
+@Stable
+internal class RunDoors {
+    var loadRun by mutableStateOf(false)
+    var loadSets by mutableStateOf(false)
 
-/**
- * **⌃R's target, published by the run widget so the window's key handler can reach it.**
- *
- * A plain holder and not Compose state on purpose: the key handler reads it at the moment a key arrives, so
- * nothing here should take part in recomposition.
- */
-class RunConfigurationShortcut {
-    internal var action: (() -> Unit)? = null
+    /** A set made from a burst, waiting for the load sets editor to open on it. */
+    var pendingLoadSet by mutableStateOf<LoadSet?>(null)
 
-    /** Runs or stops the selected configuration. False when nothing is composed to act on. */
-    fun fire(): Boolean {
-        val act = action ?: return false
-        act()
-        return true
+    /**
+     * The saved set a refused run wants fixed. By name, because it is already on disk: opening it as an
+     * unsaved draft would put "unsaved" in the footer of a set nobody has touched.
+     */
+    var loadSetToFix by mutableStateOf<String?>(null)
+
+    /** Whether the chip's dropdown is open, which is when its lane count is worth recounting. */
+    var menuOpen by mutableStateOf(false)
+
+    fun openLoadRun() {
+        loadRun = true
+    }
+
+    fun openLoadSets() {
+        loadSetToFix = null
+        loadSets = true
+    }
+
+    fun closeLoadSets() {
+        loadSets = false
+        pendingLoadSet = null
+        loadSetToFix = null
     }
 }
+
+/**
+ * **What ▶ is pointed at and every way to change it, worked out by one function** for the two things that
+ * draw it: the toolbar's widget and the menu bar's Run menu.
+ *
+ * The widget used to work all of this out inside itself, which was fine while it was the only door. A Run
+ * menu that worked it out again would be a second answer to "what does ▶ run", and the first time the two
+ * disagreed a reader would press ⌃R from the menu and run something the chip did not name. Each of them
+ * calls [rememberRunChoice] over the window's one [RunDoors], so they read the same state through the same
+ * rules, and each recomposes on its own rather than dragging the whole window with it.
+ */
+@Suppress("LongParameterList")
+internal class RunChoice(
+    val selected: RunConfiguration?,
+    /** A load set's label falling back to its name, a run set's name, or `Load run…` with nothing selected. */
+    val displayName: String,
+    /** The selected configuration itself is running, so ▶ is ■. */
+    val running: Boolean,
+    /** Non-null refuses ▶ and is its reason. Null while [running]. */
+    val refusal: String?,
+    /** Any run holds the sessions, which is what greys the rows that would start another. */
+    val busy: Boolean,
+    val loadSets: List<LoadSet>,
+    val runSets: List<SavedRunSet>,
+    val recent: List<RecentRun>,
+    val lanes: Lanes,
+    /** Saved profiles a load run could issue from at all, connected or not, since a run connects them. */
+    val issuers: Int,
+    val doors: RunDoors,
+    val sessionsOf: (LoadSet) -> FixMessageViewModel.LoadSetSessions,
+    val start: () -> Unit,
+    val stop: () -> Unit,
+    val select: (RunConfiguration) -> Unit,
+    /** A Recent row: selects its configuration while the file is still there, and opens the record when not. */
+    val openRecent: (RecentRun) -> Unit,
+) {
+    /** Whether ▶ does anything now: stop what runs, or run what is selected and not refused. */
+    val canAct: Boolean get() = running || (refusal == null && selected != null)
+
+    /** What ▶, ⌃R and the Run menu's first row do. */
+    fun act() {
+        when {
+            running -> stop()
+            refusal == null && selected != null -> start()
+        }
+    }
+
+    /** "Run RFQ round trip", "Stop RFQ round trip", or "Run" with nothing to name. */
+    val actLabel: String
+        get() =
+            when {
+                running -> "Stop $displayName"
+                selected == null -> "Run"
+                else -> "Run $displayName"
+            }
+}
+
+/** "Load run…  5 lanes on 2 profiles": the one-off run, and what it has to issue from. */
+internal fun loadRunRow(lanes: Lanes): String =
+    "Load run…  ${if (lanes.profiles > 0) lanes.sentence else "nothing up yet"}"
+
+/** "3 phases". */
+internal fun phaseCount(set: LoadSet): String = "${set.phases.size} phase${if (set.phases.size == 1) "" else "s"}"
+
+/** "12 scenarios", counting repeats, because a set that runs one scenario twenty times is twenty runs. */
+internal fun scenarioCount(set: SavedRunSet): String {
+    val runs = set.entries.sumOf { it.repeat.coerceAtLeast(1) }
+    return "$runs scenario${if (runs == 1) "" else "s"}"
+}
+
+/** "Load sets…  2 saved". */
+internal fun loadSetsRow(saved: Int): String = "Load sets…  $saved saved"
 
 /**
  * **The name and the ▶, as one control with a hairline between them.**
@@ -223,7 +309,7 @@ internal fun RunConfigurationWidget(
                 running -> "Stop $displayName"
                 refusal != null -> refusal
                 selected == null -> NOTHING_SAVED_TO_RUN
-                else -> "Run $displayName · $RUN_SHORTCUT_WORD"
+                else -> "Run $displayName · ${Shortcuts.RUN.label}"
             }
         AppTooltip(hover) {
             Box(
@@ -350,32 +436,20 @@ private fun SelectedRunChip(
 }
 
 /**
- * **The run widget as the toolbar draws it**, reading the stores the old `Run ▾` read.
+ * **The choice ▶ makes, read off the stores the old `Run ▾` read.**
  *
- * Everything the menu ever owned is still here: both dialogs, the same counts, the same lane sentence, the
- * same handlers. What changed is what a row *means*. A row used to run its set, so the menu was a list of
- * five ways to start something and the window said nothing about which one you would start next. A row now
- * selects, the selection is remembered in `layout.json`, and the ▶ beside the name is the only thing that
- * starts anything, which is also what makes a keyboard shortcut possible, because ⌃R now has one
- * unambiguous answer to "run what?".
- *
- * Both dialogs are hosted here because both are opened from this menu, and the menu is behind the chip
- * whether or not anything is saved. A workspace with nothing selected still has runs on disk and a `Load
- * sets…` to write its first set with, so an empty chip that went straight to the load run dialog would be
- * shutting the door on both. A `Dialog` is its own window composition and adds nothing to the toolbar's own
- * layout.
- *
- * @param fold what the row has room for. See [ToolbarFold.runWidget].
- * @param shortcut the window's ⌃R, which this fills in while it is composed and clears when it is not.
+ * Everything the menu ever owned is still decided here: the same counts, the same lane sentence, the same
+ * handlers. What changed is what a row *means*. A row used to run its set, so the menu was a list of five
+ * ways to start something and the window said nothing about which one you would start next. A row now
+ * selects, the selection is remembered in `layout.json`, and ▶ beside the name is the only thing that starts
+ * anything, which is also what makes ⌃R possible, because it now has one unambiguous answer to "run what?".
  */
 @Composable
 @Suppress("LongMethod", "CyclomaticComplexMethod")
-fun ToolbarRunConfiguration(
+internal fun rememberRunChoice(
     viewModel: FixMessageViewModel,
-    fold: RunWidgetFold = RunWidgetFold.FULL,
-    shortcut: RunConfigurationShortcut? = null,
-    modifier: Modifier = Modifier,
-) {
+    doors: RunDoors = remember { RunDoors() },
+): RunChoice {
     val scenarioRunning by viewModel.scenarioRunning.collectAsState()
     val activeSet by viewModel.activeRunSet.collectAsState()
     val activeLoad by viewModel.activeLoadRun.collectAsState()
@@ -385,17 +459,6 @@ fun ToolbarRunConfiguration(
     // anything coarser reads 0 until something unrelated happens to change.
     val sessionStates = viewModel.sessions.map { it.connectionState.collectAsState().value }
     val layout by viewModel.layoutState.collectAsState()
-
-    // Whether the dropdown is open, learned from the menu's own composition rather than owned here: the
-    // widget holds that state, and the lane count below is worth recounting when the menu that prints it
-    // opens.
-    var menuOpen by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
-    var editingLoadSets by remember { mutableStateOf(false) }
-    var pendingLoadSet by remember { mutableStateOf<LoadSet?>(null) }
-    // The saved set a refused run wants fixed. By name, because it is already on disk: opening it as an
-    // unsaved draft would put "unsaved" in the footer of a set nobody has touched.
-    var loadSetToFix by remember { mutableStateOf<String?>(null) }
 
     // **The saved sets and the records come from the ViewModel as state, not from a read remembered here.**
     // They used to be `remember(menuOpen, activeSet, activeLoad, editingLoadSets)` reads of the stores, and
@@ -417,19 +480,19 @@ fun ToolbarRunConfiguration(
     // before it — the same stale-key bug as the lists above, one step smaller. A snapshot copy of the state
     // list keys on its contents, so any edit to a profile moves it too.
     val profiles = viewModel.connectionProfiles.toList()
-    // Counted for a load run, not for a fan-out: every row this menu gates on it is a load, and a load
-    // issues from one lane as happily as from fifty.
-    val lanes = remember(menuOpen, sessionStates, profiles) { Lanes.forLoad(viewModel) }
+    // Counted for a load run, not for a fan-out: every row gated on it is a load, and a load issues from one
+    // lane as happily as from fifty.
+    val lanes = remember(doors.menuOpen, sessionStates, profiles) { Lanes.forLoad(viewModel) }
     // What "Load run…" needs to be worth opening: a profile that could issue, whether or not it is up.
     val issuers =
-        remember(menuOpen, profiles) {
+        remember(doors.menuOpen, profiles) {
             val initiator = FixConnectionConfig.ConnectionType.INITIATOR
             profiles.count { it.config.connectionType == initiator }
         }
 
     val selectedKey = layout.selectedRunConfiguration
-    // Resolved from the very lists the rows below are drawn from, handed in rather than read again: a
-    // resolver that went back to disk on its own could name a set this menu does not list.
+    // Resolved from the very lists the rows are drawn from, handed in rather than read again: a resolver that
+    // went back to disk on its own could name a set the menu does not list.
     val selected =
         remember(selectedKey, configurations) {
             RunConfiguration.parse(viewModel.resolvedRunConfiguration(configurations))
@@ -461,131 +524,141 @@ fun ToolbarRunConfiguration(
             else -> null
         }
 
-    val start: () -> Unit = {
-        when (selected?.kind) {
-            null -> Unit
-            // A set that would be refused opens the editor **on that set**, rather than half-running.
-            // "Cannot run now" is a different answer: no lane, or a run already holding the sessions, is
-            // nothing the file can fix, so it stays a notification.
-            RunConfiguration.Kind.LOAD_SET ->
-                (viewModel.startSavedLoadSet(selected.name) as? FixMessageViewModel.SavedLoadSetRun.Refused)?.let {
-                    loadSetToFix = it.set.name
-                    editingLoadSets = true
-                }
-            RunConfiguration.Kind.RUN_SET -> viewModel.startSavedRunSet(selected.name)
-        }
-        Unit
-    }
-    val stop: () -> Unit = {
-        // The live record's id rather than the selection's name: what stops a run is the run, and the
-        // record is where its id is.
-        val liveLoad = viewModel.activeLoadRun.value?.id
-        val liveSet = viewModel.activeRunSet.value?.id
-        when (selected?.kind) {
-            null -> Unit
-            RunConfiguration.Kind.LOAD_SET -> liveLoad?.let(viewModel::stopLoadRun)
-            RunConfiguration.Kind.RUN_SET -> liveSet?.let(viewModel::requestScenarioStop)
-        }
-        Unit
-    }
-
-    // Published after composition rather than during it, so the key handler always finds the action that
-    // belongs to what is on screen now, and finds nothing once this widget has gone.
-    SideEffect {
-        shortcut?.action = {
-            when {
-                running -> stop()
-                refusal == null -> start()
-                else -> Unit
-            }
-        }
-    }
-    DisposableEffect(shortcut) { onDispose { shortcut?.action = null } }
-
-    if (loading) {
-        LoadRunDialog(
-            viewModel = viewModel,
-            fixedTemplate = null,
-            onDismiss = { loading = false },
-            onRun = { plan ->
-                loading = false
-                viewModel.startLoadRun(plan)
-            },
-            // The path from one burst to a set: tune the burst here, then want the cancel storm after it.
-            onMakeSet = { set ->
-                loading = false
-                pendingLoadSet = set
-                editingLoadSets = true
-            },
-        )
-    }
-    if (editingLoadSets) {
-        LoadSetsDialog(
-            viewModel = viewModel,
-            onDismiss = {
-                editingLoadSets = false
-                pendingLoadSet = null
-                loadSetToFix = null
-            },
-            onRun = { planned ->
-                editingLoadSets = false
-                pendingLoadSet = null
-                loadSetToFix = null
-                viewModel.startLoadSet(planned)
-            },
-            initial = pendingLoadSet,
-            initialName = loadSetToFix,
-        )
-    }
-
-    RunConfigurationWidget(
+    return RunChoice(
         selected = selected,
         displayName = displayName,
         running = running,
         refusal = refusal,
+        busy = scenarioRunning,
+        loadSets = loadSets,
+        runSets = savedSets,
+        recent = recent,
+        lanes = lanes,
+        issuers = issuers,
+        doors = doors,
+        sessionsOf = { viewModel.loadSetSessions(it) },
+        start = {
+            when (selected?.kind) {
+                null -> Unit
+                // A set that would be refused opens the editor **on that set**, rather than half-running.
+                // "Cannot run now" is a different answer: no lane, or a run already holding the sessions, is
+                // nothing the file can fix, so it stays a notification.
+                RunConfiguration.Kind.LOAD_SET ->
+                    (viewModel.startSavedLoadSet(selected.name) as? FixMessageViewModel.SavedLoadSetRun.Refused)?.let {
+                        doors.loadSetToFix = it.set.name
+                        doors.loadSets = true
+                    }
+                RunConfiguration.Kind.RUN_SET -> viewModel.startSavedRunSet(selected.name)
+            }
+        },
+        stop = {
+            // The live record's id rather than the selection's name: what stops a run is the run, and the
+            // record is where its id is.
+            val liveLoad = viewModel.activeLoadRun.value?.id
+            val liveSet = viewModel.activeRunSet.value?.id
+            when (selected?.kind) {
+                null -> Unit
+                RunConfiguration.Kind.LOAD_SET -> liveLoad?.let(viewModel::stopLoadRun)
+                RunConfiguration.Kind.RUN_SET -> liveSet?.let(viewModel::requestScenarioStop)
+            }
+        },
+        select = { viewModel.selectRunConfiguration(it.key) },
+        // **Whether a record still names something is decided here, not in the row.** A Recent row is a
+        // record, and a record remembers a name whether or not the file behind it survived the branch it was
+        // written on. The saved lists are in scope here and nowhere else.
+        openRecent = { run ->
+            val configuration = run.configuration?.takeIf { it.isSaved(loadSets, savedSets) }
+            if (configuration != null) {
+                viewModel.selectRunConfiguration(configuration.key)
+            } else {
+                when (run) {
+                    is RecentRun.Set -> viewModel.focusRunSet(run.id)
+                    is RecentRun.Load -> viewModel.openLoadRun(run.id)
+                }
+            }
+        },
+    )
+}
+
+/**
+ * **The run widget as the toolbar draws it**, and the host of the two dialogs its menu opens.
+ *
+ * Both dialogs are hosted here because both are opened from this menu, and the menu is behind the chip
+ * whether or not anything is saved. A workspace with nothing selected still has runs on disk and a `Load
+ * sets…` to write its first set with, so an empty chip that went straight to the load run dialog would be
+ * shutting the door on both. A `Dialog` is its own window composition and adds nothing to the toolbar's own
+ * layout. The Run menu opens the same two by writing the same [RunDoors].
+ *
+ * @param fold what the row has room for. See [ToolbarFold.runWidget].
+ * @param run the window's one [RunChoice], shared with the Run menu. A widget drawn on its own works out its
+ *   own.
+ */
+@Composable
+fun ToolbarRunConfiguration(
+    viewModel: FixMessageViewModel,
+    fold: RunWidgetFold = RunWidgetFold.FULL,
+    modifier: Modifier = Modifier,
+) {
+    ToolbarRunConfiguration(viewModel, rememberRunChoice(viewModel), fold, modifier)
+}
+
+@Composable
+internal fun ToolbarRunConfiguration(
+    viewModel: FixMessageViewModel,
+    run: RunChoice,
+    fold: RunWidgetFold = RunWidgetFold.FULL,
+    modifier: Modifier = Modifier,
+) {
+    val doors = run.doors
+    if (doors.loadRun) {
+        LoadRunDialog(
+            viewModel = viewModel,
+            fixedTemplate = null,
+            onDismiss = { doors.loadRun = false },
+            onRun = { plan ->
+                doors.loadRun = false
+                viewModel.startLoadRun(plan)
+            },
+            // The path from one burst to a set: tune the burst here, then want the cancel storm after it.
+            onMakeSet = { set ->
+                doors.loadRun = false
+                doors.pendingLoadSet = set
+                doors.loadSets = true
+            },
+        )
+    }
+    if (doors.loadSets) {
+        LoadSetsDialog(
+            viewModel = viewModel,
+            onDismiss = { doors.closeLoadSets() },
+            onRun = { planned ->
+                doors.closeLoadSets()
+                viewModel.startLoadSet(planned)
+            },
+            initial = doors.pendingLoadSet,
+            initialName = doors.loadSetToFix,
+        )
+    }
+
+    RunConfigurationWidget(
+        selected = run.selected,
+        displayName = run.displayName,
+        running = run.running,
+        refusal = run.refusal,
         fold = fold,
-        onRun = start,
-        onStop = stop,
+        onRun = run.start,
+        onStop = run.stop,
         menu = { close ->
             // The dropdown composes its content only while it is open, so this is the "on open" the lane
             // count is keyed on, in place of the flag the old menu owned. The re-read beside it is belt
             // and braces rather than the mechanism: everything that writes a set or a record through the
             // ViewModel has already said so, and a refresh that finds the same lists emits nothing.
             DisposableEffect(Unit) {
-                menuOpen = true
+                doors.menuOpen = true
                 viewModel.refreshRunConfigurations()
-                onDispose { menuOpen = false }
+                onDispose { doors.menuOpen = false }
             }
-            RunConfigurationsMenu(
-                savedSets = savedSets,
-                loadSets = loadSets,
-                recent = recent,
-                lanes = lanes,
-                profiles = issuers,
-                sessionsOf = { viewModel.loadSetSessions(it) },
-                running = scenarioRunning,
-                onChose = close,
-                onLoadRun = { loading = true },
-                onSelect = { viewModel.selectRunConfiguration(it.key) },
-                onLoadSets = {
-                    loadSetToFix = null
-                    editingLoadSets = true
-                },
-                // **Whether a record still names something is decided here, not in the row.** A Recent row
-                // is a record, and a record remembers a name whether or not the file behind it survived the
-                // branch it was written on. The saved lists are in scope here and nowhere else.
-                onRecent = { run ->
-                    val configuration = run.configuration?.takeIf { it.isSaved(loadSets, savedSets) }
-                    if (configuration != null) {
-                        viewModel.selectRunConfiguration(configuration.key)
-                    } else {
-                        when (run) {
-                            is RecentRun.Set -> viewModel.focusRunSet(run.id)
-                            is RecentRun.Load -> viewModel.openLoadRun(run.id)
-                        }
-                    }
-                },
-            )
+            RunConfigurationsMenu(run, onChose = close)
         },
         modifier = modifier,
     )
@@ -615,23 +688,9 @@ private fun RunConfiguration.isSaved(
  * cannot tell "no set is saved" from "this feature does not exist" if the item is withheld.
  */
 @Composable
-@Suppress("LongParameterList")
 private fun RunConfigurationsMenu(
-    savedSets: List<SavedRunSet>,
-    loadSets: List<LoadSet>,
-    recent: List<RecentRun>,
-    lanes: Lanes,
-    /** Saved profiles a load run could issue from at all, connected or not, since a run connects them. */
-    profiles: Int,
-    /** What each saved set runs on, and what running it would bring up. */
-    sessionsOf: (LoadSet) -> FixMessageViewModel.LoadSetSessions,
-    running: Boolean,
+    run: RunChoice,
     onChose: () -> Unit,
-    onLoadRun: () -> Unit,
-    onSelect: (RunConfiguration) -> Unit,
-    onLoadSets: () -> Unit,
-    /** A Recent row, which the caller either selects or opens depending on whether its file is still there. */
-    onRecent: (RecentRun) -> Unit,
 ) {
     // The lane sentence fan-out uses: "2" on its own is a count of *profiles* and reads as two lanes, and
     // a lane is sequential, so fifty sessions give fifty outstanding rather than four thousand.
@@ -639,52 +698,46 @@ private fun RunConfigurationsMenu(
     // **Neither row waits for a lane to be up.** A load run dials the profile it is pointed at and a set
     // dials every profile it names, so a greyed row here would be hiding the door that connects them. What
     // holds them is a run already in flight, and, for a load run, having nowhere to issue from at all.
-    RailMenuItem(
-        "Load run…  ${if (lanes.profiles > 0) lanes.sentence else "nothing up yet"}",
-        enabled = !running && profiles > 0,
-        tag = "rail-run-load",
-    ) {
+    RailMenuItem(loadRunRow(run.lanes), enabled = !run.busy && run.issuers > 0, tag = "rail-run-load") {
         onChose()
-        onLoadRun()
+        run.doors.openLoadRun()
     }
-    loadSets.forEach { set ->
-        val phases = "${set.phases.size} phase${if (set.phases.size == 1) "" else "s"}"
+    run.loadSets.forEach { set ->
         RailMenuItem(
-            "Load set ▸  ${set.label.ifBlank { set.name }}  $phases",
-            enabled = !running,
+            "Load set ▸  ${set.label.ifBlank { set.name }}  ${phaseCount(set)}",
+            enabled = !run.busy,
             tag = "run-config-${set.name}",
             // Which sessions this one runs on, and which of them ▶ will connect, the one thing a set's
             // name has never said, and the reason running a saved set meant opening its file first.
-            sub = sessionsOf(set).sentence,
+            sub = run.sessionsOf(set).sentence,
         ) {
             onChose()
-            onSelect(RunConfiguration(RunConfiguration.Kind.LOAD_SET, set.name))
+            run.select(RunConfiguration(RunConfiguration.Kind.LOAD_SET, set.name))
         }
     }
-    if (savedSets.isEmpty()) {
+    if (run.runSets.isEmpty()) {
         RailMenuItem("Run set ▸  none saved", enabled = false, tag = "rail-run-set-none") {}
     } else {
-        savedSets.forEach { set ->
-            val runs = set.entries.sumOf { it.repeat.coerceAtLeast(1) }
+        run.runSets.forEach { set ->
             RailMenuItem(
-                "Run set ▸  ${set.name}  $runs scenario${if (runs == 1) "" else "s"}",
-                enabled = !running,
+                "Run set ▸  ${set.name}  ${scenarioCount(set)}",
+                enabled = !run.busy,
                 tag = "run-config-${set.name}",
             ) {
                 onChose()
-                onSelect(RunConfiguration(RunConfiguration.Kind.RUN_SET, set.name))
+                run.select(RunConfiguration(RunConfiguration.Kind.RUN_SET, set.name))
             }
         }
     }
     HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-    RailMenuItem("Load sets…  ${loadSets.size} saved", enabled = !running, tag = "rail-load-sets") {
+    RailMenuItem(loadSetsRow(run.loadSets.size), enabled = !run.busy, tag = "rail-load-sets") {
         onChose()
-        onLoadSets()
+        run.doors.openLoadSets()
     }
     // A menu about saved things is also where somebody looks for what they produced, and Recent already
     // merges load runs with scenario sets. A titled group rather than "Recent ▸" on every row: the rows
     // are a list of records, and the prefix was saying the same word five times over.
-    if (recent.isNotEmpty()) {
+    if (run.recent.isNotEmpty()) {
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
         Text(
             "recent",
@@ -692,10 +745,10 @@ private fun RunConfigurationsMenu(
             style = AppTheme.Type.meta,
             modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 2.dp).testTag("toolbar-recent-group"),
         )
-        recent.forEach { run ->
-            RailMenuItem(run.line, tag = "rail-recent-${run.id}") {
+        run.recent.forEach { record ->
+            RailMenuItem(record.line, tag = "rail-recent-${record.id}") {
                 onChose()
-                onRecent(run)
+                run.openRecent(record)
             }
         }
     }

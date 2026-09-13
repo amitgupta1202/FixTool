@@ -113,7 +113,8 @@ class ToolbarGroupsTest {
         composeTestRule
             .onNodeWithTag("toolbar-blank-line")
             .assertExists()
-            .assertContentDescriptionContains("Add blank line to all panes")
+            // Its whole name, and the shortcut the menu bar gave it.
+            .assertContentDescriptionContains("Add blank line to all panes · ", substring = true)
     }
 
     /**

@@ -37,6 +37,28 @@ private val logger = LoggerFactory.getLogger("com.knapsack.fixtool.ui.App")
 fun App(
     modifier: Modifier = Modifier,
     onViewModelCreated: (FixMessageViewModel) -> Unit = {},
+    /** The window's catalogue of actions, which the menu bar draws and whose shortcuts the window answers. */
+    menus: AppMenuState = remember { AppMenuState() },
+    /** Draws [menus] as the window's menu bar. Null where there is no window to hang one on, as in a test. */
+    menuBar: (@Composable (AppMenuState) -> Unit)? = null,
+    /** What the menu's Quit does: the window's own close, which logs every session out first. */
+    onQuit: () -> Unit = {},
+) {
+    val arming = rememberWindowArming()
+    CompositionLocalProvider(LocalWindowArming provides arming) {
+        AppContent(modifier, onViewModelCreated, menus, menuBar, onQuit)
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+@Suppress("LongMethod", "CyclomaticComplexMethod")
+private fun AppContent(
+    modifier: Modifier,
+    onViewModelCreated: (FixMessageViewModel) -> Unit,
+    menus: AppMenuState,
+    menuBar: (@Composable (AppMenuState) -> Unit)?,
+    onQuit: () -> Unit,
 ) {
     FixToolWindowChrome {
         val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
@@ -150,24 +172,8 @@ fun App(
         val showOrderBookPanel by viewModel.showOrderBookPanel.collectAsState()
         val showScenariosRail by viewModel.showScenariosRail.collectAsState()
 
-        /**
-         * Whether ANY pane is grouped by conversation — what the toolbar button lights up on.
-         *
-         * One collector over the combined flows, not `sessions.map { it.flow.collectAsState() }`.
-         * That called a composable inside a loop over a mutable list, so the number and order of
-         * composition slots depended on how many sessions were open and every add or remove shifted
-         * them, re-creating each collector. Keyed on the session count so the combination is rebuilt
-         * exactly when the set of flows to combine changes.
-         */
-        val sessionCount = viewModel.sessions.size
-        val anySessionGrouped by remember(sessionCount) {
-            val flows = viewModel.sessions.map { session -> session.groupByConversation }
-            if (flows.isEmpty()) {
-                kotlinx.coroutines.flow.flowOf(false)
-            } else {
-                kotlinx.coroutines.flow.combine(flows) { flags -> flags.any { on -> on } }
-            }
-        }.collectAsState(initial = viewModel.anySessionGroupedByConversation())
+        // Whether any pane is grouped by conversation — what View ▾'s tick shows. See [anySessionGrouped].
+        val anySessionGrouped = anySessionGrouped(viewModel)
         // Documents live in the bottom dock now (see BottomDock), not in the session centre, so the
         // layout no longer tracks the active document or its tabs at this level.
 
@@ -213,25 +219,8 @@ fun App(
         val bottomTab by viewModel.bottomTab.collectAsState()
         val openDocuments by viewModel.openDocuments.collectAsState()
 
-        /**
-         * **Which tool windows are on screen**, which is what draws a stripe tab pressed.
-         *
-         * Read off the three group selections rather than kept as state of its own, because every one of
-         * these windows has other doors (a message selection opens the detail panel, a control-surface
-         * `/panel` call opens any of them) and a tab that tracked its own boolean would disagree with the
-         * window it names.
-         */
-        val openToolWindows =
-            buildSet {
-                leftWindow?.let(::add)
-                rightWindow?.let(::add)
-                when (bottomTab) {
-                    is BottomTab.Terminal -> add(ToolWindow.TERMINAL)
-                    is BottomTab.Trace -> add(ToolWindow.TRACE)
-                    is BottomTab.Document -> add(ToolWindow.DOCUMENTS)
-                    else -> Unit
-                }
-            }
+        // What draws a stripe tab pressed, and what the Window menu ticks. See [openToolWindows].
+        val openToolWindows = openToolWindows(leftWindow, rightWindow, bottomTab)
         // One handler for the tab and for its ⌘ digit, so the two doors to a window cannot drift apart.
         val onToggleToolWindow: (ToolWindow) -> Unit = { window -> viewModel.toggle(window) }
 
@@ -247,9 +236,22 @@ fun App(
             )
         }
 
-        // ⌃R's target. Remembered here, beside the rest of this window's own UI state, because the key
-        // handler below is at the window level and the widget that knows what to run is in the toolbar.
-        val runShortcut = remember { RunConfigurationShortcut() }
+        // The run widget's dialogs, one set for the window: the toolbar's chip and the menu bar's Run menu
+        // both open them. See [RunDoors].
+        val runDoors = remember { RunDoors() }
+
+        // **The menu bar's catalogue**, built from what the toolbar, the stripes and the pane header read, in a
+        // composable of its own so what it reads recomposes it and not this window. See [PublishAppMenus].
+        PublishAppMenus(
+            state = menus,
+            viewModel = viewModel,
+            layout = viewMode,
+            onLayoutChange = onViewModeChange,
+            runDoors = runDoors,
+            workspace = workspaceMenu,
+            onQuit = onQuit,
+        )
+        menuBar?.invoke(menus)
 
         // A slot on the toolbar rather than a dozen more parameters, and `folded` comes from the toolbar,
         // which is the only thing that knows how much room the row has left. See [PaneViewControls].
@@ -272,40 +274,12 @@ fun App(
                 modifier
                     .fillMaxSize()
                     .onKeyEvent { event ->
-                        // **⌘F searches the pane, ⌘⇧F searches every session** — IntelliJ's find in file and
-                        // find in path, in that order. ⌘F used to open Search all sessions from here while
-                        // the pane's own search button advertised "Show Search (Ctrl+F)" and opened
-                        // something else, so the one shortcut printed in a pane tooltip was the one shortcut
-                        // that did not belong to that button.
-                        //
-                        // The pane is the active one, which is as close to "focused" as the app gets today —
-                        // there is no per-pane keyboard focus to ask. A minimized pane has no grid on screen
-                        // and a venue has none at all, so both fall through to Search all sessions rather
-                        // than answering with a search bar nobody can see. The filter has no shortcut of its
-                        // own any more: it is on the toolbar, in the open, so there is nothing to summon.
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.F &&
-                            (event.isMetaPressed || event.isCtrlPressed)
-                        ) {
-                            val pane =
-                                viewModel.activeSession?.takeIf { !it.isVenue && !it.minimized.value }
-                            if (event.isShiftPressed || pane == null) {
-                                viewModel.toggleGlobalSearchDialog()
-                            } else {
-                                pane.toggleSearch()
-                            }
-                            true // Consume the event
-                        } else if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.R &&
-                            (event.isMetaPressed || event.isCtrlPressed)
-                        ) {
-                            // ⌃R runs or stops whatever the toolbar's run widget is pointed at, which is
-                            // the whole reason the widget names one thing rather than listing five. Meta or
-                            // Ctrl, the pair ⌘F above and ⌘1 to ⌘8 below already accept, so the shortcut
-                            // works the same way on whichever platform the window is open on. It is the
-                            // widget's own answer that is returned: a window with nothing composed to act
-                            // on lets the key fall through rather than swallowing it.
-                            runShortcut.fire()
+                        // **Every shortcut is a menu row's.** ⌘F, ⌘⇧F, ⌃R, ⌘1 to ⌘8 and the rest were a
+                        // branch each here, beside tooltips that printed them from strings of their own; now
+                        // the row that names an action carries its shortcut, and this asks the catalogue
+                        // which row was pressed. See [dispatch], and [Shortcuts] for the table.
+                        if (menus.dispatch(event)) {
+                            true
                         } else if (event.type == KeyEventType.KeyDown &&
                             event.key == Key.Escape &&
                             followedTrace != null &&
@@ -319,15 +293,6 @@ fun App(
                             // closes itself. The dialogs above draw over the whole window without a key
                             // handler of their own, so they are named rather than trusted to consume.
                             viewModel.unfollow()
-                            true
-                        } else if (event.type == KeyEventType.KeyDown &&
-                            (event.isMetaPressed || event.isCtrlPressed) &&
-                            ToolWindow.forKey(event.key) != null
-                        ) {
-                            // ⌘1 to ⌘8, in stripe order, doing exactly what the tab does. Meta or Ctrl,
-                            // the pair ⌘F above already accepts, so the shortcut works the same way on
-                            // whichever platform the window is open on.
-                            ToolWindow.forKey(event.key)?.let(onToggleToolWindow)
                             true
                         } else {
                             // esc no longer closes the scenario document: the editor is a bottom dock, not a
@@ -367,7 +332,9 @@ fun App(
                     onOpenHelp = { viewModel.toggleHelpDialog() },
                     onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
                     sessionControls = { words -> ToolbarSessionControls(viewModel, words = words) },
-                    runConfiguration = { fold -> ToolbarRunConfiguration(viewModel, fold, shortcut = runShortcut) },
+                    runConfiguration = { fold ->
+                        ToolbarRunConfiguration(viewModel, rememberRunChoice(viewModel, runDoors), fold)
+                    },
                     viewControls = paneViewControls,
                 )
 
@@ -429,6 +396,7 @@ fun App(
                 if (showHelpDialog) {
                     HelpDialog(
                         onClose = { viewModel.toggleHelpDialog() },
+                        anchor = viewModel.helpAnchor.collectAsState().value,
                     )
                 }
 

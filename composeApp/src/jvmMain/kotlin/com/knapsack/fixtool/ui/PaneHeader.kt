@@ -76,10 +76,6 @@ internal const val MOVE_RIGHT_LABEL = "Move right"
 
 internal const val CLOSE_SESSION_LABEL = "Close session"
 
-/** ⌘F on macOS, Ctrl+F elsewhere — printed on the button that now answers to it. */
-internal val SEARCH_SHORTCUT: String
-    get() = if (System.getProperty("os.name").lowercase().contains("mac")) "⌘F" else "Ctrl+F"
-
 /**
  * **One header for a session pane, in both layouts.**
  *
@@ -244,7 +240,7 @@ private fun gridActions(
             Icons.Default.Search,
             { session.toggleSearch() },
             "pane-search",
-            shortcut = SEARCH_SHORTCUT,
+            shortcut = Shortcuts.SEARCH_IN_PANE.label,
             pressed = searchVisible,
             foldRank = 8,
         ),
@@ -269,6 +265,7 @@ private fun gridActions(
             Icons.Default.Add,
             { session.addSeparator() },
             "pane-blank-line",
+            shortcut = Shortcuts.BLANK_LINE.label,
             foldRank = 6,
         ),
         BarAction(CLEAR_LABEL, Icons.Default.Delete, { session.clearMessages() }, "pane-clear", foldRank = 5),
@@ -299,9 +296,11 @@ private fun paneChrome(
 ): List<BarAction> {
     // **A Close takes the log with it and there is no Recent for a closed session**, so it asks — in the
     // button, the way Close all does, rather than in a dialog over the window. One click arms it, the
-    // second closes, and it gives up on its own. See [rememberArmed] for the clock.
-    val closing = rememberArmed(session)
-    val armed = closing.value
+    // second closes, and it gives up on its own. The question is the window's rather than this button's,
+    // because the tab and the Session menu close the same session: see [WindowArming].
+    val arming = windowArming()
+    val closing = ClosingSession(session.id)
+    val armed = arming.isArmed(closing)
 
     return listOfNotNull(
         // Leaves the layout for a chip in the strip above. Not a close: the session keeps running and
@@ -317,10 +316,7 @@ private fun paneChrome(
             BarAction(
                 label = if (armed) "Close ${session.title}?" else CLOSE_SESSION_LABEL,
                 icon = Icons.Default.Close,
-                onClick = {
-                    if (armed) close()
-                    closing.value = !armed
-                },
+                onClick = { if (arming.confirm(closing)) close() },
                 tag = "pane-close",
                 hint = if (armed) "click again to confirm" else "click again to confirm — the log goes with it",
                 tint = if (armed) AppTheme.Colors.warning else null,

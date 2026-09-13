@@ -29,6 +29,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 
+/** The switcher's words, which the menu bar's Workspace menu prints too. */
+internal const val NEW_WORKSPACE_LABEL = "New workspace…"
+
+internal const val OPEN_WORKSPACE_LABEL = "Open workspace…"
+
+internal const val RECENT_WORKSPACES_LABEL = "Recent workspaces"
+
+internal const val CLOSE_WORKSPACE_LABEL = "Close workspace"
+
 /**
  * **The workspace switcher, where the app's name used to sit.**
  *
@@ -111,7 +120,7 @@ private fun RootPage(
         modifier = Modifier.padding(vertical = 4.dp),
     )
     state.onNew?.let { onNew ->
-        Item(text = "New workspace…", testTag = "workspace-new") {
+        Item(text = NEW_WORKSPACE_LABEL, testTag = "workspace-new") {
             close()
             onNew()
         }
@@ -119,18 +128,18 @@ private fun RootPage(
     // Straight to the folder dialog, which starts in workspaces/. The bundled examples are folders
     // there, so they need no list of their own — see ExampleWorkspaces.layDownMissing.
     state.onBrowse?.let { onBrowse ->
-        Item(text = "Open workspace…", testTag = "workspace-open") {
+        Item(text = OPEN_WORKSPACE_LABEL, testTag = "workspace-open") {
             close()
             onBrowse()
         }
     }
     if (state.recents.isNotEmpty() && state.onOpenRecent != null) {
-        Item(text = "Recent workspaces", trailing = true, testTag = "workspace-recent") { goTo(Page.RECENT) }
+        Item(text = RECENT_WORKSPACES_LABEL, trailing = true, testTag = "workspace-recent") { goTo(Page.RECENT) }
     }
     // Absent rather than disabled on Default: Close is what RETURNS you there, so on Default it is not
     // an action that is unavailable, it is an action that has already happened.
     if (!state.isDefault && state.onClose != null) {
-        Item(text = "Close workspace", testTag = "workspace-close") {
+        Item(text = CLOSE_WORKSPACE_LABEL, testTag = "workspace-close") {
             close()
             state.onClose.invoke()
         }
@@ -143,7 +152,7 @@ private fun RecentPage(
     close: () -> Unit,
     back: () -> Unit,
 ) {
-    Back(label = "Recent workspaces", testTag = "workspace-recent-back", onClick = back)
+    Back(label = RECENT_WORKSPACES_LABEL, testTag = "workspace-recent-back", onClick = back)
     state.recents.forEach { workspace ->
         TwoLineItem(
             title = workspace.name,

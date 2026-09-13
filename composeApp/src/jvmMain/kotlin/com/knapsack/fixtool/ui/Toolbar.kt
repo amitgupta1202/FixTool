@@ -178,12 +178,12 @@ fun Toolbar(
             if (onClearAll != null) {
                 ToolbarChip(
                     icon = Icons.Default.Delete,
-                    label = "Clear all",
+                    label = WindowAction.CLEAR_ALL.word,
                     tint = AppTheme.Colors.warning,
                     onClick = onClearAll,
                     tag = "toolbar-clear-all",
                     words = fold.commandWords,
-                    tooltip = "Clear all panes · no undo",
+                    tooltip = "${WindowAction.CLEAR_ALL.hover} · no undo",
                 )
             }
             GroupDivider(5)
@@ -200,13 +200,18 @@ fun Toolbar(
             // Settings button
             if (onOpenSettings != null) {
                 TooltipIconButton(
-                    tooltip = if (isDictionaryValid) "Settings" else "Settings · dictionary needs configuring",
+                    tooltip =
+                        if (isDictionaryValid) {
+                            WindowAction.SETTINGS.word
+                        } else {
+                            "${WindowAction.SETTINGS.word} · dictionary needs configuring"
+                        },
                     onClick = onOpenSettings,
                     modifier = tooltipModifier,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
+                        contentDescription = WindowAction.SETTINGS.word,
                         tint = if (isDictionaryValid) AppTheme.Colors.textSecondary else AppTheme.Colors.error,
                         modifier = tooltipIconModifier,
                     )
@@ -216,13 +221,13 @@ fun Toolbar(
             // Help button
             if (onOpenHelp != null) {
                 TooltipIconButton(
-                    tooltip = "Help",
+                    tooltip = WindowAction.HELP.label,
                     onClick = onOpenHelp,
                     modifier = tooltipModifier,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Help,
-                        contentDescription = "Help",
+                        contentDescription = WindowAction.HELP.label,
                         tint = AppTheme.Colors.textSecondary,
                         modifier = tooltipIconModifier,
                     )
@@ -275,7 +280,7 @@ private fun ConnectChip(
     Box {
         ToolbarChip(
             icon = Icons.Default.PlayArrow,
-            label = "Connect",
+            label = WindowAction.CONNECT.word,
             tint = AppTheme.Colors.text,
             iconTint = AppTheme.Colors.primary,
             onClick = { expanded = true },
@@ -429,34 +434,34 @@ private fun AllSessionsActions(
         if (onCaptureScenario != null) {
             ToolbarChip(
                 icon = Icons.Default.PlaylistAdd,
-                label = "Capture",
+                label = WindowAction.CAPTURE.word,
                 tint = AppTheme.Colors.text,
                 onClick = onCaptureScenario,
                 tag = "toolbar-capture",
                 words = words,
-                tooltip = "Capture scenario from all sessions",
+                tooltip = WindowAction.CAPTURE.hover,
             )
         }
         if (onSearchAllSessions != null) {
             ToolbarChip(
                 icon = Icons.Default.Search,
-                label = "Search",
+                label = WindowAction.SEARCH_ALL.word,
                 tint = AppTheme.Colors.text,
                 onClick = onSearchAllSessions,
                 tag = "toolbar-search",
                 words = words,
-                tooltip = "Search all sessions · $SEARCH_ALL_SHORTCUT",
+                tooltip = WindowAction.SEARCH_ALL.hover,
             )
         }
         if (onAddSeparatorToAll != null) {
             ToolbarChip(
                 icon = Icons.Default.Add,
-                label = "Blank line",
+                label = WindowAction.BLANK_LINE_ALL.word,
                 tint = AppTheme.Colors.text,
                 onClick = onAddSeparatorToAll,
                 tag = "toolbar-blank-line",
                 words = words,
-                tooltip = "Add blank line to all panes",
+                tooltip = WindowAction.BLANK_LINE_ALL.hover,
             )
         }
     }
@@ -662,13 +667,13 @@ private fun toolbarFullWidth(fold: ToolbarFold): Dp =
         WORKSPACE_WIDTH +
         GROUP_DIVIDER_WIDTH * 7 +
         FILTER_MIN_WIDTH +
-        chipWidth("Connect", chevron = true, words = fold.commandWords) +
-        chipWidth("Disconnect all", words = fold.commandWords) +
-        chipWidth("Close all", words = fold.commandWords) +
-        chipWidth("Clear all", words = fold.commandWords) +
-        chipWidth("Capture", words = fold.actionWords) +
-        chipWidth("Search", words = fold.actionWords) +
-        chipWidth("Blank line", words = fold.actionWords) +
+        chipWidth(WindowAction.CONNECT.word, chevron = true, words = fold.commandWords) +
+        chipWidth(WindowAction.DISCONNECT_ALL.word, words = fold.commandWords) +
+        chipWidth(WindowAction.CLOSE_ALL.word, words = fold.commandWords) +
+        chipWidth(WindowAction.CLEAR_ALL.word, words = fold.commandWords) +
+        chipWidth(WindowAction.CAPTURE.word, words = fold.actionWords) +
+        chipWidth(WindowAction.SEARCH_ALL.word, words = fold.actionWords) +
+        chipWidth(WindowAction.BLANK_LINE_ALL.word, words = fold.actionWords) +
         CHIP_GAP * 4 +
         runWidgetWidth(fold) +
         (if (fold.layoutSegments) VIEW_CONTROLS_WIDTH else VIEW_MENU_WIDTH) +
@@ -712,7 +717,7 @@ fun ToolbarSessionControls(
         val offer = viewModel.disconnectAllOffer(activeLoad, runningIds)
         ToolbarChip(
             icon = Icons.Default.PowerSettingsNew,
-            label = "Disconnect all",
+            label = WindowAction.DISCONNECT_ALL.word,
             tint = if (offer.enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
             onClick = { viewModel.disconnectAllSessions() },
             tag = "toolbar-disconnect-all",
@@ -747,41 +752,30 @@ private fun CloseAllChip(
 ) {
     val offer = viewModel.closeAllOffer(activeLoad, runningIds)
     val panes = viewModel.sessions.size
-    // Keyed on the count, so a pane closing or opening under an armed button restarts the countdown
-    // rather than leaving it armed over a number that has changed. One clock for every armed control in
-    // the app — see [rememberArmed], which this pattern is where it came from.
-    val arming = rememberArmed(panes)
-    if (arming.value && !offer.enabled) arming.value = false
-    val armed = arming.value
+    // The count is part of the question, so a pane closing or opening under an armed button is a different
+    // question and the old one no longer stands. The window's question rather than this chip's, because the
+    // Session menu's Close all asks the same one — see [WindowArming], which this chip is where it came from.
+    val arming = windowArming()
+    val closing = ClosingAllPanes(panes)
+    if (arming.isArmed(closing) && !offer.enabled) arming.disarm()
+    val armed = arming.isArmed(closing)
     val sentence = if (armed) "Close $panes pane${if (panes == 1) "" else "s"}? Click again." else offer.tooltip
     ToolbarChip(
         icon = Icons.Default.Close,
-        label = if (armed) "Close $panes?" else "Close all",
+        label = if (armed) "Close $panes?" else WindowAction.CLOSE_ALL.word,
         tint =
             when {
                 !offer.enabled -> AppTheme.Colors.textDisabled
                 armed -> AppTheme.Colors.warning
                 else -> AppTheme.Colors.text
             },
-        onClick = {
-            if (armed) viewModel.closeAllSessions()
-            arming.value = !armed
-        },
+        onClick = { if (arming.confirm(closing)) viewModel.closeAllSessions() },
         tag = "toolbar-close-all",
         words = words,
         enabled = offer.enabled,
         tooltip = sentence,
     )
 }
-
-/**
- * ⌘⇧F on macOS, Ctrl+Shift+F elsewhere.
- *
- * It was ⌘F, which is find-in-file everywhere else in the world; that shortcut belongs to the pane's own
- * search now, and this is find-in-path beside it.
- */
-internal val SEARCH_ALL_SHORTCUT: String
-    get() = if (System.getProperty("os.name").lowercase().contains("mac")) "⌘⇧F" else "Ctrl+Shift+F"
 
 /**
  * A 28dp toolbar chip: an icon, a word, and a chevron when it opens a menu.

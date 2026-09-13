@@ -41,6 +41,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixMessageSession
 
+/** View ▾'s words, which the menu bar's View menu prints too. Group by conversation is the pane's [GROUP_LABEL]. */
+internal const val PARSED_ROWS_LABEL = "Parsed rows"
+
+internal const val RAW_ROWS_LABEL = "Raw rows"
+
+internal const val HIDE_PROTOCOL_TAGS_LABEL = "Hide protocol tags"
+
 /** A segment is a tab's height without a tab's chrome, so the group sits inside the bar rather than filling it. */
 private val SEGMENT_HEIGHT = 22.dp
 
@@ -299,7 +306,7 @@ private fun ViewMenu(
             // all-sessions mode, so picking the mode already in force calls nothing: flipping there would
             // flip the view away from what was asked for.
             ViewMenuRow(
-                label = "Parsed rows",
+                label = PARSED_ROWS_LABEL,
                 on = sessionViewMode == FixMessageSession.ViewMode.PARSED,
                 mark = ViewMark.RADIO,
                 tag = "view-parsed",
@@ -308,7 +315,7 @@ private fun ViewMenu(
                 if (sessionViewMode != FixMessageSession.ViewMode.PARSED) onToggleGridView()
             }
             ViewMenuRow(
-                label = "Raw rows",
+                label = RAW_ROWS_LABEL,
                 on = sessionViewMode == FixMessageSession.ViewMode.RAW,
                 mark = ViewMark.RADIO,
                 tag = "view-raw",
@@ -323,14 +330,15 @@ private fun ViewMenu(
             // the tick moves under the pointer, and a reader who wanted both settings gets both without
             // opening the menu twice.
             ViewMenuRow(
-                label = "Hide protocol tags",
+                label = HIDE_PROTOCOL_TAGS_LABEL,
                 on = hideProtocolTags,
                 mark = ViewMark.CHECK,
                 tag = "view-hide-tags",
+                shortcut = Shortcuts.HIDE_PROTOCOL_TAGS.label,
                 onClick = onToggleHideProtocolTags,
             )
             ViewMenuRow(
-                label = "Group by conversation",
+                label = GROUP_LABEL,
                 on = groupByConversation,
                 mark = ViewMark.CHECK,
                 tag = "view-group",
@@ -357,15 +365,22 @@ private enum class ViewMark(
  * filled one is a difference a reader has to look for, and an empty slot is not.
  */
 @Composable
+@Suppress("LongParameterList")
 private fun ViewMenuRow(
     label: String,
     on: Boolean,
     mark: ViewMark,
     tag: String,
+    /** Printed dim after the name, as the menu bar prints it beside the same row. */
+    shortcut: String? = null,
     onClick: () -> Unit,
 ) {
     DropdownMenuItem(
         text = { Text(text = label, color = AppTheme.Colors.text, fontSize = 12.sp) },
+        trailingIcon =
+            shortcut?.let { keys ->
+                { Text(text = keys, color = AppTheme.Colors.textDisabled, fontSize = 11.sp) }
+            },
         leadingIcon = {
             Box(modifier = Modifier.size(MARK_SLOT), contentAlignment = Alignment.Center) {
                 if (on) {

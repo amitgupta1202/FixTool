@@ -963,10 +963,8 @@
               <div class="mi"><span class="mk">●</span>Parsed rows</div>
               <div class="mi"><span class="mk blank">○</span>Raw rows</div>
               <div class="sep"></div>
-              <div class="mi"><span class="mk">✓</span>Hide protocol tags</div>
+              <div class="mi"><span class="mk">✓</span>Hide protocol tags<span class="ct">⌘⇧H</span></div>
               <div class="mi"><span class="mk blank">✓</span>Group by conversation</div>
-              <div class="sep"></div>
-              <div class="mi"><span class="mk blank">✓</span>Filter row<span class="ct">⌘⇧F</span></div>
             </div>
             <div class="menu sub2">
               <div class="mi"><span class="mk">✓</span>Tabs</div>
@@ -983,36 +981,51 @@
             <div>
               <div class="tn">FixTool</div>
               <ul>
-                <li>About FixTool</li>
                 <li>Settings… <span class="sc">⌘,</span></li>
+                <li class="rr">.....................</li>
                 <li>Quit FixTool <span class="sc">⌘Q</span></li>
               </ul>
             </div>
             <div>
               <div class="tn">Workspace</div>
               <ul>
-                <li>Open…</li>
-                <li>Recent <span class="sc">▸</span></li>
-                <li>Reset example</li>
+                <li>New workspace…</li>
+                <li>Open workspace…</li>
+                <li>Recent workspaces <span class="sc">▸</span></li>
+                <li class="rr">.....................</li>
                 <li>Reveal in Finder</li>
+                <li>Reset example</li>
+                <li class="rr">.....................</li>
+                <li>Close workspace</li>
               </ul>
             </div>
             <div>
               <div class="tn">Session</div>
               <ul>
-                <li>Quick Connect <span class="sc">▸ profiles</span></li>
+                <li>Connect <span class="sc">▸ profiles</span></li>
                 <li>Disconnect all</li>
+                <li>Close all</li>
+                <li class="rr">.....................</li>
+                <li><i>the active session, named</i></li>
+                <li>Search in pane <span class="sc">⌘F</span></li>
+                <li>Filter pane</li>
+                <li>Wrap lines</li>
+                <li>Add blank line <span class="sc">⌘B</span></li>
+                <li>Clear messages</li>
+                <li>Minimize</li>
+                <li>Close session</li>
                 <li class="rr">.....................</li>
                 <li>Capture scenario from all sessions</li>
-                <li>Search all sessions <span class="sc">⌘F</span></li>
-                <li>Add blank line to all sessions</li>
-                <li class="rr">.....................</li>
-                <li>Clear all sessions</li>
+                <li>Search all sessions <span class="sc">⌘⇧F</span></li>
+                <li>Add blank line to all panes <span class="sc">⌘⇧B</span></li>
+                <li>Clear all panes</li>
               </ul>
             </div>
             <div>
               <div class="tn">Run</div>
               <ul>
+                <li>Run <i>name</i> · Stop <i>name</i> <span class="sc">⌃R</span></li>
+                <li class="rr">.....................</li>
                 <li>Load run…</li>
                 <li>Load set <span class="sc">▸</span></li>
                 <li>Run set <span class="sc">▸</span></li>
@@ -1025,10 +1038,11 @@
               <div class="tn">View</div>
               <ul>
                 <li>Layout <span class="sc">▸</span></li>
+                <li class="rr">.....................</li>
                 <li>Parsed rows · Raw rows</li>
-                <li>Hide protocol tags</li>
+                <li class="rr">.....................</li>
+                <li>Hide protocol tags <span class="sc">⌘⇧H</span></li>
                 <li>Group by conversation</li>
-                <li>Filter row <span class="sc">⌘⇧F</span></li>
               </ul>
             </div>
             <div>
@@ -1042,14 +1056,15 @@
                 <li>Latency <span class="sc">⌘6</span></li>
                 <li>Terminal <span class="sc">⌘7</span></li>
                 <li>Trace <span class="sc">⌘8</span></li>
+                <li>Documents</li>
                 <li class="rr">.....................</li>
-                <li>Hide all tool windows <span class="sc">⇧⌘F12</span></li>
+                <li>Hide all tool windows <span class="sc">⌘⇧F12</span></li>
               </ul>
             </div>
             <div>
               <div class="tn">Help</div>
               <ul>
-                <li>Help &amp; documentation</li>
+                <li>Help</li>
                 <li>Automation reference</li>
               </ul>
             </div>
@@ -1064,6 +1079,19 @@
       said a menu bar Run could come later as a second door to the same menu, and here it does, with the same
       items and the same handlers.</figcaption>
   </figure>
+
+  <p><b>As built (2026-09-13), redrawn above.</b> The first drawing of this tree had drifted from the app before
+    it was built, and the code is the fact, so the tree now shows what shipped. Quick Connect is Connect and
+    "sessions" is "panes", per the vocabulary sweep. ⌘F became the pane's search and Search all sessions is ⌘⇧F,
+    per the pane grammar. The Filter row went with the amendment that put the filter on the toolbar, so View
+    has no row for it. About FixTool is the system's own on a Mac and is not a row of ours. What was added:
+    the Session menu carries the active pane's actions in the pane header's words, headed by the pane's name
+    because nothing in the split layout says which pane is active; Close all and Close session arm the way
+    their buttons do, and it is one question whichever door asks; Hide all tool windows puts back what it hid,
+    as IntelliJ's does; Add blank line got ⌘B beside its all-panes twin's ⌘⇧B, and Hide protocol tags got
+    ⌘⇧H, not ⌥⌘H, which every Mac application menu spends on Hide Others. The Run menu's first row runs what
+    the chip names, so ⌃R has a row. Every shortcut the window answers is a row's now: the key handler reads
+    the catalogue rather than keeping its own list.</p>
 
   <h2>Amended after the first build</h2>
 
@@ -1350,7 +1378,7 @@
     <li><b>Toolbar regroup and rename</b> (pulled forward into the amendment). What is left gets the four divider groups, one noun per tooltip, and
       the shortened signature. Fifty-five parameters is not a design, it is a record of what was added when.
       <span class="where">Toolbar.kt, the parameter list and the Row body</span></li>
-    <li><b>Menu bar.</b> A Compose Desktop <code>MenuBar</code> mirroring every action above, built from the same
+    <li><b>Menu bar (built 2026-09-13).</b> A Compose Desktop <code>MenuBar</code> mirroring every action above, built from the same
       action list the toolbar and the stripes read, so no item is defined twice and no item can drift. The help
       page's toolbar section and <code>AUTOMATION.md</code> are updated in this commit, not later.
       <span class="where">main.kt window scope · docs/AUTOMATION.md · the help content</span></li>

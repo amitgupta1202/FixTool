@@ -1437,11 +1437,85 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     <p><strong>This one does ask</strong>, and it asks in the button rather than in a dialog: the first click
     arms it &mdash; <em>Close 50 panes? Click again</em> &mdash; the second closes them, and it disarms itself
     after a few seconds so an armed button never sits waiting for somebody who has forgotten what it is armed
-    for. It asks because the difference between the two buttons is exactly what cannot be put back: Quick
+    for. It asks because the difference between the two buttons is exactly what cannot be put back:
     Connect returns the sessions, and nothing returns a pane's messages. Your profiles, workspace, scenarios,
     run records and load reports are untouched. A live load run or set refuses it in the same words. On the
     control surface it is <code>POST /sessions/close</code>, and the MCP tool is
     <code>fixtool_close_sessions</code>.</p>
+
+    <h3 id="menu-bar">The menu bar</h3>
+
+    <p><strong>The toolbar is the favourites; the menu bar is the catalogue.</strong> Everything FixTool can do
+    has a row in it, with its shortcut beside the name, so an action you use once a month is somewhere you can
+    find without being told. On a Mac it is at the top of the screen, where every Mac application keeps its
+    menus; on Windows and Linux it is at the top of the window. There are seven menus:</p>
+
+    <table>
+        <tr><th>Menu</th><th>What is in it</th></tr>
+        <tr><td><strong>FixTool</strong></td><td><strong>Settings&hellip;</strong> (<code>&#8984;,</code>) and
+            <strong>Quit FixTool</strong> (<code>&#8984;Q</code>). On a Mac this is the application menu the
+            system already draws. Quitting from it logs every session out first, as closing the window does.</td></tr>
+        <tr><td><strong>Workspace</strong></td><td>New, Open and Recent, as the switcher at the top left offers them,
+            and two rows the switcher has no room for: <strong>Reveal in Finder</strong> (<strong>Open workspace
+            folder</strong> elsewhere) and <strong>Reset</strong> for a workspace that is a copy of a bundled
+            example. <strong>Close workspace</strong> is greyed on Default, where the switcher leaves it out,
+            because Close is what takes you back there.</td></tr>
+        <tr><td><strong>Session</strong></td><td>Three groups. What is connected: <strong>Connect</strong>,
+            <strong>Disconnect all</strong>, <strong>Close all</strong>. What the <em>active</em> pane can do, in the
+            pane header's own words: Search in pane, Filter pane, Wrap lines, Add blank line, Clear messages,
+            Minimize and Close session. And what every pane can do at once: Capture scenario from all sessions,
+            Search all sessions, Add blank line to all panes and Clear all panes.</td></tr>
+        <tr><td><strong>Run</strong></td><td>The run configuration widget as a menu: its first row runs what the chip
+            names (<code>&#8963;R</code>) and reads <em>Stop</em> while that runs, then Load run&hellip;, the saved
+            load sets and scenario sets to choose from, Load sets&hellip; and Recent. Choosing a set here aims the
+            widget exactly as choosing it in the chip's own menu does.</td></tr>
+        <tr><td><strong>View</strong></td><td><strong>Layout</strong> (tabs, split horizontal, split vertical),
+            <strong>Parsed rows</strong> or <strong>Raw rows</strong>, <strong>Hide protocol tags</strong>
+            (<code>&#8984;&#8679;H</code>) and <strong>Group by conversation</strong> &mdash; the toolbar's layout
+            segments and its View &#9662;, row for row.</td></tr>
+        <tr><td><strong>Window</strong></td><td>Every tool window with the digit that opens it,
+            <code>&#8984;1</code> to <code>&#8984;8</code>, ticked while it is open, then Documents, then
+            <strong>Hide all tool windows</strong> (<code>&#8984;&#8679;F12</code>).</td></tr>
+        <tr><td><strong>Help</strong></td><td>This guide, and <strong>Automation reference</strong>, which opens it
+            at <a href="#automation">Automation &amp; AI Control</a>.</td></tr>
+    </table>
+
+    <p><strong>The Session menu's middle group acts on the active session</strong> &mdash; the one the editor
+    sends to &mdash; and <strong>names it</strong> at the top of the group, because in the split layout nothing
+    about a pane's own frame says which pane that is. A pane action sits over its all-panes twin with the same
+    verb, and their shortcuts differ only by <code>&#8679;</code>: <code>&#8984;F</code> searches the active
+    pane and <code>&#8984;&#8679;F</code> searches every session; <code>&#8984;B</code> adds a blank line to the
+    active pane and <code>&#8984;&#8679;B</code> to every pane at once. With no pane on screen to search,
+    <code>&#8984;F</code> searches every session instead.</p>
+
+    <p><strong>Close session and Close all ask in the menu too, and it is the same question.</strong> Choosing
+    either arms it: the row reads <em>Close RFQ Client 1?</em> or <em>Close 3 panes?</em>, the button beside the
+    thing turns amber and says the same, and choosing the row again &mdash; or clicking the armed button &mdash;
+    is the answer. The question gives up by itself after a few seconds. The &times; on a session's tab asks the
+    same way; it used to close on a single click, which made the tabs layout the one place a pane's messages
+    could go without a second look.</p>
+
+    <p><strong>Hide all tool windows puts them back.</strong> Press it with any tool window open and all of them
+    close, so the sessions have the whole window; press it again with nothing open and exactly the arrangement it
+    hid comes back. It is IntelliJ's <code>&#8984;&#8679;F12</code>, and the second press is the reason it is
+    worth a shortcut.</p>
+
+    <p><strong>Every shortcut the window answers is a menu row's.</strong> A row that is greyed does not answer
+    its shortcut either, so <code>&#8963;R</code> with nothing saved does nothing rather than something
+    unexpected. The shortcuts, in one place:</p>
+
+    <table>
+        <tr><th>Shortcut</th><th>Does</th></tr>
+        <tr><td><code>&#8984;1</code> &hellip; <code>&#8984;8</code></td><td>Opens or hides the tool window with that digit</td></tr>
+        <tr><td><code>&#8984;&#8679;F12</code></td><td>Hide all tool windows, and put them back</td></tr>
+        <tr><td><code>&#8984;F</code> / <code>&#8984;&#8679;F</code></td><td>Search in pane / Search all sessions</td></tr>
+        <tr><td><code>&#8984;B</code> / <code>&#8984;&#8679;B</code></td><td>Add blank line / Add blank line to all panes</td></tr>
+        <tr><td><code>&#8984;&#8679;H</code></td><td>Hide protocol tags</td></tr>
+        <tr><td><code>&#8963;R</code></td><td>Run or stop what the run widget names</td></tr>
+        <tr><td><code>&#8984;,</code></td><td>Settings</td></tr>
+    </table>
+    <p>Off a Mac, <code>&#8984;</code> and <code>&#8963;</code> are both Ctrl. On a Mac either modifier works for
+    any of them, so <code>&#8963;1</code> opens the editor as well as <code>&#8984;1</code>.</p>
 
     <h3 id="workspaces">Workspaces</h3>
     <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run

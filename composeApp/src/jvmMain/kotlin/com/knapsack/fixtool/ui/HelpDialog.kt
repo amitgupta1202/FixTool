@@ -27,6 +27,8 @@ import javax.swing.text.html.HTMLDocument
 @Composable
 fun HelpDialog(
     onClose: () -> Unit,
+    /** The chapter to open at, by its id, or null for the top. See `FixMessageViewModel.openHelp`. */
+    anchor: String? = null,
 ) {
     val dialogState = rememberDialogState(width = 1000.dp, height = 700.dp)
 
@@ -48,7 +50,7 @@ fun HelpDialog(
 
             // HTML content viewer
             Box(modifier = Modifier.fillMaxSize()) {
-                HtmlViewer()
+                HtmlViewer(anchor)
             }
         }
     }
@@ -58,7 +60,7 @@ fun HelpDialog(
  * Component that renders HTML content using Swing JEditorPane.
  */
 @Composable
-private fun HtmlViewer() {
+private fun HtmlViewer(anchor: String?) {
     val htmlContent = remember { loadHelpHtml() }
 
     SwingPanel(
@@ -120,10 +122,13 @@ private fun HtmlViewer() {
                 verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
                 horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
 
-                // Ensure we start at the top of the document after rendering
+                // Start at the top of the document after rendering, or at the chapter the guide was opened
+                // for — which has to wait the same turn, because a document not yet laid out has no position
+                // to scroll to.
                 SwingUtilities.invokeLater {
                     verticalScrollBar.value = 0
                     horizontalScrollBar.value = 0
+                    if (anchor != null) SwingUtilities.invokeLater { scrollToAnchor(editorPane, anchor) }
                 }
             }
         },

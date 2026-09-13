@@ -615,6 +615,37 @@ class HelpDocTest {
         assertTrue(missing.isEmpty(), "the toolbar chapter no longer says: $missing")
     }
 
+    /**
+     * **The menu bar chapter, by the facts a reader cannot see from the menus themselves.**
+     *
+     * The menus say what is in them. What they cannot say is which pane the Session menu acts on, that Close
+     * asks there too and that it is the same question the button asks, that Hide all tool windows puts the
+     * windows back, and that a greyed row does not answer its shortcut — so those are the claims pinned.
+     */
+    @Test
+    fun `the menu bar chapter states what the menus cannot say about themselves`() {
+        val chapter = html.substringAfter("""id="menu-bar"""").substringBefore("""<h3 id="workspaces"""")
+
+        val claims =
+            mapOf(
+                "it is the catalogue" to "the menu bar is the catalogue",
+                "on a Mac it is the system menu bar" to "On a Mac it is at the top of the screen",
+                "the Session menu acts on the active session" to "acts on the active session",
+                "and names it" to "<strong>names it</strong>",
+                "a pane action and its twin differ by shift" to "their shortcuts differ only by",
+                "close asks in the menu too" to "Close session and Close all ask in the menu too",
+                "and it is one question" to "it is the same question",
+                "the tab's close arms" to "The &times; on a session's tab asks the same way",
+                "hide all puts them back" to "Hide all tool windows puts them back",
+                "a greyed row lets its shortcut through" to "A row that is greyed does not answer its shortcut",
+                "quitting logs sessions out" to "Quitting from it logs every session out first",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the menu bar chapter no longer says: $missing")
+    }
+
     /** The trace chapter, by what makes a trace different from a search box with a regex in it. */
     @Test
     fun `the trace chapter states what following an exchange does`() {

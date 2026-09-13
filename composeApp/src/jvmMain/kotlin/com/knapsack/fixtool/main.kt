@@ -21,6 +21,8 @@ import com.knapsack.fixtool.headless.HeadlessRun
 import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.ui.App
+import com.knapsack.fixtool.ui.AppMenuBar
+import com.knapsack.fixtool.ui.AppMenuState
 import com.knapsack.fixtool.ui.diff.DiffViewerWindow
 import com.knapsack.fixtool.ui.diff.DiffWindow
 import kotlinx.coroutines.delay
@@ -47,6 +49,13 @@ fun main(args: Array<String>) {
         // keeps the two apart the way any other command-line tool would.
         exitProcess(HeadlessRun.execute(args, System.out, System.err))
     }
+
+    // **The menu bar goes where a Mac keeps menu bars**, at the top of the screen, and the application menu
+    // beside it is called FixTool rather than the name of the class that started the JVM. Both are read once,
+    // when AWT starts, so they are set before anything below can touch it. Other platforms ignore them and
+    // draw the menu bar in the window, which is where they keep one.
+    System.setProperty("apple.laf.useScreenMenuBar", "true")
+    System.setProperty("apple.awt.application.name", "FixTool")
 
     // The bundled examples are folders in workspaces/, opened like any other workspace. GUI only: a
     // headless run against a checked-in `--home` must not grow five venues beside the config it came for.
@@ -80,24 +89,29 @@ fun main(args: Array<String>) {
         // recompose off the ViewModel's `openDiffWindows` flow. This reverses `271b34f`'s "there is no second
         // window" — there is again, and it is the diff (F2).
         var viewModelRef by remember { mutableStateOf<com.knapsack.fixtool.viewmodel.FixMessageViewModel?>(null) }
-        Window(
-            onCloseRequest = {
-                if (!isClosing) {
-                    isClosing = true
-                    logger.info("Window close requested, disconnecting all sessions...")
+        // The window's catalogue of actions: drawn as its menu bar, and asked about every key the window gets.
+        val menus = remember { AppMenuState() }
+        // One close, for the window's own close button and for the menu's Quit, so quitting from the menu
+        // logs every session out the way closing the window always has.
+        val closeWindow = {
+            if (!isClosing) {
+                isClosing = true
+                logger.info("Window close requested, disconnecting all sessions...")
 
-                    // Disconnect all sessions synchronously before exit
-                    try {
-                        ControlServerLauncher.stop()
-                        viewModelRef?.disconnectAllSessions()
-                        // Give logout messages time to be sent
-                        Thread.sleep(1000)
-                    } catch (e: Exception) {
-                        logger.error("Error during disconnect on close", e)
-                    }
+                // Disconnect all sessions synchronously before exit
+                try {
+                    ControlServerLauncher.stop()
+                    viewModelRef?.disconnectAllSessions()
+                    // Give logout messages time to be sent
+                    Thread.sleep(1000)
+                } catch (e: Exception) {
+                    logger.error("Error during disconnect on close", e)
                 }
-                exitApplication()
-            },
+            }
+            exitApplication()
+        }
+        Window(
+            onCloseRequest = closeWindow,
             title = com.knapsack.fixtool.control.ControlServer.MAIN_WINDOW_TITLE,
             // rememberWindowState, not WindowState. A bare WindowState is a NEW state object on every
             // recomposition of the application scope, and Compose then applies it to the live window: the
@@ -141,6 +155,9 @@ fun main(args: Array<String>) {
 
             App(
                 modifier = Modifier.focusRequester(focusRequester).focusable(),
+                menus = menus,
+                menuBar = { state -> AppMenuBar(state) },
+                onQuit = closeWindow,
                 onViewModelCreated = { viewModel ->
                     viewModelRef = viewModel
                     // Automation control surface: env var FIXTOOL_CONTROL_PORT overrides, otherwise

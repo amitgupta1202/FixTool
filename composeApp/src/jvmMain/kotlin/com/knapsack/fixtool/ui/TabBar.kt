@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixConnectionState
@@ -211,16 +212,29 @@ private fun Tab(
         )
 
         if (onClose != null) {
+            // **The tab's × is this layout's Close session, so it asks the same question the split header's
+            // Close asks** — the same question, not a copy of it: arming it here arms the header and the
+            // Session menu too, and a second click on any of them is the answer. It closed on one click
+            // before, which made the tabs layout the one place a session's log went with no second look.
+            val arming = windowArming()
+            val closing = ClosingSession(session.id)
+            val armed = arming.isArmed(closing)
+            val hover =
+                if (armed) {
+                    "Close ${session.title}? — click again to confirm"
+                } else {
+                    "$CLOSE_SESSION_LABEL — click again to confirm — the log goes with it"
+                }
             Spacer(modifier = Modifier.width(8.dp))
             TooltipIconButton(
-                tooltip = "Close Tab",
-                onClick = onClose,
-                modifier = tabCloseButtonSize,
+                tooltip = hover,
+                onClick = { if (arming.confirm(closing)) onClose() },
+                modifier = tabCloseButtonSize.testTag("tab-close-${session.title}"),
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Close Tab",
-                    tint = textColor,
+                    contentDescription = hover,
+                    tint = if (armed) AppTheme.Colors.warning else textColor,
                     modifier = tabCloseIconSize,
                 )
             }

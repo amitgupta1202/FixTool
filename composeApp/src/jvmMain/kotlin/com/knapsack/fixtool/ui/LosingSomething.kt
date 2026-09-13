@@ -5,8 +5,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -57,6 +61,87 @@ fun rememberArmed(key: Any? = Unit): MutableState<Boolean> {
     }
     return armed
 }
+
+/**
+ * **The one question the window is asking, so every door to the same loss asks it once.**
+ *
+ * [rememberArmed] is a clock per control, which is right for a row's Delete and wrong for anything with
+ * more than one door. A session can be closed from its pane header, from its tab and from the Session menu,
+ * and three clocks would be three questions about one pane: arm it in the menu and the header would still
+ * close it on a single click, which is the unguarded click arming exists to prevent.
+ *
+ * So those doors share this. A subject is a value naming what would be lost — a session's id, a pane count
+ * — and asking about a *different* subject replaces the question rather than stacking a second one, because
+ * a window with two armed controls is a window where the next click's meaning depends on where it lands.
+ */
+@Stable
+class WindowArming {
+    /** What the window is asking about, or null. */
+    var armed: Any? by mutableStateOf(null)
+        private set
+
+    /** Whether [subject] is the question standing now. */
+    fun isArmed(subject: Any): Boolean = armed == subject
+
+    /**
+     * **Ask, or answer.** The first call arms [subject] and returns false; a second call on the same subject
+     * before it gives up is the answer, disarms, and returns true — the caller destroys on true.
+     */
+    fun confirm(subject: Any): Boolean {
+        if (armed == subject) {
+            armed = null
+            return true
+        }
+        armed = subject
+        return false
+    }
+
+    /** Withdraw the question: a refusal appeared, or the subject went away. */
+    fun disarm() {
+        armed = null
+    }
+
+    internal fun giveUp(subject: Any) {
+        if (armed == subject) armed = null
+    }
+}
+
+/** What closing one session loses: its pane and its log. Asked by its header, its tab and the Session menu. */
+internal data class ClosingSession(
+    val sessionId: String,
+)
+
+/**
+ * What Close all loses: this many panes. The count is part of the subject, so a pane opening or closing under
+ * an armed Close all is a different question and the old one is no longer the one standing.
+ */
+internal data class ClosingAllPanes(
+    val panes: Int,
+)
+
+/** The window's arming, with the same clock [rememberArmed] keeps: a question gives up after a few seconds. */
+@Composable
+fun rememberWindowArming(): WindowArming {
+    val arming = remember { WindowArming() }
+    val subject = arming.armed
+    if (subject != null) {
+        LaunchedEffect(subject) {
+            delay(ARMED_MS)
+            arming.giveUp(subject)
+        }
+    }
+    return arming
+}
+
+/** Provided once by the window, so the pane header, the tab and the menu bar all read the same question. */
+val LocalWindowArming = staticCompositionLocalOf<WindowArming?> { null }
+
+/**
+ * The window's arming where there is a window, or this caller's own where there is not — a pane header drawn
+ * on its own in a test still asks before it closes.
+ */
+@Composable
+fun windowArming(): WindowArming = LocalWindowArming.current ?: rememberWindowArming()
 
 /**
  * **Delete and Cancel, in the row the control sat in.**

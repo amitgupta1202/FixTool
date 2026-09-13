@@ -424,6 +424,41 @@ acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill Q
 Each message in `/messages` includes `timestamp`, `direction`, `messageType` (tag 35), the
 `raw` string, and an ordered `fields` array of `{tag, value}`.
 
+### The menu bar, and its doors here
+
+The app has a menu bar — FixTool, Workspace, Session, Run, View, Window, Help — and it is the
+catalogue of everything a person can do in the window: every toolbar chip, every tool window and every
+pane action has a row there, with its shortcut. This table is that catalogue against this surface, so
+an agent can tell at a glance what it can reach without a mouse and what it cannot. A dash is a row with
+no door here yet; `GET /screenshot` still shows its effect.
+
+| Menu row | Shortcut | Door on this surface |
+| -------- | -------- | -------------------- |
+| FixTool › Settings… | ⌘, | `POST /panel {"panel":"settings"}` |
+| Workspace › Open workspace…, Recent workspaces | — | `POST /workspace {"workspace"}`, `GET /workspace` |
+| Workspace › New workspace…, Reveal in Finder, Reset example, Close workspace | — | — |
+| Session › Connect ▸ | — | `POST /connect` |
+| Session › Disconnect all | — | `POST /disconnect {"all":true}` |
+| Session › Close all | — | `POST /sessions/close` (asks nothing: the second ask is the window's, not a script's) |
+| Session › Filter pane | — | `POST /filter` |
+| Session › Clear messages | — | `POST /messages/clear` |
+| Session › Search in pane, Wrap lines, Add blank line, Minimize, Close session | ⌘F, —, ⌘B, —, — | — |
+| Session › Capture scenario from all sessions | — | `POST /scenarios/capture` |
+| Session › Search all sessions | ⌘⇧F | `POST /search` |
+| Session › Add blank line to all panes, Clear all panes | ⌘⇧B, — | — |
+| Run › Run / Stop what the run widget names | ⌃R | — |
+| Run › Load run… | — | `POST /load` |
+| Run › Load set ▸, Run set ▸ | — | `POST /load {"set"}`, `POST /scenarios/run {"set"}` start one by name; choosing one is not a door |
+| Run › Load sets… | — | `GET /load-sets` |
+| View › Group by conversation | — | `POST /panel {"panel":"conversations"}` |
+| View › Layout ▸, Parsed rows / Raw rows, Hide protocol tags | —, —, ⌘⇧H | — |
+| Window › Editor, Scenarios, Detail, Connection, Order book, Trace | ⌘1–⌘5, ⌘8 | `POST /panel` with `editor`, `scenarios`, `detail`, `connection`, `orderbook`, `trace` |
+| Window › Latency, Terminal | ⌘6, ⌘7 | — |
+| Window › Hide all tool windows | ⌘⇧F12 | — |
+
+Shortcuts are written the Mac way; off a Mac ⌘ and ⌃ are both Ctrl. A greyed row does not answer its
+shortcut either, so ⌃R with nothing saved to run does nothing.
+
 ### Following one exchange across every session
 
 A **trace** is the grouped grid's relation over every session at once: one business exchange followed

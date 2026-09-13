@@ -45,6 +45,8 @@ class UiStringsTest {
             "Close Detail Panel" to "Hide Detail",
             "Close Connection Panel" to "Hide Connection",
             "Close Panel" to "Hide <the dock's noun>",
+            // The tab's × is the tabs layout's Close session, and it asks the same question the header's does.
+            "Close Tab" to "Close session",
             // Connect: an initiator connects, an acceptor listens.
             "Connect Session" to "Connect",
             "Disconnect Session" to "Disconnect",

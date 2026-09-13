@@ -271,6 +271,10 @@ class FixMessageViewModel(
     private val _showHelpDialog = MutableStateFlow(false)
     val showHelpDialog: StateFlow<Boolean> = _showHelpDialog.asStateFlow()
 
+    /** The chapter the guide opens at, by its id in `help.html`, or null for the top. */
+    private val _helpAnchor = MutableStateFlow<String?>(null)
+    val helpAnchor: StateFlow<String?> = _helpAnchor.asStateFlow()
+
     // The Scenarios rail — a docked pane in the main window, not a dialog and no longer a window.
     private val _showScenariosRail = MutableStateFlow(false)
     val showScenariosRail: StateFlow<Boolean> = _showScenariosRail.asStateFlow()
@@ -2275,6 +2279,49 @@ class FixMessageViewModel(
         selectBottom(null)
     }
 
+    /** The three group selections Hide all tool windows put away. See [toggleAllToolWindows]. */
+    data class StowedToolWindows(
+        val left: ToolWindow?,
+        val right: ToolWindow?,
+        val bottom: BottomTab?,
+    )
+
+    private val _stowedToolWindows = MutableStateFlow<StowedToolWindows?>(null)
+
+    /** What a second Hide all tool windows would put back, or null when there is nothing to put back. */
+    val stowedToolWindows: StateFlow<StowedToolWindows?> = _stowedToolWindows.asStateFlow()
+
+    /**
+     * **Hide all tool windows, and the same shortcut again puts them back** — IntelliJ's ⇧⌘F12, which is
+     * worth having for the second half: take every dock off the sessions to read them at full size, then
+     * get exactly that arrangement back without remembering what it was.
+     *
+     * With anything open it hides all three groups and remembers them. With nothing open it restores what
+     * it last hid, as far as it still exists: a document closed since then is not a tab to go back to, and
+     * neither are search results that were unpinned.
+     */
+    fun toggleAllToolWindows() {
+        val left = _leftWindow.value
+        val right = _rightWindow.value
+        val bottom = _bottomTab.value
+        if (left != null || right != null || bottom != null) {
+            _stowedToolWindows.value = StowedToolWindows(left, right, bottom)
+            selectLeft(null)
+            selectRight(null)
+            selectBottom(null)
+            return
+        }
+        val stowed = _stowedToolWindows.value ?: return
+        _stowedToolWindows.value = null
+        stowed.left?.let(::selectLeft)
+        stowed.right?.let(::selectRight)
+        when (val tab = stowed.bottom) {
+            null -> Unit
+            is BottomTab.SearchResults -> if (_showSearchResultsPane.value) selectBottom(tab)
+            else -> showBottomTab(tab)
+        }
+    }
+
     /** Runs only while something is followed or the panel is open; see [startTraceTicker]. */
     private var traceTicker: Job? = null
 
@@ -3105,7 +3152,17 @@ class FixMessageViewModel(
     }
 
     fun toggleHelpDialog() {
+        _helpAnchor.value = null
         _showHelpDialog.value = !_showHelpDialog.value
+    }
+
+    /**
+     * Open the guide, at [anchor] when one is named — the Help menu's Automation reference opens it at its
+     * automation chapter. Open, not toggle: a menu row that closed the guide it names would be a strange row.
+     */
+    fun openHelp(anchor: String? = null) {
+        _helpAnchor.value = anchor
+        _showHelpDialog.value = true
     }
 
     fun toggleScenariosRail() {

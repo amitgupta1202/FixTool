@@ -126,6 +126,19 @@ class RfqBookServiceTest {
         assertEquals(LegOutcome.LIFTED, entry.leg(dealer1)?.outcome)
     }
 
+    /** A buy side that sells at a dealer's bid hit it; lifting is buying at the offer. A trader reads the book in those words. */
+    @Test
+    fun `a trade at the bid is recorded as a hit, and at the offer as a lift`() {
+        val sold = twoDealersQuoted()
+        book.decideTrade(sold, dealer1, side = "2")
+        assertEquals(LegOutcome.HIT, book.entry(sold)!!.leg(dealer1)?.outcome)
+
+        book.clear()
+        val bought = twoDealersQuoted()
+        book.decideTrade(bought, dealer1, side = "1")
+        assertEquals(LegOutcome.LIFTED, book.entry(bought)!!.leg(dealer1)?.outcome)
+    }
+
     @Test
     fun `a dealer that quotes again replaces its level, and the old one can no longer be lifted`() {
         val rfqId = twoDealersQuoted()

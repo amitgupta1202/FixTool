@@ -81,7 +81,7 @@ internal class LiveRelayVenue(
         val plan = AcceptorResponder.planRelay(rule, incoming, request, dictionary, this, trigger, quote, order)
         val rfqId = trigger.rfqId ?: return trigger to plan
         val quoter = plan.sends.firstOrNull { it.to?.address == StepAddress.Quoter }?.to
-        if (quoter != null && rule.booksATrade()) book.decideTrade(rfqId, quoter.sessionKey)
+        if (quoter != null && rule.booksATrade()) book.decideTrade(rfqId, quoter.sessionKey, trigger.fields[TAG_SIDE])
         plan.notDelivered.forEach { (_, recipient) -> book.notDelivered(rfqId, recipient.sessionKey, recipient.compId) }
         if (plan.nobody.isNotEmpty()) {
             val steps = plan.nobody.map { it + 1 }

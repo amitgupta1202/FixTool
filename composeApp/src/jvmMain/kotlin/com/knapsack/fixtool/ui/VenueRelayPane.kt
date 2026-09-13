@@ -189,6 +189,7 @@ private fun activityLabel(role: PartyRole?, opened: Int, legs: List<RfqLeg>): St
                 counted(legs.count { it.quotes.isNotEmpty() }, "quoted"),
                 counted(legs.count { it.outcome == LegOutcome.PASSED }, "passed"),
                 counted(legs.count { it.outcome == LegOutcome.LIFTED }, "lifted"),
+                counted(legs.count { it.outcome == LegOutcome.HIT }, "hit"),
             ).joinToString(" · ").ifEmpty { null }
         null -> "not a role"
     } ?: "—"

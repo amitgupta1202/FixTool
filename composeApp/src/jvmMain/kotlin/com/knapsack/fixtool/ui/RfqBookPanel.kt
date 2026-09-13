@@ -151,7 +151,12 @@ private fun LegRow(entry: RfqEntry, leg: RfqLeg, now: Long, wide: Boolean) {
             .padding(start = 18.dp, end = 8.dp, top = 1.dp, bottom = 1.dp)
             .testTag("rfq-leg-${entry.rfqId}-${leg.compId}")
     val state: @Composable (Modifier) -> Unit = { mod ->
-        BookCell(legStateLabel(leg, now), legColor(leg, now), mod.testTag("rfq-leg-state-${entry.rfqId}-${leg.compId}"))
+        val live = entry.lifeAt(now).live
+        BookCell(
+            legStateLabel(leg, now, live),
+            legColor(leg, now, live),
+            mod.testTag("rfq-leg-state-${entry.rfqId}-${leg.compId}"),
+        )
     }
 
     if (wide) {
@@ -201,11 +206,11 @@ private fun lifeColor(life: RfqLife) =
         RfqLife.PASSED -> AppTheme.Colors.textSecondary
     }
 
-private fun legColor(leg: RfqLeg, now: Long) =
+private fun legColor(leg: RfqLeg, now: Long, rfqLive: Boolean) =
     when (leg.outcome) {
         LegOutcome.NOT_DELIVERED -> AppTheme.Colors.warning
-        LegOutcome.LIFTED -> AppTheme.Colors.success
-        null -> if (leg.currentQuote(now) != null) AppTheme.Colors.primary else AppTheme.Colors.textSecondary
+        LegOutcome.LIFTED, LegOutcome.HIT -> AppTheme.Colors.success
+        null -> if (rfqLive && leg.currentQuote(now) != null) AppTheme.Colors.primary else AppTheme.Colors.textSecondary
         else -> AppTheme.Colors.textSecondary
     }
 
@@ -248,7 +253,9 @@ internal fun rfqStateLabel(entry: RfqEntry, now: Long): String {
     return when {
         life.live && entry.expireAt != null -> "${life.word} · expires ${clock(entry.expireAt)}"
         life == RfqLife.DONE ->
-            entry.legs.firstOrNull { it.outcome == LegOutcome.LIFTED }?.let { "done · ${it.compId} lifted" } ?: "done"
+            entry.legs
+                .firstOrNull { it.outcome?.traded == true }
+                ?.let { "done · ${it.compId} ${it.outcome?.word}" } ?: "done"
         else -> life.word
     }
 }
@@ -266,10 +273,19 @@ internal fun legIds(leg: RfqLeg): String {
     }
 }
 
-internal fun legStateLabel(leg: RfqLeg, now: Long): String {
+/**
+ * How far one responder got. [rfqLive] false is an RFQ that is over: a quote on it no longer stands whatever its
+ * ValidUntilTime says, so it reads "quoted" and never "valid to", which on a passed RFQ looked dealable.
+ */
+internal fun legStateLabel(
+    leg: RfqLeg,
+    now: Long,
+    rfqLive: Boolean = true,
+): String {
     leg.outcome?.let { return it.word }
     val quote = leg.quotes.lastOrNull() ?: return if (leg.venueQuoteReqId != null) "asked" else "—"
     return when {
+        !rfqLive -> "quoted"
         leg.currentQuote(now) == null -> "lapsed"
         quote.validUntil != null -> "quoted · valid to ${clock(quote.validUntil)}"
         else -> "quoted"

@@ -327,16 +327,20 @@ class RfqBookService(
     /**
      * **Records a trade the moment a rule decides it** — see the class doc, and decision R3.
      *
-     * The RFQ is done, [quoterKey]'s leg is lifted, and every other leg's quotes stop standing, so a second lift
-     * already queued behind this one reads `done` and is refused.
+     * The RFQ is done, [quoterKey]'s leg is lifted, or hit when the requester's [side] is a sell, and every other leg's
+     * quotes stop standing, so a second lift already queued behind this one reads `done` and is refused.
      */
     @Synchronized
-    fun decideTrade(rfqId: String, quoterKey: String) {
+    fun decideTrade(
+        rfqId: String,
+        quoterKey: String,
+        side: String? = null,
+    ) {
         val entry = rfqs[rfqId] ?: return
         val legs =
             entry.legs.map { leg ->
                 if (leg.responderKey == quoterKey) {
-                    leg.copy(outcome = LegOutcome.LIFTED)
+                    leg.copy(outcome = if ((side ?: entry.side) == SIDE_SELL) LegOutcome.HIT else LegOutcome.LIFTED)
                 } else {
                     leg.copy(quotes = leg.quotes.map { it.copy(superseded = true) })
                 }
@@ -522,6 +526,7 @@ private const val TAG_ORDER_ID = 37
 private const val TAG_ORDER_QTY = 38
 private const val TAG_SECURITY_ID = 48
 private const val TAG_SIDE = 54
+private const val SIDE_SELL = "2"
 private const val TAG_SYMBOL = 55
 private const val TAG_SECURITY_ID_SOURCE = 22
 private const val TAG_VALID_UNTIL = 62

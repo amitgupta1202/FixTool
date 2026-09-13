@@ -169,13 +169,21 @@ enum class RfqLife {
 enum class LegOutcome {
     NOT_DELIVERED,
     PASSED,
+
+    /** The requester bought at this responder's offer. */
     LIFTED,
+
+    /** The requester sold at this responder's bid: the same trade from the other side, and a trader's other word. */
+    HIT,
     COVER,
     DONE_AWAY,
 
     ;
 
     val word: String get() = name.lowercase().replace('_', ' ')
+
+    /** This responder traded, whichever way. */
+    val traded: Boolean get() = this == LIFTED || this == HIT
 }
 
 /** One quote a responder sent on an RFQ, and the id the venue showed the requester for it. */

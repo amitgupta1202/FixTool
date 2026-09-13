@@ -893,7 +893,7 @@ object McpTools {
                     "responders, compId:X). Each RFQ has `rfqId`, `state` (requested, open, refused, passed, done, " +
                     "expired), the `requester` with the QuoteReqID it used, and a leg per responder: the QuoteReqID the " +
                     "venue gave it, its `quotes` (each dealer `quoteId`, the id the requester was `shownAs`, prices, " +
-                    "`live`) and its `outcome` (not delivered, passed, lifted, cover, done away). The pair quoteId / " +
+                    "`live`) and its `outcome` (not delivered, passed, lifted, hit, cover, done away). The pair quoteId / " +
                     "shownAs is what \${to.117} reads. `clear:true` forgets every RFQ.",
                 props(
                     "profile" to string("the venue's profile id or name; it must be listening"),

@@ -151,8 +151,16 @@ class RfqBookPanelTest {
         assertEquals("asked", legStateLabel(RfqLeg("k", "FIDLR1", "V-1"), now))
         assertEquals("lapsed", legStateLabel(RfqLeg("k", "FIDLR1", "V-1", listOf(LegQuote("Q", validUntil = now - 1))), now))
         assertEquals("quoted", legStateLabel(RfqLeg("k", "FIDLR1", "V-1", listOf(LegQuote("Q"))), now))
+        val standing = RfqLeg("k", "FIDLR1", "V-1", listOf(LegQuote("Q", validUntil = now + 30_000)))
+        assertEquals("quoted", legStateLabel(standing, now, rfqLive = false), "a quote on a passed RFQ does not stand")
         assertEquals("asked as V-1", legIds(RfqLeg("k", "FIDLR1", "V-1")))
         assertEquals("Q ↔ not shown yet", legIds(RfqLeg("k", "FIDLR1", "V-1", listOf(LegQuote("Q")))))
+    }
+
+    @Test
+    fun `a done RFQ names the dealer and how it traded, hit at the bid or lifted at the offer`() {
+        val hit = open.copy(life = RfqLife.DONE, legs = listOf(RfqLeg("k", "FIDLR2", "V-1", outcome = LegOutcome.HIT)))
+        assertEquals("done · FIDLR2 hit", rfqStateLabel(hit, now))
     }
 
     @Test

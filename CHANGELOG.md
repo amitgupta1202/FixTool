@@ -5,6 +5,72 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-09-13
+
+The release where the window has a menu bar, a venue can stand between the two sides of an RFQ, and
+an editor says everything that is wrong with a message at once. Everything FixTool can do is now a row
+in seven menus, each with the shortcut that answers it, and those shortcuts work wherever focus is,
+the terminal included, where the shell keeps the keys it needs. A venue can relay a request for quote
+from a buy side to its dealers under ids of its own, book one trade, tell the cover and the rest they
+were done away, and end an RFQ nobody trades; the fixed-income example is now that platform, with
+dealers that quote by themselves. Five bundled venues ship, each proving something the others cannot.
+Across the window, every bar folds by one rule, six actions that destroyed something on one click now
+ask in the row they sat in, and the editor's validation reports every problem on its own row instead
+of the first exception QuickFIX/J threw.
+
+### ✨ Added
+
+#### A menu bar, and the keyboard
+
+- **Seven menus: FixTool, Workspace, Session, Run, View, Window and Help.** Every toolbar chip, every tool window and the active pane's own actions are rows, built from what the toolbar, the stripes and the pane header already read, so a shortcut is a property of a row and cannot be printed one way and bound another. The Session menu names the pane it acts on, and Close session and Close all ask there exactly as the buttons beside the thing ask. On a Mac the bar is the system's.
+- **Shortcuts work wherever focus is**, after a click on an empty part of the window and in the terminal, where ⌃R stays the shell's reverse search. New: **⌘B** / **⌘⇧B** add a blank line to the pane / every pane, **⌘⇧H** hides protocol tags, **⇧⌘F12** hides every tool window and puts them back, **⌘9** opens Documents, **⌥⌘F** puts the keyboard in the toolbar's filter with its pattern selected, **⌘⇧K** clears every pane, **⌘⇧D** disconnects every session and **⌘⇧W** closes every pane, asking first as the button does. Help lists them in one table, and a test fails when a toolbar action's shortcut is missing from it.
+- **Each stripe tab prints its digit**, flat under its icon on both stripes, and the full key is on hover.
+
+#### A venue that relays an RFQ
+
+- **An acceptor can relay a request for quote between a buy side and its dealers.** An RFQ book spans sessions: each relayed message is re-keyed for the counterparty it goes to and linked back, so a dealer's Quote finds the buy side it answers, a new quote supersedes the last, and a lift books one trade both sides are told about. Rules gain "the sender is", "the RFQ is" and "responders online", a step's To menu names every address, and `POST /acceptor/test`, `GET`/`POST /acceptor/rfqs` author, dry-run and read it without the UI.
+- **An RFQ nobody trades expires**, at its request's ExpireTime(126) or after the venue's own default, and a rule written "when the RFQ expires" tells both sides so.
+- **An initiator with rules answers by them**, so a dealer client, or every lane of a dealer load client, quotes relayed RFQs with nobody at the keyboard.
+- **A relayed negotiation is one trace.** The venue records which message each relay came from, Trace joins them, and Lanes draws the venue as the lane in the middle.
+
+#### Bundled venues
+
+- **Five examples, each proving something the others cannot**: the FX venue now ships a load set that fills its order book and reads it back; an **equity venue** whose book still holds a Day limit a minute later, so cancel and replace have something to act on; a **24/7 crypto venue** that refuses a post-only order rather than cross it; the **FX RFQ venue**, renamed for the market it makes, which quotes one way to a disclosed side, marks its quotes firm and answers cover and done away; and the **fixed-income RFQ platform**, two parties negotiating US Treasuries through it. An example is a folder laid down in `workspaces/`, not a button.
+
+#### Validation
+
+- **Every problem in a message, one row, on request.** Validate checks each field against the loaded dictionary in QuickFIX/J's own terms (allowed values, format, required fields, tags the type does not define) and reports all of them, where it used to report the first exception and call it "1 error". The count is beside Send; under the search box is one row with the counts by severity and the worst problem, which opens into a list where each problem goes to its field and a missing field offers **Add**; the rows are marked in the grid, and an edit withdraws all of it. The scenario editor shows the same row for the whole scenario, live, with each step's count in the step list.
+
+#### Control surface
+
+- `POST /panel` opens Latency and Terminal and puts a minimized pane back; `POST /run` is the run widget's ▶ from outside; `GET /screenshot` reads the frame the window drew, so it shows the window behind another app and without Screen Recording permission.
+
+### 📝 Changed
+
+- **One grammar for every bar.** One folding bar decides what drops its word and what folds into ⋯ in a declared order; one dock header names each dock as its stripe tab does; one pane header serves both layouts, and **⌘F searches the pane it is in**; one pressed look for every toggle; one dialog header, one search box and one grid header replace their private copies; one word per action, sentence case throughout, and a test that keeps it so.
+- **Six actions that destroyed something on one click now ask**, in the row they sat in, where closing a session from its tab used to go on a single click. What comes back does not ask: Clear, Disconnect and Close workspace stay one click.
+- **The editor's toolbar folds instead of drawing itself twice**, and Validate reports a count rather than tinting its own glyph.
+- **The global filter's direction is Both / IN / OUT**, the grid's own words in its own colours, which keep their words at every window width; the two identical ticks lost theirs first. The filter now takes all the room the groups beside it leave, where two spacers used to keep a share of it while the regex box was squeezed.
+
+### 🐛 Fixed
+
+- A status request is answered with an AvgPx, which FIX 4.4 requires.
+- `${in.…}` reads the session a message is sent on, not the last pane holding a message of that type, so a dealer and a buy side in one window stop reading each other's ids.
+- A reply to a counterparty that has logged out is not sent, booked or counted, and a withdrawn quote cannot be lifted.
+- The RFQ book says hit for a sale at the bid, a finished RFQ's quotes no longer look dealable, and a quote on an ended RFQ no longer reads live.
+- Two writers of one load record can no longer be given the same temp file: the name came from `System.nanoTime()`, which repeats across threads on macOS, and a reader could catch the record half-written.
+- The raw message's scroll bar scrolls the raw message, and is not drawn over an empty panel.
+- The load documents follow the workspace; the empty run chip reads **Load sets…**; the Order book and Latency docks keep their headers when empty; Search in pane draws its bar in the parsed view; a profile put on the Connection form from outside keeps its name when saved.
+- A clean build compiles: the workspace menu's `reveal` no longer collides with the load document's.
+
+### 📖 Documentation
+
+- Help gains the menu bar chapter and its shortcut table, the global filter's segments, and where Validate's problems are shown; the examples' command lines use `--home`, the flag `fixtool load` has.
+
+### 🔧 Internal
+
+- detekt passes against a fresh baseline and fails on the next finding; ktlint is judged per file and rule against a budget; no test can reach the developer's own `~/.fixtool`.
+
 ## [1.20.1] - 2026-09-11
 
 The release where the window says what it is. The toolbar had grown to twenty-odd controls in no

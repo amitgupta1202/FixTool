@@ -252,22 +252,24 @@
             <td>24/7 spot in BTC-USD, ETH-USD, SOL-USD</td>
             <td><strong>Post-only refused rather than crossed</strong>, no Day orders, and sizes refused
             for being finer than a satoshi or below the dust floor</td></tr>
-        <tr><td><a href="#fi-rfq-venue"><strong>Fixed Income RFQ Desk</strong></a></td><td>19880</td>
-            <td>On-the-run US Treasuries, quoted in price <em>and</em> yield</td>
-            <td>A bond desk's vocabulary: <strong>CUSIP</strong>, coupon, maturity, 32nds, nominal in
-            millions, T+1 &mdash; and a disclosed side quoted <strong>one way</strong></td></tr>
+        <tr><td><a href="#fi-rfq-venue"><strong>Fixed Income RFQ Platform</strong></a></td><td>19880</td>
+            <td>A US Treasury RFQ platform between buy sides and dealers, in a bond desk's vocabulary:
+            <strong>CUSIP</strong>, 32nds, yield, nominal in millions, T+1</td>
+            <td><strong>Relays.</strong> Two parties negotiate <em>through</em> it, and a lift is confirmed to
+            both sides &mdash; the one example with a counterparty on each side of the venue</td></tr>
     </table>
 
-    <p><strong>Two of them are the same negotiation in two markets, on purpose.</strong> The FX RFQ venue
-    and the Fixed Income desk both play QuoteRequest &rarr; Quote &rarr; QuoteResponse. The mechanics of an
-    RFQ are the same everywhere and the <em>vocabulary</em> is not, and a desk that trades bonds does not
-    recognise itself in a venue quoting a currency pair to five decimal places. Open whichever speaks your
-    language.</p>
+    <p><strong>Two of them are an RFQ seen from two chairs, on purpose.</strong> Both play QuoteRequest
+    &rarr; Quote &rarr; QuoteResponse. The FX RFQ venue <em>is</em> the dealer: you ask it for a price and it
+    quotes. The Fixed Income platform is the venue <em>between</em> you and the dealers: it prices nothing,
+    carries each request out to every dealer and each quote back, and confirms a trade to both sides. Open
+    the FX one to test a client of a dealer, and the fixed-income one to test either side of a platform
+    &mdash; or both at once, which is what its scenarios do.</p>
 
     <p><strong>Every example can be driven at volume.</strong> Each ships a five-session load client on a
     memory store and at least one load set, so a <a href="#load-runs">load run</a> needs no profile edits:
     <code>fx-order-book</code>, <code>rfq-round-trip</code>, <code>equity-rest-and-cancel</code>,
-    <code>crypto-rest-and-refuse</code>, and two on the fixed-income desk &mdash;
+    <code>crypto-rest-and-refuse</code>, and two on the fixed-income platform &mdash;
     <code>fi-rfq-round-trip</code> and <code>fi-rfq-reactive</code>. Read each venue's own section for
     what its set proves.</p>
 
@@ -789,17 +791,63 @@
 
     <div class="example"><code>fixtool load --set crypto-rest-and-refuse --workspace "Crypto Venue"</code></div>
 
-    <h3 id="fi-rfq-venue">The Fixed Income RFQ Desk</h3>
-    <p>An <strong>FI RFQ Demo Desk</strong> acceptor on <code>localhost:19880</code> making prices in three
-    on-the-run US Treasuries. It plays <em>the same negotiation</em> as the <a href="#rfq-venue">FX RFQ
-    venue</a> — QuoteRequest, Quote, QuoteResponse — and that is exactly why both are here: the mechanics
-    of an RFQ are the same everywhere, and the <strong>vocabulary is not</strong>. A desk that trades bonds
-    does not recognise itself in a venue quoting EUR/USD to five decimal places.</p>
+    <h3 id="fi-rfq-venue">The Fixed Income RFQ Platform</h3>
+    <p>An <strong>FI RFQ Platform</strong> acceptor on <code>localhost:19880</code> that sits
+    <em>between</em> two kinds of client, the way a US Treasury RFQ platform does: <strong>buy sides</strong>
+    ask for a price, <strong>dealers</strong> quote one, and the platform carries the negotiation between
+    them. It prices nothing itself. Every other example is a counterparty you trade with; this one is the
+    venue two counterparties trade through, so it is the one to open when what you test sits on
+    <em>both</em> sides of a real platform. The rules that make it are ordinary acceptor rules, read the way
+    <a href="#relay">Relaying between counterparties</a> explains.</p>
+
     <table>
-        <tr><th></th><th>FX RFQ venue</th><th>This desk</th></tr>
+        <tr><th>Profile</th><th>CompID</th><th>Its part</th></tr>
+        <tr><td><strong>FI RFQ Platform</strong></td><td><code>FIRFQ_VENUE</code></td>
+            <td>The platform: relays, confirms, refuses. Its counterparties say who is which</td></tr>
+        <tr><td><strong>Buy Side 1</strong>, <strong>Buy Side 2</strong></td><td><code>FIBUY1</code>, <code>FIBUY2</code></td>
+            <td>Requesters, played by you</td></tr>
+        <tr><td><strong>Dealer 1</strong>, <strong>Dealer 2</strong></td><td><code>FIDLR1</code>, <code>FIDLR2</code></td>
+            <td>Responders, played by you</td></tr>
+        <tr><td><strong>Buy Side Load Client</strong></td><td><code>FIBUYLG1</code> to <code>FIBUYLG5</code></td>
+            <td>Requesters, for load</td></tr>
+        <tr><td><strong>Dealer Load Client</strong></td><td><code>FIDLRLG1</code> to <code>FIDLRLG5</code></td>
+            <td>Responders that quote every request by rule, with nobody at the keyboard</td></tr>
+    </table>
+
+    <h4>One negotiation, end to end</h4>
+    <ol>
+        <li><strong>Buy Side 1 asks.</strong> A QuoteRequest for 10mm of <code>T 4.25 08/15/36</code>, CUSIP
+            <code>91282CMF5</code>, naming <code>54=1</code> because it is buying</li>
+        <li><strong>The platform asks every dealer online.</strong> Each gets its own copy under a QuoteReqID
+            the platform minted, with the buy side named in <code>Parties</code> as role 13, so a dealer knows
+            who is asking and never sees the buy side's own id</li>
+        <li><strong>A dealer quotes</strong> one way, because the buy side disclosed a side: the offer, its
+            size and <code>OfferYield(634)</code>, firm (<code>QuoteType(537)=1</code>) for thirty seconds</li>
+        <li><strong>The platform shows the buy side that quote</strong> under the buy side's own QuoteReqID and
+            a QuoteID of the platform's, with the dealer named as role 35, liquidity provider</li>
+        <li><strong>Buy Side 1 lifts it</strong>: a QuoteResponse, <code>694=1</code>, naming the platform's
+            QuoteID at the level it was shown</li>
+        <li><strong>Both sides are confirmed.</strong> Each gets an ExecutionReport and a
+            TradeCaptureReport, with <strong>one OrderID(37) and one TradeReportID(571)</strong> between them
+            and the other side named as contra firm, role 17. The dealer's confirmation opens with a
+            QuoteResponse, in its own ids, saying its quote was accepted. The dealer with the next best quote is told it was the
+            <strong>cover</strong> (<code>694=4</code>), and every other dealer quoting that the trade was
+            <strong>done away</strong> (<code>694=5</code>)</li>
+    </ol>
+    <p><strong>The level booked is the one the platform showed</strong>, read back from its own RFQ book,
+    never the price in the lift. A lift at a level it did not show, a counter, a quote for an RFQ that has
+    already traded, a request for an issue it does not list and a request from a dealer are each refused, by
+    name, to whoever sent them and to nobody else. A buy side that passes (<code>694=6</code>) ends the RFQ,
+    and every dealer quoting is told.</p>
+
+    <h4>A bond desk's vocabulary</h4>
+    <p>The mechanics of an RFQ are the same everywhere and the <strong>vocabulary is not</strong>. A desk
+    that trades bonds does not recognise itself in a venue quoting EUR/USD to five decimal places.</p>
+    <table>
+        <tr><th></th><th>FX RFQ venue</th><th>This platform</th></tr>
         <tr><td>The instrument</td><td><code>Symbol(55)</code>, a currency pair</td>
             <td><strong>CUSIP</strong> in <code>SecurityID(48)</code> with <code>SecurityIDSource(22)=1</code>,
-            plus <code>SecurityType(167)=TNOTE</code>, <code>CouponRate(223)</code> and
+            plus <code>SecurityType(167)=TNOTE</code>; a dealer's quote adds <code>CouponRate(223)</code> and
             <code>MaturityDate(541)</code></td></tr>
         <tr><td>The level</td><td>a rate, five decimals</td>
             <td><strong>percent of par</strong> (<code>PriceType(423)=1</code>) on the 32nd grid, and a
@@ -808,71 +856,101 @@
         <tr><td>Settlement</td><td>not said</td>
             <td><code>SettlType(63)=0</code> regular, with the T+1 <code>SettlDate(64)</code> spelled out</td></tr>
     </table>
-
-    <h4>Three things an RFQ client reads off every quote</h4>
-    <p><strong>A disclosed side is quoted one way.</strong> Two-way is what a dealer shows a client who
-    withheld direction — that is what it is <em>for</em>. Ask this desk for a price naming
-    <code>54=1</code> and you are shown the offer and nothing else, with <code>Side(54)</code> on the quote
-    saying which side it is. Ask without a side and you get both.</p>
-    <p><strong>The quote says it is tradeable.</strong> <code>QuoteType(537)=1</code>. Indicative or firm is
-    the first thing an RFQ client needs to know, and a desk that books at the level it showed is firm.</p>
-    <p><strong>Cover and Done Away are answers, not errors.</strong> In a multi-dealer RFQ the client tells
-    you it traded elsewhere (<code>694=5</code>) or that you were the cover (<code>694=4</code>). Those are
-    the ordinary end of a negotiation you did not win, and this desk answers them with a
-    QuoteStatusReport of <code>297=6</code>, the level withdrawn. A counter is declined and the level left
-    standing, because this desk quotes firm.</p>
-    <p>Everything the FX desk's quote book does, this one still does: a lift after the thirty seconds are
-    up is <em>stale</em>, a second lift on a level already hit is <em>spent</em>, and a lift naming a quote
-    the desk never sent is disowned — three refusals nothing on the incoming message can tell apart.</p>
-
-    <h4>Why these levels do not move</h4>
-    <p>Every other venue here draws its prices. This one states them, and the reason is the grid: a
-    Treasury trades in <strong>thirty-seconds of a point</strong>, so <code>98-16+</code> is
-    <code>98.515625</code> and the prices between grid points do not exist. The native
-    <code>${random:…}</code> generator quantises to a number of decimal places and no power of ten is a
-    thirty-second, so there is no way to draw a price a Treasury desk would recognise — and putting
-    <code>98.513</code> on the wire would be inventing one. So the desk quotes its <strong>axe</strong>: a
-    stated level, firm for thirty seconds, with the size drawn instead. The quote is carried in decimals,
-    as FIX requires, and the same level in 32nds is in <code>Text(58)</code> so it can be read aloud.</p>
+    <p><strong>A disclosed side is quoted one way.</strong> Two-way is what a dealer shows a buy side that
+    withheld direction &mdash; that is what it is <em>for</em>. Ask for a price naming <code>54=1</code> and
+    you are shown the offer and nothing else, with <code>Side(54)</code> on the quote saying which side it
+    is. Ask without a side and every dealer quotes both.</p>
+    <p><strong>Why the levels are stated, not drawn.</strong> A Treasury trades in
+    <strong>thirty-seconds of a point</strong>, so <code>98-16+</code> is <code>98.515625</code> and the
+    prices between grid points do not exist. The native <code>${random:&hellip;}</code> generator quantises to
+    decimal places and no power of ten is a thirty-second, so the Dealer Load Client quotes its
+    <strong>axe</strong>: a stated level, firm for thirty seconds, at the size asked. A quote is carried in
+    decimals, as FIX requires, with the same level in 32nds in <code>Text(58)</code> so it can be read
+    aloud. The yields are what those prices yield for T+1 settlement, so a below-par issue yields above its
+    coupon and half a 32nd moves the ten-year a fifth of a basis point.</p>
 
     <div class="warning">
-        <strong>The CUSIPs are illustrative.</strong> They are well formed and shaped like Treasury notes,
-        and they are <strong>not real securities</strong>. Nothing here should be pointed at one: a demo
-        venue quoting a live ISIN is a demo venue somebody will eventually mistake for a price.
+        <strong>The CUSIPs are illustrative.</strong> They are well formed, check digit included, and shaped
+        like Treasuries, and they are <strong>not real securities</strong>. Nothing here should be pointed at
+        one: a demo platform quoting a live ISIN is one somebody will eventually mistake for a price.
     </div>
 
-    <h4 id="fi-rfq-load">The Load Client</h4>
-    <p>Five sessions, <code>FIRFQLG1</code> to <code>FIRFQLG5</code>. The shipped set,
-    <strong>FI RFQ round trip</strong>, asks for 2,000 quotes and lifts all 2,000 at the levels it was
-    shown — <code>capture</code>d off each Quote, because an opaque QuoteID and the desk's own level are
-    two things no client can guess.</p>
+    <h4>What you play, and what plays itself</h4>
+    <p><strong>Dealer 1 and Dealer 2 carry no rules</strong>, because a two-party demo is a person on each
+    side. Their templates read <code>${in.R.131}</code>, so <strong>FI RFQ Quote 10y, offer only</strong>
+    answers whichever request is in front of you, and <strong>FI RFQ Pass on the request</strong> declines it
+    (<code>658=10</code>). The buy sides' templates lift and hit the quote in front of them the same way.</p>
+    <p><strong>The Dealer Load Client carries the dealer's rules</strong> (the <em>Fixed income RFQ dealer</em>
+    bundle, on an initiator): it quotes every request for an issue on the run, one way to a disclosed side
+    and two-way otherwise, and passes the rest. Connect it while you play by hand and five more dealers quote
+    every RFQ, which is what a platform with seven dealers looks like; the scenarios below pass either way.</p>
 
-    <div class="example"><code>fixtool load --set fi-rfq-round-trip --workspace "Fixed Income RFQ"</code></div>
+    <h4>The scenarios</h4>
+    <p>Each one is <strong>two-party</strong>: it asserts what the buy side saw <em>and</em> what the dealers
+    saw, in one run.</p>
+    <table>
+        <tr><th>Scenario</th><th>What it proves</th></tr>
+        <tr><td><strong>Buy side lifts Dealer 1's offer</strong></td>
+            <td>The request reaches the dealer under the platform's id, naming the buy side; the quote reaches
+            the buy side naming the dealer; the lift confirms both sides, and both ExecutionReports carry the
+            <strong>same OrderID</strong> &mdash; bound on one session and asserted on the other</td></tr>
+        <tr><td><strong>Two dealers quote, the better offer is lifted</strong></td>
+            <td>The better offer arrives <em>first</em>, so it is picked by its price and not by being the
+            latest. Dealer 1 is filled and Dealer 2 is told it was the <strong>cover</strong></td></tr>
+        <tr><td><strong>A dealer cannot ask for a quote</strong></td>
+            <td><code>658=6</code> to the dealer, and <strong>strict traffic</strong> proves neither buy side
+            heard a thing</td></tr>
+        <tr><td><strong>An issue the platform does not list is refused</strong></td>
+            <td><code>658=1</code> to the buy side, and strict traffic proves no dealer was asked</td></tr>
+    </table>
+
+    <h4>Watching it</h4>
+    <p>The platform's own pane lists its <strong>counterparties</strong> with who is logged on, and its
+    <strong>RFQ book</strong>: one row per RFQ, a leg per dealer, each id shown the way each side knows it. A
+    dealer the platform could not reach, because it was not logged on, is counted <em>not delivered</em>
+    rather than silently skipped. In the Trace, <strong>Lanes</strong> draws a lane per party with each relay
+    passing through the platform's lane, and a relayed arrow says why under the line:
+    <em>relayed &middot; rule 3 &middot; to responders</em>.</p>
+
+    <h4 id="fi-rfq-load">The load clients</h4>
+    <p>The <strong>Buy Side Load Client</strong> asks and the <strong>Dealer Load Client</strong> quotes.
+    Both shipped sets name the Dealer Load Client under <code>listen</code>, which is what makes a run from
+    <strong>Run &rarr; Load sets</strong> bring all five dealer lanes up rather than ask a platform with nobody
+    to quote. <strong>FI RFQ round trip</strong> asks for 1,000 ten-year prices, which the five dealers answer
+    with 5,000 quotes, then lifts each request's first offer at the level it was shown &mdash;
+    <code>capture</code>d off that Quote, because an opaque QuoteID and the platform's own level are two things
+    no client can guess. The other four quotes on each request are counted as duplicates and not judged, and
+    their dealers are told cover and done away.</p>
+    <p>From the command line, point <code>--home</code> at the example's folder, with the platform up in
+    FixTool: the command line opens the load clients, not the platform. A profile a set only listens on gets
+    one session there, so one dealer lane quotes each request.</p>
+
+    <div class="example"><code>fixtool load --set fi-rfq-round-trip --home ~/.fixtool/workspaces/fixed-income-rfq</code></div>
 
     <h4>The same round trip, two shapes</h4>
-    <p>The desk ships the set twice, and the difference is the <a href="#load-sets">phase shape</a> of the
-    lift. It is the clearest place in the build to see what <strong>reactive</strong> buys you.</p>
+    <p>The platform ships the set twice, and the difference is the <a href="#load-sets">phase shape</a> of
+    the lift. It is the clearest place in the build to see what <strong>reactive</strong> buys you.</p>
     <table>
         <tr><th>Set</th><th>The lift phase</th><th>What it measures</th></tr>
         <tr><td><code>fi-rfq-round-trip</code></td>
-            <td><code>{"kind": "burst", "count": 2000}</code></td>
-            <td>Two blocks. Every quote is asked for, the phase settles, and only then is anything lifted
+            <td><code>{"kind": "burst", "count": 1000}</code></td>
+            <td>Two blocks. Every request is asked, the phase settles, and only then is anything lifted
             &mdash; so a lift is always at least one settle window behind its quote</td></tr>
         <tr><td><code>fi-rfq-reactive</code></td>
             <td><code>{"kind": "triggered"}</code> with <code>"after": 1</code></td>
-            <td>Two thousand <strong>chains</strong>. Each quote is lifted the moment it lands, which is
-            what a client actually does, and what the thirty-second validity is there for</td></tr>
+            <td>A thousand <strong>chains</strong>. Each request is lifted the moment its first quote lands,
+            which is what a buy side actually does, and what the thirty-second validity is there for</td></tr>
     </table>
-    <p>Reactive is the honest model for an RFQ: a client does not wait for two thousand quotes to settle
+    <p>Reactive is the honest model for an RFQ: a buy side does not wait for a thousand quotes to settle
     before answering the first one. Add <code>"cap": 50</code> to the shape to ceiling it at fifty lifts a
     second &mdash; a ceiling, never a schedule, so a second nothing was released in is a second nothing
     was ready rather than a shortfall.</p>
 
-    <div class="example"><code>fixtool load --set fi-rfq-reactive --workspace "Fixed Income RFQ"</code></div>
+    <div class="example"><code>fixtool load --set fi-rfq-reactive --home ~/.fixtool/workspaces/fixed-income-rfq</code></div>
 
-    <p>Against this desk both finish in well under a second, because nothing here reaches the script
-    engine &mdash; so read the contrast for the <em>shape</em> rather than for the clock. Point the load
-    client at a venue that takes its time and the difference stops being academic.</p>
+    <p>Against this platform both sets finish in seconds, so read the contrast for the <em>shape</em> rather
+    than for the clock. Point the load clients at a venue that takes its time and the difference stops being
+    academic.</p>
 
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This
@@ -4462,6 +4540,92 @@ ${incoming["D"].valueOfTag(38)}
         would this venue do with a hit that arrived too late&rdquo; is answerable without waiting thirty
         seconds for one. It reports <code>assumedQuoteState</code> back, and each conditioned rule reports
         <code>whenQuote</code> with what it asked for, what it read and the verdict.
+    </div>
+
+    <h3 id="relay">Relaying between counterparties</h3>
+
+    <p>Every rule above answers the counterparty that sent its trigger. A venue that sits <em>between</em>
+    two kinds of client &mdash; a platform carrying a buy side's RFQ out to its dealers and their quotes
+    back &mdash; also has to send to somebody else, in that somebody's own ids. Three things make it
+    possible: the venue says who its counterparties are, a trigger can ask about the sender and the RFQ,
+    and every step says who it goes to. The <a href="#fi-rfq-venue">Fixed Income RFQ Platform</a> is built
+    out of nothing else, so its cards are the worked example of everything here.</p>
+
+    <h4>Counterparties</h4>
+    <p>On an acceptor open to any client (<code>TargetCompID=*</code>), the Connection panel has a
+    <strong>Counterparties</strong> section: a CompID and the part it plays. A <strong>requester</strong>
+    raises a request, as a buy side does; a <strong>responder</strong> answers one, as a dealer does. A
+    CompID ending in <code>*</code> is a <strong>family</strong>, so <code>FIDLRLG*</code> covers every lane of
+    a load client. A logon from a CompID nobody listed is still accepted, and is <em>unlisted</em>: the
+    venue's pane names it, and a rule can refuse it.</p>
+
+    <h4>What a trigger can ask the venue</h4>
+    <table>
+        <tr><th>Row on the card</th><th>Answers</th><th>What it reads</th></tr>
+        <tr><td><strong>and the sender is</strong></td><td><code>requester</code>, <code>responder</code>, <code>unlisted</code></td>
+            <td>The sender's part among the counterparties. A condition of type <code>role</code> on tag 49</td></tr>
+        <tr><td><strong>and the RFQ is</strong></td><td><code>open</code>, <code>done</code>, <code>expired</code>, <code>unknown</code></td>
+            <td>The RFQ the message names, by the id the sender was given: a dealer's QuoteReqID(131), a buy
+            side's QuoteID(117). A condition of type <code>rfq</code>. <em>open</em> covers an RFQ still waiting
+            for quotes as well as one holding some, because in both a quote can still arrive; <em>done</em>
+            covers refused, passed and traded, because in all three the negotiation is over</td></tr>
+        <tr><td><strong>and responders online</strong></td><td><code>some</code>, <code>none</code></td>
+            <td>Whether any responder is logged on: the difference between relaying a request and refusing it
+            because nobody could quote</td></tr>
+    </table>
+
+    <h4>Who a step goes to</h4>
+    <p>Every step carries a <strong>to</strong> chip. A step without one goes to the sender, which is every
+    rule written before relaying, and reads exactly as it always did.</p>
+    <table>
+        <tr><th>To</th><th>Who that is</th></tr>
+        <tr><td><code>sender</code></td><td>Whoever sent the trigger</td></tr>
+        <tr><td><code>requester</code></td><td>The counterparty that opened the RFQ this message belongs to</td></tr>
+        <tr><td><code>responders</code></td><td>Every counterparty listed as a responder: a listed CompID whether or not it is logged on, and every logged-on lane a family covers</td></tr>
+        <tr><td><code>asked</code></td><td>Every responder the RFQ was sent to, quoted or not</td></tr>
+        <tr><td><code>quoted</code></td><td>Every responder holding a live quote</td></tr>
+        <tr><td><code>quoter</code></td><td>The responder whose quote the trigger names</td></tr>
+        <tr><td><code>cover</code></td><td>The responder holding the best <em>other</em> live quote on the side that traded</td></tr>
+        <tr><td><code>others</code></td><td>Every responder holding a live quote, except the quoter and the cover</td></tr>
+        <tr><td><code>compId:FIDLR1</code></td><td>One named counterparty</td></tr>
+    </table>
+    <p>A recipient that is not logged on is not skipped in silence: its leg is marked <em>not delivered</em>
+    and counted on the venue's pane. <code>quoter</code>, <code>cover</code> and <code>others</code> are
+    found through the quote the trigger names, so a rule addressing them needs an <strong>RFQ is</strong>
+    condition on tag 117, and the card says so in amber until it has one.</p>
+
+    <h4>Speaking each side's language</h4>
+    <table>
+        <tr><th>In a template</th><th>Resolves to</th></tr>
+        <tr><td><code>${to.131}</code>, <code>${to.117}</code></td>
+            <td>The id <strong>that recipient</strong> knows the RFQ or quote by: the buy side's own
+            QuoteReqID going back to the buy side, the dealer's own QuoteID going to the dealer</td></tr>
+        <tr><td><code>${req.uuid}</code></td>
+            <td>One value for the whole trigger, so an id drawn once is shared by every step: the one OrderID
+            both sides of a trade reconcile on. <code>${uuid:10}</code> draws a fresh one per step</td></tr>
+        <tr><td><code>${rfq.requester}</code>, <code>${rfq.quoter}</code></td>
+            <td>The CompIDs, for naming the other side in <code>Parties</code></td></tr>
+        <tr><td><code>${rfq.asked}</code>, <code>${rfq.quoted}</code>, <code>${rfq.state}</code></td>
+            <td>How many responders were asked and hold a live quote, and the RFQ's own word for its life</td></tr>
+    </table>
+
+    <h4>The RFQ book</h4>
+    <p>A relaying venue keeps an <strong>RFQ book</strong> beside its order and quote books, and draws it on
+    its own pane rather than a client's, because an RFQ spans counterparties: one row per RFQ, a leg under it
+    per responder, and each id shown the way each side knows it (<code>D1-Q-88 &harr; V-Q-1</code>). It is fed
+    from the wire like the other two. A rule becomes a trade the moment one of its steps sends the quoter an
+    ExecutionReport, so a second lift already on its way reads the RFQ as <em>done</em> and is refused.</p>
+
+    <h4>The other side, by rule</h4>
+    <p>A dealer that quotes relayed RFQs by itself is an <strong>initiator with rules</strong> (see
+    <a href="#acceptor-rules">Where the rules live</a>). It answers only the one counterparty it is connected
+    to, so it has no counterparties, and a rule on it that addresses anyone, asks a role or an RFQ state, or
+    asks who is online is refused on its card.</p>
+
+    <div class="tip">
+        <strong>Trying a relay without the parties.</strong> <code>POST /acceptor/test</code> takes
+        <code>from</code>, the CompID the trigger comes from, and dry-runs the venue as that sender: which rule
+        answers, and for each step who it would reach, <code>not delivered</code> included.
     </div>
 
     <h3 id="reply-with">Replying by hand &mdash; Reply With&hellip;</h3>

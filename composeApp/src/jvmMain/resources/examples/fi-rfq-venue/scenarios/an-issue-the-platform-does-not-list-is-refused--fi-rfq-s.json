@@ -1,0 +1,73 @@
+{
+    "id": "fi-rfq-scenario-not-listed",
+    "name": "An issue the platform does not list is refused",
+    "traffic": "strict",
+    "binding": "this_run",
+    "createdAt": 1789000000000,
+    "setup": [
+        {
+            "stepId": "252f88c0-6712-37a8-9b62-7edcb1fc0a58",
+            "type": "clearMessages",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "98be033e-f941-308c-b086-2e9e2463b7e8",
+            "type": "clearMessages",
+            "session": "Dealer 1"
+        },
+        {
+            "stepId": "49141df3-2170-3e2b-99fc-b460157ff66d",
+            "type": "clearMessages",
+            "session": "Dealer 2"
+        }
+    ],
+    "steps": [
+        {
+            "stepId": "6703f96f-ca08-342e-b9f4-5f31c4213270",
+            "type": "send",
+            "raw": "35=R|131=${offTheRun = uuid}|146=1|55=T 4.75 02/15/45|48=912810ZZ4|22=1|54=1|38=10000000",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "7ec89e9e-1e27-323e-98f6-5aa25a8f0eb8",
+            "type": "expect",
+            "session": "Buy Side 1",
+            "direction": "in",
+            "match": {
+                "messageType": "AG",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "AG",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 58,
+                        "matcher": {
+                            "type": "regex",
+                            "pattern": "Not listed here.*"
+                        }
+                    },
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${offTheRun}"
+                        }
+                    },
+                    {
+                        "tag": 658,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "teardown": [],
+    "userTags": [],
+    "version": 1
+}

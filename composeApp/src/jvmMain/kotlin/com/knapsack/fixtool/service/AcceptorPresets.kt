@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
@@ -19,6 +20,11 @@ data class AcceptorPreset(
     /** The second line in the menu: the shape this produces, in the reader's terms. */
     val summary: String,
     val rules: List<AcceptorResponseRule>,
+    /**
+     * Who a relaying bundle expects: the counterparties its rules are written against. Empty for every preset that
+     * answers only the sender. Carried so the rules can be judged the way the venue running them would judge them.
+     */
+    val counterparties: List<Counterparty> = emptyList(),
 )
 
 /**
@@ -101,8 +107,8 @@ object AcceptorPresets {
     /** The id of the crypto venue bundle: 24/7, post-only, satoshi-grained. See [CryptoVenuePreset]. */
     const val CRYPTO_VENUE = CryptoVenuePreset.ID
 
-    /** The id of the fixed-income RFQ bundle: Treasuries by CUSIP, price and yield. See [FiRfqVenuePreset]. */
-    const val FI_RFQ_VENUE = FiRfqVenuePreset.ID
+    /** The id of the fixed-income RFQ platform: buy sides and dealers, by CUSIP. See [FiRfqPlatformPreset]. */
+    const val FI_RFQ_VENUE = FiRfqPlatformPreset.ID
 
     // ------------------------------------------------------------------ templates
     //
@@ -608,7 +614,8 @@ object AcceptorPresets {
             RfqVenuePreset.preset,
             EquityVenuePreset.preset,
             CryptoVenuePreset.preset,
-            FiRfqVenuePreset.preset,
+            FiRfqPlatformPreset.preset,
+            FiRfqPlatformPreset.dealerPreset,
             AcceptorPreset(
                 id = "order-ack",
                 name = "Order acknowledged",

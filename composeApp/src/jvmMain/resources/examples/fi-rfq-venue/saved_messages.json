@@ -4,8 +4,8 @@
             "id": "fi-rfq-request-10y",
             "name": "FI RFQ Request 10y, two-way",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -22,11 +22,11 @@
                 },
                 {
                     "tag": "55",
-                    "value": "T 4.25 11/15/36"
+                    "value": "T 4.25 08/15/36"
                 },
                 {
                     "tag": "48",
-                    "value": "91282CMF7"
+                    "value": "91282CMF5"
                 },
                 {
                     "tag": "22",
@@ -46,8 +46,8 @@
             "id": "fi-rfq-request-10y-buy",
             "name": "FI RFQ Request 10y, buying",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -64,11 +64,11 @@
                 },
                 {
                     "tag": "55",
-                    "value": "T 4.25 11/15/36"
+                    "value": "T 4.25 08/15/36"
                 },
                 {
                     "tag": "48",
-                    "value": "91282CMF7"
+                    "value": "91282CMF5"
                 },
                 {
                     "tag": "22",
@@ -92,8 +92,8 @@
             "id": "fi-rfq-request-10y-sell",
             "name": "FI RFQ Request 10y, selling",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -110,11 +110,11 @@
                 },
                 {
                     "tag": "55",
-                    "value": "T 4.25 11/15/36"
+                    "value": "T 4.25 08/15/36"
                 },
                 {
                     "tag": "48",
-                    "value": "91282CMF7"
+                    "value": "91282CMF5"
                 },
                 {
                     "tag": "22",
@@ -138,8 +138,8 @@
             "id": "fi-rfq-request-5y",
             "name": "FI RFQ Request 5y, two-way",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -160,7 +160,7 @@
                 },
                 {
                     "tag": "48",
-                    "value": "91282CME0"
+                    "value": "91282CME8"
                 },
                 {
                     "tag": "22",
@@ -180,8 +180,8 @@
             "id": "fi-rfq-lift",
             "name": "FI RFQ Lift the offer",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -198,7 +198,7 @@
                 },
                 {
                     "tag": "117",
-                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                    "value": "${in.S.117}"
                 },
                 {
                     "tag": "11",
@@ -206,7 +206,7 @@
                 },
                 {
                     "tag": "55",
-                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                    "value": "${in.S.55}"
                 },
                 {
                     "tag": "54",
@@ -214,11 +214,15 @@
                 },
                 {
                     "tag": "38",
-                    "value": "10000000"
+                    "value": "${in.S.135}"
                 },
                 {
                     "tag": "44",
-                    "value": "${incoming[\"S\"].valueOfTag(133)}"
+                    "value": "${in.S.133}"
+                },
+                {
+                    "tag": "60",
+                    "value": "${utcnow}"
                 }
             ],
             "createdAt": 0,
@@ -230,8 +234,8 @@
             "id": "fi-rfq-hit",
             "name": "FI RFQ Hit the bid",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -248,7 +252,7 @@
                 },
                 {
                     "tag": "117",
-                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                    "value": "${in.S.117}"
                 },
                 {
                     "tag": "11",
@@ -256,7 +260,7 @@
                 },
                 {
                     "tag": "55",
-                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                    "value": "${in.S.55}"
                 },
                 {
                     "tag": "54",
@@ -264,11 +268,15 @@
                 },
                 {
                     "tag": "38",
-                    "value": "10000000"
+                    "value": "${in.S.134}"
                 },
                 {
                     "tag": "44",
-                    "value": "${incoming[\"S\"].valueOfTag(132)}"
+                    "value": "${in.S.132}"
+                },
+                {
+                    "tag": "60",
+                    "value": "${utcnow}"
                 }
             ],
             "createdAt": 0,
@@ -280,8 +288,8 @@
             "id": "fi-rfq-pass",
             "name": "FI RFQ Pass",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -298,79 +306,15 @@
                 },
                 {
                     "tag": "117",
-                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                    "value": "${in.S.117}"
                 },
                 {
                     "tag": "55",
-                    "value": "${incoming[\"S\"].valueOfTag(55)}"
-                }
-            ],
-            "createdAt": 0,
-            "lastUsedAt": 0,
-            "modifiedAt": 0,
-            "isFavorite": true
-        },
-        {
-            "id": "fi-rfq-cover",
-            "name": "FI RFQ Cover \u2014 you were second",
-            "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
-            ],
-            "fields": [
-                {
-                    "tag": "35",
-                    "value": "AJ"
+                    "value": "${in.S.55}"
                 },
                 {
-                    "tag": "693",
-                    "value": "${uuid}"
-                },
-                {
-                    "tag": "694",
-                    "value": "4"
-                },
-                {
-                    "tag": "117",
-                    "value": "${incoming[\"S\"].valueOfTag(117)}"
-                },
-                {
-                    "tag": "55",
-                    "value": "${incoming[\"S\"].valueOfTag(55)}"
-                }
-            ],
-            "createdAt": 0,
-            "lastUsedAt": 0,
-            "modifiedAt": 0,
-            "isFavorite": true
-        },
-        {
-            "id": "fi-rfq-done-away",
-            "name": "FI RFQ Done away \u2014 traded elsewhere",
-            "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
-            ],
-            "fields": [
-                {
-                    "tag": "35",
-                    "value": "AJ"
-                },
-                {
-                    "tag": "693",
-                    "value": "${uuid}"
-                },
-                {
-                    "tag": "694",
-                    "value": "5"
-                },
-                {
-                    "tag": "117",
-                    "value": "${incoming[\"S\"].valueOfTag(117)}"
-                },
-                {
-                    "tag": "55",
-                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                    "tag": "60",
+                    "value": "${utcnow}"
                 }
             ],
             "createdAt": 0,
@@ -382,8 +326,8 @@
             "id": "fi-rfq-counter",
             "name": "FI RFQ Counter the level",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -400,28 +344,40 @@
                 },
                 {
                     "tag": "117",
-                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                    "value": "${in.S.117}"
                 },
                 {
                     "tag": "55",
-                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                    "value": "${in.S.55}"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "${in.S.135}"
                 },
                 {
                     "tag": "44",
-                    "value": "98.400000"
+                    "value": "98.500000"
+                },
+                {
+                    "tag": "60",
+                    "value": "${utcnow}"
                 }
             ],
             "createdAt": 0,
             "lastUsedAt": 0,
             "modifiedAt": 0,
-            "isFavorite": false
+            "isFavorite": true
         },
         {
-            "id": "fi-rfq-off-the-run",
-            "name": "FI RFQ Request an issue off the run",
+            "id": "fi-rfq-not-listed",
+            "name": "FI RFQ Request an issue the platform does not list",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -438,7 +394,15 @@
                 },
                 {
                     "tag": "55",
-                    "value": "T 9.875 11/15/45"
+                    "value": "T 4.75 02/15/45"
+                },
+                {
+                    "tag": "48",
+                    "value": "912810ZZ4"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
                 },
                 {
                     "tag": "38",
@@ -448,14 +412,14 @@
             "createdAt": 0,
             "lastUsedAt": 0,
             "modifiedAt": 0,
-            "isFavorite": false
+            "isFavorite": true
         },
         {
             "id": "fi-rfq-no-size",
             "name": "FI RFQ Request with no size",
             "userTags": [
-                "fi-rfq-profile-CLIENT1",
-                "fi-rfq-profile-CLIENT2"
+                "fi-rfq-profile-BUY1",
+                "fi-rfq-profile-BUY2"
             ],
             "fields": [
                 {
@@ -472,11 +436,11 @@
                 },
                 {
                     "tag": "55",
-                    "value": "T 4.25 11/15/36"
+                    "value": "T 4.25 08/15/36"
                 },
                 {
                     "tag": "48",
-                    "value": "91282CMF7"
+                    "value": "91282CMF5"
                 },
                 {
                     "tag": "22",
@@ -486,13 +450,329 @@
             "createdAt": 0,
             "lastUsedAt": 0,
             "modifiedAt": 0,
-            "isFavorite": false
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-quote-10y",
+            "name": "FI RFQ Quote 10y, two-way",
+            "userTags": [
+                "fi-rfq-profile-DLR1",
+                "fi-rfq-profile-DLR2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "S"
+                },
+                {
+                    "tag": "131",
+                    "value": "${in.R.131}"
+                },
+                {
+                    "tag": "117",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 08/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF5"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "167",
+                    "value": "TNOTE"
+                },
+                {
+                    "tag": "537",
+                    "value": "1"
+                },
+                {
+                    "tag": "423",
+                    "value": "1"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "132",
+                    "value": "98.500000"
+                },
+                {
+                    "tag": "133",
+                    "value": "98.515625"
+                },
+                {
+                    "tag": "134",
+                    "value": "${in.R.38}"
+                },
+                {
+                    "tag": "135",
+                    "value": "${in.R.38}"
+                },
+                {
+                    "tag": "632",
+                    "value": "4.438"
+                },
+                {
+                    "tag": "634",
+                    "value": "4.436"
+                },
+                {
+                    "tag": "63",
+                    "value": "0"
+                },
+                {
+                    "tag": "64",
+                    "value": "${utcnow+1d:yyyyMMdd}"
+                },
+                {
+                    "tag": "62",
+                    "value": "${utcnow+30s}"
+                },
+                {
+                    "tag": "58",
+                    "value": "98-16 / 98-16+"
+                },
+                {
+                    "tag": "60",
+                    "value": "${utcnow}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-quote-10y-offer",
+            "name": "FI RFQ Quote 10y, offer only",
+            "userTags": [
+                "fi-rfq-profile-DLR1",
+                "fi-rfq-profile-DLR2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "S"
+                },
+                {
+                    "tag": "131",
+                    "value": "${in.R.131}"
+                },
+                {
+                    "tag": "117",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 08/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF5"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "167",
+                    "value": "TNOTE"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "537",
+                    "value": "1"
+                },
+                {
+                    "tag": "423",
+                    "value": "1"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "133",
+                    "value": "98.515625"
+                },
+                {
+                    "tag": "135",
+                    "value": "${in.R.38}"
+                },
+                {
+                    "tag": "634",
+                    "value": "4.436"
+                },
+                {
+                    "tag": "63",
+                    "value": "0"
+                },
+                {
+                    "tag": "64",
+                    "value": "${utcnow+1d:yyyyMMdd}"
+                },
+                {
+                    "tag": "62",
+                    "value": "${utcnow+30s}"
+                },
+                {
+                    "tag": "58",
+                    "value": "98-16+"
+                },
+                {
+                    "tag": "60",
+                    "value": "${utcnow}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-quote-10y-bid",
+            "name": "FI RFQ Quote 10y, bid only",
+            "userTags": [
+                "fi-rfq-profile-DLR1",
+                "fi-rfq-profile-DLR2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "S"
+                },
+                {
+                    "tag": "131",
+                    "value": "${in.R.131}"
+                },
+                {
+                    "tag": "117",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "T 4.25 08/15/36"
+                },
+                {
+                    "tag": "48",
+                    "value": "91282CMF5"
+                },
+                {
+                    "tag": "22",
+                    "value": "1"
+                },
+                {
+                    "tag": "167",
+                    "value": "TNOTE"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "537",
+                    "value": "1"
+                },
+                {
+                    "tag": "423",
+                    "value": "1"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "132",
+                    "value": "98.500000"
+                },
+                {
+                    "tag": "134",
+                    "value": "${in.R.38}"
+                },
+                {
+                    "tag": "632",
+                    "value": "4.438"
+                },
+                {
+                    "tag": "63",
+                    "value": "0"
+                },
+                {
+                    "tag": "64",
+                    "value": "${utcnow+1d:yyyyMMdd}"
+                },
+                {
+                    "tag": "62",
+                    "value": "${utcnow+30s}"
+                },
+                {
+                    "tag": "58",
+                    "value": "98-16"
+                },
+                {
+                    "tag": "60",
+                    "value": "${utcnow}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "fi-rfq-dealer-pass",
+            "name": "FI RFQ Pass on the request",
+            "userTags": [
+                "fi-rfq-profile-DLR1",
+                "fi-rfq-profile-DLR2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AG"
+                },
+                {
+                    "tag": "131",
+                    "value": "${in.R.131}"
+                },
+                {
+                    "tag": "658",
+                    "value": "10"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "${in.R.55}"
+                },
+                {
+                    "tag": "58",
+                    "value": "Pass"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
         },
         {
             "id": "fi-rfq-load-request",
             "name": "FI RFQ Load QuoteRequest",
             "userTags": [
-                "fi-rfq-profile-LOAD"
+                "fi-rfq-profile-BUY-LOAD"
             ],
             "fields": [
                 {
@@ -509,11 +789,11 @@
                 },
                 {
                     "tag": "55",
-                    "value": "T 4.25 11/15/36"
+                    "value": "T 4.25 08/15/36"
                 },
                 {
                     "tag": "48",
-                    "value": "91282CMF7"
+                    "value": "91282CMF5"
                 },
                 {
                     "tag": "22",
@@ -537,7 +817,7 @@
             "id": "fi-rfq-load-lift",
             "name": "FI RFQ Load Lift",
             "userTags": [
-                "fi-rfq-profile-LOAD"
+                "fi-rfq-profile-BUY-LOAD"
             ],
             "fields": [
                 {
@@ -562,7 +842,7 @@
                 },
                 {
                     "tag": "55",
-                    "value": "T 4.25 11/15/36"
+                    "value": "T 4.25 08/15/36"
                 },
                 {
                     "tag": "54",

@@ -64,8 +64,11 @@ class AcceptorPresetsTest {
                 is Matcher.Regex -> "0.123456789"
                 is Matcher.Range ->
                     when {
-                        m.max != null -> java.math.BigDecimal(m.max!!.toString()).divide(java.math.BigDecimal(10))
-                            .toPlainString()
+                        m.max != null ->
+                            java.math
+                                .BigDecimal(m.max!!.toString())
+                                .divide(java.math.BigDecimal(10))
+                                .toPlainString()
                         else -> "20000000"
                     }
                 else -> "1000"
@@ -79,9 +82,17 @@ class AcceptorPresetsTest {
                 is Matcher.Regex -> "185.2513"
                 is Matcher.Range ->
                     when {
-                        m.max != null && m.maxInclusive -> m.max!!.toBigDecimal().setScale(2).toPlainString()
+                        m.max != null && m.maxInclusive ->
+                            m.max!!
+                                .toBigDecimal()
+                                .setScale(2)
+                                .toPlainString()
                         m.max != null -> (m.max!! - 1).toBigDecimal().setScale(2).toPlainString()
-                        m.min != null && m.minInclusive -> m.min!!.toBigDecimal().setScale(2).toPlainString()
+                        m.min != null && m.minInclusive ->
+                            m.min!!
+                                .toBigDecimal()
+                                .setScale(2)
+                                .toPlainString()
                         else -> (m.min!! + 1).toBigDecimal().setScale(2).toPlainString()
                     }
                 else -> "185.25"
@@ -111,7 +122,16 @@ class AcceptorPresetsTest {
             // The side comes from the trigger here too: the fixed-income desk quotes one way to a
             // request that disclosed one, so it has a rule per side and a hardcoded buy asked the sell
             // rule whether it answers a buy.
-            "R" -> "35=R|131=Q-1|55=$symbol|54=$side|38=1000000"
+            // The CUSIP from the trigger as well: a fixed-income dealer quotes an issue it makes and passes the rest.
+            "R" -> {
+                val cusip =
+                    when (val m = rule.trigger().firstOrNull { it.tag == 48 }?.parsed()) {
+                        is Matcher.Exact -> "|48=${m.value}|22=1"
+                        is Matcher.OneOf -> "|48=${m.values.first()}|22=1"
+                        else -> ""
+                    }
+                "35=R|131=Q-1|55=$symbol$cusip|54=$side|38=1000000"
+            }
             // The RFQ venue's hit: the response type, side and price come from the rule's own trigger,
             // because its booking rules name all three and its refusals name some of them.
             "AJ" -> {
@@ -226,8 +246,13 @@ class AcceptorPresetsTest {
                             // preset could have created.
                             fields =
                                 mapOf(
-                                    11 to "ORD-1", 37 to "EX-1", 150 to "0", 39 to "0",
-                                    14 to "0", 151 to "1000", 6 to "0",
+                                    11 to "ORD-1",
+                                    37 to "EX-1",
+                                    150 to "0",
+                                    39 to "0",
+                                    14 to "0",
+                                    151 to "1000",
+                                    6 to "0",
                                 ),
                         ),
                     ),
@@ -243,8 +268,14 @@ class AcceptorPresetsTest {
             quote = { quoteFor(rule) },
         ) { bookedOrder }
 
+    /**
+     * Every rule of every preset that answers **the sender alone**. A relaying preset is left out, because its rules
+     * ask the venue who sent a message and what became of its RFQ, and a sample message cannot answer either; it is
+     * judged against a venue in its own test, and `the relaying presets are the ones that are judged elsewhere` keeps
+     * that list from growing by accident.
+     */
     private fun eachRule(action: (String, AcceptorResponseRule, String) -> Unit) =
-        AcceptorPresets.all.forEach { preset ->
+        AcceptorPresets.all.filter { it.counterparties.isEmpty() }.forEach { preset ->
             preset.rules.forEach { rule -> action(preset.id, rule, sampleFor(rule)) }
         }
 
@@ -265,12 +296,34 @@ class AcceptorPresetsTest {
     fun `every preset is a rule the editor would not flag`() {
         AcceptorPresets.all.forEach { preset ->
             preset.rules.forEachIndexed { index, rule ->
+                // With the parties the preset declares, which is how a venue running it judges a rule that names them.
                 assertNull(
-                    rule.validationError(),
+                    rule.validationError(preset.counterparties.takeIf { it.isNotEmpty() }),
                     "${preset.id} rule ${index + 1} ships with a fault the editor would draw a warning for",
                 )
             }
         }
+    }
+
+    /**
+     * **The relaying presets are the ones that are judged elsewhere**, by name, so that [eachRule] leaving a preset
+     * out is a decision somebody wrote down. A rule that asks the venue anything needs parties to ask about, and a
+     * preset that declares them has a test of its own that answers for them against a venue.
+     */
+    @Test
+    fun `the relaying presets are the ones that are judged elsewhere`() {
+        val asksTheVenue = AcceptorPresets.all.filter { preset -> preset.rules.any { it.asksTheVenue() || it.relays() || it.whenResponders != null } }
+        assertEquals(
+            // FiRfqPlatformPresetTest: every rule fires against a table venue, every message validates, none is empty.
+            setOf(FiRfqPlatformPreset.ID),
+            asksTheVenue.map { it.id }.toSet(),
+            "a relaying preset needs a test that judges it against a venue before it is added here",
+        )
+        assertEquals(
+            asksTheVenue,
+            AcceptorPresets.all.filter { it.counterparties.isNotEmpty() },
+            "a preset that asks the venue declares who it expects",
+        )
     }
 
     @Test
@@ -359,7 +412,12 @@ class AcceptorPresetsTest {
     fun `no preset puts an empty field on the wire`() {
         eachRule { id, rule, raw ->
             planFor(rule, raw).forEach { planned ->
-                val empty = planned.render().split('|').filter { it.isNotBlank() }.filter { it.endsWith("=") }
+                val empty =
+                    planned
+                        .render()
+                        .split('|')
+                        .filter { it.isNotBlank() }
+                        .filter { it.endsWith("=") }
                 assertTrue(
                     empty.isEmpty(),
                     "$id would send ${empty.joinToString()} — a tag with no value is a malformed message",
@@ -372,7 +430,12 @@ class AcceptorPresetsTest {
     fun `every preset replies with the message type its template advertises`() {
         eachRule { id, rule, raw ->
             planFor(rule, raw).forEach { planned ->
-                val advertised = planned.render().split('|').first { it.startsWith("35=") }.removePrefix("35=")
+                val advertised =
+                    planned
+                        .render()
+                        .split('|')
+                        .first { it.startsWith("35=") }
+                        .removePrefix("35=")
                 assertEquals(
                     advertised,
                     planned.build().header.getString(35),
@@ -434,8 +497,13 @@ class AcceptorPresetsTest {
     @Test
     fun `two orders get two OrderIDs`() {
         val rule = leadRule("ack-then-fill")
+
         fun orderIdFor(raw: String) =
-            AcceptorResponder.plan(rule, AcceptorResponder.buildMessage(raw), request(raw)).first().build().getString(37)
+            AcceptorResponder
+                .plan(rule, AcceptorResponder.buildMessage(raw), request(raw))
+                .first()
+                .build()
+                .getString(37)
 
         assertNotEquals(
             orderIdFor(limitOrder),
@@ -496,7 +564,12 @@ class AcceptorPresetsTest {
         val winner = AcceptorResponder.explain(withReject, AcceptorResponder.buildMessage(huge)).first { it.selected }
         assertEquals(
             "8",
-            winner.rule.sequence().first().template.substringAfter("39=").substringBefore("|"),
+            winner.rule
+                .sequence()
+                .first()
+                .template
+                .substringAfter("39=")
+                .substringBefore("|"),
             "an order over the size limit must be rejected, not filled",
         )
 
@@ -504,7 +577,8 @@ class AcceptorPresetsTest {
         val ordinary = "35=D|11=ORD-5|55=ACME|54=1|38=1000|40=2|44=185.25|60=20260730-09:14:22.000"
         assertEquals(
             2,
-            AcceptorResponder.explain(withReject, AcceptorResponder.buildMessage(ordinary))
+            AcceptorResponder
+                .explain(withReject, AcceptorResponder.buildMessage(ordinary))
                 .first { it.selected }
                 .rule
                 .sequence()
@@ -574,16 +648,18 @@ class AcceptorPresetsTest {
 
     @Test
     fun `two conditioned rules are left alone, because the overlap cannot be settled by looking`() {
-        val a = AcceptorResponseRule(
-            whenMsgType = "D",
-            conditions = listOf(FieldCondition(38, MatcherCodec.matcherToJson(Matcher.Range(min = 500.0)))),
-            steps = listOf(ResponseStep("35=8|39=0|")),
-        )
-        val b = AcceptorResponseRule(
-            whenMsgType = "D",
-            conditions = listOf(FieldCondition(38, MatcherCodec.matcherToJson(Matcher.Range(min = 1000.0)))),
-            steps = listOf(ResponseStep("35=8|39=8|")),
-        )
+        val a =
+            AcceptorResponseRule(
+                whenMsgType = "D",
+                conditions = listOf(FieldCondition(38, MatcherCodec.matcherToJson(Matcher.Range(min = 500.0)))),
+                steps = listOf(ResponseStep("35=8|39=0|")),
+            )
+        val b =
+            AcceptorResponseRule(
+                whenMsgType = "D",
+                conditions = listOf(FieldCondition(38, MatcherCodec.matcherToJson(Matcher.Range(min = 1000.0)))),
+                steps = listOf(ResponseStep("35=8|39=8|")),
+            )
 
         assertNull(
             AcceptorResponder.shadowingRule(listOf(a, b), 1),

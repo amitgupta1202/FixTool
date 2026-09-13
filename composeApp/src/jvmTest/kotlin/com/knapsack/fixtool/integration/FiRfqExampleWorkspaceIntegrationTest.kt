@@ -13,11 +13,14 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * **Open the fixed-income example, and it works** — the claim every bundled example makes.
+ * **Open the fixed-income platform, and it works** — the claim every bundled example makes.
  *
- * The scenarios are run **twice** for the reason the FX RFQ desk's are: a quote is spent once it has been
- * lifted, so a second run that reached for the first run's level would be refused as already answered.
- * They pass because each run asks for a quote of its own, which is what a client does.
+ * Everything is connected, the Dealer Load Client included, because that is what a user demoing it does: five
+ * dealer lanes quote every request by rule while Dealer 1 and Dealer 2 are played by the scenarios. The scenarios
+ * pass anyway, which is the point of choosing a quote by who sent it and by its price rather than by arriving last.
+ *
+ * They are run **twice**: a quote is spent once it has been lifted, so a second run that reached for the first
+ * run's quote would be refused. They pass because each run asks for an RFQ of its own, which is what a buy side does.
  */
 class FiRfqExampleWorkspaceIntegrationTest {
     private lateinit var viewModel: FixMessageViewModel
@@ -25,9 +28,18 @@ class FiRfqExampleWorkspaceIntegrationTest {
     private lateinit var location: File
     private var venuePort = 0
 
-    private val venueCompId = "FIRFQ_SERVER"
-    private val clientCompIds = listOf("FIRFQ_CLIENT1", "FIRFQ_CLIENT2")
-    private val laneCompIds = (1..5).map { "FIRFQLG$it" }
+    private val venueCompId = "FIRFQ_VENUE"
+    private val venueName = "FI RFQ Platform"
+    private val clientCompIds = listOf("FIBUY1", "FIBUY2", "FIDLR1", "FIDLR2")
+    private val laneCompIds = (1..5).flatMap { listOf("FIBUYLG$it", "FIDLRLG$it") }
+
+    private val scenarioIds =
+        listOf(
+            "fi-rfq-scenario-lift-dealer-offer",
+            "fi-rfq-scenario-better-offer-lifted",
+            "fi-rfq-scenario-dealer-cannot-ask",
+            "fi-rfq-scenario-not-listed",
+        )
 
     @Before
     fun setup() {
@@ -89,13 +101,15 @@ class FiRfqExampleWorkspaceIntegrationTest {
         return workspace
     }
 
-    private fun loggedOn(prefix: String) =
+    private fun loggedOn(compIds: List<String>) =
         viewModel.sessions.count { session ->
-            session.title.startsWith(prefix) && session.connectionState.value == FixConnectionState.LOGGED_ON
+            session.currentConfig?.senderCompID in compIds && session.connectionState.value == FixConnectionState.LOGGED_ON
         }
 
+    private fun everybodyOn() = loggedOn(clientCompIds + laneCompIds) == clientCompIds.size + laneCompIds.size
+
     @Test
-    fun `opening the example gives a workspace holding the venue, its clients, the load client and the scenarios`() {
+    fun `opening the example gives a workspace holding the platform, both sides, both load clients and the scenarios`() {
         val workspace =
             ExampleWorkspaces
                 .open(ExampleWorkspaces.FI_RFQ_VENUE, "Fixed Income RFQ", location)
@@ -103,54 +117,51 @@ class FiRfqExampleWorkspaceIntegrationTest {
         viewModel.openWorkspace(workspace).getOrThrow()
 
         assertEquals(
-            listOf("FI RFQ Client 1", "FI RFQ Client 2", "FI RFQ Demo Desk", "FI RFQ Load Client"),
+            listOf("Buy Side 1", "Buy Side 2", "Buy Side Load Client", "Dealer 1", "Dealer 2", "Dealer Load Client", venueName),
             viewModel.connectionProfiles.map { it.name }.sorted(),
         )
-        assertNotNull(viewModel.scenarioService.load("fi-rfq-scenario-two-way-lift"))
-        assertNotNull(viewModel.scenarioService.load("fi-rfq-scenario-one-way-done-away"))
+        scenarioIds.forEach { assertNotNull(viewModel.scenarioService.load(it), "$it did not come across") }
         assertEquals(workspace, viewModel.openWorkspace)
     }
 
     @Test
-    fun `the venue comes up, both clients and all five load lanes reach it, and the lanes leave no store`() {
+    fun `the platform comes up, all four clients and every load lane reach it, and the lanes leave no store`() {
         val workspace = openAndConnect()
 
         assertTrue(
-            awaitCondition(30_000) {
-                loggedOn("FI RFQ Client") == clientCompIds.size && loggedOn("FI RFQ Load Client") == laneCompIds.size
-            },
-            "both clients and five lanes should log on; sessions are " +
+            awaitCondition(30_000) { everybodyOn() },
+            "four clients and ten lanes should log on; sessions are " +
                 viewModel.sessions.map { "${it.title}=${it.connectionState.value}" },
         )
         (clientCompIds + laneCompIds).forEach { compId ->
             assertTrue(
-                awaitCondition(10_000) { viewModel.sessions.any { it.title == "FI RFQ Demo Desk ← $compId" } },
-                "the venue should have opened a pane for $compId",
+                awaitCondition(10_000) { viewModel.sessions.any { it.title == "$venueName ← $compId" } },
+                "the platform should have opened a pane for $compId",
             )
         }
 
         val laneFiles =
-            File(workspace, "store").listFiles().orEmpty().map { it.name }.filter { it.startsWith("FIX.4.4-FIRFQLG") }
+            File(workspace, "store")
+                .listFiles()
+                .orEmpty()
+                .map { it.name }
+                .filter { name -> laneCompIds.any { name.startsWith("FIX.4.4-$it-") } }
         assertEquals(emptyList(), laneFiles, "a lane on a memory store wrote a store file")
     }
 
-    /** **All three bundled scenarios are green, twice.** The second run is the one that matters here. */
+    /** **All four bundled scenarios are green, twice, with the dealer lanes quoting beside them.** */
     @Test
     fun `the bundled scenarios run green twice`() {
         openAndConnect()
-        assertTrue(
-            awaitCondition(30_000) { loggedOn("FI RFQ Client") == clientCompIds.size },
-            "the clients never logged on, so the scenarios cannot be judged",
-        )
-
+        assertTrue(awaitCondition(30_000) { everybodyOn() }, "the clients never logged on, so the scenarios cannot be judged")
         assertTrue(
             awaitCondition(10_000) {
-                viewModel.sessions.any { it.title == "FI RFQ Demo Desk ← ${clientCompIds.first()}" }
+                (clientCompIds + laneCompIds).all { compId -> viewModel.sessions.any { it.title == "$venueName ← $compId" } }
             },
-            "the venue pane the scenarios clear must exist",
+            "the platform must know every party online before it relays a request to them",
         )
 
-        listOf("fi-rfq-scenario-two-way-lift", "fi-rfq-scenario-one-way-done-away").forEach { id ->
+        scenarioIds.forEach { id ->
             val scenario = assertNotNull(viewModel.scenarioService.load(id), "$id did not come across")
             repeat(2) { attempt ->
                 val result = viewModel.runScenarioBlocking(scenario)

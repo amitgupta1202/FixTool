@@ -38,7 +38,7 @@ class RfqBookPanelTest {
             requesterCompId = "FIBUY1",
             requesterQuoteReqId = "BUY-RFQ-7",
             openingUid = 1,
-            opening = mapOf(55 to "T 4.25 11/15/36", 48 to "91282CMF7", 167 to "TNOTE", 54 to "1", 38 to "10000000"),
+            opening = mapOf(55 to "T 4.25 08/15/36", 48 to "91282CMF5", 167 to "TNOTE", 54 to "1", 38 to "10000000"),
             openedAt = now - 20_000,
             expireAt = null,
             life = RfqLife.DONE,
@@ -105,7 +105,7 @@ class RfqBookPanelTest {
 
         composeTestRule.onNodeWithTag("rfq-state-RFQ-1").assertTextEquals("done · FIDLR1 lifted")
         composeTestRule.onNodeWithTag("rfq-leg-state-RFQ-1-FIDLR1").assertTextEquals("lifted")
-        composeTestRule.onNodeWithText("T 4.25 11/15/36 91282CMF7 · Buy · 10mm").assertExists()
+        composeTestRule.onNodeWithText("T 4.25 08/15/36 91282CMF5 · Buy · 10mm").assertExists()
         composeTestRule.onNodeWithText("98-16+ (98.515625) offer").assertExists()
     }
 

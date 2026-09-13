@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.ui
 
+import com.knapsack.fixtool.model.StepAddress
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
@@ -225,9 +226,10 @@ class HelpDocTest {
                 "the FX RFQ venue" to "FX RFQ Venue",
                 "the equity venue" to "Equity Venue",
                 "the crypto venue" to "Crypto Venue",
-                "the fixed-income desk" to "Fixed Income RFQ Desk",
+                "the fixed-income platform" to "Fixed Income RFQ Platform",
+                "the platform is the one that relays" to "a counterparty on each side of the venue",
                 "each port" to "19880",
-                "two of them are one negotiation in two markets" to "vocabulary</em> is not",
+                "two of them are one RFQ from two chairs" to "an RFQ seen from two chairs",
                 "every one can be driven at volume" to "at least one load set",
                 "they can all be up at once" to "five different ports",
             )
@@ -238,33 +240,77 @@ class HelpDocTest {
     }
 
     /**
-     * The fixed-income desk, by the vocabulary that makes it a bond desk rather than the FX RFQ venue with
-     * different instruments. Every one of these was a correction to what the FX desk does.
+     * The fixed-income platform, by what makes it a platform rather than a dealer, and by the vocabulary that makes
+     * it a bond market rather than the FX RFQ venue with different instruments.
      */
     @Test
-    fun `the fixed-income chapter states the vocabulary that makes it a bond desk`() {
+    fun `the fixed-income chapter states what a platform between two parties does, in a bond desk's words`() {
         val chapter = html.substringAfter("""id="fi-rfq-venue"""").substringBefore("""<h3>Closing the Workspace""")
 
         val claims =
             mapOf(
-                "it is the same negotiation in a different vocabulary" to "vocabulary is not",
+                "it sits between two kinds of client" to "venue two counterparties trade through",
+                "who plays which part" to "FIDLRLG1",
+                "a request reaches every dealer under the platform's id" to "a QuoteReqID the platform minted",
+                "the buy side is named to the dealer" to "role 13",
+                "the dealer is named to the buy side" to "role 35, liquidity provider",
+                "both sides are confirmed with one pair of ids" to "one OrderID(37) and one TradeReportID(571)",
+                "the losers are told" to "done away</strong> (<code>694=5</code>)",
+                "the level is the platform's, not the lift's" to "never the price in the lift",
                 "the instrument is a CUSIP" to "SecurityIDSource(22)=1",
                 "the level is percent of par and a yield" to "OfferYield(634)",
                 "it is sized in nominal" to "round millions",
                 "it settles T+1" to "SettlDate(64)",
                 "a disclosed side is quoted one way" to "shown the offer and nothing else",
                 "the quote says it is tradeable" to "QuoteType(537)=1",
-                "cover and done away are answered" to "not errors",
-                "the level is withdrawn on done away" to "297=6",
                 "the grid is why the levels are stated" to "thirty-seconds of a point",
                 "the 32nds are readable" to "Text(58)",
                 "the identifiers are not real securities" to "not real securities",
-                "the set is run by name from the CLI" to "--set fi-rfq-round-trip",
+                "the hand-played dealers answer the request in front of them" to "${'$'}{in.R.131}",
+                "the load dealers quote by rule" to "Fixed income RFQ dealer",
+                "the refusal scenarios prove an absence" to "strict traffic",
+                "the better offer is picked by price" to "picked by its price",
+                "a run brings the dealers up" to "<code>listen</code>",
+                "the set is run by name from the CLI, on the example's folder" to
+                    "--set fi-rfq-round-trip --home ~/.fixtool/workspaces/fixed-income-rfq",
+                "the CLI does not bring the platform up" to "not the platform",
             )
         val flat = chapter.flat()
         val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the fixed-income chapter no longer says: $missing")
+    }
+
+    /** Relaying, by the three things that make it: who the parties are, what a trigger asks, and who a step reaches. */
+    @Test
+    fun `the relay section states the parties, the questions a trigger asks and every address`() {
+        val chapter = html.substringAfter("""id="relay"""").substringBefore("""id="reply-with"""")
+
+        val claims =
+            mapOf(
+                "the two roles" to "<strong>responder</strong> answers one",
+                "a family covers every lane" to "<code>FIDLRLG*</code>",
+                "an unlisted logon is still accepted" to "<em>unlisted</em>",
+                "the sender's role" to "and the sender is",
+                "the RFQ's state" to "and the RFQ is",
+                "whether anyone could quote" to "and responders online",
+                "a step without a To goes to the sender" to "goes to the sender",
+                "the cover is the next best" to "best <em>other</em> live quote",
+                "a recipient offline is counted" to "not delivered",
+                "each side's own ids" to "${'$'}{to.117}",
+                "one id for the whole trigger" to "${'$'}{req.uuid}",
+                "the RFQ book lives on the venue's pane" to "RFQ book",
+                "a lift becomes a trade on the quoter's fill" to "sends the quoter an ExecutionReport",
+                "a dealer by rule is an initiator" to "initiator with rules",
+                "the dry run takes a sender" to "<code>from</code>",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+        StepAddress.words.filterNot { it.startsWith("compId:") }.forEach { word ->
+            assertTrue("<code>$word</code>".flat() in flat, "the relay section does not name the address '$word'")
+        }
+
+        assertTrue(missing.isEmpty(), "the relay section no longer says: $missing")
     }
 
     /**

@@ -1,0 +1,415 @@
+{
+    "id": "fi-rfq-scenario-better-offer-lifted",
+    "name": "Two dealers quote, the better offer is lifted",
+    "binding": "this_run",
+    "createdAt": 1789000000000,
+    "setup": [
+        {
+            "stepId": "1d81475d-aa2b-3c7d-8f85-f26218131d8c",
+            "type": "clearMessages",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "86e287ac-5734-3467-aded-ca1970328858",
+            "type": "clearMessages",
+            "session": "Dealer 1"
+        },
+        {
+            "stepId": "98649568-7460-3e94-b74f-6519f496edc0",
+            "type": "clearMessages",
+            "session": "Dealer 2"
+        }
+    ],
+    "steps": [
+        {
+            "stepId": "03fe85fc-ddb7-3a3d-bc2b-46f8555ab77a",
+            "type": "send",
+            "raw": "35=R|131=${rfqId = uuid}|146=1|55=T 4.25 08/15/36|48=91282CMF5|22=1|54=1|38=10000000",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "51df5b81-c53c-3bfa-8d6e-86304d011580",
+            "type": "expect",
+            "session": "Dealer 1",
+            "direction": "in",
+            "match": {
+                "messageType": "R",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "R",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "presence"
+                        },
+                        "bindAs": "dealer1RfqId"
+                    },
+                    {
+                        "tag": 38,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "10000000"
+                        }
+                    },
+                    {
+                        "tag": 48,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "91282CMF5"
+                        }
+                    },
+                    {
+                        "tag": 54,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1"
+                        }
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIBUY1"
+                        }
+                    },
+                    {
+                        "tag": 452,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "13"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "b494145b-3915-3d03-8871-a265b479a022",
+            "type": "expect",
+            "session": "Dealer 2",
+            "direction": "in",
+            "match": {
+                "messageType": "R",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "R",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "presence"
+                        },
+                        "bindAs": "dealer2RfqId"
+                    },
+                    {
+                        "tag": 38,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "10000000"
+                        }
+                    },
+                    {
+                        "tag": 48,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "91282CMF5"
+                        }
+                    },
+                    {
+                        "tag": 54,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1"
+                        }
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIBUY1"
+                        }
+                    },
+                    {
+                        "tag": 452,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "13"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "c13e4f9e-7fa9-3e98-ba2a-baf0ede18e40",
+            "type": "send",
+            "raw": "35=S|131=${dealer1RfqId}|117=${dealer1QuoteId = uuid}|55=T 4.25 08/15/36|48=91282CMF5|22=1|167=TNOTE|54=1|537=1|423=1|15=USD|133=98.484375|135=10000000|634=4.440|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=98-15+|60=${utcnow}",
+            "session": "Dealer 1"
+        },
+        {
+            "stepId": "283010ad-b7ef-3a2f-be71-b2a6e21875d1",
+            "type": "send",
+            "raw": "35=S|131=${dealer2RfqId}|117=${dealer2QuoteId = uuid}|55=T 4.25 08/15/36|48=91282CMF5|22=1|167=TNOTE|54=1|537=1|423=1|15=USD|133=98.500000|135=10000000|634=4.438|63=0|64=${utcnow+1d:yyyyMMdd}|62=${utcnow+30s}|58=98-16|60=${utcnow}",
+            "session": "Dealer 2"
+        },
+        {
+            "stepId": "ce6275c1-527f-3a9c-8188-1e893b0a37df",
+            "type": "expect",
+            "session": "Buy Side 1",
+            "direction": "in",
+            "match": {
+                "messageType": "S",
+                "fields": [
+                    {
+                        "tag": 448,
+                        "value": "FIDLR2"
+                    }
+                ]
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "S",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${rfqId}"
+                        }
+                    },
+                    {
+                        "tag": 133,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "98.500000"
+                        }
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIDLR2"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "a30668d5-7dfe-36de-a2c6-411a401d92b8",
+            "type": "expect",
+            "session": "Buy Side 1",
+            "direction": "in",
+            "match": {
+                "messageType": "S",
+                "fields": [
+                    {
+                        "tag": 133,
+                        "value": "98.484375"
+                    }
+                ]
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "S",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 117,
+                        "matcher": {
+                            "type": "presence"
+                        },
+                        "bindAs": "bestQuoteId"
+                    },
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${rfqId}"
+                        }
+                    },
+                    {
+                        "tag": 133,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "98.484375"
+                        }
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIDLR1"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "13052970-f401-366a-915b-1a15daac6b24",
+            "type": "send",
+            "raw": "35=AJ|693=${uuid}|694=1|117=${bestQuoteId}|11=${clOrdId = uuid}|55=T 4.25 08/15/36|54=1|38=10000000|44=98.484375|60=${utcnow}",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "e27af992-cbc5-3592-b076-1cc1fb4492d1",
+            "type": "expect",
+            "session": "Buy Side 1",
+            "direction": "in",
+            "match": {
+                "messageType": "8",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "8",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 31,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "98.484375"
+                        }
+                    },
+                    {
+                        "tag": 37,
+                        "matcher": {
+                            "type": "presence"
+                        },
+                        "bindAs": "orderId"
+                    },
+                    {
+                        "tag": 39,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "2"
+                        }
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIDLR1"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "d565b1ea-277e-394f-8773-4118265b2032",
+            "type": "expect",
+            "session": "Dealer 1",
+            "direction": "in",
+            "match": {
+                "messageType": "AJ",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "AJ",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 117,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${dealer1QuoteId}"
+                        }
+                    },
+                    {
+                        "tag": 694,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "ead509cd-c341-350c-8bbe-4ed6d0eff37b",
+            "type": "expect",
+            "session": "Dealer 1",
+            "direction": "in",
+            "match": {
+                "messageType": "8",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "8",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 31,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "98.484375"
+                        }
+                    },
+                    {
+                        "tag": 37,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${orderId}"
+                        }
+                    },
+                    {
+                        "tag": 54,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "2"
+                        }
+                    },
+                    {
+                        "tag": 448,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "FIBUY1"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "029a6b0b-aa89-3a8b-9f29-1c0a31f1fc98",
+            "type": "expect",
+            "session": "Dealer 2",
+            "direction": "in",
+            "match": {
+                "messageType": "AJ",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "AJ",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 117,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${dealer2QuoteId}"
+                        }
+                    },
+                    {
+                        "tag": 694,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "4"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "teardown": [],
+    "userTags": [],
+    "version": 1
+}

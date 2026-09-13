@@ -1,14 +1,16 @@
 {
-  "id": "fi-rfq-venue",
-  "displayName": "Fixed Income RFQ Desk",
-  "summary": "A US Treasury request-for-quote desk: the same QuoteRequest, Quote, QuoteResponse negotiation as the FX RFQ venue, in a bond desk's vocabulary. Issues by CUSIP with coupon and maturity, levels quoted in 32nds and yield, sized in millions of nominal, settling T+1. A disclosed side is quoted one way; cover and done-away are answered rather than refused. Two clients, a load-ready client, templates, two scenarios that run green, and two load sets of the same round trip \u2014 one bursting each phase, one lifting each quote the moment it lands.",
-  "defaultWorkspaceName": "Fixed Income RFQ",
-  "files": [
-    "connection_profiles.json",
-    "saved_messages.json",
-    "scenarios/two-way-lift--demo-sce.json",
-    "scenarios/one-way-done-away--demo-sce.json",
-    "load-sets/fi-rfq-round-trip.json",
-    "load-sets/fi-rfq-reactive.json"
-  ]
+    "id": "fi-rfq-venue",
+    "displayName": "Fixed Income RFQ Platform",
+    "summary": "A US Treasury RFQ platform that carries a negotiation between buy sides and dealers: a buy side asks, the platform asks every dealer online under its own id, each dealer's quote reaches the buy side under another, and a lift is confirmed to both sides with an ExecutionReport and a TradeCaptureReport each while the dealers who lost are told cover or done away. Issues by CUSIP, levels in 32nds and yield, sized in nominal, settling T+1. Two buy sides and two dealers to play by hand, a load client of each whose dealers quote by themselves, templates for both sides, four scenarios that assert both sides, and two load sets.",
+    "defaultWorkspaceName": "Fixed Income RFQ",
+    "files": [
+        "connection_profiles.json",
+        "saved_messages.json",
+        "scenarios/buy-side-lifts-dealer-1-s-offer--fi-rfq-s.json",
+        "scenarios/two-dealers-quote-the-better-offer-is-lifted--fi-rfq-s.json",
+        "scenarios/a-dealer-cannot-ask-for-a-quote--fi-rfq-s.json",
+        "scenarios/an-issue-the-platform-does-not-list-is-refused--fi-rfq-s.json",
+        "load-sets/fi-rfq-round-trip.json",
+        "load-sets/fi-rfq-reactive.json"
+    ]
 }

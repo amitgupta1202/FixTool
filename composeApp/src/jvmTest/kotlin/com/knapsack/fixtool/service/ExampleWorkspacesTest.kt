@@ -2,11 +2,14 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadSet
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.load.OnFailure
+import com.knapsack.fixtool.model.scenario.TrafficMode
+import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.load.LoadSetStore
 import com.knapsack.fixtool.service.load.LoadTemplates
 import org.junit.Test
@@ -160,7 +163,13 @@ class ExampleWorkspacesTest {
         val workspace = openInTemp()
         val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
         val byId = messages.loadMessagesForProfile("demo-profile-FX_LOAD").associateBy { it.id }
-        fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
+
+        fun value(id: String, tag: String) =
+            byId
+                .getValue(id)
+                .fields
+                .first { it.tag == tag }
+                .value
         assertEquals("FXO-\${run}-\${messageIndex}", value("demo-fx-load-new-order", "11"))
         assertEquals("1", value("demo-fx-load-new-order", "40"), "a market order, so the venue fills it and is done")
 
@@ -513,7 +522,13 @@ class ExampleWorkspacesTest {
         val workspace = openRfqInTemp()
         val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
         val byId = messages.loadMessagesForProfile("rfq-profile-RFQ_LOAD").associateBy { it.id }
-        fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
+
+        fun value(id: String, tag: String) =
+            byId
+                .getValue(id)
+                .fields
+                .first { it.tag == tag }
+                .value
         assertEquals("RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-request", "131"))
         assertEquals("\${quoteId}", value("rfq-load-quote-response", "117"), "the id is the venue's, not ours")
         assertEquals("RFQ-\${run}-\${messageIndex}", value("rfq-load-quote-response", "11"))
@@ -811,7 +826,13 @@ class ExampleWorkspacesTest {
         val workspace = openCryptoInTemp()
         val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
         val byId = messages.loadMessagesForProfile("crypto-profile-CRYPTO_CLIENT1").associateBy { it.id }
-        fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
+
+        fun value(id: String, tag: String) =
+            byId
+                .getValue(id)
+                .fields
+                .first { it.tag == tag }
+                .value
 
         assertEquals("0.10000000", value("crypto-buy-btc-gtc", "38"), "eight decimals, as a base increment implies")
         assertEquals("1", value("crypto-buy-btc-gtc", "59"), "GTC, because there is no day to be good for")
@@ -868,7 +889,7 @@ class ExampleWorkspacesTest {
         profilesIn(openCryptoInTemp()).forEach { assertEquals(1_700_000_000_000L, it.createdAt) }
     }
 
-    // ---------------------------------------------------------------- the fixed-income RFQ desk
+    // ---------------------------------------------------------------- the fixed-income RFQ platform
 
     private val fiRfqVenue =
         assertNotNull(ExampleWorkspaces.byId(ExampleWorkspaces.FI_RFQ_VENUE), "fi-rfq-venue is not in the build")
@@ -891,74 +912,149 @@ class ExampleWorkspacesTest {
         }
     }
 
+    /**
+     * **The bundle is what its generator writes, file for file.** Every fact below is a fact about
+     * [FiRfqPlatformBundle]; this is what makes it a fact about the build. Rerun `ExampleBundleGenerator` with
+     * `-Dfixtool.regenerate=fi-rfq-venue` when it fails.
+     */
     @Test
-    fun `the fixed-income desk carries its preset's rules, in the order the preset menu places them`() {
-        val venue = profilesIn(openFiRfqInTemp()).first { it.id == "fi-rfq-profile-venue" }
-        val preset = assertNotNull(AcceptorPresets.byId(FiRfqVenuePreset.ID))
-        assertEquals(AcceptorPresets.insert(emptyList(), preset).rules, venue.config.acceptorResponseRules)
+    fun `the fixed-income platform is exactly what its generator writes`() {
+        val workspace = openFiRfqInTemp()
+        assertEquals(
+            FiRfqPlatformBundle.profiles.map { it.copy(createdAt = 1_700_000_000_000L, lastUsedAt = 1_700_000_000_000L) },
+            profilesIn(workspace),
+        )
+        assertEquals(
+            FiRfqPlatformBundle.templates,
+            FiRfqPlatformBundle.templates
+                .flatMap { it.userTags }
+                .distinct()
+                .flatMap { profile ->
+                    SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath).loadMessagesForProfile(profile)
+                }.distinctBy { it.id }
+                .sortedBy { t -> FiRfqPlatformBundle.templates.indexOfFirst { it.id == t.id } },
+        )
+        val scenarios = ScenarioService(customDir = File(workspace, "scenarios").absolutePath)
+        assertEquals(FiRfqPlatformBundle.scenarios.map { it.withIds() }, FiRfqPlatformBundle.scenarios.map { scenarios.load(it.id) })
+        assertEquals(
+            FiRfqPlatformBundle.loadSets.sortedBy { it.name },
+            LoadSetStore(File(workspace, "load-sets").absolutePath).list().sortedBy { it.name },
+        )
+        assertEquals(FiRfqPlatformBundle.DISPLAY_NAME, fiRfqVenue.displayName)
+        assertEquals(FiRfqPlatformBundle.SUMMARY, fiRfqVenue.summary)
+        assertEquals(
+            2 + FiRfqPlatformBundle.scenarios.size + FiRfqPlatformBundle.loadSets.size,
+            fiRfqVenue.files.size,
+            "the manifest names every file and nothing else: ${fiRfqVenue.files}",
+        )
     }
 
     @Test
-    fun `the fixed-income desk is an acceptor open to any client, on its own port`() {
-        val venue = profilesIn(openFiRfqInTemp()).first { it.id == "fi-rfq-profile-venue" }
-        assertEquals("FIRFQ_SERVER", venue.config.senderCompID)
+    fun `the platform carries its preset's rules and parties, and the Dealer Load Client the dealer's rules`() {
+        val profiles = profilesIn(openFiRfqInTemp()).associateBy { it.id }
+        val platform = profiles.getValue(FiRfqPlatformBundle.VENUE).config
+        assertEquals(AcceptorPresets.insert(emptyList(), FiRfqPlatformPreset.preset).rules, platform.acceptorResponseRules)
+        assertEquals(FiRfqPlatformPreset.COUNTERPARTIES, platform.counterparties)
+        assertEquals(
+            AcceptorPresets.insert(emptyList(), FiRfqPlatformPreset.dealerPreset).rules,
+            profiles.getValue(FiRfqPlatformBundle.DEALER_LOAD).config.acceptorResponseRules,
+        )
+        val handPlayed =
+            listOf(FiRfqPlatformBundle.BUY_SIDE_1, FiRfqPlatformBundle.BUY_SIDE_2, FiRfqPlatformBundle.DEALER_1, FiRfqPlatformBundle.DEALER_2)
+        handPlayed.forEach { id ->
+            assertEquals(
+                emptyList(),
+                profiles.getValue(id).config.acceptorResponseRules,
+                "$id is played by a person, so it answers nothing by itself",
+            )
+        }
+    }
+
+    @Test
+    fun `the fixed-income platform is an acceptor open to any client, on its own port`() {
+        val venue = profilesIn(openFiRfqInTemp()).first { it.id == FiRfqPlatformBundle.VENUE }
+        assertEquals("FIRFQ_VENUE", venue.config.senderCompID)
         assertEquals("*", venue.config.targetCompID)
         assertEquals("19880", venue.config.socketAcceptPort)
     }
 
+    /** A CompID the platform does not list is refused a quote, so a profile the example ships that it missed is a demo that fails at the first send. */
+    @Test
+    fun `every client the example ships is a party the platform lists, in the role its name says`() {
+        val profiles = profilesIn(openFiRfqInTemp()).filterNot { it.config.isAcceptor() }
+        val parties = FiRfqPlatformPreset.COUNTERPARTIES
+        profiles.forEach { profile ->
+            val laneCompIds = (1..profile.config.sessionCount).map { profile.config.senderCompID.replace("{n}", "$it") }
+            laneCompIds.forEach { compId ->
+                val role = parties.firstOrNull { it.covers(compId) }?.role
+                val expected = if (profile.name.startsWith("Buy Side")) "requester" else "responder"
+                assertEquals(expected, role, "${profile.name} logs on as $compId")
+            }
+            assertEquals("FIRFQ_VENUE", profile.config.targetCompID, profile.name)
+            assertEquals("19880", profile.config.port, profile.name)
+        }
+        assertEquals(6, profiles.size)
+    }
+
     /**
-     * **The two RFQ examples are told apart by name, not by their folder.** The FX one keeps the id and
-     * the folder it always had, so a copy somebody opened before this release still opens; only what the
-     * menu calls it changed.
+     * **The two RFQ examples are told apart by name, not by their folder.** Both keep the id and the folder they
+     * always had, so a copy somebody opened before this release still opens; only what the menu calls them changed.
      */
     @Test
-    fun `the two RFQ desks are named for the market they make`() {
+    fun `the two RFQ examples are named for the market they make`() {
         assertEquals("FX RFQ Venue", rfqVenue.displayName)
-        assertEquals("Fixed Income RFQ Desk", fiRfqVenue.displayName)
-        assertEquals(
-            "rfq-venue",
-            ExampleWorkspaces.slug(rfqVenue.defaultWorkspaceName),
-            "the FX folder is unchanged",
-        )
+        assertEquals("Fixed Income RFQ Platform", fiRfqVenue.displayName)
+        assertEquals("rfq-venue", ExampleWorkspaces.slug(rfqVenue.defaultWorkspaceName), "the FX folder is unchanged")
+        assertEquals("fixed-income-rfq", ExampleWorkspaces.slug(fiRfqVenue.defaultWorkspaceName), "the FI folder is unchanged")
     }
 
     @Test
-    fun `the fixed-income templates name their issues the way a bond desk does`() {
+    fun `the fixed-income templates name their issues the way a bond desk does, and each side has its own`() {
         val workspace = openFiRfqInTemp()
         val messages = SavedMessagesService(customPath = File(workspace, "saved_messages.json").absolutePath)
-        val byId = messages.loadMessagesForProfile("fi-rfq-profile-CLIENT1").associateBy { it.id }
-        fun value(id: String, tag: String) = byId.getValue(id).fields.first { it.tag == tag }.value
+        val buySide = messages.loadMessagesForProfile(FiRfqPlatformBundle.BUY_SIDE_1).associateBy { it.id }
+        val dealer = messages.loadMessagesForProfile(FiRfqPlatformBundle.DEALER_1).associateBy { it.id }
 
-        assertEquals("91282CMF7", value("fi-rfq-request-10y", "48"), "the CUSIP, not just a symbol")
-        assertEquals("1", value("fi-rfq-request-10y", "22"), "22=1 is CUSIP")
-        assertEquals("10000000", value("fi-rfq-request-10y", "38"), "sized in nominal")
-        assertEquals("1", value("fi-rfq-request-10y-buy", "54"), "the template that asks for one side")
-        assertEquals("5", value("fi-rfq-done-away", "694"), "694=5 is Done Away")
-        assertEquals("4", value("fi-rfq-cover", "694"), "694=4 is Cover")
+        fun value(templates: Map<String, SavedFixMessage>, id: String, tag: String) =
+            templates
+                .getValue(id)
+                .fields
+                .first { it.tag == tag }
+                .value
 
-        val forLoad = messages.loadMessagesForProfile("fi-rfq-profile-LOAD").map { it.id }
+        assertEquals("91282CMF5", value(buySide, "fi-rfq-request-10y", "48"), "the CUSIP, not just a symbol")
+        assertEquals("1", value(buySide, "fi-rfq-request-10y", "22"), "22=1 is CUSIP")
+        assertEquals("10000000", value(buySide, "fi-rfq-request-10y", "38"), "sized in nominal")
+        assertEquals("1", value(buySide, "fi-rfq-request-10y-buy", "54"), "the template that asks for one side")
+        assertEquals("\${in.S.133}", value(buySide, "fi-rfq-lift", "44"), "a lift is at the offer the buy side was shown")
+        assertEquals("\${in.R.131}", value(dealer, "fi-rfq-quote-10y", "131"), "a dealer answers the request in front of it")
+        assertEquals("10", value(dealer, "fi-rfq-dealer-pass", "658"), "658=10 is Pass")
+        assertTrue(buySide.keys.none { it.startsWith("fi-rfq-quote") }, "a buy side does not quote")
+        assertTrue(dealer.keys.none { it.startsWith("fi-rfq-request") || it == "fi-rfq-lift" }, "a dealer does not ask or lift")
+
+        val forLoad = messages.loadMessagesForProfile(FiRfqPlatformBundle.BUY_SIDE_LOAD).map { it.id }
         assertEquals(setOf("fi-rfq-load-request", "fi-rfq-load-lift"), forLoad.toSet())
+        assertEquals(emptyList(), messages.loadMessagesForProfile(FiRfqPlatformBundle.DEALER_LOAD), "the dealer lanes quote by rule")
     }
 
     @Test
-    fun `the fixed-income example ships a round trip that plans without a refusal`() {
+    fun `the fixed-income example ships a round trip that plans without a refusal, with the dealers listening`() {
         val workspace = openFiRfqInTemp()
         val store = LoadSetStore(File(workspace, "load-sets").absolutePath)
         val set = assertNotNull(store.load("fi-rfq-round-trip"), "the shipped load set did not come across")
 
-        assertEquals(listOf("Quote", "Lift"), set.phases.map { it.label })
-        assertEquals(
-            mapOf("quoteId" to 117, "offer" to 133),
-            set.phases[0].capture,
-            "the lift reads what it was quoted",
-        )
+        assertEquals(listOf("Request", "Lift"), set.phases.map { it.label })
+        assertEquals(mapOf("quoteId" to 117, "offer" to 133), set.phases[0].capture, "the lift reads what it was quoted")
+        set.phases.forEach {
+            assertEquals(listOf(FiRfqPlatformBundle.DEALER_LOAD_NAME), it.listen, "nobody quotes unless the dealer lanes are up")
+        }
         val resolver = exampleResolver(workspace)
         assertEquals(
             emptyList(),
             set.problems(resolve = resolver, surface = LoadPlan.Surface.CLI),
             "the set this example ships would be refused before it ran",
         )
-        assertEquals(4_000L, set.plan(resolver, emptyMap(), id = "check").phases.sumOf { it.requested })
+        assertEquals(2L * FiRfqPlatformBundle.LOAD_COUNT, set.plan(resolver, emptyMap(), id = "check").phases.sumOf { it.requested })
     }
 
     /**
@@ -968,12 +1064,12 @@ class ExampleWorkspacesTest {
      * `offer` are exactly that — so this also pins that the conversion stayed legal.
      */
     @Test
-    fun `the fixed-income desk ships the round trip as a burst and as a reactive set`() {
+    fun `the fixed-income platform ships the round trip as a burst and as a reactive set`() {
         val workspace = openFiRfqInTemp()
         val store = LoadSetStore(File(workspace, "load-sets").absolutePath)
         val reactive = assertNotNull(store.load("fi-rfq-reactive"), "the reactive set did not come across")
 
-        assertEquals(listOf("Quote", "Lift"), reactive.phases.map { it.label })
+        assertEquals(listOf("Request", "Lift"), reactive.phases.map { it.label })
         assertTrue(reactive.phases[0].shape is LoadShape.Burst, "the quotes are still asked for at once")
         assertTrue(reactive.phases[1].shape is LoadShape.Triggered, "the lift reacts: ${reactive.phases[1].shape}")
         assertEquals(1, reactive.phases[1].after, "it reacts to the phase that asked for the quotes")
@@ -984,12 +1080,24 @@ class ExampleWorkspacesTest {
         )
     }
 
+    /**
+     * **Every scenario is two-party**: it touches a buy side and a dealer. The two that are refusals assert the
+     * other side by saying nothing reached it, which is what a strict run's traffic check is.
+     */
     @Test
-    fun `both fixed-income scenarios come across and parse`() {
-        val scenarios = ScenarioService(customDir = File(openFiRfqInTemp(), "scenarios").absolutePath).list()
+    fun `all four fixed-income scenarios come across, and each one watches both sides`() {
+        val scenarios = ScenarioService(customDir = File(openFiRfqInTemp(), "scenarios").absolutePath).list().associateBy { it.id }
+        assertEquals(FiRfqPlatformBundle.scenarios.map { it.id }.toSet(), scenarios.keys)
+        scenarios.values.forEach { scenario ->
+            val sessions = (scenario.setup + scenario.steps).mapNotNull { it.session }.toSet()
+            assertTrue(sessions.any { it.startsWith("Buy Side") } && sessions.any { it.startsWith("Dealer") }, "${scenario.name}: $sessions")
+        }
         assertEquals(
-            setOf("fi-rfq-scenario-two-way-lift", "fi-rfq-scenario-one-way-done-away"),
-            scenarios.map { it.id }.toSet(),
+            setOf("fi-rfq-scenario-dealer-cannot-ask", "fi-rfq-scenario-not-listed"),
+            scenarios.values
+                .filter { it.traffic == TrafficMode.STRICT }
+                .map { it.id }
+                .toSet(),
         )
     }
 

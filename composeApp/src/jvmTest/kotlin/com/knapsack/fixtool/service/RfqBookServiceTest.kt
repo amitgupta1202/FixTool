@@ -55,7 +55,7 @@ class RfqBookServiceTest {
 
     /** The mockup's negotiation up to both quotes being shown to the buy side. Returns the RFQ id. */
     private fun twoDealersQuoted(): String {
-        receive(buyer, PartyRole.REQUESTER, 35 to "R", 131 to "BUY-RFQ-7", 55 to "T 4.25 11/15/36", 54 to "1", 38 to "10000000")
+        receive(buyer, PartyRole.REQUESTER, 35 to "R", 131 to "BUY-RFQ-7", 55 to "T 4.25 08/15/36", 54 to "1", 38 to "10000000")
         val rfqId = book.entryFor(buyer, mapOf(131 to "BUY-RFQ-7"))!!.rfqId
         relay(dealer1, rfqId, buyer, "responders", 35 to "R", 131 to "V-RFQ-1042")
         relay(dealer2, rfqId, buyer, "responders", 35 to "R", 131 to "V-RFQ-1042")
@@ -245,13 +245,13 @@ class RfqBookServiceTest {
         val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
         val message =
             AcceptorResponder.buildMessage(
-                "35=R|131=G-1|146=1|55=T 4.25 11/15/36|48=91282CMF7|22=1|54=1|38=10000000|",
+                "35=R|131=G-1|146=1|55=T 4.25 08/15/36|48=91282CMF5|22=1|54=1|38=10000000|",
                 dictionary,
             )
 
         val fields = RfqBookService.fieldsOf(message)
 
-        assertEquals("T 4.25 11/15/36", fields[55])
+        assertEquals("T 4.25 08/15/36", fields[55])
         assertEquals("1", fields[54])
         assertEquals("10000000", fields[38])
     }

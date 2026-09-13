@@ -1,7 +1,7 @@
 {
-    "schema": 1,
+    "schema": 2,
     "name": "fi-rfq-round-trip",
-    "label": "FI RFQ round trip",
+    "label": "FI RFQ round trip — every dealer online quotes each request, then the first offer is lifted",
     "seed": {
         "run": "${uuid:4}"
     },
@@ -12,9 +12,12 @@
     "onFailure": "STOP",
     "phases": [
         {
-            "label": "Quote",
+            "label": "Request",
             "template": "FI RFQ Load QuoteRequest",
-            "profile": "FI RFQ Load Client",
+            "profile": "Buy Side Load Client",
+            "listen": [
+                "Dealer Load Client"
+            ],
             "match": {
                 "requestTag": 131,
                 "replyTag": 131,
@@ -22,7 +25,7 @@
             },
             "shape": {
                 "kind": "burst",
-                "count": 2000
+                "count": 1000
             },
             "settleMs": 30000,
             "capture": {
@@ -33,7 +36,10 @@
         {
             "label": "Lift",
             "template": "FI RFQ Load Lift",
-            "profile": "FI RFQ Load Client",
+            "profile": "Buy Side Load Client",
+            "listen": [
+                "Dealer Load Client"
+            ],
             "match": {
                 "requestTag": 11,
                 "replyTag": 11,
@@ -41,7 +47,7 @@
             },
             "shape": {
                 "kind": "burst",
-                "count": 2000
+                "count": 1000
             },
             "settleMs": 30000
         }

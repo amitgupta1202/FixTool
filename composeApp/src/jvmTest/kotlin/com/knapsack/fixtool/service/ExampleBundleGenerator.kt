@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.service.load.LoadSetStore
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -47,16 +48,57 @@ class ExampleBundleGenerator {
             ExampleWorkspaces.RFQ_VENUE to ("rfq-profile-venue" to RfqVenuePreset.ID),
             ExampleWorkspaces.EQUITY_VENUE to ("equity-profile-venue" to EquityVenuePreset.ID),
             ExampleWorkspaces.CRYPTO_VENUE to ("crypto-profile-venue" to CryptoVenuePreset.ID),
-            ExampleWorkspaces.FI_RFQ_VENUE to ("fi-rfq-profile-venue" to FiRfqVenuePreset.ID),
         )
 
     @Test
     fun regenerate() {
         assumeTrue("set -Dfixtool.regenerate=<example id> to rewrite a bundle", requested.isNotEmpty())
         requested.forEach { id ->
-            val (profileId, presetId) = requireNotNull(venues[id]) { "no generator for '$id'; known: ${venues.keys}" }
+            if (id == ExampleWorkspaces.FI_RFQ_VENUE) return@forEach writeFiRfqPlatform()
+            val (profileId, presetId) =
+                requireNotNull(
+                    venues[id],
+                ) { "no generator for '$id'; known: ${venues.keys + ExampleWorkspaces.FI_RFQ_VENUE}" }
             refreshVenueRules(id, profileId, presetId)
         }
+    }
+
+    /**
+     * Writes the whole fixed-income platform from [FiRfqPlatformBundle], every file through the store the app reads it
+     * with. The scenarios and load sets are emptied first, so a scenario renamed or removed there leaves no file behind.
+     */
+    private fun writeFiRfqPlatform() {
+        val root = bundleFile(ExampleWorkspaces.FI_RFQ_VENUE, "manifest.json").parentFile
+        val scenarioDir = File(root, "scenarios").apply { listFiles().orEmpty().forEach { it.delete() } }
+        val loadSetDir = File(root, "load-sets").apply { listFiles().orEmpty().forEach { it.delete() } }
+        val templates = File(root, "saved_messages.json").apply { delete() }
+
+        ConnectionProfileService(customPath = File(root, "connection_profiles.json").absolutePath)
+            .saveProfiles(FiRfqPlatformBundle.profiles)
+            .also { require(it) { "the profiles were not written" } }
+        val messages = SavedMessagesService(customPath = templates.absolutePath)
+        FiRfqPlatformBundle.templates.forEach { messages.saveMessage(it.userTags.first(), it).getOrThrow() }
+        val scenarios = ScenarioService(customDir = scenarioDir.absolutePath)
+        FiRfqPlatformBundle.scenarios.forEach { require(scenarios.save(it)) { "${it.id} was not written" } }
+        val loadSets = LoadSetStore(loadSetDir.absolutePath)
+        FiRfqPlatformBundle.loadSets.forEach { require(loadSets.save(it)) { "${it.name} was not written" } }
+
+        // In the order the bundle declares them, which is the order a reader meets them in.
+        val written = scenarioDir.listFiles().orEmpty().associateBy { ScenarioCodec.fromJson(json.parseToJsonElement(it.readText()).jsonObject).id }
+        val scenarioFiles = FiRfqPlatformBundle.scenarios.map { written.getValue(it.id) }
+        val manifest =
+            ExampleWorkspaces.Example(
+                id = ExampleWorkspaces.FI_RFQ_VENUE,
+                displayName = FiRfqPlatformBundle.DISPLAY_NAME,
+                summary = FiRfqPlatformBundle.SUMMARY,
+                defaultWorkspaceName = "Fixed Income RFQ",
+                files =
+                    listOf("connection_profiles.json", "saved_messages.json") +
+                        scenarioFiles.map { "scenarios/${it.name}" } +
+                        FiRfqPlatformBundle.loadSets.map { "load-sets/${loadSets.fileFor(it.name).name}" },
+            )
+        File(root, "manifest.json").writeText(json.encodeToString(ExampleWorkspaces.Example.serializer(), manifest) + "\n")
+        println("regenerated ${root.path}")
     }
 
     /** Replaces one venue profile's rules with its preset's, leaving every other byte of the file as it was. */

@@ -8,7 +8,6 @@
 16	standard:argument-list-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/EchoDetector.kt
 49	standard:argument-list-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/EquityVenuePreset.kt
 8	standard:argument-list-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/ExpectationEvaluator.kt
-6	standard:argument-list-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/FiRfqVenuePreset.kt
 6	standard:argument-list-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/ShorthandTemplateExpander.kt
 6	standard:argument-list-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/load/LoadRunner.kt
 8	standard:argument-list-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/ui/MessageDetailPanel.kt
@@ -28,7 +27,6 @@
 3	standard:argument-list-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/integration/ControlServerIntegrationTest.kt
 7	standard:argument-list-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/integration/ControlServerLoadIntegrationTest.kt
 84	standard:argument-list-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/integration/HeadlessLoadIntegrationTest.kt
-5	standard:argument-list-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/AcceptorPresetsTest.kt
 11	standard:argument-list-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/DistributionTest.kt
 6	standard:argument-list-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/DropEntryTest.kt
 6	standard:argument-list-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/ExpectationSeederTest.kt
@@ -67,11 +65,8 @@
 3	standard:blank-line-before-declaration	src/jvmMain/kotlin/com/knapsack/fixtool/ui/diff/DiffSurface.kt
 1	standard:blank-line-before-declaration	src/jvmMain/kotlin/com/knapsack/fixtool/viewmodel/ViewModelScenarioHost.kt
 2	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/integration/ControlServerIntegrationTest.kt
-1	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/service/AcceptorPresetsTest.kt
 1	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/service/CryptoVenuePresetTest.kt
 2	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/service/EquityVenuePresetTest.kt
-4	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/service/ExampleWorkspacesTest.kt
-1	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/service/FiRfqVenuePresetTest.kt
 1	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/viewmodel/GlobalSearchTest.kt
 1	standard:blank-line-before-declaration	src/jvmTest/kotlin/com/knapsack/fixtool/viewmodel/SearchResultsPaneTest.kt
 17	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/control/ControlServer.kt
@@ -81,7 +76,7 @@
 1	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/headless/HeadlessScenarioHost.kt
 2	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/main.kt
 4	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/model/load/LoadTemplate.kt
-3	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/service/AcceptorResponder.kt
+2	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/service/AcceptorResponder.kt
 1	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/service/DictionaryLint.kt
 2	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/service/QuoteBookService.kt
 4	standard:chain-method-continuation	src/jvmMain/kotlin/com/knapsack/fixtool/service/RunRecordStore.kt
@@ -108,14 +103,11 @@
 4	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/integration/CryptoExampleWorkspaceIntegrationTest.kt
 4	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/integration/EquityExampleWorkspaceIntegrationTest.kt
 4	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/integration/ExampleWorkspaceIntegrationTest.kt
-4	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/integration/FiRfqExampleWorkspaceIntegrationTest.kt
 17	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/integration/HeadlessLoadIntegrationTest.kt
 4	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/integration/RfqExampleWorkspaceIntegrationTest.kt
 4	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/integration/ScenarioIntegrationTest.kt
-26	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/service/AcceptorPresetsTest.kt
 1	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/service/CryptoVenuePresetTest.kt
 2	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/service/DistributionTest.kt
-16	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/service/ExampleWorkspacesTest.kt
 3	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/service/RunSetRunnerTest.kt
 23	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/service/ScenarioCaptureTest.kt
 22	standard:chain-method-continuation	src/jvmTest/kotlin/com/knapsack/fixtool/service/ScenarioCodecTest.kt
@@ -232,14 +224,12 @@
 7	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/ScenarioCapture.kt
 7	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/ScenarioCodec.kt
 13	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/service/ScenarioRunner.kt
-1	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/ui/MatcherEditor.kt
 2	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/ui/MessageDetailPanel.kt
 1	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/ui/ScenarioCaptureReview.kt
 1	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/ui/ScenarioEditor.kt
 2	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/ui/ScenarioUi.kt
 1	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/ui/VenueTagRolesDialog.kt
 2	standard:multiline-expression-wrapping	src/jvmMain/kotlin/com/knapsack/fixtool/viewmodel/ViewModelScenarioHost.kt
-3	standard:multiline-expression-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/AcceptorPresetsTest.kt
 1	standard:multiline-expression-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/DictionaryLintTest.kt
 6	standard:multiline-expression-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/FixPlanTest.kt
 1	standard:multiline-expression-wrapping	src/jvmTest/kotlin/com/knapsack/fixtool/service/RunSetRunnerTest.kt

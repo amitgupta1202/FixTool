@@ -1,0 +1,73 @@
+{
+    "id": "fi-rfq-scenario-dealer-cannot-ask",
+    "name": "A dealer cannot ask for a quote",
+    "traffic": "strict",
+    "binding": "this_run",
+    "createdAt": 1789000000000,
+    "setup": [
+        {
+            "stepId": "79de0b09-6adb-33cc-af7e-6a89d71a67e1",
+            "type": "clearMessages",
+            "session": "Dealer 1"
+        },
+        {
+            "stepId": "8bb7734b-0d85-3a7b-97d2-448ece54d32e",
+            "type": "clearMessages",
+            "session": "Buy Side 1"
+        },
+        {
+            "stepId": "536dadac-7ef0-3673-a13a-d555a0c92fe5",
+            "type": "clearMessages",
+            "session": "Buy Side 2"
+        }
+    ],
+    "steps": [
+        {
+            "stepId": "280bf852-fff3-32f7-80a4-1ca7ea99e78e",
+            "type": "send",
+            "raw": "35=R|131=${dealerAsks = uuid}|146=1|55=T 4.25 08/15/36|48=91282CMF5|22=1|54=1|38=10000000",
+            "session": "Dealer 1"
+        },
+        {
+            "stepId": "65c20c66-dceb-3aee-b024-c271e3f31a91",
+            "type": "expect",
+            "session": "Dealer 1",
+            "direction": "in",
+            "match": {
+                "messageType": "AG",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "AG",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 58,
+                        "matcher": {
+                            "type": "regex",
+                            "pattern": "Not authorized.*"
+                        }
+                    },
+                    {
+                        "tag": 131,
+                        "matcher": {
+                            "type": "reference",
+                            "expression": "${dealerAsks}"
+                        }
+                    },
+                    {
+                        "tag": 658,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "6"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "teardown": [],
+    "userTags": [],
+    "version": 1
+}

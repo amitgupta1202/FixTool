@@ -298,7 +298,9 @@ Run static analysis:
 ./gradlew detekt
 ```
 
-Generate a new baseline (use when accepting current issues):
+Regenerate the baseline after fixing recorded issues, so they cannot come back unnoticed. Not to accept new ones:
+the baseline was last written from the code as it stood on 2026-09-13, and a finding detekt reports now is one
+added since.
 ```shell
 ./gradlew detektBaseline
 ```
@@ -345,10 +347,22 @@ Check code formatting:
 ./gradlew ktlintCheck
 ```
 
+**The check is a budget, not a clean sheet.** 128 files carry findings that predate it, so ktlint's own
+failure is switched off and `ktlintBudget` (which every ktlint check runs after itself) fails instead when any file
+has more findings of any rule than `config/ktlint/budget.txt` allows. It is a count per file and rule rather than
+ktlint's baseline, because ktlint's baseline records a finding by line and a single added line at the top of a file
+turns every recorded finding below it into a new one. Fixing findings never fails the check; lower the budget to
+match afterwards and commit the file:
+```shell
+./gradlew :composeApp:ktlintCheck -Pktlint.budget.write=true
+```
+
 Auto-fix formatting issues:
 ```shell
 ./gradlew ktlintFormat
 ```
+This formats **every** file in the module, including the ones you did not touch, so on a change of your own keep only
+the files you changed and put the rest back.
 
 **Disabled Rules (for Compose compatibility):**
 - `standard:function-naming` - Allows PascalCase Composable functions
@@ -356,7 +370,7 @@ Auto-fix formatting issues:
 - `standard:no-consecutive-comments` - For documentation style
 
 **Tips:**
-- Run `ktlintFormat` before committing code
+- Format the files you changed before committing, and leave the rest to their own changes
 - Configure your IDE to use the `.editorconfig` settings
 - Most IDEs (IntelliJ IDEA, Android Studio) will auto-format on save
 

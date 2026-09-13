@@ -182,7 +182,9 @@ ktlint {
     android.set(false)
     outputToConsole.set(true)
     outputColorName.set("RED")
-    ignoreFailures.set(false)
+    // The findings are judged by `ktlintBudget` below rather than by ktlint itself, which fails on every one of
+    // the findings that predate it. See there.
+    ignoreFailures.set(true)
     filter {
         exclude("**/generated/**")
         include("**/kotlin/**")
@@ -258,11 +260,99 @@ tasks.withType<Test> {
     // directories of their own now, and this makes the next one harmless too: the home a test sees is a
     // directory under build/, and a FIXTOOL_WORKSPACE exported in the developer's shell does not follow the
     // tests into the JVM.
-    val testHome = layout.buildDirectory.dir("test-home").get().asFile
+    val testHome =
+        layout.buildDirectory
+            .dir("test-home")
+            .get()
+            .asFile
     doFirst { testHome.mkdirs() }
     systemProperty("user.home", testHome.absolutePath)
     environment("FIXTOOL_WORKSPACE", "")
 }
+
+// **ktlint, judged per file and per rule against a budget of the findings that were already there.**
+//
+// Every ktlint check failed, on some 2,200 findings in about 60 files that predate the work that noticed them, so
+// the check could not tell anybody about the one they had just added. ktlint's own baseline was tried and does not
+// survive an edit: it records each finding by line and column, and one comment added at the top of
+// ControlServer.kt turned its 79 recorded findings into 79 new ones. A format-only sweep of those files would
+// rewrite code other branches are working in.
+//
+// So the budget is a count per file and rule, which a line moving does not change. A check fails when any file has
+// more findings of any rule than config/ktlint/budget.txt allows — a file that had none and has one, or a file that
+// had forty and has forty-one. Fixing findings never fails. After fixing some, lower the budget to match with
+// `./gradlew :composeApp:ktlintCheck -Pktlint.budget.write=true`, which is the only thing that should change the file.
+val ktlintReports = layout.buildDirectory.dir("reports/ktlint")
+val ktlintBudgetFile = rootProject.file("config/ktlint/budget.txt")
+val ktlintProjectDir = projectDir
+val ktlintBudgetWrite = providers.gradleProperty("ktlint.budget.write").map { it.toBoolean() }.orElse(false)
+
+val ktlintBudget =
+    tasks.register("ktlintBudget") {
+        group = "verification"
+        description = "Fails when a file has more ktlint findings of a rule than config/ktlint/budget.txt allows"
+        val reports = ktlintReports
+        val budgetFile = ktlintBudgetFile
+        val root = ktlintProjectDir
+        val write = ktlintBudgetWrite
+        doLast {
+            val ansi = Regex("\\u001B\\[[0-9;]*m")
+            val finding = Regex("^(.+?):\\d+:\\d+: .* \\(([^()]+)\\)$")
+            val counts = sortedMapOf<String, Int>()
+            reports
+                .get()
+                .asFile
+                .walkTopDown()
+                .filter { it.isFile && it.extension == "txt" && it.parentFile.name.endsWith("Check") }
+                .forEach { report ->
+                    report.readLines().forEach { raw ->
+                        finding.matchEntire(raw.replace(ansi, "").trim())?.let { m ->
+                            val path = File(m.groupValues[1]).relativeTo(root).invariantSeparatorsPath
+                            val key = "${m.groupValues[2]}\t$path"
+                            counts[key] = (counts[key] ?: 0) + 1
+                        }
+                    }
+                }
+            if (write.get()) {
+                budgetFile.parentFile.mkdirs()
+                budgetFile.writeText(
+                    "# ktlint findings allowed per rule and file: count, rule, path. See composeApp/build.gradle.kts\n" +
+                        "# for why this is a count and not ktlint's line-based baseline.\n" +
+                        counts.entries.joinToString("") { (key, count) -> "$count\t$key\n" },
+                )
+                logger.lifecycle("ktlint: budget written, ${counts.values.sum()} findings in ${counts.size} file/rule pairs")
+                return@doLast
+            }
+            val budget =
+                budgetFile
+                    .takeIf { it.exists() }
+                    ?.readLines()
+                    .orEmpty()
+                    .filter { it.isNotBlank() && !it.startsWith("#") }
+                    .associate { line ->
+                        val (count, rule, path) = line.split("\t", limit = 3)
+                        "$rule\t$path" to count.toInt()
+                    }
+            val over = counts.filter { (key, count) -> count > (budget[key] ?: 0) }
+            if (over.isNotEmpty()) {
+                val lines =
+                    over.entries.joinToString("\n") { (key, count) ->
+                        val (rule, path) = key.split("\t")
+                        "  $path: $count × $rule, budget ${budget[key] ?: 0}"
+                    }
+                throw GradleException("ktlint found more than the budget allows (reports: build/reports/ktlint):\n$lines")
+            }
+            val under = budget.count { (key, allowed) -> (counts[key] ?: 0) < allowed }
+            if (under > 0) {
+                logger.lifecycle("ktlint: $under file/rule budgets can come down: -Pktlint.budget.write=true, then commit it")
+            }
+        }
+    }
+
+// Every ktlint check hands its report to the budget, whichever of them was asked for.
+tasks
+    .matching { it.name.startsWith("ktlint") && it.name.endsWith("Check") }
+    .configureEach { finalizedBy(ktlintBudget) }
 
 // Verification task that runs all quality checks
 tasks.register("qualityCheck") {

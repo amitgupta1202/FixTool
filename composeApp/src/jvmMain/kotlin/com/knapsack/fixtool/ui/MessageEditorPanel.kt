@@ -31,8 +31,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
@@ -291,6 +289,501 @@ private const val DESCRIPTION_LABEL = "Description column"
 
 private const val NEEDS_DICTIONARY = "Requires a FIX data dictionary"
 
+/**
+ * **Saving a message as a template**, lifted out of the button that used to contain it.
+ *
+ * Three hundred lines of dialog nested inside an `onClick`, which meant the dialog only existed while the
+ * button was drawn — and the button is now one of the first things the bar folds. A folded Save that could
+ * not open its own dialog would be an action that is reachable at one width and inert at another.
+ *
+ * The three buttons are the same three it always had, and the rule behind them is unchanged: a new
+ * template saves as new, a renamed one saves as new under the new name, and an existing one with its name
+ * untouched updates in place.
+ */
+@Composable
+@Suppress("LongParameterList", "LongMethod")
+private fun SaveTemplateDialog(
+    editorState: com.knapsack.fixtool.model.MessageEditorState,
+    fields: List<FixField>,
+    savedMessages: List<com.knapsack.fixtool.model.SavedFixMessage>,
+    connectionProfiles: List<com.knapsack.fixtool.model.FixConnectionProfile>,
+    currentProfileId: String?,
+    onSaveMessage: (String, List<FixField>, String, Set<String>) -> Unit,
+    onSaveMessageAs: ((String, List<FixField>, String, Set<String>) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    var messageName by remember { mutableStateOf(editorState.messageNameOrNull() ?: "") }
+    var selectedUserTags by remember {
+        mutableStateOf(editorState.allUserTags().ifEmpty { currentProfileId?.let { setOf(it) } ?: emptySet() })
+    }
+    // "Save as new" checks every template; "Update" checks the others, so a template does not clash with
+    // itself.
+    val clashesAsNew =
+        savedMessages.any { it.name.trim().equals(messageName.trim(), ignoreCase = true) && messageName.isNotBlank() }
+    val clashesOnUpdate =
+        savedMessages.any {
+            it.name.trim().equals(messageName.trim(), ignoreCase = true) &&
+                messageName.isNotBlank() &&
+                it.id != editorState.messageIdOrNull()
+        }
+    val originalName = editorState.messageNameOrNull() ?: ""
+    val renamed = messageName.trim() != originalName.trim() && originalName.isNotEmpty()
+    val focusRequester = remember { FocusRequester() }
+    val nameFieldInteractionSource = remember { MutableInteractionSource() }
+    val nameFocused by nameFieldInteractionSource.collectIsFocusedAsState()
+    val savable = messageName.isNotBlank() && selectedUserTags.isNotEmpty()
+    val toSave = fields.filter { !it.excluded && it.tag.isNotBlank() }
+    val primaryProfileId = currentProfileId ?: selectedUserTags.firstOrNull()
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier =
+                Modifier
+                    .background(AppTheme.Colors.surface, RoundedCornerShape(8.dp))
+                    .padding(16.dp)
+                    .width(400.dp)
+                    .testTag("editor-save-template-dialog"),
+        ) {
+            Text(
+                "Save message template",
+                color = AppTheme.Colors.text,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            Text(
+                "Template name",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            BasicTextField(
+                value = messageName,
+                onValueChange = { messageName = it },
+                singleLine = true,
+                textStyle =
+                    TextStyle(color = AppTheme.Colors.text, fontSize = 14.sp, fontFamily = FontFamily.Monospace),
+                cursorBrush = SolidColor(AppTheme.Colors.primary),
+                interactionSource = nameFieldInteractionSource,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(AppTheme.Colors.surface, RoundedCornerShape(2.dp))
+                        .border(
+                            width = 1.dp,
+                            color =
+                                when {
+                                    clashesOnUpdate -> deleteColor
+                                    nameFocused -> AppTheme.Colors.primary
+                                    else -> AppTheme.Colors.borderDark
+                                },
+                            shape = RoundedCornerShape(2.dp),
+                        ).padding(horizontal = 4.dp, vertical = 8.dp)
+                        .focusRequester(focusRequester),
+            )
+
+            if (connectionProfiles.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Share with users (select one or more)",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState())
+                            .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(4.dp))
+                            .padding(8.dp),
+                ) {
+                    connectionProfiles.forEach { profile ->
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedUserTags =
+                                            if (profile.id in selectedUserTags) {
+                                                selectedUserTags - profile.id
+                                            } else {
+                                                selectedUserTags + profile.id
+                                            }
+                                    }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = profile.id in selectedUserTags,
+                                onCheckedChange = { checked ->
+                                    selectedUserTags =
+                                        if (checked) selectedUserTags + profile.id else selectedUserTags - profile.id
+                                },
+                                colors =
+                                    CheckboxDefaults.colors(
+                                        checkedColor = AppTheme.Colors.primary,
+                                        uncheckedColor = AppTheme.Colors.border,
+                                        checkmarkColor = AppTheme.Colors.background,
+                                    ),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(profile.name, color = AppTheme.Colors.text, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // The reason it cannot be saved, where the dialog footer keeps it — never a disabled button
+            // with nothing to say.
+            when {
+                clashesOnUpdate ->
+                    Text(
+                        "A template with this name already exists",
+                        color = deleteColor,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                    )
+                selectedUserTags.isEmpty() ->
+                    Text(
+                        "Please select at least one user to share with",
+                        color = AppTheme.Colors.warning,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                    )
+                else -> Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.align(Alignment.End)) {
+                SlimButton(
+                    text = "Cancel",
+                    onClick = onDismiss,
+                    containerColor = AppTheme.Colors.border,
+                    contentColor = AppTheme.Colors.textSecondary,
+                    modifier = Modifier.width(90.dp),
+                )
+                if (!editorState.isNew() && onSaveMessageAs != null) {
+                    SlimButton(
+                        text = if (renamed) "Rename & update" else "Save as new",
+                        onClick = {
+                            if (savable && !(if (renamed) clashesOnUpdate else clashesAsNew) && primaryProfileId != null) {
+                                if (renamed) {
+                                    onSaveMessage(messageName, toSave, primaryProfileId, selectedUserTags)
+                                } else {
+                                    onSaveMessageAs(messageName, toSave, primaryProfileId, selectedUserTags)
+                                }
+                                onDismiss()
+                            }
+                        },
+                        enabled = savable && !(if (renamed) clashesOnUpdate else clashesAsNew),
+                        containerColor = AppTheme.Colors.border,
+                        contentColor = AppTheme.Colors.text,
+                        modifier = Modifier.width(130.dp),
+                    )
+                }
+                val savesAsNew = editorState.isNew() || renamed
+                SlimButton(
+                    text = if (savesAsNew) "Save as new" else "Update existing",
+                    onClick = {
+                        if (savable && !(if (savesAsNew) clashesAsNew else clashesOnUpdate) && primaryProfileId != null) {
+                            if (savesAsNew && onSaveMessageAs != null && renamed) {
+                                onSaveMessageAs(messageName, toSave, primaryProfileId, selectedUserTags)
+                            } else {
+                                onSaveMessage(messageName, toSave, primaryProfileId, selectedUserTags)
+                            }
+                            onDismiss()
+                        }
+                    },
+                    enabled = savable && !(if (savesAsNew) clashesAsNew else clashesOnUpdate),
+                    containerColor = AppTheme.Colors.primary,
+                    contentColor = AppTheme.Colors.background,
+                    modifier = Modifier.width(130.dp),
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+}
+
+/**
+ * **Send, with the three refusals it has always had, said out loud.**
+ *
+ * Nothing to send, no session to send on, and no MsgType. Each one used to be a branch inside the button's
+ * own `onClick`; they are here so the button is a name and a lambda like every other action on the bar.
+ */
+private fun sendGuarded(
+    sendable: List<FixField>,
+    selectedSession: FixMessageSession?,
+    unconnectedProfileName: String?,
+    onSetValidationErrors: (List<String>) -> Unit,
+    onSend: (List<FixField>) -> Unit,
+) {
+    try {
+        when {
+            sendable.isEmpty() ->
+                onSetValidationErrors(listOf("No fields to send. Add at least one field with tag and value."))
+            selectedSession == null ->
+                onSetValidationErrors(
+                    listOf(
+                        unconnectedProfileName?.let { "$it is not connected. Connect it to send message." }
+                            ?: "No session selected. Select a session to send message.",
+                    ),
+                )
+            sendable.none { it.tag == "35" } ->
+                onSetValidationErrors(listOf("Missing required field: Tag 35 (MsgType/Message Type)"))
+            else -> onSend(sendable)
+        }
+    } catch (e: Exception) {
+        onSetValidationErrors(listOf("Send error: ${e.message ?: e.toString()}"))
+    }
+}
+
+/**
+ * The same, for every logged-on session at once.
+ *
+ * Templates are re-resolved per session, so a `${'$'}{UUID.randomUUID()}` in MDReqID yields a different value on
+ * each one — which is the whole reason this is not a loop over Send at the call site.
+ */
+private fun sendAllGuarded(
+    sendable: List<FixField>,
+    onSetValidationErrors: (List<String>) -> Unit,
+    onSendToAll: (List<FixField>) -> Unit,
+) {
+    try {
+        when {
+            sendable.isEmpty() ->
+                onSetValidationErrors(listOf("No fields to send. Add at least one field with tag and value."))
+            sendable.none { it.tag == "35" } ->
+                onSetValidationErrors(listOf("Missing required field: Tag 35 (MsgType/Message Type)"))
+            else -> onSendToAll(sendable)
+        }
+    } catch (e: Exception) {
+        onSetValidationErrors(listOf("Send error: ${e.message ?: e.toString()}"))
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The editor's toolbar: one list of actions, one badge, and the two dialogs its buttons open.
+// ---------------------------------------------------------------------------------------------------
+
+/** Room the profile picker keeps for itself, which the fold may not spend. */
+private val PROFILE_PICKER_WIDTH = 140.dp
+
+/** Room the validation badge keeps beside Send, whether or not there is a verdict to print. */
+private val VALIDATION_BADGE_SLOT = 60.dp
+
+/**
+ * **Every action the editor offers, in one list, in fold order.**
+ *
+ * The ranks are the note's fold table, as code: the two view toggles go first, then the template Open and
+ * Save, then the five field buttons, then Load run and Send to all — those two keep their word until the
+ * very end, because they are two of the three things a person came here to do. **Send never folds.**
+ *
+ * Send, Send to all and Load run are three different sizes of the same intent: one message on one session,
+ * one message on every session once, and thousands with the accounting afterwards.
+ */
+@Composable
+@Suppress("LongParameterList", "LongMethod")
+private fun editorActions(
+    replyStep: ReplyStepEditing?,
+    sendable: List<FixField>,
+    canSend: Boolean,
+    unconnectedProfileName: String?,
+    connectionStateText: String,
+    onSend: () -> Unit,
+    onSendToAll: (() -> Unit)?,
+    canSendToAll: Boolean,
+    loggedOnSessionCount: Int,
+    onLoadRun: (() -> Unit)?,
+    canLoad: Boolean,
+    onValidate: () -> Unit,
+    hasDataDictionary: Boolean,
+    validatable: Boolean,
+    onOpenTemplate: (() -> Unit)?,
+    onSaveTemplate: (() -> Unit)?,
+    onFieldAdd: () -> Unit,
+    onFieldDelete: () -> Unit,
+    canDeleteField: Boolean,
+    onFieldMoveUp: () -> Unit,
+    canMoveFieldUp: Boolean,
+    onFieldMoveDown: () -> Unit,
+    canMoveFieldDown: Boolean,
+    onClearFields: () -> Unit,
+    showIndentation: Boolean,
+    onToggleIndentation: () -> Unit,
+    showDescription: Boolean,
+    onToggleDescription: () -> Unit,
+): List<BarAction> {
+    // Withheld while a rule's step is loaded: a template has no session to go to, and the action that
+    // finishes it is Apply, in the bar above.
+    val sending =
+        if (replyStep != null) {
+            emptyList()
+        } else {
+            listOfNotNull(
+                BarAction(
+                    label = "Send",
+                    icon = Icons.Default.Send,
+                    onClick = onSend,
+                    tag = "editor-send",
+                    enabled = canSend && sendable.isNotEmpty(),
+                    labelled = true,
+                    neverFolds = true,
+                    disabledReason =
+                        when {
+                            sendable.isEmpty() -> "Nothing to send — add a field with a tag and a value"
+                            unconnectedProfileName != null -> "$unconnectedProfileName is not connected"
+                            else -> "The session is not logged on ($connectionStateText)"
+                        },
+                ),
+                onSendToAll?.let {
+                    BarAction(
+                        label = "Send to all $loggedOnSessionCount",
+                        icon = Icons.Default.Campaign,
+                        onClick = it,
+                        tag = "editor-send-all",
+                        enabled = canSendToAll,
+                        labelled = true,
+                        foldRank = 10,
+                        disabledReason = "No session is logged on",
+                    )
+                },
+                onLoadRun?.let {
+                    BarAction(
+                        label = "Load run",
+                        icon = Icons.Default.Bolt,
+                        onClick = it,
+                        tag = "editor-load",
+                        enabled = canLoad,
+                        labelled = true,
+                        foldRank = 9,
+                        hint = "issue this message across a profile's sessions and account for every reply",
+                        disabledReason = "The message needs a MsgType (35) and a correlation tag such as ClOrdID (11)",
+                    )
+                },
+                BarAction(
+                    label = "Validate",
+                    icon = Icons.Default.CheckCircle,
+                    onClick = onValidate,
+                    tag = "editor-validate",
+                    // Refused with nothing to validate, rather than answering the click with silence. The
+                    // old button had the same guard inside its handler, where nobody could see it: press
+                    // Validate on an empty editor and precisely nothing happened.
+                    enabled = hasDataDictionary && validatable,
+                    foldRank = 8,
+                    hint = "against the data dictionary",
+                    disabledReason = if (!hasDataDictionary) NEEDS_DICTIONARY else "Nothing to validate yet",
+                ),
+            )
+        }
+
+    return sending +
+        listOfNotNull(
+            onOpenTemplate?.let {
+                BarAction("Load message template", Icons.Default.FolderOpen, it, "editor-open-template", foldRank = 2)
+            },
+            onSaveTemplate?.let {
+                BarAction("Save message template", Icons.Default.Save, it, "editor-save-template", foldRank = 3)
+            },
+            BarAction("Add field", Icons.Default.Add, onFieldAdd, "editor-add-field", foldRank = 7),
+            BarAction(
+                "Delete field",
+                Icons.Default.Remove,
+                onFieldDelete,
+                "editor-delete-field",
+                enabled = canDeleteField,
+                foldRank = 6,
+                disabledReason = "Delete field — the message needs at least one",
+            ),
+            BarAction(
+                "Move up",
+                Icons.Default.ArrowUpward,
+                onFieldMoveUp,
+                "editor-move-up",
+                enabled = canMoveFieldUp,
+                foldRank = 5,
+                disabledReason = "Move up — this field is already first",
+            ),
+            BarAction(
+                "Move down",
+                Icons.Default.ArrowDownward,
+                onFieldMoveDown,
+                "editor-move-down",
+                enabled = canMoveFieldDown,
+                foldRank = 4,
+                disabledReason = "Move down — this field is already last",
+            ),
+            BarAction("Clear fields", Icons.Default.Delete, onClearFields, "editor-clear-fields", foldRank = 4),
+            // The two view toggles fold first, and keep their state as a tick in the ⋯ menu.
+            BarAction(
+                INDENT_LABEL,
+                Icons.Default.FormatIndentIncrease,
+                onToggleIndentation,
+                "editor-indent",
+                enabled = hasDataDictionary,
+                pressed = showIndentation,
+                foldRank = 1,
+                disabledReason = NEEDS_DICTIONARY,
+            ),
+            BarAction(
+                DESCRIPTION_LABEL,
+                Icons.Default.ViewModule,
+                onToggleDescription,
+                "editor-description",
+                enabled = hasDataDictionary,
+                pressed = showDescription,
+                foldRank = 1,
+                disabledReason = NEEDS_DICTIONARY,
+            ),
+        )
+}
+
+/**
+ * **What the last Validate found, beside Send.**
+ *
+ * Validate was a button that answered by tinting its own glyph — green for passed, a dull orange for
+ * anything else — which is a control pretending to be a toggle, and a count that a colour cannot carry.
+ * The result is a word now, where the eye already is: "Valid" in green, or "3 errors" in warn.
+ *
+ * Nothing at all until Validate is pressed, and nothing again the moment the fields change: a verdict about
+ * a message that no longer exists is worse than no verdict.
+ */
+@Composable
+private fun ValidationBadge(errors: Int?) {
+    if (errors == null) return
+    val passed = errors == 0
+    Text(
+        text = if (passed) "Valid" else "$errors error${if (errors == 1) "" else "s"}",
+        color = if (passed) AppTheme.Colors.success else AppTheme.Colors.warning,
+        fontSize = 11.sp,
+        maxLines = 1,
+        modifier = Modifier.testTag("editor-validation-badge"),
+    )
+}
+
+/** Connected first, then connecting, then everything else — so the list opens on what can be sent to. */
+private fun profileConnectionPriority(state: FixConnectionState?): Int =
+    when (state) {
+        FixConnectionState.CONNECTED, FixConnectionState.LOGGED_ON -> 0
+        FixConnectionState.CONNECTING -> 1
+        else -> 2
+    }
+
+/** A filled dot for a live profile, a hollow one for the rest. */
+private fun profileStatusIndicator(state: FixConnectionState?): String =
+    when (state) {
+        FixConnectionState.CONNECTED, FixConnectionState.LOGGED_ON, FixConnectionState.CONNECTING -> "\u25CF"
+        else -> "\u25CB"
+    }
+
+private fun profileStatusColor(state: FixConnectionState?): Color =
+    when (state) {
+        FixConnectionState.CONNECTED, FixConnectionState.LOGGED_ON -> Color(0xFF4CAF50)
+        FixConnectionState.CONNECTING -> Color(0xFFFFA726)
+        else -> Color(0xFF9E9E9E)
+    }
+
 @Composable
 fun MessageEditorPanel(
     sessions: List<FixMessageSession>,
@@ -374,8 +867,15 @@ fun MessageEditorPanel(
     // Check if data dictionary is configured (has fields loaded)
     val hasDataDictionary = dictionary.isLoaded()
 
-    // Track validation state - true when validation passed, false when needs validation
-    var validationPassed by remember { mutableStateOf(false) }
+    /**
+     * **How the last validation went, or null for "not validated since the fields changed".**
+     *
+     * A count rather than a boolean, because the result is a badge beside Send now — "Valid" in green or
+     * "3 errors" in warn — and a boolean can only say the first of those. Null is the honest third state:
+     * Validate has not been pressed since the message last changed, so the badge says nothing rather than
+     * carrying a verdict about a message that no longer exists.
+     */
+    var validationVerdict by remember { mutableStateOf<Int?>(null) }
 
     // Notify parent about initial description visibility on component load
     LaunchedEffect(Unit) {
@@ -395,8 +895,8 @@ fun MessageEditorPanel(
         isUpdatingFromFields = true
         previewText = buildPreviewMessage(fields, managedTags)
         isUpdatingFromFields = false
-        // Reset validation state when fields change
-        validationPassed = false
+        // The verdict was about the message as it was, so it goes when the message changes.
+        validationVerdict = null
     }
 
     Column(
@@ -435,1099 +935,176 @@ fun MessageEditorPanel(
             HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
         }
 
-        // Session selector, toolbar buttons, and Send button
+        // **The editor's toolbar, on the shared fold.**
+        //
+        // It used to draw its eleven buttons twice: once in the row, and once again inside a `Popup` that
+        // opened when a hand-rolled `visibleButtonsCount` decided the row had run out of width. Two copies
+        // of every tooltip, and they had already drifted — the row's Validate said "Validate Message
+        // against Data Dictionary" where the Popup's said "Validate", and one said "Requires FIX data
+        // dictionary" where the other said "Validation disabled". One list of actions now, folded by the
+        // one rule every bar in the app uses.
+        //
+        // **The three things a person came to the editor to do are words**, the way Run and Quick Connect
+        // are words on the toolbar: Send, Send to all and Load run keep their labels until the bar runs
+        // short. Field editing stays glyphs — those five act on the selected row and get pressed in bursts
+        // while the eye is on the field list rather than on the button.
+        var showLoadPopup by remember { mutableStateOf(false) }
+        var showSaveDialog by remember { mutableStateOf(false) }
+
         BoxWithConstraints(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
-            val availableWidth = maxWidth
-            // Session dropdown: ~108dp + 8dp spacing = 116dp
-            // Each button: 28dp + 4dp spacing = 32dp
-            // Chevron button: 28dp
-            // Calculate how many buttons can fit
-            val sessionAndChevronWidth = 116.dp + 28.dp + 8.dp // session + spacing + chevron + spacing
-            val availableForButtons = availableWidth - sessionAndChevronWidth
-            val buttonWidth = 32.dp
-            val buttonsCount =
-                11 // Add, Delete, MoveUp, MoveDown, Clear, Validate, Send, Save, Load, Indent, Description
-            val visibleButtonsCount = (availableForButtons / buttonWidth).toInt().coerceIn(0, buttonsCount)
-            val needsOverflow = visibleButtonsCount < buttonsCount
+            val available = maxWidth
+
+            // Read all session connection states to trigger recomposition when they change
+            val sessionStates = sessions.map { session -> session.connectionState.collectAsState().value }
+            val loggedOnSessionCount = sessionStates.count { it == FixConnectionState.LOGGED_ON }
+            val sortedProfiles =
+                remember(connectionProfiles, sessionStates) {
+                    connectionProfiles.sortedWith(
+                        compareBy<com.knapsack.fixtool.model.FixConnectionProfile> {
+                            profileConnectionPriority(onGetProfileConnectionState?.invoke(it.id))
+                        }.thenBy { it.name.lowercase() },
+                    )
+                }
+
+            // The fields worth sending: what the author typed, minus the ones QuickFIX/J manages itself.
+            val sendable =
+                fields.filter { !it.excluded && it.tag.isNotBlank() && it.value.isNotBlank() && it.tag !in managedTags }
+            val asTemplate =
+                LoadTemplate("message editor", sendable.mapNotNull { f -> f.tag.toIntOrNull()?.let { it to f.value } })
+            val canLoad = asTemplate.msgType != null && asTemplate.inferMatch() != null
+            val canSendToAll = loggedOnSessionCount > 0
+            // A profile that has never been connected owns no session, so name it rather than reporting
+            // the state of a session that does not exist.
+            val unconnectedProfileName = if (selectedSession == null) selectedEditorProfile?.name else null
+
+            val actions =
+                editorActions(
+                    replyStep = replyStep,
+                    sendable = sendable,
+                    canSend = canSend,
+                    unconnectedProfileName = unconnectedProfileName,
+                    connectionStateText = connectionState.getDisplayText(),
+                    onSend = {
+                        onClearValidationErrors()
+                        sendGuarded(sendable, selectedSession, unconnectedProfileName, onSetValidationErrors, onSend)
+                    },
+                    onSendToAll =
+                        onSendToAll?.let { all ->
+                            {
+                                onClearValidationErrors()
+                                sendAllGuarded(sendable, onSetValidationErrors, all)
+                            }
+                        },
+                    canSendToAll = canSendToAll,
+                    loggedOnSessionCount = loggedOnSessionCount,
+                    onLoadRun =
+                        onLoad?.let { load ->
+                            {
+                                onClearValidationErrors()
+                                load(sendable)
+                            }
+                        },
+                    canLoad = canLoad,
+                    onValidate = {
+                        onClearValidationErrors()
+                        val toValidate = fields.filter { !it.excluded && it.tag.isNotBlank() }
+                        if (toValidate.isNotEmpty()) validationVerdict = onValidate(toValidate).size
+                    },
+                    hasDataDictionary = hasDataDictionary,
+                    validatable = fields.any { !it.excluded && it.tag.isNotBlank() },
+                    onOpenTemplate = if (onLoadMessage != null && savedMessages.isNotEmpty()) ({ showLoadPopup = true }) else null,
+                    onSaveTemplate = if (onSaveMessage != null) ({ showSaveDialog = true }) else null,
+                    onFieldAdd = onFieldAdd,
+                    onFieldDelete = { onFieldDelete(selectedFieldIndex) },
+                    canDeleteField = fields.size > 1,
+                    onFieldMoveUp = { onFieldMoveUp(selectedFieldIndex) },
+                    canMoveFieldUp = selectedFieldIndex > 0,
+                    onFieldMoveDown = { onFieldMoveDown(selectedFieldIndex) },
+                    canMoveFieldDown = selectedFieldIndex < fields.size - 1,
+                    onClearFields = {
+                        previewText = ""
+                        onClearFields()
+                    },
+                    showIndentation = showIndentation,
+                    onToggleIndentation = { showIndentation = !showIndentation },
+                    showDescription = showDescription,
+                    onToggleDescription = {
+                        showDescription = !showDescription
+                        onDescriptionVisibilityChanged?.invoke(showDescription)
+                    },
+                )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Profile dropdown - shows ALL profiles with connection status indicators
-                // Sorted by connection state (CONNECTED/LOGGED_ON, CONNECTING, DISCONNECTED/ERROR) then alphabetically
-
-                // Helper to get connection state priority for sorting
-                fun getConnectionPriority(state: com.knapsack.fixtool.model.FixConnectionState): Int =
-                    when (state) {
-                        com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
-                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON,
-                        -> 0 // Highest priority
-                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> 1 // Medium priority
-                        else -> 2 // Lowest priority (DISCONNECTED, ERROR)
-                    }
-
-                // Helper to get status indicator text
-                fun getStatusIndicator(state: com.knapsack.fixtool.model.FixConnectionState): String =
-                    when (state) {
-                        com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
-                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON,
-                        -> "\u25CF" // ●
-                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> "\u25CF" // ●
-                        else -> "\u25CB" // ○
-                    }
-
-                // Helper to get status color
-                fun getStatusColor(state: com.knapsack.fixtool.model.FixConnectionState): androidx.compose.ui.graphics.Color =
-                    when (state) {
-                        com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
-                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON,
-                        ->
-                            androidx.compose.ui.graphics
-                                .Color(0xFF4CAF50) // Green
-                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING ->
-                            androidx.compose.ui.graphics
-                                .Color(0xFFFFA726) // Orange
-                        else ->
-                            androidx.compose.ui.graphics
-                                .Color(0xFF9E9E9E) // Gray
-                    }
-
-                // Sort profiles by connection state then alphabetically
-                // Read all session connection states to trigger recomposition when they change
-                val sessionStates =
-                    sessions.map { session ->
-                        session.connectionState.collectAsState().value
-                    }
-                val loggedOnSessionCount = sessionStates.count { it == FixConnectionState.LOGGED_ON }
-
-                val sortedProfiles =
-                    remember(connectionProfiles, sessionStates) {
-                        connectionProfiles.sortedWith(
-                            compareBy<com.knapsack.fixtool.model.FixConnectionProfile> {
-                                val state =
-                                    onGetProfileConnectionState?.invoke(it.id)
-                                        ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
-                                getConnectionPriority(state)
-                            }.thenBy { it.name.lowercase() },
-                        )
-                    }
-
+                // Profile dropdown - every profile, with its connection status, connected ones first.
                 SlimDropdownWithColor(
                     value = selectedEditorProfile,
                     options = sortedProfiles,
                     onValueChange = { profile: com.knapsack.fixtool.model.FixConnectionProfile? ->
                         logger.info("MessageEditorPanel profile dropdown changed to: ${profile?.name} (ID: ${profile?.id})")
-                        // Notify that editor profile selection has changed
                         onEditorProfileChange?.invoke(profile)
                     },
                     displayText = { profile: com.knapsack.fixtool.model.FixConnectionProfile ->
-                        val state =
-                            onGetProfileConnectionState?.invoke(profile.id)
-                                ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
-                        "${getStatusIndicator(state)} ${profile.name}"
+                        "${profileStatusIndicator(onGetProfileConnectionState?.invoke(profile.id))} ${profile.name}"
                     },
                     textColor = { profile: com.knapsack.fixtool.model.FixConnectionProfile ->
-                        val state =
-                            onGetProfileConnectionState?.invoke(profile.id)
-                                ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
-                        getStatusColor(state)
+                        profileStatusColor(onGetProfileConnectionState?.invoke(profile.id))
                     },
                     placeholder = "Profile",
                     allowUnselect = true,
-                    modifier = Modifier.widthIn(max = 140.dp),
+                    modifier = Modifier.widthIn(max = PROFILE_PICKER_WIDTH),
                 )
 
-                // Progressive overflow: show as many buttons as fit, overflow the rest
-                var showOverflowPopup by remember { mutableStateOf(false) }
+                Spacer(modifier = Modifier.width(6.dp))
+                ValidationBadge(validationVerdict)
+                Spacer(modifier = Modifier.weight(1f))
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Button 0: Send. Withheld while a rule's step is loaded — a template has no session
-                // to go to, and the action that finishes it is Apply, in the bar above.
-                if (visibleButtonsCount > 0 && replyStep == null) {
-                    // A profile that has never been connected owns no session, so name it rather
-                    // than reporting the state of a session that does not exist.
-                    val unconnectedProfileName =
-                        if (selectedSession == null) selectedEditorProfile?.name else null
-                    val sendTooltip =
-                        when {
-                            canSend -> "Send message (QuickFIX/J manages header/trailer fields)"
-                            unconnectedProfileName != null -> "Cannot send - $unconnectedProfileName is not connected"
-                            else -> "Cannot send - Session not logged on (${connectionState.getDisplayText()})"
-                        }
-                    TooltipIconButton(
-                        tooltip = sendTooltip,
-                        onClick = {
-                            onClearValidationErrors()
-                            try {
-                                val fieldsToSend =
-                                    fields.filter {
-                                        !it.excluded &&
-                                            it.tag.isNotBlank() &&
-                                            it.value.isNotBlank() &&
-                                            it.tag !in managedTags
-                                    }
-                                if (fieldsToSend.isEmpty()) {
-                                    onSetValidationErrors(
-                                        listOf("No fields to send. Add at least one field with tag and value."),
-                                    )
-                                } else if (selectedSession == null) {
-                                    onSetValidationErrors(
-                                        listOf(
-                                            unconnectedProfileName?.let { "$it is not connected. Connect it to send message." }
-                                                ?: "No session selected. Select a session to send message.",
-                                        ),
-                                    )
-                                } else {
-                                    // Validate required fields before sending
-                                    val validationErrors = mutableListOf<String>()
-
-                                    // Check for tag 35 (message type) - required for all FIX messages
-                                    val hasMessageType = fieldsToSend.any { it.tag == "35" }
-                                    if (!hasMessageType) {
-                                        validationErrors.add("Missing required field: Tag 35 (MsgType/Message Type)")
-                                    }
-
-                                    if (validationErrors.isNotEmpty()) {
-                                        onSetValidationErrors(validationErrors)
-                                    } else {
-                                        logger.info(
-                                            "MessageEditorPanel: Calling onSend with selectedSession: ${selectedSession.title} (ID: ${selectedSession.id})",
-                                        )
-                                        onSend(fieldsToSend)
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                val sendError = "Send Error: ${e.message ?: e.toString()}"
-                                onSetValidationErrors(
-                                    listOf(
-                                        sendError,
-                                    ),
-                                )
-                            }
-                        },
-                        enabled = canSend,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Send",
-                            modifier = iconSize18,
-                            tint = if (canSend) AppTheme.Colors.primary else disabledIconColor,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 0b: Send to all logged-on sessions (rendered with Send - they are a pair).
-                // Templates are re-resolved per session, so e.g. ${UUID.randomUUID()} in MDReqID
-                // yields a unique value per session.
-                if (visibleButtonsCount > 0 && onSendToAll != null && replyStep == null) {
-                    val canSendToAll = loggedOnSessionCount > 0
-                    val sendToAllTooltip =
-                        if (canSendToAll) {
-                            "Send to all logged-on sessions ($loggedOnSessionCount)"
-                        } else {
-                            "Cannot send - no session is logged on"
-                        }
-                    TooltipIconButton(
-                        tooltip = sendToAllTooltip,
-                        onClick = {
-                            onClearValidationErrors()
-                            try {
-                                val fieldsToSend =
-                                    fields.filter {
-                                        !it.excluded &&
-                                            it.tag.isNotBlank() &&
-                                            it.value.isNotBlank() &&
-                                            it.tag !in managedTags
-                                    }
-                                when {
-                                    fieldsToSend.isEmpty() ->
-                                        onSetValidationErrors(
-                                            listOf("No fields to send. Add at least one field with tag and value."),
-                                        )
-                                    fieldsToSend.none { it.tag == "35" } ->
-                                        onSetValidationErrors(
-                                            listOf("Missing required field: Tag 35 (MsgType/Message Type)"),
-                                        )
-                                    else -> {
-                                        logger.info(
-                                            "MessageEditorPanel: Calling onSendToAll for $loggedOnSessionCount logged-on sessions",
-                                        )
-                                        onSendToAll(fieldsToSend)
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                onSetValidationErrors(listOf("Send Error: ${e.message ?: e.toString()}"))
-                            }
-                        },
-                        enabled = canSendToAll,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Campaign,
-                            contentDescription = "Send to all sessions",
-                            modifier = iconSize18,
-                            tint = if (canSendToAll) AppTheme.Colors.primary else disabledIconColor,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 0c: Load run. Send is one message on one session, Send to All is one message on
-                // every session once, and this is thousands with the accounting afterwards. The editor's
-                // fields are the template; the dialog decides everything else.
-                if (visibleButtonsCount > 0 && onLoad != null && replyStep == null) {
-                    val loadable =
-                        fields.filter { !it.excluded && it.tag.isNotBlank() && it.value.isNotBlank() && it.tag !in managedTags }
-                    val asTemplate = LoadTemplate("message editor", loadable.mapNotNull { f -> f.tag.toIntOrNull()?.let { it to f.value } })
-                    val canLoad = asTemplate.msgType != null && asTemplate.inferMatch() != null
-                    TooltipIconButton(
-                        tooltip =
-                            if (canLoad) {
-                                "Load run: issue this message across a profile's sessions and account for every reply"
-                            } else {
-                                "Cannot load: the message needs a MsgType (35) and a correlation tag such as ClOrdID (11)"
-                            },
-                        onClick = {
-                            onClearValidationErrors()
-                            onLoad(loadable)
-                        },
-                        enabled = canLoad,
-                        modifier = iconSize28.testTag("editor-load"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Bolt,
-                            contentDescription = "Load run",
-                            modifier = iconSize18,
-                            tint = if (canLoad) AppTheme.Colors.primary else disabledIconColor,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 1: Validate
-                if (visibleButtonsCount > 1) {
-                    TooltipIconButton(
-                        tooltip =
-                            if (hasDataDictionary) {
-                                if (validationPassed) "Validation passed" else "Validate message against the data dictionary"
-                            } else {
-                                "Requires FIX data dictionary"
-                            },
-                        onClick = {
-                            onClearValidationErrors()
-                            val fieldsToValidate =
-                                fields.filter { !it.excluded && it.tag.isNotBlank() }
-                            if (fieldsToValidate.isNotEmpty()) {
-                                val errors = onValidate(fieldsToValidate)
-                                validationPassed = errors.isEmpty()
-                            }
-                        },
-                        enabled = hasDataDictionary,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Validate",
-                            modifier = iconSize18,
-                            tint =
-                                when {
-                                    hasDataDictionary.not() -> disabledIconColor
-                                    validationPassed -> AppTheme.Colors.success
-                                    else ->
-                                        Color(
-                                            0xFFCE9178,
-                                        )
-                                },
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 2: Load
-                if (visibleButtonsCount > 2 && onLoadMessage != null && savedMessages.isNotEmpty()) {
-                    var showLoadPopup by remember { mutableStateOf(false) }
-                    Box {
-                        TooltipIconButton(
-                            tooltip = "Load message template",
-                            onClick = { showLoadPopup = true },
-                            modifier = iconSize28,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = "Load",
-                                modifier = iconSize18,
-                                tint = AppTheme.Colors.textSecondary,
-                            )
-                        }
-
-                        if (showLoadPopup) {
-                            SavedMessagesBrowserPopup(
-                                savedMessages = savedMessages,
-                                connectionProfiles = connectionProfiles,
-                                dictionary = dictionary,
-                                currentProfileId = currentProfileId,
-                                selectedEditorProfile = selectedEditorProfile,
-                                onSelectMessage = { savedMessage ->
-                                    onLoadMessage(savedMessage)
-                                    showLoadPopup = false
-                                },
-                                onDeleteMessage = onDeleteMessage,
-                                onToggleFavorite = onToggleFavorite,
-                                onDismiss = { showLoadPopup = false },
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 3: Save
-                if (visibleButtonsCount > 3 && onSaveMessage != null) {
-                    var showSaveDialog by remember { mutableStateOf(false) }
-                    TooltipIconButton(
-                        tooltip = "Save message template",
-                        onClick = { showSaveDialog = true },
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Save,
-                            contentDescription = "Save",
-                            modifier = iconSize18,
-                            tint = AppTheme.Colors.textSecondary,
-                        )
-                    }
-
-                    if (showSaveDialog) {
-                        var messageName by remember { mutableStateOf(editorState.messageNameOrNull() ?: "") }
-                        // Multi-select user tags: initialize with existing tags or current profile
-                        var selectedUserTags by remember {
-                            mutableStateOf(
-                                editorState.allUserTags().ifEmpty {
-                                    currentProfileId?.let { setOf(it) } ?: emptySet()
-                                },
-                            )
-                        }
-                        // Duplicate check for "Save as new" - checks ALL templates (don't exclude current)
-                        val isDuplicateForSaveAsNew =
-                            savedMessages.any {
-                                it.name.trim().equals(messageName.trim(), ignoreCase = true) &&
-                                    messageName.isNotBlank()
-                            }
-
-                        // Duplicate check for "Update" - checks OTHER templates (exclude current by ID)
-                        val isDuplicateForUpdate =
-                            savedMessages.any {
-                                it.name.trim().equals(messageName.trim(), ignoreCase = true) &&
-                                    messageName.isNotBlank() &&
-                                    it.id != editorState.messageIdOrNull()
-                            }
-
-                        val originalName = editorState.messageNameOrNull() ?: ""
-                        val nameWasModified = messageName.trim() != originalName.trim() && originalName.isNotEmpty()
-                        val focusRequester = remember { FocusRequester() }
-                        val nameFieldInteractionSource = remember { MutableInteractionSource() }
-                        val isNameFieldFocused by nameFieldInteractionSource.collectIsFocusedAsState()
-
-                        androidx.compose.ui.window.Dialog(onDismissRequest = { showSaveDialog = false }) {
-                            Column(
-                                modifier =
-                                    Modifier
-                                        .background(Color(0xFF2B2B2B), RoundedCornerShape(8.dp))
-                                        .padding(16.dp)
-                                        .width(400.dp),
-                            ) {
-                                Text(
-                                    "Save message template",
-                                    color = AppTheme.Colors.text,
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.padding(bottom = 12.dp),
-                                )
-
-                                // Template Name field (FIRST)
-                                Text(
-                                    "Template name",
-                                    color = AppTheme.Colors.textSecondary,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(bottom = 4.dp),
-                                )
-                                BasicTextField(
-                                    value = messageName,
-                                    onValueChange = { messageName = it },
-                                    singleLine = true,
-                                    textStyle =
-                                        TextStyle(
-                                            color = AppTheme.Colors.text,
-                                            fontSize = 14.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                        ),
-                                    cursorBrush = SolidColor(AppTheme.Colors.primary),
-                                    interactionSource = nameFieldInteractionSource,
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
-                                            .border(
-                                                width = 1.dp,
-                                                color =
-                                                    if (isDuplicateForUpdate) {
-                                                        deleteColor
-                                                    } else if (isNameFieldFocused) {
-                                                        Color(
-                                                            0xFF4EC9B0,
-                                                        )
-                                                    } else {
-                                                        AppTheme.Colors.borderDark
-                                                    },
-                                                shape = RoundedCornerShape(2.dp),
-                                            ).padding(horizontal = 4.dp, vertical = 8.dp)
-                                            .focusRequester(focusRequester),
-                                )
-
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // User Tags selector (SECOND) - multi-select checkboxes
-                                if (connectionProfiles.isNotEmpty()) {
-                                    Text(
-                                        "Share with Users (select one or more)",
-                                        color = AppTheme.Colors.textSecondary,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(bottom = 6.dp),
-                                    )
-
-                                    Column(
-                                        modifier =
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(max = 200.dp)
-                                                .verticalScroll(rememberScrollState())
-                                                .background(Color(0xFF252525), RoundedCornerShape(4.dp))
-                                                .padding(8.dp),
-                                    ) {
-                                        connectionProfiles.forEach { profile ->
-                                            Row(
-                                                modifier =
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .clickable {
-                                                            selectedUserTags =
-                                                                if (profile.id in selectedUserTags) {
-                                                                    selectedUserTags - profile.id
-                                                                } else {
-                                                                    selectedUserTags + profile.id
-                                                                }
-                                                        }.padding(vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Checkbox(
-                                                    checked = profile.id in selectedUserTags,
-                                                    onCheckedChange = { checked ->
-                                                        selectedUserTags =
-                                                            if (checked) {
-                                                                selectedUserTags + profile.id
-                                                            } else {
-                                                                selectedUserTags - profile.id
-                                                            }
-                                                    },
-                                                    colors =
-                                                        CheckboxDefaults.colors(
-                                                            checkedColor = AppTheme.Colors.primary,
-                                                            uncheckedColor = AppTheme.Colors.border,
-                                                            checkmarkColor = AppTheme.Colors.background,
-                                                        ),
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    profile.name,
-                                                    color = AppTheme.Colors.text,
-                                                    fontSize = 13.sp,
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                }
-
-                                // Validation message
-                                if (isDuplicateForUpdate) {
-                                    Text(
-                                        "A template with this name already exists",
-                                        color = deleteColor,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-                                    )
-                                } else if (selectedUserTags.isEmpty()) {
-                                    Text(
-                                        "Please select at least one user to share with",
-                                        color = AppTheme.Colors.warning,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-                                    )
-                                } else {
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                }
-
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.align(Alignment.End),
-                                ) {
-                                    // Cancel button (always shown)
-                                    SlimButton(
-                                        text = "Cancel",
-                                        onClick = { showSaveDialog = false },
-                                        containerColor = AppTheme.Colors.border,
-                                        contentColor = AppTheme.Colors.textSecondary,
-                                        modifier = Modifier.width(90.dp),
-                                    )
-
-                                    // Secondary button (only shown when editing existing template)
-                                    if (!editorState.isNew() && onSaveMessageAs != null) {
-                                        SlimButton(
-                                            text = if (nameWasModified) "Rename & update" else "Save as new",
-                                            onClick = {
-                                                val isDuplicateCheck = if (nameWasModified) isDuplicateForUpdate else isDuplicateForSaveAsNew
-                                                if (messageName.isNotBlank() &&
-                                                    !isDuplicateCheck &&
-                                                    selectedUserTags.isNotEmpty()
-                                                ) {
-                                                    val primaryProfileId = currentProfileId ?: selectedUserTags.first()
-                                                    if (nameWasModified) {
-                                                        // Rename & Update: update existing template with new name
-                                                        onSaveMessage(
-                                                            messageName,
-                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
-                                                            primaryProfileId,
-                                                            selectedUserTags,
-                                                        )
-                                                    } else {
-                                                        // Save as New: create copy with same name
-                                                        onSaveMessageAs(
-                                                            messageName,
-                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
-                                                            primaryProfileId,
-                                                            selectedUserTags,
-                                                        )
-                                                    }
-                                                    showSaveDialog = false
-                                                }
-                                            },
-                                            enabled =
-                                                messageName.isNotBlank() &&
-                                                    !(if (nameWasModified) isDuplicateForUpdate else isDuplicateForSaveAsNew) &&
-                                                    selectedUserTags.isNotEmpty(),
-                                            containerColor = AppTheme.Colors.border,
-                                            contentColor = AppTheme.Colors.text,
-                                            modifier = Modifier.width(130.dp),
-                                        )
-                                    }
-
-                                    // Primary button (always shown, changes based on scenario)
-                                    SlimButton(
-                                        text =
-                                            when {
-                                                editorState.isNew() -> "Save as new"
-                                                nameWasModified -> "Save as new"
-                                                else -> "Update existing"
-                                            },
-                                        onClick = {
-                                            val isDuplicateCheck =
-                                                if (editorState.isNew() ||
-                                                    nameWasModified
-                                                ) {
-                                                    isDuplicateForSaveAsNew
-                                                } else {
-                                                    isDuplicateForUpdate
-                                                }
-                                            if (messageName.isNotBlank() &&
-                                                !isDuplicateCheck &&
-                                                selectedUserTags.isNotEmpty()
-                                            ) {
-                                                val primaryProfileId = currentProfileId ?: selectedUserTags.first()
-                                                if (editorState.isNew() || nameWasModified) {
-                                                    // New file OR renamed: Save as New
-                                                    if (onSaveMessageAs != null && nameWasModified) {
-                                                        onSaveMessageAs(
-                                                            messageName,
-                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
-                                                            primaryProfileId,
-                                                            selectedUserTags,
-                                                        )
-                                                    } else {
-                                                        onSaveMessage(
-                                                            messageName,
-                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
-                                                            primaryProfileId,
-                                                            selectedUserTags,
-                                                        )
-                                                    }
-                                                } else {
-                                                    // Existing file, name unchanged: Update Existing
-                                                    onSaveMessage(
-                                                        messageName,
-                                                        fields.filter { !it.excluded && it.tag.isNotBlank() },
-                                                        primaryProfileId,
-                                                        selectedUserTags,
-                                                    )
-                                                }
-                                                showSaveDialog = false
-                                            }
-                                        },
-                                        enabled =
-                                            messageName.isNotBlank() &&
-                                                !(if (editorState.isNew() || nameWasModified) isDuplicateForSaveAsNew else isDuplicateForUpdate) &&
-                                                selectedUserTags.isNotEmpty(),
-                                        containerColor = AppTheme.Colors.primary,
-                                        contentColor = AppTheme.Colors.background,
-                                        modifier = Modifier.width(130.dp),
-                                    )
-                                }
-                            }
-                        }
-
-                        LaunchedEffect(Unit) {
-                            focusRequester.requestFocus()
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-
-                // Button 4: Add
-                if (visibleButtonsCount > 4) {
-                    TooltipIconButton(tooltip = "Add field", onClick = onFieldAdd, modifier = iconSize28) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add",
-                            modifier = iconSize18,
-                            tint = AppTheme.Colors.textSecondary,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 5: Delete
-                if (visibleButtonsCount > 5) {
-                    TooltipIconButton(
-                        tooltip = "Delete field",
-                        onClick = { onFieldDelete(selectedFieldIndex) },
-                        enabled = fields.size > 1,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Remove,
-                            contentDescription = "Delete",
-                            modifier = iconSize18,
-                            tint = if (fields.size > 1) AppTheme.Colors.textSecondary else disabledIconColor,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 6: Move Up
-                if (visibleButtonsCount > 6) {
-                    TooltipIconButton(
-                        tooltip = "Move up",
-                        onClick = { onFieldMoveUp(selectedFieldIndex) },
-                        enabled = selectedFieldIndex > 0,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowUpward,
-                            contentDescription = "Move up",
-                            modifier = iconSize18,
-                            tint = if (selectedFieldIndex > 0) AppTheme.Colors.textSecondary else disabledIconColor,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 7: Move Down
-                if (visibleButtonsCount > 7) {
-                    TooltipIconButton(
-                        tooltip = "Move down",
-                        onClick = { onFieldMoveDown(selectedFieldIndex) },
-                        enabled = selectedFieldIndex < fields.size - 1,
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDownward,
-                            contentDescription = "Move down",
-                            modifier = iconSize18,
-                            tint = if (selectedFieldIndex < fields.size - 1) AppTheme.Colors.textSecondary else disabledIconColor,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 8: Clear
-                if (visibleButtonsCount > 8) {
-                    TooltipIconButton(
-                        tooltip = "Clear fields",
-                        onClick = {
-                            previewText = ""
-                            onClearFields()
-                        },
-                        modifier = iconSize28,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Clear",
-                            modifier = iconSize18,
-                            tint = AppTheme.Colors.textSecondary,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 9: Group indentation. One pressed look, and a noun for a tooltip: this one said on
-                // by tinting its glyph, which says nothing to a reader who has not seen the other state.
-                if (visibleButtonsCount > 9) {
-                    ToggleIconButton(
-                        on = showIndentation,
-                        tooltip = INDENT_LABEL,
-                        icon = Icons.Default.FormatIndentIncrease,
-                        onClick = { showIndentation = !showIndentation },
-                        enabled = hasDataDictionary,
-                        disabledReason = NEEDS_DICTIONARY,
-                        size = 28.dp,
-                        glyph = 18.dp,
-                        tag = "editor-indent",
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                // Button 10: Description column. This one said on by swapping its glyph, so neither state
-                // looked pressed and the only way to read it was to know both icons.
-                if (visibleButtonsCount > 10) {
-                    ToggleIconButton(
-                        on = showDescription,
-                        tooltip = DESCRIPTION_LABEL,
-                        icon = Icons.Default.ViewModule,
-                        onClick = {
-                            showDescription = !showDescription
-                            onDescriptionVisibilityChanged?.invoke(showDescription)
-                        },
-                        enabled = hasDataDictionary,
-                        disabledReason = NEEDS_DICTIONARY,
-                        size = 28.dp,
-                        glyph = 18.dp,
-                        tag = "editor-description",
-                    )
-                }
-
-                // Overflow button if needed
-                if (needsOverflow) {
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    Box {
-                        TooltipIconButton(
-                            tooltip = "More",
-                            onClick = { showOverflowPopup = !showOverflowPopup },
-                            modifier = iconSize28,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = "More",
-                                tint = AppTheme.Colors.textSecondary,
-                                modifier = iconSize18,
-                            )
-                        }
-
-                        // Popup with only hidden buttons
-                        if (showOverflowPopup) {
-                            Popup(
-                                alignment = Alignment.TopEnd,
-                                onDismissRequest = { showOverflowPopup = false },
-                                properties = PopupProperties(focusable = true),
-                            ) {
-                                Row(
-                                    modifier =
-                                        Modifier
-                                            .background(Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
-                                            .border(1.dp, AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    // Button 0: Send
-                                    if (visibleButtonsCount <= 0) {
-                                        TooltipIconButton(
-                                            tooltip = if (canSend) "Send message" else "Cannot send",
-                                            onClick = {
-                                                onClearValidationErrors()
-                                                try {
-                                                    val fieldsToSend =
-                                                        fields.filter {
-                                                            !it.excluded &&
-                                                                it.tag.isNotBlank() &&
-                                                                it.value.isNotBlank() &&
-                                                                it.tag !in managedTags
-                                                        }
-                                                    if (fieldsToSend.isEmpty()) {
-                                                        onSetValidationErrors(listOf("No fields to send."))
-                                                    } else if (selectedSession == null) {
-                                                        onSetValidationErrors(listOf("No session selected."))
-                                                    } else {
-                                                        // Validate required fields before sending
-                                                        val validationErrors = mutableListOf<String>()
-
-                                                        // Check for tag 35 (message type) - required for all FIX messages
-                                                        val hasMessageType = fieldsToSend.any { it.tag == "35" }
-                                                        if (!hasMessageType) {
-                                                            validationErrors.add("Missing required field: Tag 35 (MsgType/Message Type)")
-                                                        }
-
-                                                        if (validationErrors.isNotEmpty()) {
-                                                            onSetValidationErrors(validationErrors)
-                                                        } else {
-                                                            onSend(fieldsToSend)
-                                                        }
-                                                    }
-                                                } catch (e: Exception) {
-                                                    onSetValidationErrors(listOf("Send Error: ${e.message}"))
-                                                }
-                                            },
-                                            enabled = canSend,
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Send,
-                                                contentDescription = "Send",
-                                                modifier = iconSize18,
-                                                tint = if (canSend) AppTheme.Colors.primary else disabledIconColor,
-                                            )
-                                        }
-                                    }
-                                    // Button 1: Validate
-                                    if (visibleButtonsCount <= 1) {
-                                        TooltipIconButton(
-                                            tooltip =
-                                                if (hasDataDictionary) {
-                                                    if (validationPassed) "Validation passed" else "Validate"
-                                                } else {
-                                                    "Validation disabled"
-                                                },
-                                            onClick = {
-                                                onClearValidationErrors()
-                                                val fieldsToValidate =
-                                                    fields.filter { !it.excluded && it.tag.isNotBlank() }
-                                                if (fieldsToValidate.isNotEmpty()) {
-                                                    validationPassed = onValidate(fieldsToValidate).isEmpty()
-                                                }
-                                            },
-                                            enabled = hasDataDictionary,
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.CheckCircle,
-                                                contentDescription = "Validate",
-                                                modifier = iconSize18,
-                                                tint =
-                                                    when {
-                                                        hasDataDictionary.not() -> disabledIconColor
-                                                        validationPassed ->
-                                                            Color(
-                                                                0xFF98C379,
-                                                            )
-                                                        ; else -> AppTheme.Colors.warning
-                                                    },
-                                            )
-                                        }
-                                    }
-                                    // Button 2: Load
-                                    if (visibleButtonsCount <= 2 &&
-                                        onLoadMessage != null &&
-                                        savedMessages.isNotEmpty()
-                                    ) {
-                                        var showLoadPopup by remember { mutableStateOf(false) }
-                                        Box {
-                                            TooltipIconButton(
-                                                tooltip = "Load message template",
-                                                onClick = { showLoadPopup = true },
-                                                modifier = iconSize28,
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.FolderOpen,
-                                                    contentDescription = "Load",
-                                                    modifier = iconSize18,
-                                                    tint = AppTheme.Colors.textSecondary,
-                                                )
-                                            }
-
-                                            if (showLoadPopup) {
-                                                SavedMessagesBrowserPopup(
-                                                    savedMessages = savedMessages,
-                                                    connectionProfiles = connectionProfiles,
-                                                    dictionary = dictionary,
-                                                    currentProfileId = currentProfileId,
-                                                    selectedEditorProfile = selectedEditorProfile,
-                                                    onSelectMessage = { savedMessage ->
-                                                        onLoadMessage(savedMessage)
-                                                        showLoadPopup = false
-                                                    },
-                                                    onDeleteMessage = onDeleteMessage,
-                                                    onToggleFavorite = onToggleFavorite,
-                                                    onDismiss = { showLoadPopup = false },
-                                                )
-                                            }
-                                        }
-                                    }
-                                    // Button 3: Save
-                                    if (visibleButtonsCount <= 3 && onSaveMessage != null) {
-                                        var showSaveDialog by remember { mutableStateOf(false) }
-                                        TooltipIconButton(
-                                            tooltip = "Save message template",
-                                            onClick = { showSaveDialog = true },
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Save,
-                                                contentDescription = "Save",
-                                                modifier = iconSize18,
-                                                tint = AppTheme.Colors.textSecondary,
-                                            )
-                                        }
-                                    }
-                                    // Button 4: Add
-                                    if (visibleButtonsCount <= 4) {
-                                        TooltipIconButton(
-                                            tooltip = "Add field",
-                                            onClick = { onFieldAdd() },
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Add,
-                                                contentDescription = "Add",
-                                                modifier = iconSize18,
-                                                tint = AppTheme.Colors.textSecondary,
-                                            )
-                                        }
-                                    }
-                                    // Button 5: Delete
-                                    if (visibleButtonsCount <= 5) {
-                                        TooltipIconButton(
-                                            tooltip = "Delete field",
-                                            onClick = { onFieldDelete(selectedFieldIndex) },
-                                            enabled = fields.size > 1,
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Remove,
-                                                contentDescription = "Delete",
-                                                modifier = iconSize18,
-                                                tint = if (fields.size > 1) AppTheme.Colors.textSecondary else disabledIconColor,
-                                            )
-                                        }
-                                    }
-                                    // Button 6: Move Up
-                                    if (visibleButtonsCount <= 6) {
-                                        TooltipIconButton(
-                                            tooltip = "Move up",
-                                            onClick = { onFieldMoveUp(selectedFieldIndex) },
-                                            enabled = selectedFieldIndex > 0,
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ArrowUpward,
-                                                contentDescription = "Move up",
-                                                modifier = iconSize18,
-                                                tint =
-                                                    if (selectedFieldIndex > 0) {
-                                                        AppTheme.Colors.textSecondary
-                                                    } else {
-                                                        Color(
-                                                            0xFF4A4A4A,
-                                                        )
-                                                    },
-                                            )
-                                        }
-                                    }
-                                    // Button 7: Move Down
-                                    if (visibleButtonsCount <= 7) {
-                                        TooltipIconButton(
-                                            tooltip = "Move down",
-                                            onClick = { onFieldMoveDown(selectedFieldIndex) },
-                                            enabled = selectedFieldIndex < fields.size - 1,
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ArrowDownward,
-                                                contentDescription = "Move down",
-                                                modifier = iconSize18,
-                                                tint =
-                                                    if (selectedFieldIndex <
-                                                        fields.size - 1
-                                                    ) {
-                                                        AppTheme.Colors.textSecondary
-                                                    } else {
-                                                        Color(
-                                                            0xFF4A4A4A,
-                                                        )
-                                                    },
-                                            )
-                                        }
-                                    }
-                                    // Button 8: Clear
-                                    if (visibleButtonsCount <= 8) {
-                                        TooltipIconButton(
-                                            tooltip = "Clear fields",
-                                            onClick = {
-                                                previewText = ""
-                                                onClearFields()
-                                            },
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Clear",
-                                                modifier = iconSize18,
-                                                tint = AppTheme.Colors.textSecondary,
-                                            )
-                                        }
-                                    }
-                                    // Button 9: Group indentation
-                                    if (visibleButtonsCount <= 9) {
-                                        ToggleIconButton(
-                                            on = showIndentation,
-                                            tooltip = INDENT_LABEL,
-                                            icon = Icons.Default.FormatIndentIncrease,
-                                            onClick = { showIndentation = !showIndentation },
-                                            enabled = hasDataDictionary,
-                                            disabledReason = NEEDS_DICTIONARY,
-                                            size = 28.dp,
-                                            glyph = 18.dp,
-                                            tag = "editor-overflow-indent",
-                                        )
-                                    }
-                                    // Button 10: Description column
-                                    if (visibleButtonsCount <= 10) {
-                                        ToggleIconButton(
-                                            on = showDescription,
-                                            tooltip = DESCRIPTION_LABEL,
-                                            icon = Icons.Default.ViewModule,
-                                            onClick = {
-                                                showDescription = !showDescription
-                                                onDescriptionVisibilityChanged?.invoke(showDescription)
-                                            },
-                                            enabled = hasDataDictionary,
-                                            disabledReason = NEEDS_DICTIONARY,
-                                            size = 28.dp,
-                                            glyph = 18.dp,
-                                            tag = "editor-overflow-description",
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                FoldingActions(
+                    actions = actions,
+                    available = available,
+                    reserved = PROFILE_PICKER_WIDTH + if (validationVerdict == null) 0.dp else VALIDATION_BADGE_SLOT,
+                    overflowTag = "editor-overflow",
+                )
             }
+        }
+
+        // The template browser and the save dialog are composed outside the bar, so a folded Open or Save
+        // still opens them: a dialog nested inside a button that is no longer drawn is a dialog that cannot
+        // be reached at the width where the button folded.
+        if (showLoadPopup && onLoadMessage != null) {
+            SavedMessagesBrowserPopup(
+                savedMessages = savedMessages,
+                connectionProfiles = connectionProfiles,
+                dictionary = dictionary,
+                currentProfileId = currentProfileId,
+                selectedEditorProfile = selectedEditorProfile,
+                onSelectMessage = { savedMessage ->
+                    onLoadMessage(savedMessage)
+                    showLoadPopup = false
+                },
+                onDeleteMessage = onDeleteMessage,
+                onToggleFavorite = onToggleFavorite,
+                onDismiss = { showLoadPopup = false },
+            )
+        }
+        if (showSaveDialog && onSaveMessage != null) {
+            SaveTemplateDialog(
+                editorState = editorState,
+                fields = fields,
+                savedMessages = savedMessages,
+                connectionProfiles = connectionProfiles,
+                currentProfileId = currentProfileId,
+                onSaveMessage = onSaveMessage,
+                onSaveMessageAs = onSaveMessageAs,
+                onDismiss = { showSaveDialog = false },
+            )
         }
 
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)

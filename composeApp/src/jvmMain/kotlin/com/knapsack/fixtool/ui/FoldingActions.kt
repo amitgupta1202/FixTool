@@ -93,6 +93,17 @@ data class BarAction(
      */
     val tint: Color? = null,
 ) {
+    /**
+     * **Whether this action is drawn with its word**, given whether the bar still has room for words.
+     *
+     * The one control a bar may not lose is also the one whose word it may not take: an action that both
+     * asks for a label and refuses to fold keeps it at every width. On the editor's bar that is Send, and
+     * it matters, because the editor dock's own default width is narrower than three chips — so without
+     * this the labelled Send the grammar asks for would exist only on a pane nobody has.
+     */
+    fun keepsWord(barHasRoomForWords: Boolean): Boolean =
+        labelled && icon != null && (barHasRoomForWords || neverFolds)
+
     /** What a glyph says on hover: its word, its shortcut, and whatever the word could not carry. */
     val hover: String
         get() =
@@ -147,7 +158,7 @@ private fun barWidth(
     val sum =
         drawn.sumOf { i ->
             val action = actions[i]
-            if (labelled && action.labelled) metrics.labelPx(action) else metrics.buttonPx
+            if (action.keepsWord(labelled)) metrics.labelPx(action) else metrics.buttonPx
         }
     return sum + (if (overflow) metrics.overflowPx else 0) + metrics.gapPx * (controls - 1)
 }
@@ -264,7 +275,7 @@ internal fun FoldingActions(
         fold.shown.forEach { action ->
             when {
                 action.pressed != null -> BarToggle(action)
-                fold.labelled && action.labelled && action.icon != null -> BarChip(action)
+                action.keepsWord(fold.labelled) -> BarChip(action)
                 else -> BarIconButton(action)
             }
         }
@@ -284,7 +295,10 @@ private fun BarChip(action: BarAction) {
                     .background(AppTheme.Colors.border, RoundedCornerShape(3.dp))
                     .let { if (action.enabled) it.clickable(onClick = action.onClick) else it }
                     .padding(horizontal = 6.dp)
-                    .semantics {
+                    // Merged, so the chip's own word reaches a test and a screen reader through the chip
+                    // rather than only as a child node nobody asks for — an IconButton merges for the same
+                    // reason, and a chip is a button with a word in it.
+                    .semantics(mergeDescendants = true) {
                         if (!action.enabled) disabled()
                         contentDescription = action.hover
                     }.testTag(action.tag),

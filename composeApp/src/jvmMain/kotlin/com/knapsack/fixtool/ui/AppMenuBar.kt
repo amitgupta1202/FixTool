@@ -9,6 +9,10 @@ import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.MenuScope
 import org.slf4j.LoggerFactory
 import java.awt.Desktop
+import java.awt.KeyEventPostProcessor
+import java.awt.KeyboardFocusManager
+import java.awt.Window
+import javax.swing.SwingUtilities
 
 private val logger = LoggerFactory.getLogger("com.knapsack.fixtool.ui.AppMenuBar")
 
@@ -36,6 +40,29 @@ fun FrameWindowScope.AppMenuBar(state: AppMenuState) {
                     Menu(menu.title) { Rows(menu.rows) }
                 }
             }
+    }
+}
+
+/**
+ * **Every key the window gets, answered after whatever has focus has had it.** See [AppMenuState.answer].
+ *
+ * A key event post-processor rather than a dispatcher, because a dispatcher runs *before* the focused
+ * component and would take ⌃R from the terminal's reverse search and ⌘B from anything that wanted it. Only
+ * this window's keys: the Help and diff windows are windows of their own.
+ */
+@Composable
+fun FrameWindowScope.WindowKeys(state: AppMenuState) {
+    val frame = window
+    DisposableEffect(frame) {
+        val processor =
+            KeyEventPostProcessor { event ->
+                val source = event.component
+                val owner = source as? Window ?: SwingUtilities.getWindowAncestor(source)
+                owner === frame && state.answer(event)
+            }
+        val focus = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+        focus.addKeyEventPostProcessor(processor)
+        onDispose { focus.removeKeyEventPostProcessor(processor) }
     }
 }
 

@@ -4,7 +4,10 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
 
 /**
  * **One row of the menu bar, as data rather than as a Swing menu item.**
@@ -113,6 +116,62 @@ internal fun List<AppMenu>.dispatch(
 class AppMenuState {
     internal var menus: List<AppMenu> by mutableStateOf(emptyList())
 
-    /** Answers a key if a row's shortcut matches it. See [dispatch]. */
-    fun dispatch(event: KeyEvent): Boolean = menus.dispatch(event)
+    /**
+     * The keys the window answers that are no menu row's: Esc, which stops following a trace. Published by the
+     * window's content, because what Esc means depends on what the content is showing.
+     */
+    internal var unclaimed: (KeyEvent) -> Boolean = { false }
+
+    /** Answers a key if a row's shortcut matches it, or if it is one of the [unclaimed] ones. See [dispatch]. */
+    fun dispatch(event: KeyEvent): Boolean = menus.dispatch(event) || unclaimed(event)
+
+    /**
+     * **The window's key handler, fed by AWT rather than by a composable**, so it hears a key wherever focus is.
+     *
+     * It used to be an `onKeyEvent` on the root of the window's content, and a Compose key handler hears only
+     * what bubbles up from a focused node. Click an empty part of the window and nothing is focused; click into
+     * the terminal and focus is in a Swing component Compose cannot see into. The menu bar's Swing accelerators
+     * covered the first of those on a Mac, by luck of how Swing runs key bindings, and could not cover the
+     * second: JediTerm overrides `processKeyEvent` without calling up, so Swing's bindings never run for a key
+     * pressed in the terminal, and ⌘1 to leave it went nowhere.
+     *
+     * So this is handed every key the window gets **after** whatever has focus has had it, and answers only
+     * what nothing used. That ordering is the whole design: a text field keeps its keys, a nested Esc is
+     * consumed before it reaches here, and the terminal keeps the keys a shell needs — ⌃R is readline's
+     * reverse search and the terminal consumes it — while the ⌘ shortcuts it has no use for reach the window.
+     *
+     * @return whether it answered, in which case the event is consumed
+     */
+    fun answer(event: java.awt.event.KeyEvent): Boolean {
+        if (event.id != java.awt.event.KeyEvent.KEY_PRESSED || event.isConsumed) return false
+        val answered = dispatch(event.toComposeKeyEvent())
+        if (answered) event.consume()
+        return answered
+    }
 }
+
+/**
+ * An AWT key press as Compose reads one, so a [Chord] can be matched against either.
+ *
+ * A key whose location AWT did not record is read as the standard one, because Compose folds the location into
+ * the key and a letter with no location would otherwise be a key no chord names.
+ */
+@OptIn(InternalComposeUiApi::class)
+internal fun java.awt.event.KeyEvent.toComposeKeyEvent(): KeyEvent =
+    KeyEvent(
+        key =
+            Key(
+                keyCode,
+                if (keyLocation == java.awt.event.KeyEvent.KEY_LOCATION_UNKNOWN) {
+                    java.awt.event.KeyEvent.KEY_LOCATION_STANDARD
+                } else {
+                    keyLocation
+                },
+            ),
+        type = KeyEventType.KeyDown,
+        isCtrlPressed = isControlDown,
+        isMetaPressed = isMetaDown,
+        isAltPressed = isAltDown,
+        isShiftPressed = isShiftDown,
+        nativeEvent = this,
+    )

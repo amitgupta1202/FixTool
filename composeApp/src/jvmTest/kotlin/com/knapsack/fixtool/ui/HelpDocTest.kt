@@ -639,6 +639,8 @@ class HelpDocTest {
                 "hide all puts them back" to "Hide all tool windows puts them back",
                 "a greyed row lets its shortcut through" to "A row that is greyed does not answer its shortcut",
                 "quitting logs sessions out" to "Quitting from it logs every session out first",
+                "shortcuts work wherever focus is" to "They work wherever focus is",
+                "the terminal keeps the shell's keys" to "in the terminal is the shell's reverse search, not Run",
             )
         val flat = chapter.flat()
         val missing = claims.filterValues { it.flat() !in flat }.keys

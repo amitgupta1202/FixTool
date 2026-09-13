@@ -23,6 +23,7 @@ import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.ui.App
 import com.knapsack.fixtool.ui.AppMenuBar
 import com.knapsack.fixtool.ui.AppMenuState
+import com.knapsack.fixtool.ui.WindowKeys
 import com.knapsack.fixtool.ui.diff.DiffViewerWindow
 import com.knapsack.fixtool.ui.diff.DiffWindow
 import kotlinx.coroutines.delay
@@ -152,6 +153,9 @@ fun main(args: Array<String>) {
                     },
                 )
             }
+
+            // Every key the window gets, answered from the menu bar's catalogue wherever focus is.
+            WindowKeys(menus)
 
             App(
                 modifier = Modifier.focusRequester(focusRequester).focusable(),

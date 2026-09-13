@@ -1519,6 +1519,15 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     <p>Off a Mac, <code>&#8984;</code> and <code>&#8963;</code> are both Ctrl. On a Mac either modifier works for
     any of them, so <code>&#8963;1</code> opens the editor as well as <code>&#8984;1</code>.</p>
 
+    <p><strong>They work wherever focus is</strong> &mdash; in a text field, after a click on an empty part of
+    the window, and in the <a href="#embedded-terminal">terminal</a>. What has focus hears a key first and the
+    window answers only what it did not use, so the terminal keeps its own keys:
+    <strong><code>&#8963;R</code> in the terminal is the shell's reverse search, not Run</strong>,
+    <code>&#8984;F</code> there finds in the terminal rather than in a pane, and off a Mac Ctrl+F and Ctrl+B
+    are the shell's too. The shortcuts the terminal has no use for reach the window from there as from
+    anywhere, so <code>&#8984;7</code> hides the terminal you are typing in and <code>&#8984;&#8679;F</code>
+    searches every session.</p>
+
     <h3 id="workspaces">Workspaces</h3>
     <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run
     records you are working with, plus QuickFIX/J's own sequence store and message log. There is one

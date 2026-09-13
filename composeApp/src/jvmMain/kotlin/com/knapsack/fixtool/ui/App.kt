@@ -253,6 +253,22 @@ private fun AppContent(
         )
         menuBar?.invoke(menus)
 
+        // **Esc stops following**, and it is the one key the window answers that is no menu row's. It is asked
+        // after everything that has focus, so anything that wants Esc has already had it and consumed it — the
+        // grid clears its multi-selection, the saved-messages popup closes itself. The dialogs are named rather
+        // than trusted to consume, because they draw over the whole window. See [AppMenuState.answer].
+        SideEffect {
+            menus.unclaimed = { event ->
+                val stopsFollowing =
+                    event.type == KeyEventType.KeyDown &&
+                        event.key == Key.Escape &&
+                        followedTrace != null &&
+                        !(showSettingsDialog || showHelpDialog || showGlobalSearchDialog)
+                if (stopsFollowing) viewModel.unfollow()
+                stopsFollowing
+            }
+        }
+
         // A slot on the toolbar rather than a dozen more parameters, and `folded` comes from the toolbar,
         // which is the only thing that knows how much room the row has left. See [PaneViewControls].
         val paneViewControls: @Composable (Boolean) -> Unit = { folded ->
@@ -269,39 +285,7 @@ private fun AppContent(
             )
         }
 
-        Box(
-            modifier =
-                modifier
-                    .fillMaxSize()
-                    .onKeyEvent { event ->
-                        // **Every shortcut is a menu row's.** ⌘F, ⌘⇧F, ⌃R, ⌘1 to ⌘8 and the rest were a
-                        // branch each here, beside tooltips that printed them from strings of their own; now
-                        // the row that names an action carries its shortcut, and this asks the catalogue
-                        // which row was pressed. See [dispatch], and [Shortcuts] for the table.
-                        if (menus.dispatch(event)) {
-                            true
-                        } else if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.Escape &&
-                            followedTrace != null &&
-                            !showSettingsDialog &&
-                            !showHelpDialog &&
-                            !showGlobalSearchDialog
-                        ) {
-                            // Esc stops following. This is the bubble phase and the outermost handler in
-                            // the app, so anything nested that wants Esc has already had it and consumed
-                            // it — the grid clears its multi-selection here, the saved-messages popup
-                            // closes itself. The dialogs above draw over the whole window without a key
-                            // handler of their own, so they are named rather than trusted to consume.
-                            viewModel.unfollow()
-                            true
-                        } else {
-                            // esc no longer closes the scenario document: the editor is a bottom dock, not a
-                            // full-screen pane, so esc-from-anywhere reads as a stray close. The dock tab's ×
-                            // is the way to close it.
-                            false // Don't consume other events
-                        }
-                    },
-        ) {
+        Box(modifier = modifier.fillMaxSize()) {
             Column(
                 modifier =
                     Modifier

@@ -105,6 +105,9 @@ internal data class RunConfiguration(
  */
 internal const val NOTHING_SAVED_TO_RUN = "Nothing saved to run"
 
+/** What the chip reads with nothing saved to name: the dialog configurations are made in. See [EmptyRunChip]. */
+internal const val NOTHING_SAVED_CHIP = "Load sets…"
+
 /** Why ▶ is dark while something else holds the sessions. The same refusal Disconnect all gives, in its own words. */
 internal const val ANOTHER_RUN_IN_PROGRESS = "Another run is in progress. Wait for it, or stop it first."
 
@@ -161,7 +164,7 @@ internal class RunDoors {
 @Suppress("LongParameterList")
 internal class RunChoice(
     val selected: RunConfiguration?,
-    /** A load set's label falling back to its name, a run set's name, or `Load run…` with nothing selected. */
+    /** A load set's label falling back to its name, a run set's name, or [NOTHING_SAVED_CHIP] with nothing selected. */
     val displayName: String,
     /** The selected configuration itself is running, so ▶ is ■. */
     val running: Boolean,
@@ -341,7 +344,14 @@ internal fun RunConfigurationWidget(
 }
 
 /**
- * The chip on a workspace with nothing saved: it names the dialog, because there is no configuration to name.
+ * The chip on a workspace with nothing saved: it names where a configuration comes from, because there is none
+ * to name yet.
+ *
+ * **`Load sets…`, not `Load run…`.** It read `Load run…` beside a refused ▶, which is a name and a button, so
+ * it said the ▶ would start a load run — and a one-off load run is exactly what the ▶ never runs, because it
+ * is not a saved configuration. IntelliJ's empty run widget reads "Add Configuration…", the door to where
+ * configurations are made; `Load sets…` is that door here. A desk that only runs scenario sets saves them from
+ * the Scenarios rail, and they are listed in the same menu the moment one exists.
  *
  * The chevron and the menu behind it are the same as the selected chip's, and for the same reason. Most of
  * what the menu holds does not name a saved configuration at all: `Load run…` is the door to the dialog,
@@ -363,7 +373,7 @@ private fun EmptyRunChip(onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Load run…",
+            text = NOTHING_SAVED_CHIP,
             color = AppTheme.Colors.text,
             fontSize = 11.sp,
             maxLines = 1,
@@ -463,7 +473,7 @@ internal fun rememberRunChoice(
     // **The saved sets and the records come from the ViewModel as state, not from a read remembered here.**
     // They used to be `remember(menuOpen, activeSet, activeLoad, editingLoadSets)` reads of the stores, and
     // none of those keys moves when a workspace is opened: a workspace with load sets in it came up with the
-    // chip still reading `Load run…` from the empty one before it.
+    // chip still reading its empty name from the empty one before it.
     val configurations by viewModel.runConfigurations.collectAsState()
     val savedSets = configurations.runSets
     val loadSets = configurations.loadSets
@@ -500,7 +510,7 @@ internal fun rememberRunChoice(
 
     val displayName =
         when {
-            selected == null -> "Load run…"
+            selected == null -> NOTHING_SAVED_CHIP
             selected.kind == RunConfiguration.Kind.LOAD_SET ->
                 loadSets.firstOrNull { it.name == selected.name }?.let { it.label.ifBlank { it.name } } ?: selected.name
             else -> selected.name

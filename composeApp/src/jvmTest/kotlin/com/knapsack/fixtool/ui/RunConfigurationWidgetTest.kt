@@ -109,8 +109,9 @@ class RunConfigurationWidgetTest {
      * **A fresh workspace has no configuration to name, so the chip names the dialog and still opens the
      * menu.**
      *
-     * `Load run…` and not an empty name: a chip that named nothing would be a control asking to be
-     * configured before it can be used. But the click behind it is the same menu it always was, because
+     * `Load sets…` and not an empty name: a chip that named nothing would be a control asking to be
+     * configured before it can be used. And not `Load run…`, which it read until beside a refused ▶ it said
+     * the ▶ would start a one-off load run, the one thing that button never runs. But the click behind it is the same menu it always was, because
      * most of what that menu holds does not name a saved configuration: the two dialogs are how anything
      * gets saved in the first place, and Recent is every run this box has already finished. A chip that
      * went straight to the load run dialog shut the door on both. And the ▶ says what it is short of rather
@@ -120,7 +121,7 @@ class RunConfigurationWidgetTest {
     fun `an empty workspace names the dialog and still opens its menu`() {
         composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
 
-        composeTestRule.onNodeWithTag("run-config").assertIsDisplayed().assertTextContains("Load run…")
+        composeTestRule.onNodeWithTag("run-config").assertIsDisplayed().assertTextContains("Load sets…")
         composeTestRule.onNodeWithTag("run-config").performClick()
         composeTestRule.waitForIdle()
 
@@ -139,7 +140,7 @@ class RunConfigurationWidgetTest {
      *
      * The widget used to read the saved sets inside a `remember` keyed on its own menu opening and on a run
      * starting, so a set written from the Load sets editor, from the rail, or by the control surface was on
-     * disk and invisible: the chip went on reading `Load run…` and the ▶ went on refusing, until something
+     * disk and invisible: the chip went on reading its empty name and the ▶ went on refusing, until something
      * unrelated happened to move one of those keys. The lists are the ViewModel's state now, so the save is
      * what repaints them.
      */
@@ -147,7 +148,7 @@ class RunConfigurationWidgetTest {
     fun `a set saved while the widget is on screen names the chip, with no menu opened`() {
         composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
 
-        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load run…")
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load sets…")
         composeTestRule
             .onNodeWithTag("run-button")
             .assertIsNotEnabled()
@@ -164,7 +165,7 @@ class RunConfigurationWidgetTest {
      * **And opening a workspace that has sets in it flips the chip, which is how this was found.**
      *
      * Reported from a real desk: a workspace with load sets was opened and the chip went on reading
-     * `Load run…` from the empty state the window started in. No key the widget remembered on moves when
+     * its empty name from the empty state the window started in. No key the widget remembered on moves when
      * the stores are re-pointed at another directory, so nothing told it to look again. The set is the
      * bundled RFQ example's own file rather than one built in the test, so the read that has to survive a
      * workspace switch is the read the app really does.
@@ -180,7 +181,7 @@ class RunConfigurationWidgetTest {
         File(workspace, "load-sets/rfq-round-trip.json").writeText(bundled)
 
         composeTestRule.setContent { ToolbarRunConfiguration(viewModel) }
-        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load run…")
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load sets…")
 
         viewModel.openWorkspace(workspace).getOrThrow()
         composeTestRule.waitForIdle()
@@ -192,7 +193,7 @@ class RunConfigurationWidgetTest {
         viewModel.closeWorkspace()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load run…")
+        composeTestRule.onNodeWithTag("run-config").assertTextContains("Load sets…")
         composeTestRule.onNodeWithTag("run-button").assertIsNotEnabled()
     }
 

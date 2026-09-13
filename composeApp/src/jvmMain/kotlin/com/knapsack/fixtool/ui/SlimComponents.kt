@@ -179,7 +179,7 @@ fun SlimSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    placeholder: String = "Search tags, names, or values…",
+    placeholder: String = "Search",
     testTag: String? = null,
     /** For a search box that opens with the cursor already in it — the Search all sessions dialog does. */
     focusRequester: FocusRequester? = null,

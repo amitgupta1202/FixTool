@@ -3,13 +3,11 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -165,54 +162,19 @@ fun MessageDetailPanel(
 
                 HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
 
-                // Search bar
-                Row(
+                // The shared search bar. This panel kept its own `BasicTextField` with its own decoration box and
+                // its own placeholder — the fifth copy of one control, and the one whose placeholder became
+                // everybody else's default by being the first written.
+                SlimSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { setSearchQuery(it) },
+                    testTag = "detail-search",
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .background(headerBackgroundColor)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = searchIconColor,
-                        modifier = searchIconSize,
-                    )
-
-                    val searchInteractionSource = remember { MutableInteractionSource() }
-                    val searchIsFocused by searchInteractionSource.collectIsFocusedAsState()
-
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { setSearchQuery(it) },
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .height(22.dp)
-                                .background(panelBackgroundColor, searchFieldShape)
-                                .border(
-                                    width = 1.dp,
-                                    color = getSearchBorderColor(searchIsFocused),
-                                    shape = searchFieldShape,
-                                ).padding(horizontal = 6.dp, vertical = 3.dp),
-                        textStyle = searchTextStyle,
-                        singleLine = true,
-                        cursorBrush = SolidColor(focusedBorderColor),
-                        interactionSource = searchInteractionSource,
-                        decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty() && !searchIsFocused) {
-                                Text(
-                                    text = "Search tags, names, or values...",
-                                    style = searchPlaceholderStyle,
-                                )
-                            }
-                            innerTextField()
-                        },
-                    )
-                }
+                )
 
                 // Match-context toggle: only relevant while actively searching a message
                 if (message != null && searchQuery.isNotBlank()) {

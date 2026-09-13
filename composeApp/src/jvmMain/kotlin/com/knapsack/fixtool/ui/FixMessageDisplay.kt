@@ -3,14 +3,12 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,7 +22,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -934,119 +931,62 @@ private fun SearchBar(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
     val focusRequester = remember { FocusRequester() }
+    val hasMatches = searchMatches.isNotEmpty()
 
-    // Auto-focus when search bar becomes visible
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    Row(
-        modifier =
-            modifier
-                .background(searchBarBackgroundColor)
-                .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    // The shared search bar, with the three things only this one has in its trailing slot: how many
+    // matches there are, and the two ways through them. It was the fifth private copy of a text field.
+    SlimSearchBar(
+        query = searchQuery,
+        onQueryChange = onSearchQueryChange,
+        testTag = "pane-search-input",
+        focusRequester = focusRequester,
+        modifier = modifier.background(AppTheme.Colors.surface, textFieldBorderRadius).padding(4.dp),
     ) {
-        // Search input
-        Box(
-            modifier =
-                Modifier
-                    .width(200.dp)
-                    .height(28.dp),
-        ) {
-            BasicTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .focusRequester(focusRequester)
-                        .background(textFieldBackgroundColor, textFieldBorderRadius)
-                        .border(
-                            width = 1.dp,
-                            color = if (isFocused) activeColor else borderColor,
-                            shape = textFieldBorderRadius,
-                        ).padding(horizontal = 6.dp, vertical = 6.dp),
-                textStyle =
-                    TextStyle(
-                        fontSize = 11.sp,
-                        color = textPrimaryColor,
-                    ),
-                singleLine = true,
-                cursorBrush = SolidColor(activeColor),
-                interactionSource = interactionSource,
-                decorationBox = { innerTextField ->
-                    if (searchQuery.isEmpty() && !isFocused) {
-                        Text(
-                            text = "Search...",
-                            style =
-                                TextStyle(
-                                    fontSize = 11.sp,
-                                    color = placeholderTextColor,
-                                ),
-                        )
-                    }
-                    innerTextField()
-                },
-            )
-        }
-
-        // Match counter
-        if (searchMatches.isNotEmpty()) {
+        if (hasMatches) {
             Text(
                 text = "${currentMatchIndex + 1} of ${searchMatches.size}",
-                color = iconTintColor,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 4.dp),
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 10.sp,
             )
         }
-
-        // Three glyphs that had no tooltip between them.
         TooltipIconButton(
             tooltip = "Previous match",
             onClick = onPreviousMatch,
-            enabled = searchMatches.isNotEmpty(),
-            modifier = Modifier.size(32.dp),
+            enabled = hasMatches,
+            modifier = Modifier.size(BAR_BUTTON),
         ) {
             Icon(
                 imageVector = Icons.Default.KeyboardArrowUp,
                 contentDescription = "Previous match",
-                tint = if (searchMatches.isNotEmpty()) iconTintColor else placeholderTextColor,
-                modifier = Modifier.size(iconSize),
+                tint = if (hasMatches) AppTheme.Colors.textSecondary else AppTheme.Colors.textDisabled,
+                modifier = Modifier.size(BAR_ICON),
             )
         }
-
         TooltipIconButton(
             tooltip = "Next match",
             onClick = onNextMatch,
-            enabled = searchMatches.isNotEmpty(),
-            modifier = Modifier.size(32.dp),
+            enabled = hasMatches,
+            modifier = Modifier.size(BAR_BUTTON),
         ) {
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
                 contentDescription = "Next match",
-                tint = if (searchMatches.isNotEmpty()) iconTintColor else placeholderTextColor,
-                modifier = Modifier.size(iconSize),
+                tint = if (hasMatches) AppTheme.Colors.textSecondary else AppTheme.Colors.textDisabled,
+                modifier = Modifier.size(BAR_ICON),
             )
         }
-
-        TooltipIconButton(
-            tooltip = "Close search",
-            onClick = onClose,
-            modifier = Modifier.size(32.dp),
-        ) {
+        TooltipIconButton(tooltip = "Close search", onClick = onClose, modifier = Modifier.size(BAR_BUTTON)) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Close search",
-                tint = iconTintColor,
-                modifier = Modifier.size(iconSize),
+                tint = AppTheme.Colors.textSecondary,
+                modifier = Modifier.size(BAR_ICON),
             )
         }
     }
+
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }
 
 // Constants

@@ -220,7 +220,7 @@ class MessageDetailPanelIntegrationTest {
         }
 
         // Then: The search field should be displayed with placeholder
-        composeTestRule.onNodeWithText("Search tags, names, or values...", substring = true).assertExists()
+        composeTestRule.onNodeWithText("Search", substring = true).assertExists()
     }
 
     @Test
@@ -407,7 +407,7 @@ class MessageDetailPanelIntegrationTest {
         // First, we need to click on the search field to focus it
         composeTestRule
             .onNode(
-                hasSetTextAction() and hasText("Search tags, names, or values...", substring = true),
+                hasSetTextAction() and hasText("Search", substring = true),
             ).performClick()
 
         composeTestRule.waitForIdle()
@@ -453,7 +453,7 @@ class MessageDetailPanelIntegrationTest {
         // And: We search for a tag number (55 = Symbol)
         composeTestRule
             .onNode(
-                hasSetTextAction() and hasText("Search tags, names, or values...", substring = true),
+                hasSetTextAction() and hasText("Search", substring = true),
             ).performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNode(hasSetTextAction()).performTextInput("55")
@@ -490,7 +490,7 @@ class MessageDetailPanelIntegrationTest {
         // And: We search for a field name (Symbol)
         composeTestRule
             .onNode(
-                hasSetTextAction() and hasText("Search tags, names, or values...", substring = true),
+                hasSetTextAction() and hasText("Search", substring = true),
             ).performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNode(hasSetTextAction()).performTextInput("Symbol")

@@ -314,7 +314,6 @@ private fun DiffSearchBar(session: ReconcileSession, matches: Int) {
     SlimSearchBar(
         query = session.searchQuery,
         onQueryChange = { session.search(it) },
-        placeholder = "Search tags, names, or values…",
         testTag = "diff-search",
         modifier = Modifier.width(DIFF_SEARCH_WIDTH),
         trailing = {

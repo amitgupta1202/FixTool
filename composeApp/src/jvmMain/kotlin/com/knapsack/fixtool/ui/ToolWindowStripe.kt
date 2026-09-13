@@ -25,11 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,7 +90,13 @@ fun ToolWindowStripe(
 }
 
 /**
- * One tab: an icon, a name, and whether its window is on screen.
+ * One tab: an icon, the digit that opens it, a name, and whether its window is on screen.
+ *
+ * **The digit is flat, directly under the icon, on both stripes.** It was the first character of the rotated
+ * name for one build, and the two stripes turn their names in opposite directions, so it sat beside the icon on
+ * the right and at the far end of the tab on the left. Outside the rotated name it is in the same place on either
+ * side and reads without tilting the head. It is the number alone: "⌘1" would fit a 26dp stripe but "Ctrl+1"
+ * would not, and the full key is on the hover and in the content description, as it always was.
  *
  * The open state is on the node three ways, because three readers ask differently: the fill and the edge
  * bar for an eye, `selected` for a test, and `stateDescription` for a screen reader. The tooltip is also
@@ -130,8 +132,18 @@ private fun StripeTab(
                 tint = colour,
                 modifier = Modifier.size(14.dp),
             )
+            window.shortcut?.let { digit ->
+                Text(
+                    text = "$digit",
+                    color = if (open) AppTheme.Colors.textSecondary else AppTheme.Colors.textDisabled,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    modifier = Modifier.testTag("${window.testTag}-digit"),
+                )
+            }
             Text(
-                text = stripeLabel(window, if (open) AppTheme.Colors.textSecondary else AppTheme.Colors.textDisabled),
+                text = window.title,
                 color = colour,
                 fontSize = 11.sp,
                 maxLines = 1,
@@ -142,27 +154,6 @@ private fun StripeTab(
         }
     }
 }
-
-/**
- * **The tab's name with its digit before it, dim**: "1  Editor", IntelliJ's classic "1: Project".
- *
- * The digit used to be in the tooltip alone, which taught ⌘1 to nobody who did not hover — the stripe windows
- * were asked for as a new feature by someone who had used the tool for months. Printed on the tab, the key is
- * read where the window is found. A window with no digit prints its name alone.
- */
-internal fun stripeLabel(
-    window: ToolWindow,
-    digitColour: Color,
-): AnnotatedString =
-    buildAnnotatedString {
-        window.shortcut?.let { digit ->
-            withStyle(SpanStyle(color = digitColour, fontFamily = FontFamily.Monospace, fontSize = 10.sp)) {
-                append("$digit")
-            }
-            append("  ")
-        }
-        append(window.title)
-    }
 
 /**
  * The pressed tab's bar, on the outer edge of the window.

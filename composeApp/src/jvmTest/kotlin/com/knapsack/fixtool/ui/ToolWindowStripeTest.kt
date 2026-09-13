@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -158,19 +159,36 @@ class ToolWindowStripeTest {
     }
 
     /**
-     * **The digit is printed on the tab**, before the name, so ⌘1 is read where the window is found. It was in
-     * the tooltip alone, and the stripe shortcuts were asked for as a missing feature months after they shipped.
+     * **The digit is printed on the tab, flat under the icon, in the same place on both stripes.** It was the first
+     * character of the rotated name, and the stripes turn their names in opposite directions, so it sat beside the
+     * icon on the right and at the far end of the tab on the left. The key itself stays on the hover.
      */
     @Test
-    fun `every tab prints its digit before its name`() {
+    fun `every tab prints its digit flat under its icon, the same way on both stripes`() {
         composeTestRule.setContent {
-            ToolWindowStripe(side = StripeSide.LEFT, open = emptySet(), onToggle = {}, documentsOpen = true)
-            ToolWindowStripe(side = StripeSide.RIGHT, open = emptySet(), onToggle = {})
+            Row {
+                ToolWindowStripe(side = StripeSide.LEFT, open = emptySet(), onToggle = {}, documentsOpen = true)
+                ToolWindowStripe(side = StripeSide.RIGHT, open = emptySet(), onToggle = {})
+            }
         }
 
-        composeTestRule.onNodeWithTag(ToolWindow.EDITOR.testTag).assertTextEquals("1  Editor")
-        composeTestRule.onNodeWithTag(ToolWindow.ORDER_BOOK.testTag).assertTextEquals("5  Order book")
-        composeTestRule.onNodeWithTag(ToolWindow.DOCUMENTS.testTag).assertTextEquals("9  Documents")
+        fun digit(window: ToolWindow) = composeTestRule.onNodeWithTag("${window.testTag}-digit", useUnmergedTree = true)
+
+        digit(ToolWindow.EDITOR).assertTextEquals("1")
+        digit(ToolWindow.DETAIL).assertTextEquals("3")
+        digit(ToolWindow.DOCUMENTS).assertTextEquals("9")
+
+        // Measured from the top of its own tab, so a left tab and a right tab are compared like for like.
+        fun offset(window: ToolWindow): Float {
+            val digitTop = digit(window).getUnclippedBoundsInRoot().top
+            val tabTop = composeTestRule.onNodeWithTag(window.testTag).getUnclippedBoundsInRoot().top
+            return (digitTop - tabTop).value
+        }
+        assertEquals(offset(ToolWindow.EDITOR), offset(ToolWindow.DETAIL), 0.5f, "the same way down a left tab and a right tab")
+
+        // Flat: a one-character label laid along the stripe would report its axes swapped, wider than it is tall.
+        val bounds = digit(ToolWindow.EDITOR).getUnclippedBoundsInRoot()
+        assertTrue((bounds.right - bounds.left) < (bounds.bottom - bounds.top), "the digit is not rotated into the name")
     }
 
     /** One noun per window, and the numbering a reader of the guide is promised. */

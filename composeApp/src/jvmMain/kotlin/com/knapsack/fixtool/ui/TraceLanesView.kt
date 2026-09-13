@@ -64,7 +64,9 @@ import java.time.format.DateTimeFormatter
  *
  * **The venue is the space between the lanes.** Nothing is drawn there and nothing may be: FixTool holds
  * no session with itself, so the thing in the middle has no column. What the picture shows is both ends
- * of every hop and the measured gap between them.
+ * of every hop and the measured gap between them. The exception is a venue **FixTool is running**, whose
+ * per-counterparty panes are one lane in the middle, requesters to its left and responders to its right;
+ * an arrow that venue relayed says so under the line, from the reason it recorded when it decided.
  *
  * With nothing followed there is nothing to draw, and the panel says so rather than showing an empty
  * grid — the trace headers are listed and a click follows one, which is the gesture that fills the view.
@@ -293,7 +295,9 @@ private fun LaneHeaderRow(lanes: TraceLanes.Lanes) {
                     modifier = Modifier.padding(end = 6.dp),
                 )
                 Text(
-                    text = roleWord(lane.role),
+                    // A negotiation's own word when the venue declares one — requester, venue, responder — since
+                    // on a relaying venue both edges are initiators and the wire side no longer tells them apart.
+                    text = lane.party ?: roleWord(lane.role),
                     fontSize = 10.sp,
                     color = AppTheme.Colors.textDisabled,
                     fontFamily = FontFamily.Monospace,
@@ -328,8 +332,13 @@ private fun LaneRowView(
     val opens = position == 0 || row.elapsedMillis == null
     val started = row.from.message.timestamp
     val gutter = if (opens) started.format(timeFormatter) else "+${row.elapsedMillis} ms"
+    // Read from the reason the venue recorded when it relayed, never re-derived — see SendReason.relay.
+    val relayed =
+        row.from.message.sendReason?.let { reason ->
+            reason.relay?.let { relay -> "relayed · rule ${(reason.ruleIndex ?: 0) + 1} · to ${relay.address}" }
+        }
 
-    Row(modifier = Modifier.height(ROW_HEIGHT).testTag("trace-lane-row")) {
+    Row(modifier = Modifier.height(if (relayed != null && row.to != null) RELAYED_ROW_HEIGHT else ROW_HEIGHT).testTag("trace-lane-row")) {
         Box(modifier = Modifier.width(GUTTER_WIDTH).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {
             Text(
                 text = gutter,
@@ -359,7 +368,7 @@ private fun LaneRowView(
             val fromLane = lanes.laneOf(row.from.session)
             val toLane = row.to?.let { lanes.laneOf(it.session) } ?: -1
             if (row.to != null && fromLane >= 0 && toLane >= 0) {
-                HopArrow(fromLane = fromLane, toLane = toLane, elapsedMillis = row.hopMillis)
+                HopArrow(fromLane = fromLane, toLane = toLane, elapsedMillis = row.hopMillis, relayed = relayed)
                 // The ◀ lands in the receiving lane, on the side facing the sender, so the direction of
                 // travel reads off the geometry as well as off the glyph.
                 Box(
@@ -406,6 +415,8 @@ private fun HopArrow(
     fromLane: Int,
     toLane: Int,
     elapsedMillis: Long?,
+    /** Why a venue FixTool runs sent this hop, when it relayed it. Drawn under the line. */
+    relayed: String? = null,
 ) {
     val left = minOf(fromLane, toLane)
     val right = maxOf(fromLane, toLane)
@@ -440,10 +451,23 @@ private fun HopArrow(
                         .padding(horizontal = 4.dp),
             )
         }
+        relayed?.let {
+            Text(
+                text = it,
+                fontSize = 9.sp,
+                color = AppTheme.Colors.textDisabled,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 1.dp).testTag("trace-lane-reason"),
+            )
+        }
     }
 }
 
 private val HOP_COLOR = Color(0xFF3E4C5A)
+
+/** A relayed row carries its reason under the arrow, so it is taller than a row that only states a gap. */
+private val RELAYED_ROW_HEIGHT = 38.dp
 
 /**
  * One message in its lane: what type it is, what the dictionary calls it, and which ids carried it here.

@@ -38,6 +38,10 @@ data class TraceIndex(
      * asked, which `TraceLanes.build` reads as [LaneRole.UNKNOWN] rather than as a guess.
      */
     val sessionRoles: List<LaneRole> = emptyList(),
+    /** Which venue each session is a per-counterparty pane of (its profile id), captured with the rest. */
+    val sessionGroups: List<String?> = emptyList(),
+    /** The part each session plays on a venue that declares roles, captured with the rest. */
+    val partyRoles: List<String?> = emptyList(),
 )
 
 /** Which drawing of the trace the panel is showing. One panel, two renderings of the same rows. */
@@ -122,6 +126,10 @@ class TraceFollow {
         val lostIds: Set<String> = emptySet(),
         /** Read off the pane's profile — see [LaneRole]. Defaulted so a test that has no profile says so. */
         val role: LaneRole = LaneRole.UNKNOWN,
+        /** The venue this pane is a per-counterparty pane of, by profile id; null for any other pane. */
+        val venueGroup: String? = null,
+        /** `requester` or `responder` when a venue FixTool runs declares this pane's CompID; null otherwise. */
+        val partyRole: String? = null,
     )
 
     private val _followedTrace = MutableStateFlow<FollowedTrace?>(null)
@@ -187,6 +195,9 @@ class TraceFollow {
     /** The snapshot list identities the current [traceIndex] was built from. Compared by `===`. */
     private var sources: List<List<AppMessage>> = emptyList()
     private var sourceDictionary: FixDictionaryAdapter? = null
+
+    /** The title, role, venue and party of each input the index was built from — see [refresh]. */
+    private var sourceLabels: List<List<String?>> = emptyList()
 
     /** How many times a grouping was actually computed — the memo's behaviour, made testable. */
     var regroupCount: Long = 0L
@@ -280,12 +291,16 @@ class TraceFollow {
             // it is a few thousand positions nobody can see.
             sources = emptyList()
             sourceDictionary = null
+            sourceLabels = emptyList()
             _traceIndex.value = null
             _followedTrace.value = null
             return
         }
         val incoming = inputs.map { it.messages }
-        if (_traceIndex.value == null || dictionary !== sourceDictionary || !sameSnapshots(incoming)) {
+        // What labels a lane is part of the key too: a pane whose role, title or venue changes with no new message
+        // must redraw, or Lanes names a column with a word that stopped being true a tick ago.
+        val labels = inputs.map { listOf(it.title, it.role.name, it.venueGroup, it.partyRole) }
+        if (_traceIndex.value == null || dictionary !== sourceDictionary || !sameSnapshots(incoming) || labels != sourceLabels) {
             val snapshots = inputs.map { input -> input.messages.filterIsInstance<FixMessage>() }
             regroupCount++
             _traceIndex.value =
@@ -294,8 +309,11 @@ class TraceFollow {
                     sessionTitles = inputs.map { it.title },
                     grouping = Traces.group(snapshots, dictionary, inputs.map { it.lostIds }),
                     sessionRoles = inputs.map { it.role },
+                    sessionGroups = inputs.map { it.venueGroup },
+                    partyRoles = inputs.map { it.partyRole },
                 )
             sources = incoming
+            sourceLabels = labels
             sourceDictionary = dictionary
         }
         val id = anchorId

@@ -358,7 +358,16 @@ private fun DockTracePanel(viewModel: FixMessageViewModel, modifier: Modifier = 
                     ?.grouping
                     ?.traces
                     ?.firstOrNull { anchor != null && anchor in it.ids }
-                    ?.let { TraceLanes.build(it, current.snapshots, current.sessionTitles, current.sessionRoles) }
+                    ?.let {
+                        TraceLanes.build(
+                            it,
+                            current.snapshots,
+                            current.sessionTitles,
+                            current.sessionRoles,
+                            current.sessionGroups,
+                            current.partyRoles,
+                        )
+                    }
             }
         }
 

@@ -230,6 +230,19 @@ class RfqRelayIntegrationTest {
         assertEquals("quoter", relayedFill.sendReason?.relay?.address)
         assertEquals(venue.comp("BUY1"), relayedFill.sendReason?.relay?.triggerCompId)
 
+        // One negotiation across every pane: the buy side's own request and the dealer's fill share no id, and the
+        // relay edges the venue recorded are what put them in one trace.
+        val panes = venue.viewModel.sessions.toList()
+        val snapshots = panes.map { pane -> pane.messages.value.filterIsInstance<com.knapsack.fixtool.model.FixMessage>() }
+        val traces = com.knapsack.fixtool.service.Traces.group(snapshots, null).traces
+        val requestAt = snapshots[panes.indexOf(buyer)].indexOfFirst { venue.field(it, 35) == "R" }
+        val fillAt = snapshots[panes.indexOf(dealer1)].indexOfFirst { venue.field(it, 35) == "8" }
+        val negotiation = traces.single { com.knapsack.fixtool.service.Located(panes.indexOf(buyer), requestAt) in it.members }
+        assertTrue(
+            com.knapsack.fixtool.service.Located(panes.indexOf(dealer1), fillAt) in negotiation.members,
+            "the dealer's fill is in the buy side's trace",
+        )
+
         val book = venuePane.venueService()!!.rfqBookView().rfqs.single()
         assertEquals(RfqLife.DONE, book.life)
         assertEquals(LegOutcome.LIFTED, book.legs.single { it.compId == venue.comp("DLR1") }.outcome)

@@ -36,8 +36,10 @@ data class Located(
  * session-agnostic: it joins on shared correlation-id *values* and has no rulebook to teach about panes.
  * Fed every session's snapshot at once it joins the client's `RFQ-A1 → Q-77` to LP-1's `Q-77 → V-2291`
  * to LP-2's `V-2291`, with no algorithm change. Both callers get their components from
- * [CorrelationComponents], so a pane's conversation *is* its trace's slice on that pane — pinned by
- * `TracesTest`, not asserted by comment.
+ * [CorrelationComponents], so a pane's conversation sits whole inside its trace — pinned by `TracesTest`,
+ * not asserted by comment. Over one session they are the same; across sessions a trace can be larger than
+ * the union of its panes' conversations by exactly the relay edges below, which join two panes and never two
+ * messages of one pane.
  *
  * **Merged order** is the key the cross-session search results already sort by: timestamp, then
  * `MsgSeqNum(34)`, then `SenderCompID(49)`, then `(session, index)` as a final tiebreak so the answer is
@@ -51,10 +53,13 @@ data class Located(
  * trace's slice is that session's conversation re-ordered rather than re-grouped. The membership is the
  * same either way; only the row order can differ.
  *
- * **Where the chain breaks is not repaired here.** A trace crosses a session only where some *value*
- * crosses it. A venue that mints a fresh id per hop and echoes nothing leaves no edge, and joining those
- * would be the tool inventing one. The remedy is to declare the venue's echo tag in its `.roles.json`
- * sidecar, which makes it an edge everywhere with no code — see [Minting.isCorrelationId].
+ * **Where the chain breaks is not repaired here — with one exception the venue wrote down.** A trace
+ * crosses a session only where some *value* crosses it. A venue that mints a fresh id per hop and echoes
+ * nothing leaves no edge, and joining those would be the tool inventing one. The remedy is to declare the
+ * venue's echo tag in its `.roles.json` sidecar, which makes it an edge everywhere with no code — see
+ * [Minting.isCorrelationId]. The exception is a venue **FixTool is running**: when it relays a message it
+ * records, on the relayed message's reason, which message it came from, and that record is an edge. It is
+ * never inferred, and it never exists for a venue FixTool is only a client of.
  *
  * Pure and allocation-cheap for its size, but it re-reads every message's fields and re-sorts the merged
  * list, so a caller regrouping on a drain tick should memoise on the tuple of snapshot identities.
@@ -165,10 +170,22 @@ object Traces {
         entries.sortWith(MERGED_ORDER)
 
         val idsPerMessage = entries.map { it.ids }
-        val components = CorrelationComponents.of(idsPerMessage)
+        // **A relay is an edge the venue recorded.** The venue re-keys what it passes across, so a buy side's
+        // QuoteRequest and the one its dealer received share no value, and joining on values alone would draw
+        // two unrelated conversations. The relayed message's reason names the uid of the message it came from,
+        // written when the venue decided; that is joined here, and nothing is inferred.
+        val positionOfUid = HashMap<Long, Int>(entries.size)
+        entries.forEachIndexed { position, entry -> positionOfUid[entry.message.uid] = position }
+        val relayEdges =
+            entries.mapIndexedNotNull { position, entry ->
+                entry.message.sendReason?.relay?.let { relay -> positionOfUid[relay.triggerUid]?.let { position to it } }
+            }
+        val components = CorrelationComponents.of(idsPerMessage, relayEdges)
         val traces =
             components.components.map { positions ->
-                val opener = idsPerMessage[positions.first()].first()
+                // A component joined only through an edge may open on a message with no id of its own; its label is
+                // the first real id in it, which always exists for a relay because both its ends carry ids.
+                val opener = positions.firstNotNullOfOrNull { idsPerMessage[it].firstOrNull() } ?: (0 to "relay")
                 val ids = LinkedHashSet<String>()
                 for (position in positions) for (id in idsPerMessage[position]) ids.add(id.second)
                 val members = positions.map { entries[it].located }

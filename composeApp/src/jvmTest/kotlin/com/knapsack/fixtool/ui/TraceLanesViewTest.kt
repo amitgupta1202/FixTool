@@ -248,4 +248,55 @@ class TraceLanesViewTest {
         composeTestRule.onAllNodesWithTag("trace-lanes").assertCountEquals(0)
         composeTestRule.onNodeWithTag("trace-header-RFQ-A1").assertExists()
     }
+
+    /**
+     * A hop a venue FixTool runs relayed says so under its arrow, in the words its reason recorded — and the
+     * lane headers carry the negotiation's own words, not initiator and acceptor, which no longer tell the two
+     * edges apart.
+     */
+    @Test
+    fun `a relayed hop carries its reason under the arrow, and lanes wear the party they play`() {
+        val relayed =
+            at(40, "35=R|131=V-RFQ-1042|", out).copy(
+                sendReason =
+                    com.knapsack.fixtool.model.SendReason(
+                        source = com.knapsack.fixtool.model.SendReason.Source.RULE,
+                        at = epoch,
+                        ruleIndex = 3,
+                        relay = com.knapsack.fixtool.model.RelayRef(1, "k", "FIBUY1", "R", "responders", "FIDLR1", "RFQ-1"),
+                    ),
+            )
+        val panes =
+            listOf(
+                listOf(at(0, "35=R|131=V-RFQ-1042|55=T 4.25 11/15/36|", out)),
+                listOf(at(10, "35=R|131=V-RFQ-1042|55=T 4.25 11/15/36|"), relayed),
+                listOf(at(45, "35=R|131=V-RFQ-1042|")),
+            )
+        val grouping = Traces.group(panes, dictionary)
+        val drawn =
+            TraceLanes.build(
+                grouping.traces.first(),
+                panes,
+                listOf("BUY1", "VENUE ← FIBUY1", "DLR1"),
+                listOf(LaneRole.INITIATOR, LaneRole.ACCEPTOR, LaneRole.INITIATOR),
+                sessionGroups = listOf(null, "venue", null),
+                partyRoles = listOf("requester", null, "responder"),
+            )
+
+        composeTestRule.setContent {
+            TraceLanesView(
+                lanes = drawn,
+                headers = TraceRows.build(panes, listOf("BUY1", "VENUE ← FIBUY1", "DLR1"), grouping, dictionary).filterIsInstance<TraceRows.Row.Header>(),
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = AppSettings.default(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("trace-lane-reason").assertExists()
+        composeTestRule.onNodeWithText("relayed · rule 4 · to responders").assertExists()
+        composeTestRule.onNodeWithText("requester").assertExists()
+        composeTestRule.onNodeWithText("responder").assertExists()
+        composeTestRule.onNodeWithText("venue").assertExists()
+    }
 }

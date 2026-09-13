@@ -45,17 +45,37 @@ internal object CorrelationComponents {
         val ungrouped: List<Int>,
     )
 
-    fun of(idsPerMessage: List<List<Pair<Int, String>>>): Components {
+    fun of(
+        idsPerMessage: List<List<Pair<Int, String>>>,
+        /**
+         * Pairs of positions to join **although they share no id value** — a venue's relayed message and the
+         * message it was relayed from, which the venue re-keyed and so left with nothing in common.
+         *
+         * An edge is a record, never an inference: a caller passes one only for a link something wrote down at
+         * the moment it happened (a relay's `SendReason`). Traces passes these; Conversations passes none, since
+         * the two ends of a relay are always on two panes.
+         */
+        extraEdges: List<Pair<Int, Int>> = emptyList(),
+    ): Components {
         val union = Union()
         for (ids in idsPerMessage) {
             val first = ids.firstOrNull()?.second ?: continue
             ids.forEach { (_, value) -> union.join(first, value) }
         }
+        // A message with no id of its own still joins through an edge, under a key no real value can take.
+        fun keyOf(position: Int): String = idsPerMessage[position].firstOrNull()?.second ?: "$EDGE_ONLY$position"
+        val edged = HashSet<Int>()
+        for ((a, b) in extraEdges) {
+            if (a !in idsPerMessage.indices || b !in idsPerMessage.indices) continue
+            union.join(keyOf(a), keyOf(b))
+            edged += a
+            edged += b
+        }
 
         val ungrouped = mutableListOf<Int>()
         val byRoot = linkedMapOf<String, MutableList<Int>>()
         idsPerMessage.forEachIndexed { index, ids ->
-            val root = ids.firstOrNull()?.second?.let(union::rootOf)
+            val root = (ids.firstOrNull()?.second ?: if (index in edged) keyOf(index) else null)?.let(union::rootOf)
             if (root == null) {
                 ungrouped += index
             } else {
@@ -64,6 +84,9 @@ internal object CorrelationComponents {
         }
         return Components(byRoot.values.toList(), ungrouped)
     }
+
+    /** The prefix an id-less message joins an edge under. Holds a character no FIX value is written with. */
+    private const val EDGE_ONLY = "\u0000edge:"
 
     /** Union-find over id values, with path compression. Small, private, and the whole algorithm. */
     private class Union {

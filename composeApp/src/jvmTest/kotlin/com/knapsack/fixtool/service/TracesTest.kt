@@ -379,4 +379,57 @@ class TracesTest {
         /** The session drains its queue on a 100ms poll; give it room to settle. */
         const val POLL_SETTLE_MS = 300L
     }
+
+    // ---------------------------------------------------------------- relays a venue recorded
+
+    /** A relayed message: the venue's reason names the uid of the message it came from. */
+    private fun relayed(millis: Long, raw: String, trigger: FixMessage, address: String): FixMessage =
+        at(millis, raw, out).copy(
+            sendReason =
+                com.knapsack.fixtool.model.SendReason(
+                    source = com.knapsack.fixtool.model.SendReason.Source.RULE,
+                    at = epoch,
+                    ruleIndex = 1,
+                    relay =
+                        com.knapsack.fixtool.model.RelayRef(
+                            trigger.uid, "venue<-FIBUY1", "FIBUY1", "R", address, "FIDLR1", "RFQ-1",
+                        ),
+                ),
+        )
+
+    /**
+     * **A re-keyed relay is still one exchange, because the venue said so.** The buy side's QuoteRequest and the
+     * one its dealer received share no id — the venue minted its own — so on values alone they are two traces.
+     * The relayed message's reason names the message it came from, and that record is the edge.
+     */
+    @Test
+    fun `a relay joins two panes that share no id, through the reason the venue recorded`() {
+        val arrived = at(10, "35=R|131=BUY-RFQ-7|")
+        val sent = relayed(12, "35=R|131=V-RFQ-1042|", trigger = arrived, address = "responders")
+        val snapshots =
+            listOf(
+                listOf(at(0, "35=R|131=BUY-RFQ-7|", out)),
+                listOf(arrived),
+                listOf(sent),
+                listOf(at(14, "35=R|131=V-RFQ-1042|")),
+            )
+
+        val grouping = Traces.group(snapshots, dictionary)
+
+        assertEquals(1, grouping.traces.size, "the buy side's request and the dealer's are one negotiation")
+        assertEquals(4, grouping.traces.single().members.size)
+        assertEquals(setOf("BUY-RFQ-7", "V-RFQ-1042"), grouping.traces.single().ids, "the edge adds no id of its own")
+    }
+
+    @Test
+    fun `a relay whose trigger has left the snapshot joins nothing and breaks nothing`() {
+        val gone = at(10, "35=R|131=BUY-RFQ-7|")
+        val snapshots =
+            listOf(
+                listOf(at(0, "35=R|131=BUY-RFQ-7|", out)),
+                listOf(relayed(12, "35=R|131=V-RFQ-1042|", trigger = gone, address = "responders")),
+            )
+
+        assertEquals(2, Traces.group(snapshots, dictionary).traces.size)
+    }
 }

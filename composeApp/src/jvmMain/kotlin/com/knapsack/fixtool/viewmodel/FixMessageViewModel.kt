@@ -6967,8 +6967,27 @@ class FixMessageViewModel(
                 // Passed by reference; see TraceFollow.Input.lostIds.
                 lostIds = session.lostCorrelationIds,
                 role = laneRoleOf(session),
+                venueGroup = if (session.isVenueClient) profileForSession(session)?.id else null,
+                partyRole = partyRoleOf(session),
             )
         }
+
+    /**
+     * **The part a pane plays in a negotiation a venue FixTool runs is carrying**, or null.
+     *
+     * A venue's own per-counterparty panes are the venue, which Lanes draws as one lane without needing a word
+     * for it. Any other pane is a requester or a responder when some venue profile here declares its CompID so —
+     * the venue's own declaration, read rather than inferred from what the pane happens to send.
+     */
+    private fun partyRoleOf(session: FixMessageSession): String? {
+        if (session.isVenueClient || session.isVenue) return null
+        val compId = session.currentConfig?.senderCompID?.takeIf { it.isNotBlank() } ?: return null
+        return connectionProfiles
+            .asSequence()
+            .filter { it.config.acceptsAnyClient() && it.config.counterparties.isNotEmpty() }
+            .firstNotNullOfOrNull { com.knapsack.fixtool.model.roleOf(it.config.counterparties, compId) }
+            ?.word
+    }
 
     /**
      * **Which side of the wire a pane holds** — the profile's own answer, never an inference.

@@ -355,4 +355,64 @@ class TraceLanesTest {
         assertEquals(trace.members.toSet(), drawn.toSet(), "the same messages the Ledger lists")
         assertEquals(2, lanes.rows.size, "two hops, because both messages crossed")
     }
+
+    // ---------------------------------------------------------------- a venue FixTool runs
+
+    /**
+     * **Three parties, three lanes.** The venue's panes — one per counterparty — are one column in the middle,
+     * requesters left of it and responders right, because that is the negotiation; drawn per pane it would be
+     * six columns that zig-zag.
+     */
+    @Test
+    fun `a venue's panes are one lane between its requesters and its responders`() {
+        val snapshots =
+            listOf(
+                listOf(at(0, "35=R|131=BUY-RFQ-7|", out)),
+                listOf(at(1, "35=R|131=BUY-RFQ-7|")),
+                listOf(at(2, "35=R|131=BUY-RFQ-7|117=V-1|", out)),
+                listOf(at(3, "35=R|131=BUY-RFQ-7|117=V-1|")),
+            )
+        val titles = listOf("DLR1", "VENUE ← FIBUY1", "VENUE ← FIDLR1", "BUY1")
+        val grouping = Traces.group(snapshots, dictionary)
+
+        val lanes =
+            TraceLanes.build(
+                grouping.traces.first(),
+                snapshots,
+                titles,
+                listOf(LaneRole.INITIATOR, LaneRole.ACCEPTOR, LaneRole.ACCEPTOR, LaneRole.INITIATOR),
+                sessionGroups = listOf(null, "venue-profile", "venue-profile", null),
+                partyRoles = listOf("responder", null, null, "requester"),
+            )
+
+        assertEquals(listOf("requester", "venue", "responder"), lanes.lanes.map { it.party })
+        assertEquals("VENUE · 2 panes", lanes.lanes[1].title)
+        assertEquals(listOf(1, 2), lanes.lanes[1].sessions)
+        assertEquals(lanes.laneOf(1), lanes.laneOf(2), "both venue panes draw in one column")
+        assertNull(lanes.acceptorDividerAt, "with the venue in the middle there is no one line between the sides")
+        assertEquals(snapshots.sumOf { it.size }, lanes.rows.sumOf { if (it.paired) 2 else 1 }, "every message drawn once")
+    }
+
+    /** Two panes merged into one lane are one column, so a hop between them would be an arrow of no length. */
+    @Test
+    fun `identical bytes on two panes of one venue lane are never drawn as a hop`() {
+        val snapshots =
+            listOf(
+                listOf(at(0, "35=R|131=Q-1|", out)),
+                listOf(at(5, "35=R|131=Q-1|")),
+            )
+        val grouping = Traces.group(snapshots, dictionary)
+
+        val lanes =
+            TraceLanes.build(
+                grouping.traces.first(),
+                snapshots,
+                listOf("VENUE ← A", "VENUE ← B"),
+                listOf(LaneRole.ACCEPTOR, LaneRole.ACCEPTOR),
+                sessionGroups = listOf("v", "v"),
+            )
+
+        assertEquals(1, lanes.lanes.size)
+        assertTrue(lanes.rows.none { it.paired })
+    }
 }

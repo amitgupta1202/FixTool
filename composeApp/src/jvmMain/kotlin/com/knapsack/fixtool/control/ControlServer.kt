@@ -2589,6 +2589,29 @@ class ControlServer(
                                     // trace-only keys. A second one written for this route would be a
                                     // second answer to "what did that message say".
                                     messageJson(message).forEach { (key, value) -> put(key, value) }
+                                    // Why the venue sent it, when a venue FixTool runs did — and, for a relay, which
+                                    // member of this trace it was relayed from. That record is what joined two panes
+                                    // that share no id, so a reader of the trace can see the join and not trust it.
+                                    message.sendReason?.let { reason ->
+                                        put(
+                                            "sendReason",
+                                            buildJsonObject {
+                                                put("line", reason.line())
+                                                reason.relay?.let { relay ->
+                                                    val from = messages.indexOfFirst { it.uid == relay.triggerUid }
+                                                    if (from >= 0) {
+                                                        put(
+                                                            "relayedFrom",
+                                                            buildJsonObject {
+                                                                put("position", from)
+                                                                put("session", sessionRef(trace.members[from].session, world))
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
                                 },
                             )
                         }

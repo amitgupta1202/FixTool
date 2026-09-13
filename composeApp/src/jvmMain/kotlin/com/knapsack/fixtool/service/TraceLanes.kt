@@ -59,12 +59,25 @@ enum class LaneRole {
  * timestamp, direction and bytes.
  */
 object TraceLanes {
-    /** One session's column: which pane it is, what it is called, and which side of the wire it holds. */
+    /**
+     * One column: the panes it draws, what it is called, which side of the wire it holds, and — on a venue
+     * FixTool is running — the part it plays in a negotiation.
+     *
+     * Usually one session. A venue FixTool runs has a pane per counterparty, and those are one lane, because they
+     * are one venue: drawn apart, a negotiation would zig-zag between six columns for three parties.
+     */
     data class Lane(
-        val session: Int,
+        val sessions: List<Int>,
         val title: String,
         val role: LaneRole,
-    )
+        /** `requester`, `venue` or `responder` when the venue declares roles; null otherwise. */
+        val party: String? = null,
+    ) {
+        /** The first pane this lane draws — the one its colour and click target come from. */
+        val session: Int get() = sessions.first()
+
+        constructor(session: Int, title: String, role: LaneRole) : this(listOf(session), title, role)
+    }
 
     /**
      * One message in its lane.
@@ -127,7 +140,7 @@ object TraceLanes {
         val acceptorDividerAt: Int?,
     ) {
         private val laneBySession: Map<Int, Int> =
-            lanes.withIndex().associate { (position, lane) -> lane.session to position }
+            lanes.withIndex().flatMap { (position, lane) -> lane.sessions.map { it to position } }.toMap()
 
         /** Which column a session's chips go in, or -1 for a session this trace never touched. */
         fun laneOf(session: Int): Int = laneBySession[session] ?: -1
@@ -152,33 +165,65 @@ object TraceLanes {
         snapshots: List<List<FixMessage>>,
         sessionTitles: List<String>,
         sessionRoles: List<LaneRole>,
+        /**
+         * Which venue each session is a pane of, positional like the rest — the venue's profile id, or null for a
+         * session that is not one of a venue's per-counterparty panes. Sessions sharing a group are one lane.
+         */
+        sessionGroups: List<String?> = emptyList(),
+        /** The part each session plays on a venue that declares roles: `requester`, `responder`, or null. */
+        partyRoles: List<String?> = emptyList(),
     ): Lanes {
+        val grouped = LinkedHashMap<String, MutableList<Int>>()
+        trace.sessions.forEach { session ->
+            val key = sessionGroups.getOrNull(session)?.let { "venue:$it" } ?: "session:$session"
+            grouped.getOrPut(key) { mutableListOf() } += session
+        }
+        val parties = trace.sessions.any { partyRoles.getOrNull(it) != null }
+        val unordered =
+            grouped.map { (key, sessions) ->
+                val first = sessions.first()
+                val venue = key.startsWith("venue:")
+                val title = sessionTitles.getOrNull(first) ?: "session $first"
+                Lane(
+                    sessions = sessions,
+                    // A merged venue lane is named for the venue, not for whichever counterparty's pane came first.
+                    title = if (venue && sessions.size > 1) "${title.substringBefore(" ← ")} · ${sessions.size} panes" else title,
+                    role = sessionRoles.getOrNull(first) ?: LaneRole.UNKNOWN,
+                    party = if (venue && parties) "venue" else partyRoles.getOrNull(first),
+                )
+            }
         val lanes =
-            trace.sessions
-                .map { session ->
-                    Lane(
-                        session = session,
-                        title = sessionTitles.getOrNull(session) ?: "session $session",
-                        role = sessionRoles.getOrNull(session) ?: LaneRole.UNKNOWN,
-                    )
-                }
+            if (parties) {
+                // Requesters, the venue, responders: the picture a desk draws of a negotiation. Stable within each.
+                unordered.sortedBy { PARTY_ORDER[it.party] ?: PARTY_ORDER.size }
+            } else {
                 // Stable, so within a role the columns keep the order the trace reached them in — which
                 // for an RFQ is the order the QA would have drawn them.
-                .sortedBy { it.role.ordinal }
+                unordered.sortedBy { it.role.ordinal }
+            }
 
         val entries =
             trace.members.map { member ->
                 Entry(member.session, member.index, snapshots[member.session][member.index])
             }
+        val laneOf = lanes.withIndex().flatMap { (position, lane) -> lane.sessions.map { it to position } }.toMap()
         return Lanes(
             lanes = lanes,
-            rows = rowsOf(entries),
+            rows = rowsOf(entries) { laneOf[it] ?: -1 },
+            // With the venue in the middle there is no single line between the side that dials and the side that is
+            // dialled — both edges dial the venue — so the rule is not drawn.
             acceptorDividerAt =
-                lanes
-                    .indexOfFirst { it.role == LaneRole.ACCEPTOR }
-                    .takeIf { it >= 0 && lanes.any { lane -> lane.role == LaneRole.INITIATOR } },
+                if (parties) {
+                    null
+                } else {
+                    lanes
+                        .indexOfFirst { it.role == LaneRole.ACCEPTOR }
+                        .takeIf { it >= 0 && lanes.any { lane -> lane.role == LaneRole.INITIATOR } }
+                },
         )
     }
+
+    private val PARTY_ORDER = mapOf("requester" to 0, "venue" to 1, "responder" to 2)
 
     /**
      * The rows, in merged order, with each same-bytes pair folded into the row its OUT opened.
@@ -188,10 +233,10 @@ object TraceLanes {
      * drew the same hop as one row or two depending on what came later would be a different picture on
      * every tick.
      */
-    private fun rowsOf(entries: List<Entry>): List<LaneRow> {
+    private fun rowsOf(entries: List<Entry>, laneOf: (Int) -> Int = { it }): List<LaneRow> {
         val partner = IntArray(entries.size) { UNPAIRED }
         val absorbed = BooleanArray(entries.size)
-        pair(entries, partner, absorbed)
+        pair(entries, partner, absorbed, laneOf)
 
         val rows = ArrayList<LaneRow>(entries.size)
         var previousStart: LocalDateTime? = null
@@ -236,6 +281,7 @@ object TraceLanes {
         entries: List<Entry>,
         partner: IntArray,
         absorbed: BooleanArray,
+        laneOf: (Int) -> Int,
     ) {
         // Unpaired OUT positions, indexed by every string an IN could legitimately match them on — a
         // linear scan per IN is quadratic on the both-sides traces this view is *for*, where every
@@ -246,7 +292,7 @@ object TraceLanes {
                 forEachBytesKey(entry.message) { key -> pending.getOrPut(key) { ArrayDeque() }.addLast(position) }
                 return@forEachIndexed
             }
-            val match = earliestMatch(pending, partner, entries, entry)
+            val match = earliestMatch(pending, partner, entries, entry, laneOf)
             if (match != UNPAIRED) {
                 partner[match] = position
                 absorbed[position] = true
@@ -259,6 +305,7 @@ object TraceLanes {
         partner: IntArray,
         entries: List<Entry>,
         incoming: Entry,
+        laneOf: (Int) -> Int,
     ): Int {
         var best = UNPAIRED
         forEachBytesKey(incoming.message) { key ->
@@ -271,6 +318,8 @@ object TraceLanes {
                 if (partner[candidate] != UNPAIRED) continue
                 val out = entries[candidate]
                 if (out.session == incoming.session) continue
+                // Two panes merged into one lane are one column: a hop between them would be an arrow of no length.
+                if (laneOf(out.session) == laneOf(incoming.session)) continue
                 if (!sameBytes(out.message, incoming.message)) continue
                 best = candidate
                 break

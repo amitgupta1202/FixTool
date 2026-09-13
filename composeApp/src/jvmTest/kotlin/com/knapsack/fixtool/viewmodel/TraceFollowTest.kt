@@ -181,6 +181,25 @@ class TraceFollowTest {
         assertEquals(2, requireNotNull(follow.followedTrace.value).messageCount)
     }
 
+    /**
+     * What labels a lane is part of the memo: a pane that becomes a venue's, or is declared a requester, with no new
+     * message, must regroup, or Lanes keeps naming its column with a word that has stopped being true.
+     */
+    @Test
+    fun `a pane's role or venue changing with no new message regroups`() {
+        val request = message("R", 131 to "RFQ-A1")
+        val messages = listOf<AppMessage>(request)
+        val follow = TraceFollow()
+        follow.follow("RFQ-A1")
+        follow.refresh(listOf(TraceFollow.Input("client", messages)), dictionary)
+        val before = follow.regroupCount
+
+        follow.refresh(listOf(TraceFollow.Input("client", messages, partyRole = "requester")), dictionary)
+
+        assertEquals(before + 1, follow.regroupCount)
+        assertEquals(listOf("requester"), follow.traceIndex.value?.partyRoles)
+    }
+
     /** Nothing followed and the panel shut: the index is not maintained at all. */
     @Test
     fun `nothing wanted means nothing is grouped`() {

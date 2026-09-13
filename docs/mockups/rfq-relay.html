@@ -1,0 +1,721 @@
+<title>Two Parties, One Venue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --paper: #F2F4F1; --card: #FFFFFF; --ink: #1A1F1D; --muted: #5E6866; --faint: #8B9592;
+    --rule: #D5DBD6; --accent: #1F6F8B; --accent-soft: #E1EEF3; --warn: #9A5B12; --warn-soft: #F7EBD8;
+    --good: #2E7D46; --bad: #A8433B;
+
+    /* One colour per party, the same on every figure on this page. */
+    --p-buy: #17806B; --p-venue: #A65A33; --p-d1: #2B67A8; --p-d2: #87468F;
+
+    /* FixTool's own tokens: fixed in both themes, because the frames depict the app and the app is dark. */
+    --fx-bg: #1E1E1E; --fx-header: #202020; --fx-surface: #2B2B2B; --fx-variant: #252525;
+    --fx-border: #3A3A3A; --fx-text: #E0E0E0; --fx-text2: #B0B0B0; --fx-dim: #6A6A6A;
+    --fx-teal: #4EC9B0; --fx-blue: #569CD6; --fx-amber: #CE9178; --fx-purple: #C586C0;
+    --fx-yellow: #DCDCAA; --fx-green: #98C379; --fx-red: #E06C75; --fx-warn: #E5C07B;
+    --a-buy: #4EC9B0; --a-venue: #CE9178; --a-d1: #569CD6; --a-d2: #C586C0;
+
+    --serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: "Source Sans 3", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --col: 42rem; --wide: 74rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161A19; --card: #1D2221; --ink: #E2E6E4; --muted: #98A3A0; --faint: #6F7A77;
+      --rule: #2A3230; --accent: #5FB3C9; --accent-soft: #17303A; --warn: #E0A85A; --warn-soft: #33281A;
+      --good: #7FBF95; --bad: #D98A82;
+      --p-buy: #4EC9B0; --p-venue: #D79A7A; --p-d1: #6EA8DE; --p-d2: #C98CC4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #161A19; --card: #1D2221; --ink: #E2E6E4; --muted: #98A3A0; --faint: #6F7A77;
+    --rule: #2A3230; --accent: #5FB3C9; --accent-soft: #17303A; --warn: #E0A85A; --warn-soft: #33281A;
+    --good: #7FBF95; --bad: #D98A82;
+    --p-buy: #4EC9B0; --p-venue: #D79A7A; --p-d1: #6EA8DE; --p-d2: #C98CC4;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans);
+         font-size: 17px; line-height: 1.58; -webkit-font-smoothing: antialiased; }
+  main { max-width: var(--wide); margin: 0 auto; padding: 2.6rem 1.25rem 5rem; }
+  .col { max-width: var(--col); }
+
+  .eyebrow { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase;
+             color: var(--accent); margin: 0 0 0.9rem; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(2.3rem, 5.2vw, 3.5rem); line-height: 1.02;
+       letter-spacing: -0.02em; margin: 0 0 0.9rem; text-wrap: balance; }
+  .standfirst { font-size: 1.15rem; color: var(--muted); max-width: 38rem; margin: 0 0 1.2rem; }
+  .standfirst strong { color: var(--ink); font-weight: 500; }
+  .meta { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); display: flex; gap: 0.4rem 1.4rem; flex-wrap: wrap; }
+  .meta b { color: var(--muted); font-weight: 500; }
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.8rem; margin-bottom: 1rem; }
+
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 1.8rem; line-height: 1.12; letter-spacing: -0.012em;
+       margin: 3.4rem 0 0.55rem; text-wrap: balance; }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 1.02rem; margin: 1.8rem 0 0.3rem; }
+  p { margin: 0 0 1rem; }
+  ul, ol { padding-left: 1.2rem; margin: 0 0 1rem; }
+  li { margin: 0 0 0.4rem; }
+  code { font-family: var(--mono); font-size: 0.82em; background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 3px; }
+  .kicker { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin: 0 0 0.3rem; }
+  .dec { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); white-space: nowrap; }
+
+  /* the quote in the masthead: the question this answers */
+  .asked { border-left: 2px solid var(--rule); padding: 0.1rem 0 0.1rem 1rem; margin: 1.6rem 0 0; max-width: 40rem;
+           font-family: var(--serif); font-size: 1.12rem; font-style: italic; color: var(--muted); }
+  .asked cite { display: block; font-family: var(--mono); font-style: normal; font-size: 0.68rem; letter-spacing: 0.1em;
+                text-transform: uppercase; color: var(--faint); margin-top: 0.35rem; }
+
+  /* party swatches, used in prose and in the page-level figures */
+  .pty { font-family: var(--mono); font-size: 0.8em; font-weight: 500; white-space: nowrap; }
+  .pty::before { content: ""; display: inline-block; width: 0.55em; height: 0.55em; border-radius: 2px; margin-right: 0.35em; vertical-align: 0.02em; background: currentColor; }
+  .pty.buy { color: var(--p-buy); } .pty.venue { color: var(--p-venue); } .pty.d1 { color: var(--p-d1); } .pty.d2 { color: var(--p-d2); }
+
+  /* ---------- page-level diagram ---------- */
+  figure { margin: 1.4rem 0 0.4rem; }
+  figcaption, .frame-cap { font-size: 0.92rem; color: var(--muted); margin: 0.6rem 0 1.2rem; max-width: var(--col); }
+  figcaption b, .frame-cap b { color: var(--ink); font-weight: 600; }
+  .diagram { background: var(--card); border: 1px solid var(--rule); border-radius: 6px; padding: 1.2rem 1rem 0.8rem; overflow-x: auto; }
+  .diagram svg { display: block; width: 100%; min-width: 640px; height: auto; color: var(--ink); }
+  .d-box { fill: var(--card); stroke-width: 1.5; }
+  .d-box.buy { stroke: var(--p-buy); } .d-box.venue { stroke: var(--p-venue); } .d-box.d1 { stroke: var(--p-d1); } .d-box.d2 { stroke: var(--p-d2); }
+  .d-box.muted { stroke: var(--faint); }
+  .d-name { font-family: var(--sans); font-size: 13px; font-weight: 600; fill: var(--ink); }
+  .d-sub { font-family: var(--sans); font-size: 11px; fill: var(--muted); }
+  .d-tag { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+  .d-title { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; fill: var(--faint); }
+  .d-line { stroke: var(--faint); stroke-width: 1.3; fill: none; }
+  .d-line.relay { stroke: var(--accent); stroke-width: 1.6; }
+  .d-gap { stroke: var(--bad); stroke-width: 1.2; stroke-dasharray: 4 4; fill: none; }
+  .d-gap-t { font-family: var(--sans); font-size: 11px; fill: var(--bad); }
+  .d-head { fill: var(--faint); } .d-head.relay { fill: var(--accent); }
+  .d-accent { font-family: var(--mono); font-size: 10px; fill: var(--accent); }
+
+  /* ---------- app frames ---------- */
+  .frame { margin: 1.3rem 0 0.4rem; overflow-x: auto; }
+  .app { background: var(--fx-bg); border: 1px solid var(--fx-border); border-radius: 5px; overflow: hidden;
+         font-family: var(--sans); font-size: 12.5px; color: var(--fx-text); line-height: 1.38; }
+  .app * { font-variant-numeric: tabular-nums; }
+  .app .mono { font-family: var(--mono); }
+  .hd { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--fx-variant);
+        border-bottom: 1px solid var(--fx-border); color: var(--fx-text2); font-size: 12px; flex-wrap: wrap; }
+  .hd .nm { color: var(--fx-text); font-weight: 600; }
+  .hd .sp { margin-left: auto; }
+  .btn { border: 1px solid var(--fx-border); background: var(--fx-surface); color: var(--fx-text2); border-radius: 3px;
+         padding: 2px 8px; font-size: 11.5px; font-family: var(--sans); white-space: nowrap; }
+  .btn.pri { color: var(--fx-teal); border-color: #2F5F55; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 99px; background: var(--fx-green); vertical-align: 0.05em; }
+  .dot.off { background: transparent; border: 1px solid var(--fx-dim); }
+  .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; vertical-align: 0; margin-right: 5px; }
+  .sw.buy { background: var(--a-buy); } .sw.venue { background: var(--a-venue); } .sw.d1 { background: var(--a-d1); } .sw.d2 { background: var(--a-d2); }
+  .newtag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fx-yellow);
+            border: 1px solid #5B5A3E; border-radius: 2px; padding: 0 3px; margin-left: 5px; vertical-align: 0.1em; }
+
+  /* ids, coloured by whoever minted them; hovering one lights the ids the RFQ book links to it */
+  .id { font-family: var(--mono); font-size: 11px; border-radius: 3px; padding: 0 4px; border: 1px solid transparent;
+        white-space: nowrap; cursor: default; transition: background-color 120ms, border-color 120ms; }
+  .id.buy { color: var(--a-buy); background: #1F3530; } .id.venue { color: var(--a-venue); background: #3A2A22; }
+  .id.d1 { color: var(--a-d1); background: #1F2D3C; } .id.d2 { color: var(--a-d2); background: #33253A; }
+  .id.lit { border-color: var(--fx-yellow); background: #45432A; }
+  .id:focus-visible { outline: 1px solid var(--fx-yellow); outline-offset: 1px; }
+  .tg { color: var(--fx-dim); }
+  .mt { color: var(--fx-yellow); font-weight: 600; }
+
+  /* ---------- lanes ---------- */
+  .lanes { min-width: 860px; }
+  .app.wide { min-width: 860px; }
+  .app.mid { min-width: 720px; }
+  .lrow { display: grid; grid-template-columns: 62px repeat(4, 1fr); position: relative; }
+  .lrow > .lane { grid-row: 1; position: relative; min-height: 46px; }
+  .lrow > .lane::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px solid #333; }
+  .lrow.head > .lane::before { display: none; }
+  .lrow > .gut { grid-row: 1; grid-column: 1; font-family: var(--mono); font-size: 10.5px; color: var(--fx-dim);
+                 padding: 15px 0 0 10px; }
+  .lrow.head { background: var(--fx-header); border-bottom: 1px solid var(--fx-border); }
+  .lrow.head > .lane { min-height: 0; padding: 7px 8px 6px; text-align: center; }
+  .lane .ln { font-weight: 600; color: var(--fx-text); font-size: 12px; }
+  .lane .lr { font-size: 10.5px; color: var(--fx-dim); font-family: var(--mono); }
+  .msg { grid-row: 1; position: relative; z-index: 1; padding: 3px 0 4px; }
+  .msg.s2 { --in: 25%; } .msg.s3 { --in: 16.667%; }
+  .msg .lbl { position: relative; margin: 0 var(--in); text-align: center; font-family: var(--mono); font-size: 11px;
+              color: var(--fx-text2); white-space: nowrap; background: var(--fx-bg); padding: 0 6px; width: max-content;
+              max-width: calc(100% - 2 * var(--in)); overflow: hidden; text-overflow: ellipsis; left: 50%; transform: translateX(-50%); margin-left: 0; margin-right: 0; }
+  .msg .ar { position: relative; height: 9px; margin: 1px var(--in) 0; }
+  .msg .ar::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; border-top: 1.5px solid var(--fx-text2); }
+  .msg .ar::after { content: ""; position: absolute; top: 0; border: 4.5px solid transparent; }
+  .msg.ltr .ar::after { right: -2px; border-left: 7px solid var(--fx-text2); border-right: 0; }
+  .msg.rtl .ar::after { left: -2px; border-right: 7px solid var(--fx-text2); border-left: 0; }
+  .msg.relay .ar::before { border-top-color: var(--fx-teal); }
+  .msg.relay.ltr .ar::after { border-left-color: var(--fx-teal); }
+  .msg.relay.rtl .ar::after { border-right-color: var(--fx-teal); }
+  .msg .why { margin: 1px var(--in) 0; text-align: center; font-size: 10.5px; color: var(--fx-dim); white-space: nowrap; }
+  .msg.relay .why { color: #5E9C8F; }
+  .lrow.sep { border-top: 1px dashed #333; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 7px 10px; border-top: 1px solid var(--fx-border);
+            background: var(--fx-header); font-size: 11px; color: var(--fx-text2); }
+
+  /* ---------- venue pane ---------- */
+  .pane-body { padding: 10px 12px 12px; display: grid; gap: 14px; }
+  .sec-t { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fx-dim); margin: 0 0 5px; display: flex; gap: 8px; align-items: center; }
+  .sec-t .btn { text-transform: none; letter-spacing: 0; margin-left: auto; }
+  table.t { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.t th { text-align: left; font-weight: 500; color: var(--fx-dim); font-size: 10.5px; padding: 3px 8px; border-bottom: 1px solid var(--fx-border); white-space: nowrap; }
+  table.t td { padding: 4px 8px; border-bottom: 1px solid #2A2A2A; vertical-align: top; white-space: nowrap; }
+  table.t td.wrap { white-space: normal; }
+  .sel { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--fx-border); background: var(--fx-surface);
+         border-radius: 3px; padding: 0 6px; font-size: 11.5px; color: var(--fx-text); }
+  .sel::after { content: "▾"; color: var(--fx-dim); font-size: 10px; }
+  .st { font-family: var(--mono); font-size: 11px; }
+  .st.done { color: var(--fx-green); } .st.open { color: var(--fx-teal); } .st.expired { color: var(--fx-dim); } .st.warn { color: var(--fx-warn); }
+  tr.leg td { color: var(--fx-text2); border-bottom-color: #242424; }
+  tr.leg td:first-child { padding-left: 24px; }
+  tr.rfq td { border-top: 1px solid var(--fx-border); }
+  .px32 { color: var(--fx-text); }
+  .px { color: var(--fx-dim); font-family: var(--mono); font-size: 10.5px; }
+  .counts { font-size: 11px; color: var(--fx-dim); display: flex; gap: 16px; flex-wrap: wrap; }
+  .counts b { color: var(--fx-text2); font-weight: 500; }
+
+  /* ---------- rules editor ---------- */
+  .rules { padding: 8px 10px 12px; display: grid; gap: 8px; }
+  .card { border: 1px solid var(--fx-border); border-radius: 4px; background: #232323; padding: 6px 8px 8px; }
+  .card.dim { opacity: 0.95; }
+  .ctop { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fx-text2); flex-wrap: wrap; }
+  .ctop .no { font-family: var(--mono); color: var(--fx-dim); }
+  .fld { font-family: var(--mono); font-size: 11.5px; background: var(--fx-surface); border: 1px solid var(--fx-border); border-radius: 3px; padding: 0 5px; color: var(--fx-text); }
+  .fired { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--fx-yellow); }
+  .icons { color: var(--fx-dim); font-size: 11px; letter-spacing: 3px; }
+  .crow { display: flex; align-items: center; gap: 7px; padding: 2px 0 2px 16px; font-size: 11px; color: var(--fx-text2); flex-wrap: wrap; }
+  .crow .k { min-width: 9.5rem; }
+  .crow.new .k { color: var(--fx-text); }
+  .rlabel { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--fx-text2); margin: 6px 0 3px; }
+  .step { display: grid; grid-template-columns: 1.3rem minmax(10.5rem, auto) 1fr; gap: 3px 8px; align-items: start; padding: 4px 0 4px 6px; border-top: 1px solid #2C2C2C; }
+  .step .n { font-family: var(--mono); font-size: 10.5px; color: var(--fx-dim); padding-top: 3px; }
+  .to { display: flex; flex-direction: column; gap: 3px; }
+  .to .sel { border-color: #3E6158; }
+  .to .who { font-size: 10.5px; color: var(--fx-dim); display: flex; gap: 6px; flex-wrap: wrap; }
+  .tmpl { font-family: var(--mono); font-size: 11px; color: var(--fx-text2); background: #1B1B1B; border: 1px solid var(--fx-border);
+          border-radius: 3px; padding: 3px 6px; word-break: break-all; line-height: 1.45; }
+  .tmpl .rf { color: var(--fx-teal); } .tmpl .rq { color: var(--fx-blue); } .tmpl .qt { color: var(--fx-purple); } .tmpl .gn { color: var(--fx-amber); }
+  .warnline { font-size: 11px; color: var(--fx-warn); margin-top: 4px; padding-left: 6px; }
+  .note { font-size: 11px; color: var(--fx-dim); margin-top: 3px; padding-left: 6px; }
+
+  .menu { margin: 4px 0 2px 1.9rem; width: min(22rem, 100%); background: var(--fx-surface); border: 1px solid #4A4A4A; border-radius: 4px;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.45); padding: 4px 0; }
+  .menu .mi { display: grid; grid-template-columns: 6.2rem 1fr; gap: 8px; padding: 3px 10px; font-size: 11.5px; }
+  .menu .mi .a { font-family: var(--mono); color: var(--fx-text); }
+  .menu .mi .b { color: var(--fx-dim); }
+  .menu .mi.on { background: #34403C; }
+  .menu .mi.on .b { color: var(--fx-text2); }
+  .menu hr { border: 0; border-top: 1px solid var(--fx-border); margin: 3px 0; }
+
+  /* ---------- dry run ---------- */
+  .dry { padding: 10px 12px 12px; display: grid; gap: 8px; }
+  .dry .in { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 11.5px; color: var(--fx-text2); }
+  .dry .in .tmpl { flex: 1 1 24rem; }
+  .verdict { font-size: 12px; color: var(--fx-text); }
+  .verdict b { color: var(--fx-green); font-weight: 600; }
+  .plan { display: grid; gap: 0; border: 1px solid var(--fx-border); border-radius: 3px; overflow: hidden; }
+  .prow { display: grid; grid-template-columns: 3.2rem 5.6rem 4.6rem 1fr; gap: 8px; padding: 4px 8px; border-bottom: 1px solid #2A2A2A; font-size: 11.5px; align-items: baseline; }
+  .prow:last-child { border-bottom: 0; }
+  .prow .off { font-family: var(--mono); color: var(--fx-dim); font-size: 10.5px; }
+  .prow .adr { font-family: var(--mono); color: var(--fx-text2); font-size: 11px; }
+  .prow .body { font-family: var(--mono); color: var(--fx-text2); font-size: 11px; word-break: break-all; }
+  .prow.none .body { color: var(--fx-dim); font-family: var(--sans); font-style: italic; }
+
+  /* ---------- scenario ---------- */
+  .scn { padding: 6px 0 8px; }
+  .srow { display: grid; grid-template-columns: 2rem 4rem 7.4rem 1fr 4.5rem; gap: 8px; padding: 4px 12px; font-size: 12px; align-items: baseline; border-bottom: 1px solid #262626; }
+  .srow .i { font-family: var(--mono); color: var(--fx-dim); font-size: 11px; }
+  .srow .k { color: var(--fx-text2); }
+  .srow .s { white-space: nowrap; }
+  .srow .m { font-family: var(--mono); font-size: 11px; color: var(--fx-text2); word-break: break-all; }
+  .srow .ok { color: var(--fx-green); font-family: var(--mono); font-size: 10.5px; text-align: right; }
+  .bind { color: var(--fx-yellow); }
+  .srow.setup { color: var(--fx-dim); font-size: 11px; }
+
+  /* ---------- page tables and lists ---------- */
+  .tbl { overflow-x: auto; margin: 1rem 0 1.4rem; }
+  table.p { border-collapse: collapse; width: 100%; font-size: 0.95rem; min-width: 34rem; }
+  table.p th { text-align: left; font-weight: 600; font-size: 0.78rem; color: var(--muted); border-bottom: 1px solid var(--rule); padding: 0.45rem 0.7rem 0.45rem 0; }
+  table.p td { border-bottom: 1px solid var(--rule); padding: 0.5rem 0.7rem 0.5rem 0; vertical-align: top; }
+  table.p td code { background: transparent; padding: 0; color: var(--muted); }
+
+  .slices { display: grid; gap: 0; border-top: 1px solid var(--rule); margin: 1rem 0 1.5rem; }
+  .slice { display: grid; grid-template-columns: 2.2rem 1fr; gap: 0.9rem; padding: 0.85rem 0; border-bottom: 1px solid var(--rule); }
+  .slice .l { font-family: var(--serif); font-size: 1.6rem; line-height: 1; color: var(--accent); }
+  .slice h4 { margin: 0 0 0.2rem; font-size: 1rem; }
+  .slice p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+  .qs { counter-reset: q; list-style: none; padding: 0; border-top: 1px solid var(--rule); }
+  .qs li { counter-increment: q; display: grid; grid-template-columns: 2rem 1fr; gap: 0.6rem; padding: 0.75rem 0; border-bottom: 1px solid var(--rule); margin: 0; }
+  .qs li::before { content: counter(q); font-family: var(--mono); font-size: 0.8rem; color: var(--warn); padding-top: 0.15rem; }
+  .qs b { font-weight: 600; }
+  .qs .prop { display: block; color: var(--muted); font-size: 0.93rem; margin-top: 0.15rem; }
+
+  footer { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--rule); font-family: var(--mono); font-size: 0.72rem; color: var(--faint); }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .srow { grid-template-columns: 1.6rem 3.4rem 1fr; }
+    .srow .m { grid-column: 2 / -1; }
+    .srow .ok { grid-column: 3; text-align: left; }
+    .step { grid-template-columns: 1.1rem 1fr; }
+    .step .tmpl { grid-column: 2; }
+    .prow { grid-template-columns: 3rem 1fr; }
+    .prow .body { grid-column: 1 / -1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .id { transition: none; } }
+</style>
+
+<main>
+  <header class="mast">
+    <p class="eyebrow">FixTool · design proposal · acceptor relay</p>
+    <h1>Two parties, one venue</h1>
+    <p class="standfirst">A buy side asks, a dealer prices, the buy side lifts, and <strong>the venue in the middle carries
+      every message across</strong>, re-keying the ids so each side only sees its own. Today FixTool can sit on both
+      sides of a real venue, but it can't be that venue.</p>
+    <div class="meta"><span><b>Status</b> for review</span><span><b>Doc</b> docs/rfq-relay-proposal.md</span><span><b>Slices</b> A relay · B example · C time · D a dealer that answers</span><span><b>Dictionary</b> bundled FIX 4.4</span></div>
+    <blockquote class="asked">“Buy side sends a buy request, then sell side prices (Quote), then buy side accepts. 2 clients involved. How does our FI RFQ venue work?”
+      <cite>The question, 13 Sep 2026</cite></blockquote>
+  </header>
+
+  <section class="col">
+    <h2>What changes</h2>
+    <p>The bundled Fixed Income RFQ Desk answers every request itself. Its two clients are both requesters, and nothing
+      links one client's session to another's: a reply always goes back to whoever sent the trigger, and every book is
+      kept per counterparty. The proposal adds the one path that's missing.</p>
+  </section>
+
+  <figure>
+    <div class="diagram">
+      <svg viewBox="0 0 940 262" role="img" aria-label="Today the desk prices each client privately and there is no path between clients. Proposed, the platform relays a buy side's request to two dealers and their quotes back.">
+        <defs>
+          <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="ahr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head relay" d="M0,0 L8,4 L0,8 z"/></marker>
+        </defs>
+
+        <!-- today -->
+        <text class="d-title" x="0" y="16">TODAY · RFQ DESK</text>
+        <rect class="d-box muted" x="0" y="50" width="112" height="46" rx="4"/>
+        <text class="d-name" x="56" y="70" text-anchor="middle">Client 1</text>
+        <text class="d-sub" x="56" y="86" text-anchor="middle">requester</text>
+        <rect class="d-box muted" x="0" y="176" width="112" height="46" rx="4"/>
+        <text class="d-name" x="56" y="196" text-anchor="middle">Client 2</text>
+        <text class="d-sub" x="56" y="212" text-anchor="middle">requester</text>
+        <rect class="d-box venue" x="232" y="40" width="120" height="192" rx="4"/>
+        <text class="d-name" x="292" y="126" text-anchor="middle">RFQ Desk</text>
+        <text class="d-sub" x="292" y="143" text-anchor="middle">the acceptor prices</text>
+        <text class="d-sub" x="292" y="158" text-anchor="middle">26 rules</text>
+
+        <line class="d-line" x1="114" y1="66" x2="230" y2="66" marker-end="url(#ah)"/>
+        <line class="d-line" x1="230" y1="80" x2="114" y2="80" marker-end="url(#ah)"/>
+        <text class="d-tag" x="172" y="59" text-anchor="middle">R · AJ</text>
+        <text class="d-tag" x="172" y="95" text-anchor="middle">S · 8 · AI</text>
+        <line class="d-line" x1="114" y1="192" x2="230" y2="192" marker-end="url(#ah)"/>
+        <line class="d-line" x1="230" y1="206" x2="114" y2="206" marker-end="url(#ah)"/>
+        <text class="d-tag" x="172" y="185" text-anchor="middle">R · AJ</text>
+        <text class="d-tag" x="172" y="221" text-anchor="middle">S · 8 · AI</text>
+
+        <line class="d-gap" x1="56" y1="100" x2="56" y2="172"/>
+        <text class="d-gap-t" x="66" y="140">no path between them</text>
+
+        <line x1="392" y1="10" x2="392" y2="250" stroke="currentColor" stroke-opacity="0.12"/>
+
+        <!-- proposed -->
+        <text class="d-title" x="430" y="16">PROPOSED · RFQ PLATFORM</text>
+        <rect class="d-box buy" x="430" y="112" width="118" height="46" rx="4"/>
+        <text class="d-name" x="489" y="132" text-anchor="middle">Buy Side 1</text>
+        <text class="d-sub" x="489" y="148" text-anchor="middle">requester</text>
+
+        <rect class="d-box venue" x="644" y="40" width="112" height="192" rx="4"/>
+        <text class="d-name" x="700" y="122" text-anchor="middle">Platform</text>
+        <text class="d-sub" x="700" y="139" text-anchor="middle">relays by rule</text>
+        <text class="d-sub" x="700" y="154" text-anchor="middle">re-keys ids</text>
+
+        <rect class="d-box d1" x="846" y="44" width="94" height="46" rx="4"/>
+        <text class="d-name" x="893" y="64" text-anchor="middle">Dealer 1</text>
+        <text class="d-sub" x="893" y="80" text-anchor="middle">responder</text>
+        <rect class="d-box d2" x="846" y="182" width="94" height="46" rx="4"/>
+        <text class="d-name" x="893" y="202" text-anchor="middle">Dealer 2</text>
+        <text class="d-sub" x="893" y="218" text-anchor="middle">responder</text>
+
+        <line class="d-line" x1="550" y1="128" x2="642" y2="128" marker-end="url(#ah)"/>
+        <line class="d-line relay" x1="642" y1="142" x2="550" y2="142" marker-end="url(#ahr)"/>
+        <text class="d-tag" x="596" y="121" text-anchor="middle">R · AJ</text>
+        <text class="d-accent" x="596" y="157" text-anchor="middle">S · 8</text>
+
+        <line class="d-line relay" x1="758" y1="60" x2="844" y2="60" marker-end="url(#ahr)"/>
+        <line class="d-line" x1="844" y1="74" x2="758" y2="74" marker-end="url(#ah)"/>
+        <text class="d-accent" x="801" y="53" text-anchor="middle">R · AJ · 8</text>
+        <text class="d-tag" x="801" y="89" text-anchor="middle">S · AG</text>
+        <line class="d-line relay" x1="758" y1="198" x2="844" y2="198" marker-end="url(#ahr)"/>
+        <line class="d-line" x1="844" y1="212" x2="758" y2="212" marker-end="url(#ah)"/>
+        <text class="d-accent" x="801" y="191" text-anchor="middle">R · AJ</text>
+        <text class="d-tag" x="801" y="227" text-anchor="middle">S · AG</text>
+      </svg>
+    </div>
+    <figcaption><b>The new path is the relayed one, in blue.</b> Every relayed message is a step of an ordinary rule
+      that names who it goes to <span class="dec">decision 1, 2</span>. The requester still has one session and the
+      dealers still have theirs; the only new thing that spans them is the venue's RFQ book <span class="dec">decision 5</span>.</figcaption>
+  </figure>
+
+  <section class="col">
+    <h2>One negotiation, as Trace will draw it</h2>
+    <p>Buy Side 1 asks for 10mm of the ten-year, <code>T 4.25 11/15/36</code> (CUSIP <code>91282CMF7</code>). Both dealers
+      quote, Dealer 1 is a thirty-second better at 98-16+, the buy side lifts it, and Dealer 2 is told it was the cover.
+      Each id is coloured by <b>whoever minted it</b>: <span class="pty buy">buy side</span> <span class="pty venue">platform</span>
+      <span class="pty d1">Dealer 1</span> <span class="pty d2">Dealer 2</span>. No party ever receives another party's id.</p>
+    <p class="kicker">Hover or focus an id to see what the RFQ book links it to</p>
+  </section>
+
+  <div class="frame">
+    <div class="app wide">
+      <div class="hd"><span class="nm">Trace</span><span>BUY-RFQ-7</span><span class="btn">Ledger</span><span class="btn pri">Lanes</span><span class="sp">14 messages · 6 panes · 13.2s</span></div>
+      <div class="lanes" id="lanes">
+        <div class="lrow head">
+          <div class="gut"></div>
+          <div class="lane"><div class="ln"><span class="sw buy"></span>Buy Side 1</div><div class="lr">FIBUY1 · requester</div></div>
+          <div class="lane"><div class="ln"><span class="sw venue"></span>FI RFQ Platform</div><div class="lr">FIRFQ_VENUE · 3 panes</div></div>
+          <div class="lane"><div class="ln"><span class="sw d1"></span>Dealer 1</div><div class="lr">FIDLR1 · responder</div></div>
+          <div class="lane"><div class="ln"><span class="sw d2"></span>Dealer 2</div><div class="lr">FIDLR2 · responder</div></div>
+        </div>
+
+        <div class="lrow"><div class="gut">09:14:21</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 ltr" style="grid-column:2 / 4"><div class="lbl"><span class="mt">R</span> <span class="tg">131=</span><span class="id buy" tabindex="0" data-link="rfq">BUY-RFQ-7</span> <span class="tg">54=</span>1 <span class="tg">38=</span>10000000</div><div class="ar"></div><div class="why">asks: buying 10mm</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+2ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 ltr relay" style="grid-column:3 / 5"><div class="lbl"><span class="mt">R</span> <span class="tg">131=</span><span class="id venue" tabindex="0" data-link="rfq">V-RFQ-1042</span></div><div class="ar"></div><div class="why">relayed · rule 4 · to responders</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+0ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s3 ltr relay" style="grid-column:3 / 6"><div class="lbl"><span class="mt">R</span> <span class="tg">131=</span><span class="id venue" tabindex="0" data-link="rfq">V-RFQ-1042</span></div><div class="ar"></div><div class="why">relayed · rule 4 · same step, second recipient</div></div>
+        </div>
+        <div class="lrow sep"><div class="gut">+4.1s</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 rtl" style="grid-column:3 / 5"><div class="lbl"><span class="mt">S</span> <span class="tg">117=</span><span class="id d1" tabindex="0" data-link="q1">D1-Q-88</span> <span class="tg">133=</span>98.515625</div><div class="ar"></div><div class="why">Dealer 1 offers 98-16+</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+1ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 rtl relay" style="grid-column:2 / 4"><div class="lbl"><span class="mt">S</span> <span class="tg">131=</span><span class="id buy" tabindex="0" data-link="rfq">BUY-RFQ-7</span> <span class="tg">117=</span><span class="id venue" tabindex="0" data-link="q1">V-Q-1042-1</span></div><div class="ar"></div><div class="why">relayed · rule 5 · to requester · 448=FIDLR1</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+2.3s</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s3 rtl" style="grid-column:3 / 6"><div class="lbl"><span class="mt">S</span> <span class="tg">117=</span><span class="id d2" tabindex="0" data-link="q2">D2-551</span> <span class="tg">133=</span>98.531250</div><div class="ar"></div><div class="why">Dealer 2 offers 98-17</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+1ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 rtl relay" style="grid-column:2 / 4"><div class="lbl"><span class="mt">S</span> <span class="tg">117=</span><span class="id venue" tabindex="0" data-link="q2">V-Q-1042-2</span></div><div class="ar"></div><div class="why">relayed · rule 5 · to requester · 448=FIDLR2</div></div>
+        </div>
+        <div class="lrow sep"><div class="gut">+6.8s</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 ltr" style="grid-column:2 / 4"><div class="lbl"><span class="mt">AJ</span> <span class="tg">694=</span>1 <span class="tg">117=</span><span class="id venue" tabindex="0" data-link="q1">V-Q-1042-1</span> <span class="tg">11=</span><span class="id buy" tabindex="0" data-link="ord">BUY-TRD-7</span></div><div class="ar"></div><div class="why">lifts the better offer</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+1ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 rtl relay" style="grid-column:2 / 4"><div class="lbl"><span class="mt">8</span> <span class="tg">37=</span><span class="id venue" tabindex="0" data-link="trade">V-T-1042</span> <span class="tg">11=</span><span class="id buy" tabindex="0" data-link="ord">BUY-TRD-7</span> <span class="tg">54=</span>1 <span class="tg">39=</span>2</div><div class="ar"></div><div class="why">rule 8 · step 1 · to sender</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+0ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 rtl relay" style="grid-column:2 / 4"><div class="lbl"><span class="mt">AE</span> <span class="tg">571=</span><span class="id venue" tabindex="0" data-link="trade">TR-V-T-1042</span> <span class="tg">552=</span>1 <span class="tg">54=</span>1 <span class="tg">37=</span><span class="id venue" tabindex="0" data-link="trade">V-T-1042</span></div><div class="ar"></div><div class="why">rule 8 · step 2 · to sender · trade capture report</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+0ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 ltr relay" style="grid-column:3 / 5"><div class="lbl"><span class="mt">AJ</span> <span class="tg">694=</span>1 <span class="tg">117=</span><span class="id d1" tabindex="0" data-link="q1">D1-Q-88</span> <span class="tg">11=</span><span class="id venue" tabindex="0" data-link="ord">V-ORD-1042</span></div><div class="ar"></div><div class="why">rule 8 · step 3 · to quoter</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+0ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 ltr relay" style="grid-column:3 / 5"><div class="lbl"><span class="mt">8</span> <span class="tg">37=</span><span class="id venue" tabindex="0" data-link="trade">V-T-1042</span> <span class="tg">54=</span>2 <span class="tg">39=</span>2</div><div class="ar"></div><div class="why">rule 8 · step 4 · to quoter</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+0ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s2 ltr relay" style="grid-column:3 / 5"><div class="lbl"><span class="mt">AE</span> <span class="tg">571=</span><span class="id venue" tabindex="0" data-link="trade">TR-V-T-1042</span> <span class="tg">552=</span>1 <span class="tg">54=</span>2</div><div class="ar"></div><div class="why">rule 8 · step 5 · to quoter · trade capture report</div></div>
+        </div>
+        <div class="lrow"><div class="gut">+0ms</div><div class="lane" style="grid-column:2"></div><div class="lane" style="grid-column:3"></div><div class="lane" style="grid-column:4"></div><div class="lane" style="grid-column:5"></div>
+          <div class="msg s3 ltr relay" style="grid-column:3 / 6"><div class="lbl"><span class="mt">AJ</span> <span class="tg">694=</span>4 <span class="tg">117=</span><span class="id d2" tabindex="0" data-link="q2">D2-551</span></div><div class="ar"></div><div class="why">rule 8 · step 6 · to cover</div></div>
+        </div>
+      </div>
+      <div class="legend"><span><span class="sw buy"></span>minted by Buy Side 1</span><span><span class="sw venue"></span>minted by the platform</span><span><span class="sw d1"></span>Dealer 1</span><span><span class="sw d2"></span>Dealer 2</span><span style="color:var(--fx-teal)">— relayed by a rule</span></div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Nothing on the dealer's side shares a value with the buy side's.</b> That's why a relay has to be an
+    edge the venue records <span class="dec">decision 9</span>: the union-find that Trace runs on shared ids would see two
+    unrelated conversations. The one id that crosses on purpose is <code>37=V-T-1042</code>, on both confirmations, so the
+    two sides can be reconciled <span class="dec">decision 8</span>. Lanes are ordered requesters, venue, responders when the
+    venue declares roles. Venue ids are shortened for reading; the rules draw them with <code>${req.uuid}</code> and
+    <code>${uuid:10}</code>.</p>
+
+  <section class="col">
+    <h2>Who plays what part</h2>
+    <p>The venue learns roles from a list, not from behaviour. A dealer that sends a QuoteRequest is misconfigured, and the
+      platform should say so (<code>658=6</code>, not authorized to request quote) instead of relaying it. The RFQ book
+      lives on the venue's own pane because it spans counterparties.</p>
+  </section>
+
+  <div class="frame">
+    <div class="app mid">
+      <div class="hd"><span class="sw venue"></span><span class="nm">FI RFQ Platform</span><span class="mono">FIRFQ_VENUE · :19880</span><span><span class="dot"></span> listening</span><span class="sp"></span><span class="btn">Rules</span><span class="btn">Stop</span></div>
+      <div class="pane-body">
+        <div>
+          <p class="sec-t">Counterparties <span class="newtag">new</span><span class="btn">+ counterparty</span></p>
+          <table class="t">
+            <tr><th>CompID</th><th>Role</th><th>Session</th><th>RFQs</th><th></th></tr>
+            <tr><td class="mono"><span class="sw buy"></span>FIBUY1</td><td><span class="sel">requester</span></td><td><span class="dot"></span> logged on</td><td class="mono">3 opened</td><td></td></tr>
+            <tr><td class="mono"><span class="sw buy" style="opacity:.45"></span>FIBUY2</td><td><span class="sel">requester</span></td><td><span class="dot off"></span> not logged on</td><td class="mono">—</td><td></td></tr>
+            <tr><td class="mono"><span class="sw d1"></span>FIDLR1</td><td><span class="sel">responder</span></td><td><span class="dot"></span> logged on</td><td class="mono">3 asked · 3 quoted</td><td></td></tr>
+            <tr><td class="mono"><span class="sw d2"></span>FIDLR2</td><td><span class="sel">responder</span></td><td><span class="dot"></span> logged on</td><td class="mono">2 asked · 1 quoted · 1 passed</td><td class="st warn">1 not delivered</td></tr>
+            <tr><td class="mono">FIDLRLG*</td><td><span class="sel">responder</span></td><td><span class="dot off"></span> 0 of 5 lanes</td><td class="mono">—</td><td></td></tr>
+          </table>
+          <div class="counts" style="margin-top:6px"><span>Unlisted logons <b>0</b></span><span>Refused logons <b>0</b></span><span>Not delivered <b>1</b> · FIDLR2 was not logged on for V-RFQ-1041</span></div>
+        </div>
+
+        <div>
+          <p class="sec-t">RFQ book <span class="newtag">new</span><span class="btn">Clear book</span></p>
+          <table class="t">
+            <tr><th>RFQ</th><th>Instrument</th><th>Side · size</th><th>As each side knows it</th><th>Level</th><th>State</th></tr>
+            <tr class="rfq"><td class="mono"><span class="id venue" tabindex="0" data-link="rfq">V-RFQ-1042</span></td><td>T 4.25 11/15/36 <span class="px">91282CMF7</span></td><td>Buy · 10mm</td><td><span class="sw buy"></span>FIBUY1 <span class="id buy" tabindex="0" data-link="rfq">BUY-RFQ-7</span></td><td></td><td class="st done">done · lifted 09:14:34</td></tr>
+            <tr class="leg"><td><span class="sw d1"></span>FIDLR1</td><td></td><td></td><td><span class="id d1" tabindex="0" data-link="q1">D1-Q-88</span> ↔ <span class="id venue" tabindex="0" data-link="q1">V-Q-1042-1</span></td><td><span class="px32">98-16+</span> <span class="px">98.515625</span></td><td class="st done">lifted · <span class="id venue" tabindex="0" data-link="trade">V-T-1042</span></td></tr>
+            <tr class="leg"><td><span class="sw d2"></span>FIDLR2</td><td></td><td></td><td><span class="id d2" tabindex="0" data-link="q2">D2-551</span> ↔ <span class="id venue" tabindex="0" data-link="q2">V-Q-1042-2</span></td><td><span class="px32">98-17</span> <span class="px">98.531250</span></td><td class="st">cover</td></tr>
+
+            <tr class="rfq"><td class="mono"><span class="id venue">V-RFQ-1043</span></td><td>T 4 09/30/31 <span class="px">91282CME0</span></td><td>Sell · 5mm</td><td><span class="sw buy"></span>FIBUY1 <span class="id buy">BUY-RFQ-8</span></td><td></td><td class="st open">open · expires in 41s</td></tr>
+            <tr class="leg"><td><span class="sw d1"></span>FIDLR1</td><td></td><td></td><td><span class="id d1">D1-Q-91</span> ↔ <span class="id venue">V-Q-1043-1</span></td><td><span class="px32">99-08</span> <span class="px">99.250000 bid</span></td><td class="st open">quoted · valid 18s</td></tr>
+            <tr class="leg"><td><span class="sw d2"></span>FIDLR2</td><td></td><td></td><td>—</td><td></td><td class="st">passed · 658=10</td></tr>
+
+            <tr class="rfq"><td class="mono"><span class="id venue">V-RFQ-1041</span></td><td>T 4.125 09/30/28 <span class="px">91282CMD2</span></td><td>Two-way · 25mm</td><td><span class="sw buy"></span>FIBUY1 <span class="id buy">BUY-RFQ-6</span></td><td></td><td class="st expired">expired · slice C</td></tr>
+            <tr class="leg"><td><span class="sw d1"></span>FIDLR1</td><td></td><td></td><td><span class="id d1">D1-Q-80</span> ↔ <span class="id venue">V-Q-1041-1</span></td><td><span class="px32">99-24 / 99-24+</span></td><td class="st expired">lapsed</td></tr>
+            <tr class="leg"><td><span class="sw d2"></span>FIDLR2</td><td></td><td></td><td>—</td><td></td><td class="st warn">not delivered</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Each leg shows the id both ways</b>: the dealer's own <code>117</code> and the one the platform
+    gave the buy side for it. That pair is what <code>${to.117}</code> reads when a rule writes to one side or the other
+    <span class="dec">decision 5, 6</span>. Levels are shown in thirty-seconds first, because that's how a Treasury is
+    quoted, with the decimal the wire carries beside it.</p>
+
+  <section class="col">
+    <h2>Rules that address someone else</h2>
+    <p>Three things are new on a rule card. A step has a <b>To</b>, which defaults to the sender, so every rule written
+      before this still means what it meant. The trigger has three new rows: the sender's role, the RFQ's state, and
+      whether any responder is online. And the card shows who a step reaches, so nobody has to connect four sessions to
+      find out.</p>
+  </section>
+
+  <div class="frame">
+    <div class="app">
+      <div class="hd"><span class="nm">Rules</span><span>FI RFQ Platform</span><span class="sp">13 rule(s), first match wins</span><span class="btn pri">+ preset</span><span class="btn">+</span></div>
+      <div class="rules">
+
+        <div class="card">
+          <div class="ctop"><span>☑</span><span class="no">4.</span><span>When 35=</span><span class="fld">R</span><span class="fired">fired 09:14:21.402</span><span class="icons">↑ ↓ ✕ ⌃</span></div>
+          <div class="crow"><span class="k">and tag 146</span><span class="sel">present</span></div>
+          <div class="crow"><span class="k">and the order is</span><span class="sel">any</span></div>
+          <div class="crow"><span class="k">and the quote is</span><span class="sel">any</span></div>
+          <div class="crow new"><span class="k">and the sender is</span><span class="sel">requester</span><span class="newtag">new</span></div>
+          <div class="crow new"><span class="k">and the RFQ is</span><span class="sel">any</span><span class="newtag">new</span></div>
+          <div class="crow new"><span class="k">and responders online</span><span class="sel">any</span><span class="newtag">new</span><span style="color:var(--fx-dim)">· rule 3 answers “none” with 658=99</span></div>
+          <div class="rlabel"><span>Reply</span><span class="btn">+ step</span></div>
+          <div class="step">
+            <span class="n">1.</span>
+            <div class="to"><span class="sel">To responders</span><span class="who"><span><span class="sw d1"></span>FIDLR1</span><span><span class="sw d2"></span>FIDLR2</span><span>· online now</span></span></div>
+            <div class="tmpl">35=R|131=<span class="rq">${req.uuid}</span>|146=1|55=<span class="rq">${req.55}</span>|48=<span class="rq">${req.48}</span>|22=1|54=<span class="rq">${req.54}</span>|38=<span class="rq">${req.38}</span>|453=1|448=<span class="rq">${req.49}</span>|452=13|60=<span class="gn">${utcnow}</span></div>
+          </div>
+          <div class="menu" aria-label="The To menu, open">
+            <div class="mi"><span class="a">sender</span><span class="b">whoever sent this message</span></div>
+            <div class="mi"><span class="a">requester</span><span class="b">opened the RFQ it belongs to</span></div>
+            <div class="mi"><span class="a">quoter</span><span class="b">the responder whose quote it names</span></div>
+            <div class="mi"><span class="a">cover</span><span class="b">best other live quote on the traded side</span></div>
+            <div class="mi"><span class="a">others</span><span class="b">live quotes, not the quoter or the cover</span></div>
+            <div class="mi"><span class="a">quoted</span><span class="b">every responder with a live quote</span></div>
+            <div class="mi"><span class="a">asked</span><span class="b">every responder the RFQ went to</span></div>
+            <div class="mi on"><span class="a">responders</span><span class="b">every responder logged on now</span></div>
+            <hr>
+            <div class="mi"><span class="a">CompID…</span><span class="b">one named counterparty</span></div>
+          </div>
+          <div class="note">↳ one message per recipient: <span class="gn" style="color:var(--fx-amber)">${uuid}</span> draws per recipient, <span style="color:var(--fx-blue)">${req.uuid}</span> once for the trigger, so both dealers get the same 131</div>
+        </div>
+
+        <div class="card">
+          <div class="ctop"><span>☑</span><span class="no">5.</span><span>When 35=</span><span class="fld">S</span><span class="fired">fired 09:14:27.738</span><span class="icons">↑ ↓ ✕ ⌃</span></div>
+          <div class="crow"><span class="k">and tag 133</span><span class="sel">present</span><span style="color:var(--fx-dim)">· its twins relay a bid and a two-way</span></div>
+          <div class="crow"><span class="k">and tag 62</span><span class="sel">present</span></div>
+          <div class="crow new"><span class="k">and the sender is</span><span class="sel">responder</span></div>
+          <div class="crow new"><span class="k">and the RFQ is</span><span class="sel">open</span><span style="color:var(--fx-dim)">· rule 6 refuses a quote for one that is done, expired or unknown</span></div>
+          <div class="rlabel"><span>Reply</span><span class="btn">+ step</span></div>
+          <div class="step">
+            <span class="n">1.</span>
+            <div class="to"><span class="sel">To requester</span><span class="who"><span><span class="sw buy"></span>the RFQ's requester</span></span></div>
+            <div class="tmpl">35=S|131=<span class="rf">${to.131}</span>|117=<span class="gn">${uuid:10}</span>|55=<span class="rq">${req.55}</span>|48=<span class="rq">${req.48}</span>|22=1|537=1|423=1|133=<span class="rq">${req.133}</span>|62=<span class="rq">${req.62}</span>|453=1|448=<span class="rq">${req.49}</span>|452=35</div>
+          </div>
+          <div class="note">↳ <span style="color:var(--fx-teal)">${to.131}</span> written to the requester is its own <code style="background:none;color:var(--fx-teal);padding:0">BUY-RFQ-7</code>; <span style="color:var(--fx-blue)">${req.62}</span> carries the dealer's validity, so the buy side's quote book goes stale when the dealer's quote does</div>
+        </div>
+
+        <div class="card">
+          <div class="ctop"><span>☑</span><span class="no">8.</span><span>When 35=</span><span class="fld">AJ</span><span class="fired">fired 09:14:34.551</span><span class="icons">↑ ↓ ✕ ⌃</span></div>
+          <div class="crow"><span class="k">and tag 694</span><span class="sel">exact 1</span></div>
+          <div class="crow"><span class="k">and tag 54</span><span class="sel">exact 1</span><span style="color:var(--fx-dim)">· rule 9 is its twin, the hit</span></div>
+          <div class="crow"><span class="k">and the quote is</span><span class="sel">open</span></div>
+          <div class="crow new"><span class="k">and the sender is</span><span class="sel">requester</span></div>
+          <div class="crow new"><span class="k">and the RFQ is</span><span class="sel">open</span><span style="color:var(--fx-dim)">· read through 117 · rule 11 refuses a second lift</span></div>
+          <div class="rlabel"><span>Reply</span><span class="btn">+ step</span></div>
+          <div class="step">
+            <span class="n">1.</span>
+            <div class="to"><span class="sel">To sender</span><span class="who"><span><span class="sw buy"></span>FIBUY1</span></span></div>
+            <div class="tmpl">35=8|37=<span class="rq">${req.uuid}</span>|11=<span class="rq">${req.11}</span>|693=<span class="rq">${req.693}</span>|17=<span class="gn">${uuid}</span>|150=F|39=2|54=1|31=<span class="qt">${quote.offer}</span>|32=<span class="rq">${req.38}</span>|14=<span class="rq">${req.38}</span>|151=0|6=<span class="qt">${quote.offer}</span>|382=1|375=<span class="rf">${rfq.quoter}</span></div>
+          </div>
+          <div class="step">
+            <span class="n">2.</span>
+            <div class="to"><span class="sel">To sender</span><span class="who"><span><span class="sw buy"></span>FIBUY1</span></span></div>
+            <div class="tmpl">35=AE|571=TR-<span class="rq">${req.uuid}</span>|570=N|55=<span class="rq">${req.55}</span>|48=<span class="rq">${req.48}</span>|22=1|32=<span class="rq">${req.38}</span>|31=<span class="qt">${quote.offer}</span>|75=<span class="gn">${utcnow:yyyyMMdd}</span>|60=<span class="gn">${utcnow}</span>|552=1|54=1|37=<span class="rq">${req.uuid}</span></div>
+          </div>
+          <div class="step">
+            <span class="n">3.</span>
+            <div class="to"><span class="sel">To quoter</span><span class="who"><span><span class="sw d1"></span>FIDLR1</span></span></div>
+            <div class="tmpl">35=AJ|693=<span class="gn">${uuid:10}</span>|694=1|117=<span class="rf">${to.117}</span>|11=<span class="gn">${uuid:10}</span>|54=1|38=<span class="rq">${req.38}</span>|44=<span class="qt">${quote.offer}</span></div>
+          </div>
+          <div class="step">
+            <span class="n">4.</span>
+            <div class="to"><span class="sel">To quoter</span><span class="who"><span><span class="sw d1"></span>FIDLR1</span></span></div>
+            <div class="tmpl">35=8|37=<span class="rq">${req.uuid}</span>|11=<span class="rf">${to.11}</span>|17=<span class="gn">${uuid}</span>|150=F|39=2|54=2|31=<span class="qt">${quote.offer}</span>|32=<span class="rq">${req.38}</span>|14=<span class="rq">${req.38}</span>|151=0|6=<span class="qt">${quote.offer}</span>|382=1|375=<span class="rf">${rfq.requester}</span></div>
+          </div>
+          <div class="step">
+            <span class="n">5.</span>
+            <div class="to"><span class="sel">To quoter</span><span class="who"><span><span class="sw d1"></span>FIDLR1</span></span></div>
+            <div class="tmpl">35=AE|571=TR-<span class="rq">${req.uuid}</span>|570=N|55=<span class="rq">${req.55}</span>|48=<span class="rq">${req.48}</span>|22=1|32=<span class="rq">${req.38}</span>|31=<span class="qt">${quote.offer}</span>|75=<span class="gn">${utcnow:yyyyMMdd}</span>|60=<span class="gn">${utcnow}</span>|552=1|54=2|37=<span class="rq">${req.uuid}</span></div>
+          </div>
+          <div class="step">
+            <span class="n">6.</span>
+            <div class="to"><span class="sel">To cover</span><span class="who"><span><span class="sw d2"></span>FIDLR2</span></span></div>
+            <div class="tmpl">35=AJ|693=<span class="gn">${uuid:10}</span>|694=4|117=<span class="rf">${to.117}</span></div>
+          </div>
+          <div class="step">
+            <span class="n">7.</span>
+            <div class="to"><span class="sel">To others</span><span class="who"><span>nobody on this RFQ</span></span></div>
+            <div class="tmpl">35=AJ|693=<span class="gn">${uuid:10}</span>|694=5|117=<span class="rf">${to.117}</span></div>
+          </div>
+          <div class="note">↳ step 4's <span style="color:var(--fx-teal)">${to.11}</span> is the ClOrdID step 3 just gave the dealer; both fills and both trade capture reports carry the one <span style="color:var(--fx-blue)">${req.uuid}</span> as 37</div>
+          <div class="note" style="color:var(--fx-yellow)">↳ this rule books the trade: the RFQ is marked done when it fires, before any step is sent</div>
+        </div>
+
+        <div class="card">
+          <div class="ctop"><span>☑</span><span class="no">4.</span><span>When 35=</span><span class="fld">R</span><span style="color:var(--fx-dim);margin-left:6px">· as it would read with a slip in it</span><span class="icons" style="margin-left:auto">↑ ↓ ✕ ⌄</span></div>
+          <div class="note" style="padding-left:16px">R · sender is requester → To responders: 35=R|131=${to.131}|146=1|55=${req.55}…</div>
+          <div class="warnline">⚠ step 1 writes ${to.131} to responders, and a responder being asked has never seen this RFQ, so it has no 131 to read. Draw one: ${req.uuid} for every dealer, or ${uuid:10} per dealer.</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>The refusal is on the card, before anyone connects</b> <span class="dec">decision 6</span>. The
+    engine never puts <code>131=</code> on the wire: a reference it can't resolve stops the step, as <code>${order.…}</code>
+    and <code>${quote.…}</code> already do. Colour in the templates: <span style="color:var(--p-d1)">request</span>,
+    <span style="color:var(--p-buy)">as the recipient knows it</span>, <span style="color:var(--p-d2)">quote book</span>,
+    <span style="color:var(--p-venue)">generated per send</span>.</p>
+
+  <section class="col">
+    <h2>Test before anyone connects</h2>
+    <p>The dry run already shows which rule wins and what it would send. With relays, it also needs to know <b>who sent
+      the message</b>, because the role decides the rule. And it has to show every recipient, including an address that
+      resolves to nobody.</p>
+  </section>
+
+  <div class="frame">
+    <div class="app">
+      <div class="hd"><span class="nm">Test a message</span><span>FI RFQ Platform</span><span class="sp mono">/acceptor/test</span></div>
+      <div class="dry">
+        <div class="in"><span>From</span><span class="sel"><span class="sw buy" style="margin-right:2px"></span>FIBUY1 · requester</span><span class="newtag">new</span></div>
+        <div class="in"><div class="tmpl">35=AJ|693=BUY-RESP-7|694=1|117=V-Q-1042-1|11=BUY-TRD-7|55=T 4.25 11/15/36|54=1|38=10000000|44=98.515625</div><span class="btn pri">Test</span></div>
+        <div class="verdict"><b>Rule 8 answers.</b> The quote is open (V-Q-1042-1, from FIDLR1, valid 21s). 7 steps, 3 recipients.</div>
+        <div class="plan">
+          <div class="prow"><span class="off">+0ms</span><span class="adr">sender</span><span><span class="sw buy"></span>FIBUY1</span><span class="body">35=8|37=V-T-1042|11=BUY-TRD-7|693=BUY-RESP-7|17=5f0c…|150=F|39=2|54=1|31=98.515625|32=10000000|375=FIDLR1</span></div>
+          <div class="prow"><span class="off">+0ms</span><span class="adr">sender</span><span><span class="sw buy"></span>FIBUY1</span><span class="body">35=AE|571=TR-V-T-1042|570=N|55=T 4.25 11/15/36|32=10000000|31=98.515625|75=20260913|552=1|54=1|37=V-T-1042</span></div>
+          <div class="prow"><span class="off">+0ms</span><span class="adr">quoter</span><span><span class="sw d1"></span>FIDLR1</span><span class="body">35=AJ|693=a81c02e9d4|694=1|117=D1-Q-88|11=V-ORD-1042|54=1|38=10000000|44=98.515625</span></div>
+          <div class="prow"><span class="off">+0ms</span><span class="adr">quoter</span><span><span class="sw d1"></span>FIDLR1</span><span class="body">35=8|37=V-T-1042|11=V-ORD-1042|17=91b2…|150=F|39=2|54=2|31=98.515625|32=10000000|375=FIBUY1</span></div>
+          <div class="prow"><span class="off">+0ms</span><span class="adr">quoter</span><span><span class="sw d1"></span>FIDLR1</span><span class="body">35=AE|571=TR-V-T-1042|570=N|55=T 4.25 11/15/36|32=10000000|31=98.515625|75=20260913|552=1|54=2|37=V-T-1042</span></div>
+          <div class="prow"><span class="off">+0ms</span><span class="adr">cover</span><span><span class="sw d2"></span>FIDLR2</span><span class="body">35=AJ|693=0d4e7b1f2c|694=4|117=D2-551</span></div>
+          <div class="prow none"><span class="off">+0ms</span><span class="adr">others</span><span style="color:var(--fx-dim)">nobody</span><span class="body">every live quote belongs to the quoter or the cover, so step 7 sends nothing</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>An address that reaches nobody isn't an error.</b> A single-dealer RFQ has no cover. It's reported the
+    same way a responder who isn't logged on is: nothing sent, and said so <span class="dec">decision 2, 7</span>.</p>
+
+  <section class="col">
+    <h2>Both sides in one scenario</h2>
+    <p>Scenarios need no change: every step already names its session. What changes is that there's now a venue to run
+      them against, so the example can ship scenarios that assert what <b>each</b> party saw. Captured values carry the
+      re-keyed ids from step to step.</p>
+  </section>
+
+  <div class="frame">
+    <div class="app">
+      <div class="hd"><span class="nm">Buy side lifts Dealer 1's offer</span><span class="sp"></span><span class="mono" style="color:var(--fx-green)">✓ passed · 1.4s</span><span class="btn pri">Run</span></div>
+      <div class="scn">
+        <div class="srow setup"><span class="i"></span><span class="k">setup</span><span class="s">both</span><span class="m">clear messages · Buy Side 1, Dealer 1</span><span></span></div>
+        <div class="srow"><span class="i">1</span><span class="k">send</span><span class="s"><span class="sw buy"></span>Buy Side 1</span><span class="m">35=R|131=BUY-RFQ-${run}|146=1|55=T 4.25 11/15/36|48=91282CMF7|22=1|54=1|38=10000000</span><span class="ok">sent</span></div>
+        <div class="srow"><span class="i">2</span><span class="k">expect</span><span class="s"><span class="sw d1"></span>Dealer 1</span><span class="m">in 35=R · 54=1 · 38=10000000 · 131 <span class="bind">→ rfq</span></span><span class="ok">✓ 4ms</span></div>
+        <div class="srow"><span class="i">3</span><span class="k">send</span><span class="s"><span class="sw d1"></span>Dealer 1</span><span class="m">35=S|131=${rfq}|117=D1-Q-${run}|133=98.515625|634=4.250|135=10000000|62=${utcnow+30s}|537=1</span><span class="ok">sent</span></div>
+        <div class="srow"><span class="i">4</span><span class="k">expect</span><span class="s"><span class="sw buy"></span>Buy Side 1</span><span class="m">in 35=S · 131=BUY-RFQ-${run} · 133=98.515625 · 448=FIDLR1 · 117 <span class="bind">→ quote</span></span><span class="ok">✓ 3ms</span></div>
+        <div class="srow"><span class="i">5</span><span class="k">send</span><span class="s"><span class="sw buy"></span>Buy Side 1</span><span class="m">35=AJ|693=BUY-RESP-${run}|694=1|117=${quote}|11=BUY-TRD-${run}|54=1|38=10000000|44=98.515625</span><span class="ok">sent</span></div>
+        <div class="srow"><span class="i">6</span><span class="k">expect</span><span class="s"><span class="sw buy"></span>Buy Side 1</span><span class="m">in 35=8 · 39=2 · 54=1 · 31=98.515625 · 37 <span class="bind">→ trade</span></span><span class="ok">✓ 2ms</span></div>
+        <div class="srow"><span class="i">7</span><span class="k">expect</span><span class="s"><span class="sw d1"></span>Dealer 1</span><span class="m">in 35=AJ · 694=1 · 117=D1-Q-${run}</span><span class="ok">✓ 2ms</span></div>
+        <div class="srow"><span class="i">8</span><span class="k">expect</span><span class="s"><span class="sw d1"></span>Dealer 1</span><span class="m">in 35=8 · 39=2 · 54=2 · 37=${trade}</span><span class="ok">✓ 1ms</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Step 8 is the one that proves the venue.</b> It asserts the dealer's fill carries the same
+    <code>37</code> the buy side got, on the opposite side. Before this, no example could fail that assertion, because no
+    example had two parties to a trade.</p>
+
+  <section class="col">
+    <h2>The example it becomes</h2>
+    <p>Recommended: the Fixed Income RFQ Desk becomes the platform. A single-dealer RFQ is already what the FX RFQ Venue
+      shows, and that venue picks up the three corrections it still owes from the FI desk. Examples are copied once, so
+      the <code>fixed-income-rfq</code> folder you have keeps the desk until you reset it.</p>
+  </section>
+
+  <div class="tbl">
+    <table class="p">
+      <tr><th>Profile</th><th>CompID</th><th>Role</th><th>Played by</th></tr>
+      <tr><td><span class="pty venue">FI RFQ Platform</span></td><td><code>FIRFQ_VENUE</code> · :19880 · <code>TargetCompID=*</code></td><td>venue</td><td>its rules: relay and entitlement only</td></tr>
+      <tr><td><span class="pty buy">Buy Side 1, Buy Side 2</span></td><td><code>FIBUY1</code>, <code>FIBUY2</code></td><td>requester</td><td>you, or a scenario</td></tr>
+      <tr><td><span class="pty d1">Dealer 1</span>, <span class="pty d2">Dealer 2</span></td><td><code>FIDLR1</code>, <code>FIDLR2</code></td><td>responder</td><td>you, or a scenario, with quote and pass templates</td></tr>
+      <tr><td>Buy Side Load Client</td><td><code>FIBUYLG{n}</code>, 5 lanes</td><td>requester</td><td>a load set (slice D)</td></tr>
+      <tr><td>Dealer Load Client</td><td><code>FIDLRLG{n}</code>, 5 lanes</td><td>responder</td><td>its own rules, the FI desk's pricing (slice D)</td></tr>
+    </table>
+  </div>
+
+  <section class="col">
+    <h2>Slices</h2>
+    <div class="slices">
+      <div class="slice"><span class="l">A</span><div><h4>Relay</h4><p>A step's To, counterparties and roles, the RFQ book with its links and legs, the three trigger rows, <code>${to.…}</code> and <code>${rfq.…}</code> with refusals, not-delivered accounting, the relay reason and its Trace edge, the dry run's recipients, <code>/acceptor/rfqs</code>.</p></div></div>
+      <div class="slice"><span class="l">B</span><div><h4>The platform example</h4><p>Profiles, rules, templates and three two-party scenarios; the FX RFQ corrections; the help chapter and its pins.</p></div></div>
+      <div class="slice"><span class="l">C</span><div><h4>Time</h4><p>When the RFQ expires: the first rule that fires without an inbound message. <code>35=AI 297=7</code> per quote shown, <code>35=AG</code> when nothing was quoted, because a QuoteStatusReport requires 117.</p></div></div>
+      <div class="slice"><span class="l">D</span><div><h4>A dealer that answers by itself</h4><p>Rules on an initiator. The FI desk's pricing becomes the Dealer Load Client's, and the platform ships a load set with a reactive lift.</p></div></div>
+    </div>
+
+    <h2>Open questions</h2>
+    <p>These are market questions more than engineering ones, and each one changes the example rather than the engine.</p>
+    <ol class="qs">
+      <li><div><b>Disclosed or anonymous?</b> Does the buy side see which dealer quoted, and the dealer who asked?<span class="prop">Proposed: disclosed both ways, via Parties (452=35 to the buy side, 452=13 to the dealer).</span></div></li>
+      <li><div><b>Firm or last look?</b> On a lift, does the platform trade at once or ask the dealer to confirm?<span class="prop">Proposed: firm. A subject variant is two more rules, not a feature.</span></div></li>
+      <li><div><b>Who chooses the dealers?</b><span class="prop">Proposed: every responder online. Dealers named in the request's Parties would be a small follow-up address.</span></div></li>
+      <li><div><b>Counters.</b> Is a 694=2 relayed back for another round?<span class="prop">Proposed: not in slice B; one round first.</span></div></li>
+      <li><div><b>Cover.</b> Is the runner-up told Cover and everyone else Done Away?<span class="prop">Proposed: yes, as drawn above.</span></div></li>
+      <li><div><b>Replace the FI desk, or add a sixth example?</b><span class="prop">Proposed: replace.</span></div></li>
+      <li><div><b>On a firm platform, how is the dealer told its quote traded?</b> A FIX 4.4 ExecutionReport has no QuoteID.<span class="prop">Answered: on BrokerTec the dealer gets both, and a TradeCaptureReport goes out for the trade too, with settings that can switch some off. The example sends all three to each side.</span></div></li>
+    </ol>
+  </section>
+
+  <footer>FixTool · docs/rfq-relay-proposal.md · CUSIPs and levels are illustrative, taken from the bundled FI desk, and not real securities.</footer>
+</main>
+
+<script>
+  (function () {
+    var ids = document.querySelectorAll('.id[data-link]');
+    function light(link, on) {
+      document.querySelectorAll('.id[data-link="' + link + '"]').forEach(function (el) { el.classList.toggle('lit', on); });
+    }
+    ids.forEach(function (el) {
+      var link = el.getAttribute('data-link');
+      el.addEventListener('mouseenter', function () { light(link, true); });
+      el.addEventListener('mouseleave', function () { light(link, false); });
+      el.addEventListener('focus', function () { light(link, true); });
+      el.addEventListener('blur', function () { light(link, false); });
+    });
+  })();
+</script>

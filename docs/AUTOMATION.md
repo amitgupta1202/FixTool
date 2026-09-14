@@ -584,7 +584,7 @@ The two cannot disagree, because both read the same trace rows, with one deliber
 both-sides test the same bytes appear as an OUT on one pane and an IN on another, and **Lanes draws
 those as one arrow when the bytes are identical**. That is a fact about two strings — not a claim that
 the venue forwarded anything. The Ledger keeps both rows, because both panes logged it. The elapsed
-printed on the arrow is the gap between the two ends of that hop, measured on one clock; the gutter
+printed where the arrow lands is the gap between the two ends of that hop, measured on one clock; the gutter
 beside a row is the gap since the previous row *started* (so it never goes negative when a venue fans
 one request out to several lanes), and where nothing pairs — every real venue test — it is the
 Ledger's Elapsed to the millisecond. Like every other elapsed here both state a gap and never a cause.

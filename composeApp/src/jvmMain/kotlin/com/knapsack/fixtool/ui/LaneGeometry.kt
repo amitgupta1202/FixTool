@@ -2,6 +2,7 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.knapsack.fixtool.service.TraceLanes
 
 /**
  * **Where every lane starts and how wide it is** — the one place a lane's x comes from.
@@ -36,3 +37,6 @@ internal val LANE_MAX_WIDTH = 800.dp
 
 /** The widths Lanes starts from: none set, and a lane's own limits rather than a grid column's. */
 fun laneColumnWidths(): GridColumnWidths = GridColumnWidths(min = LANE_MIN_WIDTH, max = LANE_MAX_WIDTH)
+
+/** A lane's width is remembered against its pane's title, which outlives the trace that drew it. */
+internal fun laneKey(lane: TraceLanes.Lane): String = lane.title

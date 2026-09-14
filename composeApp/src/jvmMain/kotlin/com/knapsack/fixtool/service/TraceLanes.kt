@@ -110,8 +110,8 @@ object TraceLanes {
      * Ledger's Elapsed to the millisecond. Null on the first row, which has no previous.
      *
      * **[hopMillis] is the gap between the two ends of a paired row** — how long the thing between the
-     * lanes took — and null on an unpaired row. The renderer prints it *on the arrow*, where what it
-     * measures is unambiguous, and the gutter keeps [elapsedMillis], so a paired row shows both numbers
+     * lanes took — and null on an unpaired row. The renderer prints it *where the arrow lands*, where what
+     * it measures is unambiguous, and the gutter keeps [elapsedMillis], so a paired row shows both numbers
      * and neither is repeated. Both are measurements on one clock; neither is a diagnosis.
      */
     data class LaneRow(

@@ -220,13 +220,14 @@ private const val MAX_PICK_DOTS = 5
 
 // ---------------------------------------------------------------- the picture
 
-private val GUTTER_WIDTH = 84.dp
+/**
+ * Wide enough for the opening row's `HH:mm:ss.SSS` whole. At 84dp the monospace advance left it `08:39:22.4`, and
+ * the milliseconds are the part a trace is read for.
+ */
+private val GUTTER_WIDTH = 100.dp
 private val LANE_WIDTH = 200.dp
 private val ROW_HEIGHT = 26.dp
 private val HEADER_HEIGHT = 26.dp
-
-/** A lane's width is remembered against its pane's title, which outlives the trace that drew it. */
-private fun laneKey(lane: TraceLanes.Lane): String = lane.title
 
 /**
  * The width that shows this lane's widest chip, or its header, whole.
@@ -420,8 +421,8 @@ private fun LaneRowView(
             // chips and the ◀ are — and between two neighbouring lanes, that is all the room there is.
             Box(modifier = Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
                 if (hops) {
-                    HopArrow(fromLane = fromLane, toLane = toLane, geometry = geometry, elapsedMillis = row.hopMillis)
-                    Landing(fromLane = fromLane, toLane = toLane, geometry = geometry)
+                    HopArrow(fromLane = fromLane, toLane = toLane, geometry = geometry)
+                    Landing(fromLane = fromLane, toLane = toLane, geometry = geometry, elapsedMillis = row.hopMillis)
                 }
                 if (fromLane >= 0) {
                     Box(
@@ -474,20 +475,49 @@ private fun relayedLabel(message: FixMessage): String? {
 
 /**
  * The ◀ in the receiving lane, on the side facing the sender, so the direction of travel reads off the geometry as
- * well as off the glyph.
+ * well as off the glyph — and beside it, on the side away from the sender, **the hop's measured gap**.
+ *
+ * The gap is printed here because this is the one place on a paired row nothing else can be: a row draws one
+ * chip, in the sending lane, so the receiving lane holds only this. It used to be printed halfway between the
+ * two lane centres, which is inside whichever lane's chip sits on that side — right-aligned OUT chips longer
+ * than half their lane covered it, which at 200dp was every chip carrying an id, and a lane fitted to its chips
+ * made it every chip.
+ *
+ * The tooltip says what the arrow rests on and nothing more. `same bytes on both sessions` is the whole claim:
+ * not that the venue forwarded it, not that the gap is the venue's fault — see [TraceLanes].
  */
 @Composable
-private fun Landing(fromLane: Int, toLane: Int, geometry: LaneGeometry) {
+private fun Landing(fromLane: Int, toLane: Int, geometry: LaneGeometry, elapsedMillis: Long?) {
+    val senderOnTheLeft = toLane > fromLane
     Box(
         modifier = Modifier.offset(x = geometry.startOf(toLane)).width(geometry.widthOf(toLane)).fillMaxHeight(),
-        contentAlignment = if (toLane > fromLane) Alignment.CenterStart else Alignment.CenterEnd,
+        contentAlignment = if (senderOnTheLeft) Alignment.CenterStart else Alignment.CenterEnd,
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!senderOnTheLeft) HopGap(elapsedMillis)
+            Text(
+                text = "◀",
+                fontSize = 10.sp,
+                color = AppTheme.Colors.messageIncoming,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.testTag("trace-lane-landing").padding(horizontal = 5.dp),
+            )
+            if (senderOnTheLeft) HopGap(elapsedMillis)
+        }
+    }
+}
+
+@Composable
+private fun HopGap(elapsedMillis: Long?) {
+    if (elapsedMillis == null) return
+    AppTooltip(text = "same bytes on both sessions") {
         Text(
-            text = "◀",
-            fontSize = 10.sp,
-            color = AppTheme.Colors.messageIncoming,
+            text = "+$elapsedMillis ms",
+            fontSize = 9.sp,
+            color = AppTheme.Colors.warning,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.testTag("trace-lane-landing").padding(horizontal = 5.dp),
+            maxLines = 1,
+            modifier = Modifier.background(AppTheme.Colors.background).padding(horizontal = 4.dp),
         )
     }
 }
@@ -515,22 +545,18 @@ private fun RelayReason(fromLane: Int, toLane: Int, geometry: LaneGeometry, text
 }
 
 /**
- * **One hop, drawn once**: the line between the two lanes that logged the same bytes, with the measured
- * gap printed on it.
+ * **One hop, drawn once**: the line between the two lanes that logged the same bytes. Its measured gap is printed
+ * where it lands — see [Landing] for why there and not on the middle of the line.
  *
  * The line runs lane centre to lane centre rather than edge to edge, because adjacent lanes have no
  * space between their edges — a rule that vanished whenever the two panes happened to be neighbours
  * would be a picture that stopped drawing its own subject.
- *
- * The tooltip says what the arrow rests on and nothing more. `same bytes on both sessions` is the whole
- * claim: not that the venue forwarded it, not that the gap is the venue's fault — see [TraceLanes].
  */
 @Composable
 private fun HopArrow(
     fromLane: Int,
     toLane: Int,
     geometry: LaneGeometry,
-    elapsedMillis: Long?,
 ) {
     val left = minOf(fromLane, toLane)
     val right = maxOf(fromLane, toLane)
@@ -550,22 +576,7 @@ private fun HopArrow(
                         strokeWidth = 1f,
                     )
                 },
-        contentAlignment = Alignment.Center,
-    ) {
-        AppTooltip(text = "same bytes on both sessions") {
-            Text(
-                text = elapsedMillis?.let { "+$it ms" }.orEmpty(),
-                fontSize = 9.sp,
-                color = AppTheme.Colors.warning,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                modifier =
-                    Modifier
-                        .background(AppTheme.Colors.background)
-                        .padding(horizontal = 4.dp),
-            )
-        }
-    }
+    )
 }
 
 private val HOP_COLOR = Color(0xFF3E4C5A)

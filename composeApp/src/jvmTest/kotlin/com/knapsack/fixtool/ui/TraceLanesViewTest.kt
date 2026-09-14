@@ -2,6 +2,7 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
@@ -14,7 +15,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.width
 import com.knapsack.fixtool.model.AppSettings
@@ -150,7 +153,7 @@ class TraceLanesViewTest {
 
     /**
      * **One hop, one row, one arrow.** The request appears on two panes and is drawn once, with the
-     * measured gap on the arrow between the lanes — and the quote that crossed nothing is its own row
+     * measured gap where its arrow lands — and the quote that crossed nothing is its own row
      * with no arrow at all.
      */
     @Test
@@ -170,7 +173,7 @@ class TraceLanesViewTest {
         composeTestRule.onAllNodesWithTag("trace-lane-chip").assertCountEquals(2)
         composeTestRule.onAllNodesWithTag("trace-lane-pair").assertCountEquals(1)
         composeTestRule.onAllNodesWithTag("trace-lane-landing").assertCountEquals(1)
-        // The hop's own gap, printed on its arrow; the gutter says the quote row started 90 ms after the
+        // The hop's own gap, printed where its arrow lands; the gutter says the quote row started 90 ms after the
         // request row did (since the previous row STARTED, so it never goes negative).
         composeTestRule.onAllNodesWithText("+31 ms").assertCountEquals(1)
         composeTestRule.onNodeWithText("+90 ms").assertExists()
@@ -293,6 +296,89 @@ class TraceLanesViewTest {
         header.performMouseInput { doubleClick() }
         composeTestRule.waitForIdle()
         assertMoved(0.dp, 200.dp, header.width(), "the second double-click's lane edge")
+    }
+
+    private fun DpRect.overlaps(other: DpRect): Boolean =
+        left < other.right && other.left < right && top < other.bottom && other.top < bottom
+
+    /**
+     * A hop's gap is the number Lanes exists to show, and it was printed halfway between the two lane centres —
+     * inside a lane whose chip is right-aligned, so a chip longer than half its lane covered it. At 200dp that was
+     * every chip carrying an id, and fitting a lane to its chips made it every chip. Found on screen with the FX
+     * venue: `+0 ms` cut in half by `8 FILLED …`. Both directions, at the declared width, the widest, and fitted.
+     */
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `a hop's gap is never under a chip, in either direction and at any lane width`() {
+        val request = "35=R|131=RFQ-A1|55=EUR/USD|38=10000000|117=QUOTE-2026-0914-000123-LONG|"
+        val fill = "35=8|11=RFQ-A1|37=VENUE-ORDER-2026-0914-000123|17=EXEC-2026-0914-000456|39=2|"
+        val panes =
+            listOf(
+                listOf(at(0, request, out), at(120, fill)),
+                listOf(at(31, request), at(100, fill, out)),
+            )
+        val widths = laneColumnWidths()
+        composeTestRule.setContent {
+            TraceLanesView(
+                lanes = lanes(panes = panes),
+                headers = headers(panes),
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = AppSettings.default(),
+                laneWidths = widths,
+            )
+        }
+        composeTestRule.onAllNodesWithTag("trace-lane-pair").assertCountEquals(2)
+
+        fun assertGapsClear(state: String) {
+            composeTestRule.waitForIdle()
+            val chips = composeTestRule.onAllNodesWithTag("trace-lane-chip").fetchSemanticsNodes()
+            for (gap in listOf("+31 ms", "+20 ms")) {
+                val label = composeTestRule.onNodeWithText(gap).getUnclippedBoundsInRoot()
+                chips.forEachIndexed { index, _ ->
+                    val chip = composeTestRule.onAllNodesWithTag("trace-lane-chip")[index].getUnclippedBoundsInRoot()
+                    assertTrue(
+                        !label.overlaps(chip),
+                        "$state: $gap at ${label.left}..${label.right} is under chip $index at ${chip.left}..${chip.right}",
+                    )
+                }
+            }
+        }
+
+        assertGapsClear("declared width")
+        widths.resizeBy("CLIENT", 600.dp, default = 200.dp)
+        widths.resizeBy("VENUE", 600.dp, default = 200.dp)
+        assertGapsClear("widest")
+        composeTestRule.onAllNodesWithTag("trace-lane-header")[0].performMouseInput { doubleClick() }
+        composeTestRule.onAllNodesWithTag("trace-lane-header")[1].performMouseInput { doubleClick() }
+        assertGapsClear("fitted")
+    }
+
+    /** The exchange's opening moment was cut to `08:39:22.4` on screen: the gutter was narrower than its own clock. */
+    @Test
+    fun `the opening row's clock time is printed whole`() {
+        composeTestRule.setContent {
+            TraceLanesView(
+                lanes = lanes(),
+                headers = headers(),
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = AppSettings.default(),
+            )
+        }
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeTestRule
+            .onNodeWithText("10:00:00.000")
+            .fetchSemanticsNode()
+            .config[SemanticsActions.GetTextLayoutResult]
+            .action
+            ?.invoke(layouts)
+        assertEquals(1, layouts.size)
+        // The text's own one-line width against the room it was given. Not hasVisualOverflow: that compares the
+        // laid-out size with the paragraph box, and reports a 75dp clock in an 88dp gutter as overflowing.
+        val natural = layouts[0].multiParagraph.intrinsics.maxIntrinsicWidth
+        val room = layouts[0].layoutInput.constraints.maxWidth
+        assertTrue(natural <= room, "the gutter clips its own clock time: it needs ${natural}px and has ${room}px")
     }
 
     // ---------------------------------------------------------------- nothing followed

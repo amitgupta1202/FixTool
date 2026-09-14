@@ -3,6 +3,7 @@ package com.knapsack.fixtool.viewmodel
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.ChosenBy
+import com.knapsack.fixtool.service.DictionaryChoice
 import com.knapsack.fixtool.service.WorkspaceDictionary
 import com.knapsack.fixtool.service.WorkspacePaths
 import org.junit.After
@@ -12,6 +13,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 
 /**
  * **The open workspace's dictionary is the one loaded**, from the moment it opens until it closes.
@@ -76,6 +78,32 @@ class WorkspaceDictionaryViewModelTest {
         assertEquals(FixVersion.FIX_4_3, loaded())
         assertIs<ChosenBy.Settings>(viewModel.dictionaryChoice?.chosenBy)
         assertEquals("", viewModel.workspaceDictionaryNote(), "Settings chose, so there is nothing to explain")
+    }
+
+    /** Straight from one workspace's dictionary to another's, with Settings never in between to reset what is loaded. */
+    @Test
+    fun `switching between two workspaces that each name a dictionary loads each one's in turn`() {
+        val namingAFile =
+            File(home, "workspaces/names-a-file").apply {
+                val beside = File(this, "dictionary/FIX43.xml").apply { parentFile.mkdirs() }
+                beside.writeBytes(assertNotNull(FixVersion::class.java.getResourceAsStream(FixVersion.FIX_4_3.dictionaryResourcePath)).readBytes())
+                WorkspaceDictionary.write(this, WorkspaceDictionary(path = "dictionary/FIX43.xml"))
+            }
+        val namingFix44 = namingFix44()
+
+        viewModel.openWorkspace(namingFix44).getOrThrow()
+        assertEquals(FixVersion.FIX_4_4, loaded())
+
+        viewModel.openWorkspace(namingAFile).getOrThrow()
+        val file = File(namingAFile, "dictionary/FIX43.xml")
+        assertEquals(file, assertIs<DictionaryChoice.Files>(viewModel.dictionaryChoice).data)
+        assertEquals(file.absolutePath, assertIs<FixDictionaryAdapter>(viewModel.dictionary).getFilePath())
+        // What the wire speaks, read from the file itself.
+        assertEquals("FIX.4.3", viewModel.dictionary.getDataDictionary()?.version)
+
+        viewModel.openWorkspace(namingFix44).getOrThrow()
+        assertEquals(FixVersion.FIX_4_4, loaded())
+        assertIs<DictionaryChoice.Bundled>(viewModel.dictionaryChoice)
     }
 
     @Test

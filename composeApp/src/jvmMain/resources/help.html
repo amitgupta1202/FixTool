@@ -2807,6 +2807,7 @@ ${incoming["D"].valueOfTag(38)}
         <li>Opens as a <strong>Search results</strong> tab in the <a href="#bottom-dock">bottom dock</a>,
         counted in the tab's own label</li>
         <li>Shows session name, time, direction, message type, and matched content</li>
+        <li>Columns resize: drag a header's right edge, or double-click the header to fit the column</li>
         <li>Click any result to navigate to that message in its session</li>
         <li>Resizable, and stays pinned while you work on another tab</li>
         <li>The tab's <strong>&times;</strong> unpins the results, and the dock goes back to whatever it was
@@ -4802,6 +4803,11 @@ ${incoming["D"].valueOfTag(38)}
     <strong>counts sessions as well as messages</strong> &mdash; so <em>which RFQs touched more than one session</em> is read
     straight off the headers.</p>
 
+    <p><strong>Every column resizes.</strong> Drag the right edge of its header; double-click the header to
+    fit the column to its widest value, and double-click again to put back its usual width. Every row, the
+    group headers included, ends where the header does. Widths hold while you switch dock tabs and reset
+    when FixTool restarts.</p>
+
     <p>Nothing is hidden. Ungrouped messages come last and are counted rather than dropped, and a trace
     whose first message has already left a session's buffer says so rather than presenting a partial
     exchange as a whole one.</p>
@@ -4834,6 +4840,10 @@ ${incoming["D"].valueOfTag(38)}
     whole trip &mdash; <code>Following VT-89c4053a &middot; 2 sessions &middot; 6 messages &middot; 367
     ms</code> &mdash; and <strong>Ledger</strong> / <strong>Lanes</strong> in its top right switch the
     rendering.</p>
+
+    <p><strong>Every lane resizes</strong> the same way as a Ledger column: drag the right edge of its
+    header, or double-click the header to fit its widest message. A session's lane keeps its width from one
+    followed exchange to the next.</p>
 
     <div class="tip">
         <strong>Driving it from an agent or CI.</strong> <code>GET /traces</code> lists them;

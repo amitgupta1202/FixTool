@@ -4823,8 +4823,13 @@ class ControlServer(
         /** The port the bundled RFQ venue example binds, so both examples can be described without sharing a number. */
         const val DEMO_RFQ_VENUE_PORT = 19877
 
-        /** The main window's title, so `?window=main` finds it by name rather than by list order. */
-        const val MAIN_WINDOW_TITLE = "FixTool - FiX Message Viewer"
+        /**
+         * The main window's title, so `?window=main` finds it by name rather than by list order.
+         *
+         * Not "FIX Message Viewer" any more: viewing messages is one thing it does, beside both ends of a
+         * session, venues, scenarios, load runs and traces.
+         */
+        const val MAIN_WINDOW_TITLE = "FixTool — FIX Test Workbench"
 
         /**
          * **The pure selection policy, AWT-free so it can be pinned.** `main` (or absent) is the main window by

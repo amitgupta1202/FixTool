@@ -5,6 +5,37 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-09-14
+
+The release where a trace can be read at any width, and a workspace brings its own dictionary. Every
+column in the Ledger and the search results, and every lane in Lanes, resizes from its header and fits
+its widest value on a double-click, and the rows under a header now end where it does. A workspace can
+name the FIX dictionary its scenarios were written in, so the bundled examples stay green on a machine
+whose Settings name a venue's own. Opening a workspace from Recent no longer crashes the window, and the
+window is called what the app has become.
+
+### ✨ Added
+
+- **Every Ledger and search-results column resizes.** Drag the right edge of a header; double-click it to fit the column to its widest value, and again to put back its usual width. Widths hold across dock tabs.
+- **Every lane in Lanes resizes the same way**, and double-clicking a lane's header fits its widest message. A session's lane keeps its width from one followed exchange to the next.
+- **A workspace names its dictionary.** `workspace.json` names a bundled version or a file beside the workspace, and while the workspace is open that dictionary is loaded over the one in Settings; a workspace that names none keeps Settings'. Every bundled example names FIX 4.4, and a copy made before this reads its example's. Settings → Protocol says when the open workspace overrides it, the open notification names the dictionary, and `GET /workspace` reports it. `fixtool run` and `fixtool load` choose the same way.
+
+### 📝 Changed
+
+- **The window is titled "FixTool — FIX Test Workbench"**, not "FiX Message Viewer", and the README opens by saying what the tool does and lists all five bundled examples.
+
+### 🐛 Fixed
+
+- **Opening a workspace from Recent, then starting a session, no longer crashes the window** with "No such child: 1". A menu row that changed places was moved in a way a Swing menu cannot answer; menu rows are now drawn by position.
+- The fixed-income example no longer fails three scenarios on 38/48/54 "moved" when Settings name a dictionary whose QuoteRequest has no NoRelatedSym group.
+- **Group rows line up with their columns.** The Ledger's follow button sits in the Session cell instead of a phantom column past the grid, the Ungrouped row runs the grid's full width, and five more grids had rows that did not stand under their headers: the scenario Examples table, the message grid's separator, the message editor's Tag field, the RFQ book's State column and the diff's entry band.
+- A column's resize edge follows the pointer on a Retina display, where it used to run at twice its speed, and header rules no longer sit 1 dp off the rows' rules.
+- A hop's gap in Lanes prints beside the arrow it measures instead of under a message chip, and the opening time shows whole.
+
+### 📖 Documentation
+
+- Help describes resizing in the Ledger, Lanes and search results, and how a workspace names its dictionary.
+
 ## [1.21.0] - 2026-09-13
 
 The release where the window has a menu bar, a venue can stand between the two sides of an RFQ, and

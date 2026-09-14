@@ -50,7 +50,7 @@ FixTool is a desktop app and runs entirely on your machine — nothing is hosted
 
 ### Latest Release
 
-**v1.21.0** is the current release. Download it from the [Releases page](https://github.com/amitgupta1202/FixTool/releases/latest), and see [what is in it](CHANGELOG.md#1210---2026-09-13).
+**v1.22.0** is the current release. Download it from the [Releases page](https://github.com/amitgupta1202/FixTool/releases/latest), and see [what is in it](CHANGELOG.md#1220---2026-09-14).
 
 **Installation:**
 

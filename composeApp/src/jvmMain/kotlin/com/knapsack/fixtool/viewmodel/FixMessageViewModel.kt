@@ -57,7 +57,9 @@ import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
 import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.AppSettingsService
+import com.knapsack.fixtool.service.ChosenBy
 import com.knapsack.fixtool.service.ConnectionProfileService
+import com.knapsack.fixtool.service.DictionaryChoice
 import com.knapsack.fixtool.service.EntryOutcome
 import com.knapsack.fixtool.service.Environments
 import com.knapsack.fixtool.service.ExampleReset
@@ -2616,6 +2618,13 @@ class FixMessageViewModel(
     private val _dictionaryErrorMessage = MutableStateFlow<String?>(null)
     val dictionaryErrorMessage: StateFlow<String?> = _dictionaryErrorMessage.asStateFlow()
 
+    /**
+     * The dictionary last loaded by choice, and who chose it: the open workspace, the example it is a copy of, or
+     * Settings. Null only before the first load. See [DictionaryChoice.resolve].
+     */
+    var dictionaryChoice by mutableStateOf<DictionaryChoice?>(null)
+        private set
+
     init {
         // Load app settings first (this also loads the data dictionary and restores the layout flags)
         loadAppSettings()
@@ -2675,8 +2684,8 @@ class FixMessageViewModel(
         // reported: an app that opens on its own directory works, and a modal about a folder at
         // startup helps nobody.
         restoreLayoutState()
-        // Load data dictionary from app settings after loading settings
-        loadDictionaryFromSettings()
+        // After the restore, because the workspace it decided may name its own dictionary.
+        loadChosenDictionary()
     }
 
     /** Load the persisted layout and bring the panel-visibility flags back to how they were left. */
@@ -2742,63 +2751,25 @@ class FixMessageViewModel(
         }
     }
 
-    private fun loadDictionaryFromSettings() {
+    /**
+     * Loads the dictionary the open workspace means: its own if it names one, else Settings'.
+     *
+     * Called whenever either could have changed its answer — at start, on Save in Settings, and on opening or closing a
+     * workspace. Opening one takes every session down first, so no session is left speaking the previous dictionary.
+     */
+    private fun loadChosenDictionary() {
         try {
             val settings = _appSettings.value
-            if (settings.useBundledDictionary) {
-                // Use bundled dictionary for the configured FIX version
-                loadBundledDictionaryForVersion(settings.defaultFixVersion)
-            } else {
-                // Use custom dictionary path
-                val dictionaryPath = settings.defaultDataDictionary
-                val transportDictionaryPath = settings.defaultTransportDictionary
-                if (dictionaryPath.isNotBlank()) {
-                    val dictionaryFile = File(dictionaryPath)
-                    if (dictionaryFile.exists()) {
-                        // Check if transport dictionary is configured for FIX 5.0+
-                        val transportFile =
-                            if (transportDictionaryPath.isNotBlank()) {
-                                File(transportDictionaryPath).takeIf { it.exists() }
-                            } else {
-                                null
-                            }
-
-                        _dictionary.value = FixDictionaryAdapter.fromFiles(dictionaryFile, transportFile)
-                        val loadedVersion = (_dictionary.value as? FixDictionaryAdapter)?.fixVersion
-                        logger.info(
-                            "Loaded data dictionary for UI from: {} (detected version: {}, transport: {})",
-                            dictionaryPath,
-                            loadedVersion?.displayName,
-                            transportFile?.absolutePath ?: "none",
-                        )
-
-                        // Warn if FIX 5.0+ but no transport dictionary
-                        if (loadedVersion?.isFix50Plus == true && transportFile == null) {
-                            showNotification(
-                                "FIX 5.0+ requires a transport dictionary (FIXT11.xml). Please configure it in Settings.",
-                                NotificationType.WARNING,
-                            )
-                        }
-
-                        _isDictionaryValid.value = true
-                        _dictionaryErrorMessage.value = null
-                    } else {
-                        logger.warn(
-                            "Data dictionary file not found: {}, falling back to bundled {}",
-                            dictionaryPath,
-                            settings.defaultFixVersion.displayName,
-                        )
-                        showNotification(
-                            "Custom dictionary not found at $dictionaryPath, using bundled ${settings.defaultFixVersion.displayName}",
-                            NotificationType.WARNING,
-                        )
-                        loadBundledDictionaryForVersion(settings.defaultFixVersion)
-                    }
-                } else {
-                    // No custom dictionary configured - use bundled dictionary for default version
-                    logger.info("No custom data dictionary configured, using bundled {}", settings.defaultFixVersion.displayName)
-                    loadBundledDictionaryForVersion(settings.defaultFixVersion)
-                }
+            val choice = DictionaryChoice.resolve(settings, WorkspacePaths.current.root)
+            dictionaryChoice = choice
+            (choice.chosenBy as? ChosenBy.Settings)?.because?.let { because ->
+                logger.warn("The workspace's dictionary was not used: {}", because)
+                showNotification("Using the dictionary in Settings: $because", NotificationType.WARNING)
+            }
+            logger.info("Loading {}, chosen by {}", choice.name, choice.chosenBy.describe())
+            when (choice) {
+                is DictionaryChoice.Bundled -> loadBundledDictionaryForVersion(choice.version)
+                is DictionaryChoice.Files -> loadDictionaryFiles(choice, fallback = settings.defaultFixVersion)
             }
         } catch (e: Exception) {
             _isDictionaryValid.value = false
@@ -2811,6 +2782,45 @@ class FixMessageViewModel(
             )
             loadBundledDictionaryForVersion(FixVersion.DEFAULT)
         }
+    }
+
+    /** The dictionary file [choice] names, or the bundled [fallback] when that file is not there. */
+    private fun loadDictionaryFiles(
+        choice: DictionaryChoice.Files,
+        fallback: FixVersion,
+    ) {
+        val dictionaryFile = choice.data
+        val namedBy = choice.chosenBy.describe()
+        if (!dictionaryFile.exists()) {
+            logger.warn("Dictionary not found: {} (named by {}), using bundled {}", dictionaryFile, namedBy, fallback)
+            showNotification(
+                "Dictionary not found at ${dictionaryFile.path} (named by $namedBy), " +
+                    "using bundled ${fallback.displayName}",
+                NotificationType.WARNING,
+            )
+            loadBundledDictionaryForVersion(fallback)
+            return
+        }
+        val transportFile = choice.transport?.takeIf { it.exists() }
+        _dictionary.value = FixDictionaryAdapter.fromFiles(dictionaryFile, transportFile)
+        val loadedVersion = (_dictionary.value as? FixDictionaryAdapter)?.fixVersion
+        logger.info(
+            "Loaded data dictionary for UI from: {} (detected version: {}, transport: {})",
+            dictionaryFile.path,
+            loadedVersion?.displayName,
+            transportFile?.absolutePath ?: "none",
+        )
+
+        // Warn if FIX 5.0+ but no transport dictionary
+        if (loadedVersion?.isFix50Plus == true && transportFile == null) {
+            showNotification(
+                "FIX 5.0+ requires a transport dictionary (FIXT11.xml). Please configure it in Settings.",
+                NotificationType.WARNING,
+            )
+        }
+
+        _isDictionaryValid.value = true
+        _dictionaryErrorMessage.value = null
     }
 
     /**
@@ -2846,11 +2856,19 @@ class FixMessageViewModel(
         }
     }
 
-    /** Switches the active data dictionary to a bundled FIX version (for automation/control). */
-    fun switchDictionaryToVersion(version: FixVersion) = loadBundledDictionaryForVersion(version)
+    /**
+     * Switches the active data dictionary to a bundled FIX version (for automation/control).
+     *
+     * Neither the workspace nor Settings chose it, so [dictionaryChoice] stops claiming either did.
+     */
+    fun switchDictionaryToVersion(version: FixVersion) {
+        dictionaryChoice = null
+        loadBundledDictionaryForVersion(version)
+    }
 
     /** Switches the active data dictionary to a custom file (plus optional FIXT transport file). */
     fun switchDictionaryToFile(path: String, transportPath: String? = null) {
+        dictionaryChoice = null
         val file = java.io.File(path)
         if (!file.exists()) {
             _isDictionaryValid.value = false
@@ -5421,13 +5439,52 @@ class FixMessageViewModel(
      * Shown wherever a FIX version looks like it might be a choice, because it is not one here: a
      * loaded data dictionary overrides a profile's beginString at connect time, and one is essentially
      * always loaded.
+     *
+     * Said of a **new** workspace, which names no dictionary and so speaks Settings'. While the open workspace
+     * names its own, that is not the loaded one, so Settings' is read for the version instead.
      */
     fun wireVersionNote(): String {
-        val version = runCatching { dictionary.getDataDictionary()?.version }.getOrNull()
+        val workspaceChose = dictionaryChoice?.let { it.chosenBy !is ChosenBy.Settings } == true
+        val version =
+            if (workspaceChose) {
+                settingsWireVersion()
+            } else {
+                runCatching { dictionary.getDataDictionary()?.version }.getOrNull()
+            }
         return if (version.isNullOrBlank()) {
             "Sessions will speak whatever each profile's BeginString says; no dictionary is loaded."
         } else {
             "Sessions will speak $version, from the dictionary in Settings -> Protocol."
+        }
+    }
+
+    /** The version Settings' dictionary speaks, read without loading it over the open workspace's. */
+    private fun settingsWireVersion(): String? =
+        when (val choice = DictionaryChoice.resolve(_appSettings.value, null)) {
+            is DictionaryChoice.Bundled -> choice.version.beginString
+            is DictionaryChoice.Files ->
+                runCatching { FixDictionaryAdapter.detectVersionFromFile(choice.data).beginString }.getOrNull()
+        }
+
+    /**
+     * What Settings -> Protocol must say when its dictionary is not the one loaded, or blank when it is.
+     *
+     * Without it, a user changing the dictionary there while a workspace names its own would save, see nothing change,
+     * and have no way to find out why.
+     */
+    fun workspaceDictionaryNote(): String {
+        val choice = dictionaryChoice ?: return ""
+        val workspace = "\"$openWorkspaceName\""
+        val rest = "and that is what is loaded while it is open. What you choose here is for workspaces that name none."
+        return when (val chosenBy = choice.chosenBy) {
+            is ChosenBy.Workspace ->
+                "$workspace names its own dictionary, ${choice.name}, in ${chosenBy.file.name}, $rest"
+            is ChosenBy.Example ->
+                "$workspace is a copy of the ${chosenBy.displayName} example, which names ${choice.name}, $rest"
+            is ChosenBy.Settings ->
+                chosenBy.because
+                    ?.let { "The dictionary $workspace names was not used, so the one here is: $it." }
+                    .orEmpty()
         }
     }
 
@@ -5440,9 +5497,13 @@ class FixMessageViewModel(
     /**
      * Opens a project workspace: sessions down, stores dropped, everything read again from [directory].
      *
-     * Preferences do not move. The dictionary, the window layout and the rail's sort order belong to
-     * the person at the keyboard, and a second workspace that arrived looking like a fresh install
-     * would be a worse answer than not having workspaces at all.
+     * Preferences do not move. The window layout and the rail's sort order belong to the person at the
+     * keyboard, and a second workspace that arrived looking like a fresh install would be a worse answer
+     * than not having workspaces at all.
+     *
+     * The dictionary is the exception, and only for a workspace that names one: its scenarios were written
+     * in that dictionary's wire order, so reading them in another turns them red. One that names none keeps
+     * Settings'. See [DictionaryChoice.resolve].
      *
      * Sessions come down first and are not brought back up. They were logged on against the previous
      * workspace's profiles, and a pane whose profile no longer exists is one nothing can explain.
@@ -5461,6 +5522,8 @@ class FixMessageViewModel(
         logger.info("Opening workspace {}", directory.absolutePath)
         closeAllSessions()
         WorkspacePaths.open(directory.absolutePath)
+        // Before the stores are read again, so nothing that parses on the way in reads the previous workspace's.
+        loadChosenDictionary()
         rereadWorkspace()
         val path = directory.absolutePath
         updateLayout { layout ->
@@ -5469,7 +5532,10 @@ class FixMessageViewModel(
                 recentWorkspaces = (listOf(path) + layout.recentWorkspaces.filter { it != path }).take(recentWorkspacesKept),
             )
         }
-        showNotification("Workspace: ${directory.name}", NotificationType.INFO)
+        // Said when the workspace chose, because that is when what is loaded stops being what Settings show.
+        val chosen = dictionaryChoice?.takeIf { it.chosenBy !is ChosenBy.Settings }
+        val named = chosen?.let { " — reading it in ${it.name}" }.orEmpty()
+        showNotification("Workspace: ${directory.name}$named", NotificationType.INFO)
         return Result.success(directory)
     }
 
@@ -5489,6 +5555,7 @@ class FixMessageViewModel(
         logger.info("Closing workspace, back to {}", WorkspacePaths.home.root.absolutePath)
         closeAllSessions()
         WorkspacePaths.open(null)
+        loadChosenDictionary()
         rereadWorkspace()
         updateLayout { it.copy(openWorkspace = "") }
         showNotification("Workspace closed", NotificationType.INFO)
@@ -5597,8 +5664,8 @@ class FixMessageViewModel(
         // soak run that has just proved the book too small, where reconnecting costs the state being
         // measured. Every session, because a venue's books are per counterparty.
         _sessions.forEach { it.applyOrderBookCap(settings.orderBookCap) }
-        // Reload dictionary when settings change
-        loadDictionaryFromSettings()
+        // Reload dictionary when settings change. A workspace that names its own keeps it.
+        loadChosenDictionary()
         // Validate the new dictionary
         validateDataDictionary()
         // Start/stop the automation control server to match the new setting

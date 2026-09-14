@@ -14,7 +14,9 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.service.AppSettingsService
+import com.knapsack.fixtool.service.ChosenBy
 import com.knapsack.fixtool.service.ConnectionProfileService
+import com.knapsack.fixtool.service.DictionaryChoice
 import com.knapsack.fixtool.service.EntryOutcome
 import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.RunRecord
@@ -392,16 +394,26 @@ object HeadlessRun {
         return found
     }
 
-    /** The same dictionary the app would have loaded, from the same settings — a headless run must judge the same. */
+    /**
+     * The same dictionary the app would have loaded, chosen the same way — a headless run must judge the same.
+     *
+     * `--home` is the workspace here, so a workspace that names its own dictionary is read in it, exactly as it is when
+     * the app opens it. See [DictionaryChoice.resolve].
+     */
     @Suppress("TooGenericExceptionCaught")
-    internal fun dictionaryFor(settings: AppSettings, err: Appendable): FixDictionaryAdapter =
+    internal fun dictionaryFor(
+        settings: AppSettings,
+        err: Appendable,
+        workspace: File = WorkspacePaths.current.root,
+    ): FixDictionaryAdapter =
         try {
-            if (settings.useBundledDictionary || settings.defaultDataDictionary.isBlank()) {
-                FixDictionaryAdapter.forVersion(settings.defaultFixVersion)
-            } else {
-                val configured = settings.defaultTransportDictionary
-                val transport = if (configured.isBlank()) null else File(configured).takeIf { it.exists() }
-                FixDictionaryAdapter.fromFiles(File(settings.defaultDataDictionary), transport)
+            val choice = DictionaryChoice.resolve(settings, workspace)
+            val refused = (choice.chosenBy as? ChosenBy.Settings)?.because
+            refused?.let { err.appendLine("fixtool: using the settings' dictionary: $it") }
+            when (choice) {
+                is DictionaryChoice.Bundled -> FixDictionaryAdapter.forVersion(choice.version)
+                is DictionaryChoice.Files ->
+                    FixDictionaryAdapter.fromFiles(choice.data, choice.transport?.takeIf { it.exists() })
             }
         } catch (e: Exception) {
             err.appendLine("fixtool: could not load the configured dictionary (${e.message}); falling back to the default")

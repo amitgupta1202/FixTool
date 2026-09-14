@@ -2797,6 +2797,9 @@ class ControlServer(
             put("status", "ok")
             put("workspace", onEdt { viewModel.openWorkspace.absolutePath })
             put("isDefault", onEdt { viewModel.openWorkspaceIsHome })
+            // Which dictionary this workspace is read in, and who chose it: a scenario is judged in that one.
+            val dictionary = onEdt { viewModel.dictionaryChoice }
+            dictionary?.let { put("dictionary", "${it.name}, chosen by ${it.chosenBy.describe()}") }
             put(
                 "recent",
                 buildJsonArray { onEdt { viewModel.recentWorkspaces }.forEach { add(JsonPrimitive(it.absolutePath)) } },

@@ -1,7 +1,9 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
+import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadSet
@@ -354,6 +356,28 @@ class ExampleWorkspacesTest {
         assertFalse(File(mine, ".fixtool-origin").exists(), "a workspace of the user's own was stamped as an example")
         assertTrue(second.isEmpty(), "a second start laid down $second again")
         assertEquals("[]", edited.readText(), "an edited copy was overwritten")
+    }
+
+    /**
+     * **Every example names the dictionary its scenarios were written in, and a copy carries it.**
+     *
+     * A scenario's rows are in the order the venue sends, and a dictionary decides that order. Without this an example
+     * was read in whatever Settings named, and the fixed-income platform went red on a machine whose Settings named a
+     * venue's own FIX 4.4.
+     */
+    @Test
+    fun `every example names the bundled standard dictionary, and a copy of it chooses that over Settings`() {
+        val location = Files.createTempDirectory("example-dictionary").toFile()
+        val theirs = AppSettings.default().copy(useBundledDictionary = false, defaultDataDictionary = "/venues/own-FIX44.xml")
+        ExampleWorkspaces.layDownMissing(location)
+
+        ExampleWorkspaces.all().forEach { example ->
+            assertEquals(WorkspaceDictionary(fixVersion = FixVersion.FIX_4_4), ExampleWorkspaces.dictionaryOf(example.id), example.id)
+            assertTrue(WorkspaceDictionary.FILE in example.files, "${example.id}'s manifest does not name ${WorkspaceDictionary.FILE}")
+            val copy = File(location, ExampleWorkspaces.slug(example.defaultWorkspaceName))
+            val choice = DictionaryChoice.resolve(theirs, copy)
+            assertEquals(DictionaryChoice.Bundled(FixVersion.FIX_4_4, ChosenBy.Workspace(File(copy, WorkspaceDictionary.FILE))), choice)
+        }
     }
 
     @Test
@@ -941,10 +965,11 @@ class ExampleWorkspacesTest {
             FiRfqPlatformBundle.loadSets.sortedBy { it.name },
             LoadSetStore(File(workspace, "load-sets").absolutePath).list().sortedBy { it.name },
         )
+        assertEquals(FiRfqPlatformBundle.dictionary, ExampleWorkspaces.dictionaryOf(ExampleWorkspaces.FI_RFQ_VENUE))
         assertEquals(FiRfqPlatformBundle.DISPLAY_NAME, fiRfqVenue.displayName)
         assertEquals(FiRfqPlatformBundle.SUMMARY, fiRfqVenue.summary)
         assertEquals(
-            2 + FiRfqPlatformBundle.scenarios.size + FiRfqPlatformBundle.loadSets.size,
+            3 + FiRfqPlatformBundle.scenarios.size + FiRfqPlatformBundle.loadSets.size,
             fiRfqVenue.files.size,
             "the manifest names every file and nothing else: ${fiRfqVenue.files}",
         )

@@ -60,6 +60,8 @@ data class WorkspaceSettings(
     /** The bundled example the open workspace is a copy of, or blank when it is not one. */
     val exampleName: String = "",
     val onResetExample: () -> Unit = {},
+    /** Why the dictionary loaded is not the one Protocol shows, or blank when it is. */
+    val dictionaryNote: String = "",
 )
 
 /**

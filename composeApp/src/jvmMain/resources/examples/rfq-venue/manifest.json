@@ -6,6 +6,7 @@
   "files": [
     "connection_profiles.json",
     "saved_messages.json",
+    "workspace.json",
     "scenarios/rfq-book-a-trade--demo-sce.json",
     "scenarios/rfq-pass-and-counter--demo-sce.json",
     "load-sets/rfq-round-trip.json"

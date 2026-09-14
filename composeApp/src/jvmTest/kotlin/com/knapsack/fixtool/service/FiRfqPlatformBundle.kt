@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.FixConnectionConfig.ConnectionType
 import com.knapsack.fixtool.model.FixConnectionConfig.MessageLogKind
 import com.knapsack.fixtool.model.FixConnectionConfig.MessageStoreKind
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.load.LoadMatch
@@ -594,6 +595,12 @@ internal object FiRfqPlatformBundle {
             ),
             loadSet("fi-rfq-reactive", "FI RFQ reactive — lift each request's first offer the moment it lands", LoadShape.Triggered()),
         )
+
+    /**
+     * The standard FIX 4.4 the scenarios' rows were written in. A machine whose Settings name a venue's own FIX 4.4 lays
+     * a QuoteRequest out differently, and the expectations would fail on rows that had only moved.
+     */
+    val dictionary = WorkspaceDictionary(fixVersion = FixVersion.FIX_4_4)
 
     // ------------------------------------------------------------------ the manifest
 

@@ -788,6 +788,14 @@ class HelpDocTest {
                 "Reset renames the old copy rather than deleting it" to
                     "<em>renamed</em> rather than deleted",
                 "preferences stay with the person, not the workspace" to "not a fresh install",
+                // The exception, and the one a demo walks into: an example read in a venue's own dictionary
+                // fails on rows that only moved. The file, both shapes, and that Settings still answer the rest.
+                "a workspace may name its dictionary, and it wins while open" to
+                    "The data dictionary moves only when a workspace names one",
+                "the dictionary is named in workspace.json" to "<code>workspace.json</code>",
+                "a relative dictionary path is the workspace's" to "found beside the workspace when the path is relative",
+                "a workspace that names none keeps Settings'" to "A workspace that names none is read in the dictionary in Settings",
+                "every example names the bundled FIX 4.4, old copies included" to "Every example names the bundled FIX 4.4",
                 "passwords are in secrets.json, and that is separation not encryption" to
                     "This is a separation, not encryption",
                 "FIXTOOL_WORKSPACE moves the installation" to "FIXTOOL_WORKSPACE",

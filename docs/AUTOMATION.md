@@ -97,7 +97,10 @@ tells the same story a hand-connected one would.
 
 **`--home` is what makes this work on a build box**, which has no `~/.fixtool` and should not be made
 to grow one. Point it at a directory holding `connection_profiles.json`, `app_settings.json` and
-`scenarios/`, versioned beside the code under test.
+`scenarios/`, versioned beside the code under test. A `workspace.json` there naming a dictionary —
+`{"dictionary": {"fixVersion": "FIX_4_4"}}`, or `{"dictionary": {"path": "dictionaries/venue.xml"}}` relative
+to the directory — is the one the run is judged in, over `app_settings.json`, exactly as the app does when it
+opens that workspace. Every bundled example names the bundled FIX 4.4.
 
 **`FIXTOOL_WORKSPACE` says the same thing for a whole process.** Every path FixTool keeps something
 at derives from one root: the default is `~/.fixtool`, and that variable moves it, so a build box can
@@ -362,7 +365,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
 | `POST /templates/load` | `{"id"}`                             | load a template into the editor (opens the editor panel; may switch the active session — see [Message templates](#message-templates)) |
 | `POST /demo`         | `{"action":"start"\|"stop"}`           | the FX venue example, by its old name, and it stays the FX venue for compatibility: `start` opens it as a workspace, `stop` closes that workspace (the copy stays on disk — it is yours) → `{status, action, workspace, running, venue, port}`. The RFQ venue example opens through `POST /workspace {"example":"rfq-venue"}` |
-| `GET /workspace`     | —                                      | the open workspace and the ways to change it: `{status, workspace, isDefault, recent[], environments[], examples[]}` |
+| `GET /workspace`     | —                                      | the open workspace and the ways to change it: `{status, workspace, isDefault, dictionary, recent[], environments[], examples[]}`. `dictionary` names the one loaded and who chose it — the workspace's `workspace.json`, the example it is a copy of, or Settings |
 | `POST /workspace`    | `{"workspace":"<folder>"}` or `{"example":"<id>"}` | open a folder as the workspace, or copy a bundled example out and open that. `{"workspace":""}` closes and returns to the installation's own directory. **Opening one takes every session down first** |
 | `POST /connect`      | `{"profile":"<name or id>"}`           | `{status, profile}` (logon is async)                 |
 | `POST /disconnect`   | `{"profile":"<name or id>"}` or `{"all":true}` | `{status, profile}`, or for `all` `{status, sessions, profiles}`: how many sessions went down and over how many profiles, counted before they were dropped. **Disconnect all asks nothing first**, because a disconnect loses nothing: the books, the records and the panes survive one, and Connect puts the sessions back. Nothing connected is a 200 with `sessions: 0` rather than an error, so a script that starts by making sure nothing is up has no state to branch on. **409 while a load run or set is live**, `{error, busy}` reading *A load run is running. Stop it first.* The one thing a disconnect would cost is a run's own measurements, so stop it with `POST /loads/<id>/stop` first |

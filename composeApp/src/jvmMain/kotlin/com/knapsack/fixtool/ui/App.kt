@@ -366,6 +366,7 @@ private fun AppContent(
                                 },
                                 exampleName = viewModel.openWorkspaceExample()?.displayName.orEmpty(),
                                 onResetExample = { viewModel.resetOpenExample() },
+                                dictionaryNote = viewModel.workspaceDictionaryNote(),
                             ),
                     )
                 }

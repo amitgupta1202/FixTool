@@ -82,6 +82,7 @@ class ExampleBundleGenerator {
         FiRfqPlatformBundle.scenarios.forEach { require(scenarios.save(it)) { "${it.id} was not written" } }
         val loadSets = LoadSetStore(loadSetDir.absolutePath)
         FiRfqPlatformBundle.loadSets.forEach { require(loadSets.save(it)) { "${it.name} was not written" } }
+        WorkspaceDictionary.write(root, FiRfqPlatformBundle.dictionary)
 
         // In the order the bundle declares them, which is the order a reader meets them in.
         val written = scenarioDir.listFiles().orEmpty().associateBy { ScenarioCodec.fromJson(json.parseToJsonElement(it.readText()).jsonObject).id }
@@ -93,7 +94,7 @@ class ExampleBundleGenerator {
                 summary = FiRfqPlatformBundle.SUMMARY,
                 defaultWorkspaceName = "Fixed Income RFQ",
                 files =
-                    listOf("connection_profiles.json", "saved_messages.json") +
+                    listOf("connection_profiles.json", "saved_messages.json", WorkspaceDictionary.FILE) +
                         scenarioFiles.map { "scenarios/${it.name}" } +
                         FiRfqPlatformBundle.loadSets.map { "load-sets/${loadSets.fileFor(it.name).name}" },
             )

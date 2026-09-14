@@ -1,12 +1,16 @@
 package com.knapsack.fixtool.headless
 
+import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.service.RunRecordStore
 import com.knapsack.fixtool.service.ScenarioService
+import com.knapsack.fixtool.service.WorkspaceDictionary
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -206,5 +210,28 @@ class HeadlessRunTest {
 
         assertEquals(HeadlessRun.EXIT_USAGE, code, "an empty store is a usage error, not a pass")
         assertTrue(err.contains("no scenarios"), err)
+    }
+
+    // ------------------------------------------------------- the dictionary a run is judged in
+
+    /**
+     * `--home` is the workspace, so a workspace that names its dictionary is judged in it, as the app judges it: a build
+     * box whose settings name a venue's own dictionary must not turn a bundled example red that the app shows green.
+     */
+    @Test
+    fun `a workspace that names its dictionary is judged in it, whatever the settings name`() {
+        val workspace = Files.createTempDirectory("headless-dictionary").toFile()
+        try {
+            WorkspaceDictionary.write(workspace, WorkspaceDictionary(fixVersion = FixVersion.FIX_4_2))
+            val settings = AppSettings.default().copy(useBundledDictionary = false, defaultDataDictionary = "/nowhere/venue.xml")
+            val err = StringBuilder()
+
+            val dictionary = HeadlessRun.dictionaryFor(settings, err, workspace)
+
+            assertEquals(FixVersion.FIX_4_2, dictionary.fixVersion, err.toString())
+            assertEquals("", err.toString(), "the settings' missing file was reached for")
+        } finally {
+            workspace.deleteRecursively()
+        }
     }
 }

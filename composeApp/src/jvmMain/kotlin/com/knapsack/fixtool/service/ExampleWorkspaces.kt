@@ -84,6 +84,19 @@ object ExampleWorkspaces {
                 .getOrNull()
         }
 
+    /**
+     * The dictionary [exampleId] names for itself, or null when it names none.
+     *
+     * Read from the build rather than from a copy, because it answers for the copies laid down before examples
+     * named one: see [DictionaryChoice.resolve].
+     */
+    fun dictionaryOf(exampleId: String): WorkspaceDictionary? =
+        readResource("$ROOT/$exampleId/${WorkspaceDictionary.FILE}")?.let { text ->
+            runCatching { WorkspaceDictionary.parse(text).dictionary }
+                .onFailure { logger.error("Example '$exampleId' has an unreadable ${WorkspaceDictionary.FILE}", it) }
+                .getOrNull()
+        }
+
     /** Where a new workspace goes unless the user browses elsewhere. */
     fun defaultLocation(): File = WorkspacePaths.home.workspaces
 

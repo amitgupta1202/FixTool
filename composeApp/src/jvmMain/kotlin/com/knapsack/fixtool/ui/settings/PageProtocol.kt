@@ -56,6 +56,14 @@ private fun ProtocolContent(context: SettingsContext) {
         title = "Data dictionary",
         description = "The XML that gives every tag its name, type and place. Applied on restart.",
     ) {
+        if (context.workspace.dictionaryNote.isNotBlank()) {
+            Text(
+                text = context.workspace.dictionaryNote,
+                fontSize = 11.sp,
+                color = AppTheme.Colors.info,
+                modifier = Modifier.testTag("workspace-dictionary-note"),
+            )
+        }
         SettingsCheckbox(
             label = "Use bundled dictionary",
             description = "Parse with the dictionary shipped inside FixTool for the FIX version below",

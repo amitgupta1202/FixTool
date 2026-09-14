@@ -7,7 +7,12 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.w3c.dom.Element
 import java.io.File
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -76,6 +81,16 @@ class FiRfqExampleWorkspaceIntegrationTest {
 
     /** Copies the example, moves it off the bundled port, opens it, and connects everything, venue first. */
     private fun openAndConnect(): File {
+        val workspace = copyOnFreePort()
+        viewModel.openWorkspace(workspace).getOrThrow()
+        val venue = viewModel.connectionProfiles.first { it.config.senderCompID == venueCompId }
+        viewModel.connectProfile(venue.id, venue)
+        viewModel.connectionProfiles.filter { it.id != venue.id }.forEach { viewModel.connectProfile(it.id, it) }
+        return workspace
+    }
+
+    /** A copy of the example with every profile moved off the bundled port, not yet opened. */
+    private fun copyOnFreePort(): File {
         val workspace =
             ExampleWorkspaces
                 .open(ExampleWorkspaces.FI_RFQ_VENUE, "Fixed Income RFQ", location)
@@ -94,11 +109,6 @@ class FiRfqExampleWorkspaceIntegrationTest {
                 )
             },
         )
-
-        viewModel.openWorkspace(workspace).getOrThrow()
-        val venue = viewModel.connectionProfiles.first { it.config.senderCompID == venueCompId }
-        viewModel.connectProfile(venue.id, venue)
-        viewModel.connectionProfiles.filter { it.id != venue.id }.forEach { viewModel.connectProfile(it.id, it) }
         return workspace
     }
 
@@ -176,6 +186,71 @@ class FiRfqExampleWorkspaceIntegrationTest {
                         },
                 )
             }
+        }
+    }
+
+    /**
+     * **A machine whose Settings name another FIX 4.4 still gets a green example.**
+     *
+     * Found on a demo machine: Settings named a venue's own FIX 4.4 dictionary, whose QuoteRequest has no NoRelatedSym
+     * group. The platform relayed the request with every field flat, in tag order, so `131` came after `38`, `48` and
+     * `54`, and three of the five scenarios failed on rows that had only moved. The platform was right; the example was
+     * being read in a dictionary it was never written against. It names its own now, and that wins while it is open.
+     */
+    @Test
+    fun `the scenarios stay green when Settings name a dictionary that lays a QuoteRequest out flat`() {
+        viewModel.saveAppSettings(
+            viewModel.appSettings.copy(
+                useBundledDictionary = false,
+                defaultDataDictionary = flatQuoteRequestDictionary().absolutePath,
+            ),
+        )
+        viewModel.openWorkspace(copyOnFreePort()).getOrThrow()
+        val venue = viewModel.connectionProfiles.first { it.config.senderCompID == venueCompId }
+        viewModel.connectProfile(venue.id, venue)
+        viewModel.connectionProfiles
+            .filter { it.config.senderCompID in clientCompIds }
+            .forEach { viewModel.connectProfile(it.id, it) }
+        assertTrue(awaitCondition(30_000) { loggedOn(clientCompIds) == clientCompIds.size }, "the four clients never logged on")
+        assertTrue(
+            awaitCondition(10_000) {
+                clientCompIds.all { compId -> viewModel.sessions.any { it.title == "$venueName ← $compId" } }
+            },
+            "the platform must know every party online before it relays a request to them",
+        )
+
+        scenarioIds.forEach { id ->
+            val scenario = assertNotNull(viewModel.scenarioService.load(id), "$id did not come across")
+            val result = assertNotNull(viewModel.runScenarioBlocking(scenario), "the run slot was busy for $id")
+            assertTrue(
+                result.passed,
+                "$id was red under a Settings dictionary the example does not name:\n" +
+                    result.steps.joinToString("\n") {
+                        "  [${if (it.passed) "ok" else "RED"}] ${it.kind}/${it.phase} ${it.detail} " +
+                            it.tags.joinToString { t -> "${t.tag}=${t.actual}(${t.status})" }
+                    },
+            )
+        }
+    }
+
+    /**
+     * The bundled FIX 4.4 with QuoteRequest's NoRelatedSym group taken away and its contents left in the body: the shape
+     * of the venue dictionary the defect was found under, which is not ours to commit.
+     */
+    private fun flatQuoteRequestDictionary(): File {
+        val source = assertNotNull(javaClass.getResourceAsStream("/dictionaries/FIX44.xml"), "the bundled FIX 4.4 is not on the classpath")
+        val document = source.use { DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it) }
+        val messages = document.getElementsByTagName("message")
+        val quoteRequest = (0 until messages.length).map { messages.item(it) as Element }.first { it.getAttribute("msgtype") == "R" }
+        val group =
+            (0 until quoteRequest.childNodes.length)
+                .map { quoteRequest.childNodes.item(it) }
+                .filterIsInstance<Element>()
+                .first { it.tagName == "group" && it.getAttribute("name") == "NoRelatedSym" }
+        while (group.hasChildNodes()) quoteRequest.insertBefore(group.firstChild, group)
+        quoteRequest.removeChild(group)
+        return File(testDir, "flat-quote-request-FIX44.xml").also { out ->
+            TransformerFactory.newInstance().newTransformer().transform(DOMSource(document), StreamResult(out))
         }
     }
 

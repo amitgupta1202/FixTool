@@ -4,6 +4,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.ui.settings.WorkspaceSettings
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -24,7 +25,10 @@ class SettingsDialogTest {
     private var saved: AppSettings? = null
     private var dismissed = false
 
-    private fun showDialog(settings: AppSettings = AppSettings.default()) {
+    private fun showDialog(
+        settings: AppSettings = AppSettings.default(),
+        workspace: WorkspaceSettings = WorkspaceSettings(),
+    ) {
         saved = null
         dismissed = false
         composeTestRule.setContent {
@@ -33,8 +37,28 @@ class SettingsDialogTest {
                 dictionary = FixDictionary.createDefault(),
                 onSave = { saved = it },
                 onDismiss = { dismissed = true },
+                workspace = workspace,
             )
         }
+    }
+
+    /**
+     * A workspace that names its own dictionary overrides this page while it is open, and the page says so where the
+     * dictionary is chosen. Otherwise a change here saves, nothing changes, and nothing says why.
+     */
+    @Test
+    fun `the dictionary block says when the open workspace names its own`() {
+        val note = "\"fixed-income-rfq\" names its own dictionary, the bundled FIX 4.4, in workspace.json."
+        showDialog(workspace = WorkspaceSettings(dictionaryNote = note))
+
+        composeTestRule.onNodeWithTag("workspace-dictionary-note").assertExists().assertTextEquals(note)
+    }
+
+    @Test
+    fun `no note is drawn while Settings choose the dictionary`() {
+        showDialog()
+
+        composeTestRule.onNodeWithTag("workspace-dictionary-note").assertDoesNotExist()
     }
 
     @Test

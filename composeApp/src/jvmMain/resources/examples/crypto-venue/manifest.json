@@ -6,6 +6,7 @@
   "files": [
     "connection_profiles.json",
     "saved_messages.json",
+    "workspace.json",
     "scenarios/post-only--demo-sce.json",
     "scenarios/rest-and-cancel--demo-sce.json",
     "load-sets/crypto-rest-and-refuse.json"

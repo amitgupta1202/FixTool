@@ -6,6 +6,7 @@
   "files": [
     "connection_profiles.json",
     "saved_messages.json",
+    "workspace.json",
     "scenarios/eur-usd-order-lifecycle--demo-sce.json",
     "scenarios/session-round-trip-probe--demo-sce.json",
     "load-sets/fx-order-book.json"

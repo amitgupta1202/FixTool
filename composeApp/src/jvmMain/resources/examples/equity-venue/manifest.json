@@ -6,6 +6,7 @@
   "files": [
     "connection_profiles.json",
     "saved_messages.json",
+    "workspace.json",
     "scenarios/rest-and-cancel--demo-sce.json",
     "scenarios/market-fill--demo-sce.json",
     "scenarios/market-data--demo-sce.json",

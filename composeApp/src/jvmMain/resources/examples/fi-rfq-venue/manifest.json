@@ -6,6 +6,7 @@
     "files": [
         "connection_profiles.json",
         "saved_messages.json",
+        "workspace.json",
         "scenarios/buy-side-lifts-dealer-1-s-offer--fi-rfq-s.json",
         "scenarios/two-dealers-quote-the-better-offer-is-lifted--fi-rfq-s.json",
         "scenarios/a-dealer-cannot-ask-for-a-quote--fi-rfq-s.json",

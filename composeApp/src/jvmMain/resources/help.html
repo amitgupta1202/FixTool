@@ -982,6 +982,9 @@
         <li>No need to download or configure a dictionary to get started</li>
         <li>You can still configure a custom dictionary in Settings &rarr; Protocol if needed</li>
     </ul>
+    <p>Every example names the bundled FIX 4.4 for itself, so a venue's own dictionary in Settings cannot
+    turn an example's scenarios red: while an example is open, it is read in the dictionary it was written
+    in. See <a href="#workspaces">Workspaces</a>.</p>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
@@ -1661,8 +1664,21 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     <code>fx-venue-before-reset-&lt;date&gt;</code>, so anything you want out of it is still there.
     That is why Reset needs no confirmation.</p>
     <p>What does <em>not</em> move with a workspace is anything belonging to the person at the keyboard:
-    the data dictionary, the window layout, the rail's sort order and everything in Settings. Opening a
+    the window layout, the rail's sort order and everything in Settings. Opening a
     second workspace gives you other profiles and other scenarios, not a fresh install.</p>
+    <p><strong>The data dictionary moves only when a workspace names one.</strong> A dictionary decides
+    where each repeating group starts, so it decides the order a venue's fields arrive in, and a
+    scenario's rows are written in that order. Read in a different dictionary, the same scenario fails on
+    rows that have only moved. So a workspace may name its dictionary in <code>workspace.json</code>
+    &mdash; <code>{"dictionary": {"fixVersion": "FIX_4_4"}}</code> for a bundled one, or
+    <code>{"dictionary": {"path": "dictionaries/venue.xml"}}</code> for a file, found beside the
+    workspace when the path is relative &mdash; and while that workspace is open, its dictionary is the
+    one loaded, whatever <strong>Settings &rarr; Protocol</strong> says. That page says so while it
+    happens. A workspace that names none is read in the dictionary in Settings, as before.
+    <code>fixtool run --home</code> and <code>fixtool load --home</code> choose the same way.</p>
+    <p>Every example names the bundled FIX 4.4. A copy laid down before examples did has no
+    <code>workspace.json</code>, and is read in the dictionary its example names; write
+    <code>{}</code> into <code>workspace.json</code> to have a copy use the one in Settings instead.</p>
     <p>Logon passwords are kept in <code>secrets.json</code> beside the profiles rather than inside
     <code>connection_profiles.json</code>, so the interesting half of a workspace &mdash; CompIDs, hosts,
     acceptor rules &mdash; is a file you can commit or hand to a colleague without handing over a

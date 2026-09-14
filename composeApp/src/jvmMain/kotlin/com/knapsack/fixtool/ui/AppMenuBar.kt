@@ -66,15 +66,24 @@ fun FrameWindowScope.WindowKeys(state: AppMenuState) {
     }
 }
 
+/**
+ * A menu's rows, **by position and never keyed**.
+ *
+ * Keyed, a row that changed places was moved, and Compose moves a node inside a menu with `getComponent`, which a
+ * `JMenu` cannot answer: its items live in its popup, so it threw "No such child" and took the window down. Opening a
+ * workspace was enough, because it goes to the top of Recent workspaces. By position, a reorder is each row taking
+ * the next one's label and action, and a row of another kind is removed and inserted, both of which a `JMenu` does.
+ * A row holds no state of its own to lose on the way.
+ *
+ * The menus themselves stay keyed: they are the menu bar's own children, which it can move.
+ */
 @Composable
 private fun MenuScope.Rows(rows: List<MenuRow>) {
     rows.forEach { row ->
-        key(row.tag) {
-            when (row) {
-                is MenuItem -> ItemRow(row)
-                is Submenu -> Menu(row.label, enabled = row.enabled) { Rows(row.rows) }
-                is MenuSeparator -> Separator()
-            }
+        when (row) {
+            is MenuItem -> ItemRow(row)
+            is Submenu -> Menu(row.label, enabled = row.enabled) { Rows(row.rows) }
+            is MenuSeparator -> Separator()
         }
     }
 }

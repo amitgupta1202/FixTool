@@ -17,7 +17,7 @@ import androidx.compose.ui.input.key.KeyEventType
  * drawn straight into a `JMenuItem` could only be read by the first.
  */
 internal sealed interface MenuRow {
-    /** Unique among its siblings: what a renderer keeps a row's identity by, and what a test asks for. */
+    /** Unique among its siblings: what a test asks for. Not a key the menu bar draws by — see `Rows` in AppMenuBar. */
     val tag: String
 }
 

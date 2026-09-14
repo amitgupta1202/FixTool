@@ -161,16 +161,22 @@ fun BoxScope.ColumnResizeGrip(
  *
  * The default is passed at each read rather than registered up front, so a column the grid gains later — a
  * tag column added in settings — is resizable without anyone registering it.
+ *
+ * [min] and [max] are the grids' limits unless a drawing needs its own: a Lanes column holds a whole message
+ * chip rather than one value, and a chip carrying two uuids is wider than any grid column is allowed to be.
  */
 @Stable
-class GridColumnWidths {
+class GridColumnWidths(
+    private val min: Dp = GRID_COLUMN_MIN_WIDTH,
+    private val max: Dp = GRID_COLUMN_MAX_WIDTH,
+) {
     private val set = mutableStateMapOf<String, Dp>()
     private val fitted = mutableStateSetOf<String>()
 
     fun widthOf(key: String, default: Dp): Dp = set[key] ?: default
 
     fun resizeBy(key: String, delta: Dp, default: Dp) {
-        set[key] = (widthOf(key, default) + delta).coerceIn(GRID_COLUMN_MIN_WIDTH, GRID_COLUMN_MAX_WIDTH)
+        set[key] = (widthOf(key, default) + delta).coerceIn(min, max)
         fitted.remove(key)
     }
 
@@ -179,7 +185,7 @@ class GridColumnWidths {
         if (fitted.remove(key)) {
             set.remove(key)
         } else {
-            set[key] = fit().coerceIn(GRID_COLUMN_MIN_WIDTH, GRID_COLUMN_MAX_WIDTH)
+            set[key] = fit().coerceIn(min, max)
             fitted.add(key)
         }
     }
@@ -191,9 +197,13 @@ class GridColumnWidths {
  * The estimate the message grid has always fitted with — a character's advance plus the cell's padding.
  * Measuring the text would be exact, and would lay out every row in the window to widen one column.
  */
-fun fittedColumnWidth(samples: Sequence<String>): Dp {
+fun fittedColumnWidth(
+    samples: Sequence<String>,
+    min: Dp = GRID_COLUMN_MIN_WIDTH,
+    max: Dp = GRID_COLUMN_MAX_WIDTH,
+): Dp {
     val longest = samples.maxOfOrNull { it.length } ?: 0
-    return (longest * FIT_CHAR_WIDTH + FIT_PADDING).dp.coerceIn(GRID_COLUMN_MIN_WIDTH, GRID_COLUMN_MAX_WIDTH)
+    return (longest * FIT_CHAR_WIDTH + FIT_PADDING).dp.coerceIn(min, max)
 }
 
 /** The register a grid header speaks: small, bold, monospace, and quieter than the rows under it. */

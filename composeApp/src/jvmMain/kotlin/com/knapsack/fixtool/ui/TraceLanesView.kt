@@ -1,9 +1,11 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +40,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppSettings
@@ -70,6 +73,11 @@ import java.time.format.DateTimeFormatter
  *
  * With nothing followed there is nothing to draw, and the panel says so rather than showing an empty
  * grid — the trace headers are listed and a click follows one, which is the gesture that fills the view.
+ *
+ * **Every lane is as wide as its reader makes it.** Drag a lane header's right edge, double-click it to fit
+ * the lane's widest chip, double-click again for the declared width — the gesture every grid in the app
+ * answers. A lane is keyed by its pane's title, so a width set while following one trace is still there
+ * when the next trace crosses the same pane.
  */
 @Composable
 fun TraceLanesView(
@@ -80,6 +88,8 @@ fun TraceLanesView(
     selectedMessage: FixMessage?,
     dictionary: FixDictionary,
     appSettings: AppSettings,
+    /** What each lane has been dragged or fitted to. The dock holds it, so it outlives switching drawings. */
+    laneWidths: GridColumnWidths = remember { laneColumnWidths() },
     onFollow: (String) -> Unit = {},
     onSelectMember: (Located, FixMessage) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
@@ -92,10 +102,18 @@ fun TraceLanesView(
 
         val listState = rememberLazyListState()
         val horizontalScrollState = rememberScrollState()
+        val geometry = LaneGeometry(lanes.lanes.map { laneWidths.widthOf(laneKey(it), LANE_WIDTH) })
 
         Box(modifier = Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) {
             Column(modifier = Modifier.fillMaxHeight()) {
-                LaneHeaderRow(lanes)
+                LaneHeaderRow(
+                    lanes = lanes,
+                    geometry = geometry,
+                    onResize = { lane, delta -> laneWidths.resizeBy(laneKey(lane), delta, LANE_WIDTH) },
+                    onFit = { lane ->
+                        laneWidths.toggleFit(laneKey(lane)) { fittedLaneWidth(lane, lanes, dictionary) }
+                    },
+                )
                 HorizontalDivider(color = AppTheme.Colors.border)
                 LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
                     itemsIndexed(lanes.rows) { position, row ->
@@ -103,6 +121,7 @@ fun TraceLanesView(
                             row = row,
                             position = position,
                             lanes = lanes,
+                            geometry = geometry,
                             selectedMessage = selectedMessage,
                             dictionary = dictionary,
                             appSettings = appSettings,
@@ -206,6 +225,34 @@ private val LANE_WIDTH = 200.dp
 private val ROW_HEIGHT = 26.dp
 private val HEADER_HEIGHT = 26.dp
 
+/** A lane's width is remembered against its pane's title, which outlives the trace that drew it. */
+private fun laneKey(lane: TraceLanes.Lane): String = lane.title
+
+/**
+ * The width that shows this lane's widest chip, or its header, whole.
+ *
+ * Estimated from the text the way every grid fits, and for the same reason: measuring would lay out every row
+ * of the trace to widen one lane. Only the chips a lane draws count — a hop's landing ◀ is a glyph wide. The
+ * chip's own padding and the gaps between its parts are a few characters' worth, added as spaces.
+ */
+private fun fittedLaneWidth(
+    lane: TraceLanes.Lane,
+    lanes: TraceLanes.Lanes,
+    dictionary: FixDictionary,
+): Dp {
+    val position = lanes.lanes.indexOf(lane)
+    val header = "   ${lane.title} ${lane.party ?: roleWord(lane.role)}"
+    val chips =
+        lanes.rows
+            .asSequence()
+            .filter { lanes.laneOf(it.from.session) == position }
+            .map { row ->
+                val message = row.from.message
+                "  ◀ ${message.messageType} ${chipName(message, dictionary)} ${correlationLabel(message, dictionary)}"
+            }
+    return fittedColumnWidth(sequenceOf(header) + chips, min = LANE_MIN_WIDTH, max = LANE_MAX_WIDTH)
+}
+
 /** The colour a session is badged with — the Ledger's mapping, so one pane is one colour everywhere. */
 private fun laneColor(session: Int): Color =
     AppTheme.Colors.usernameColors[
@@ -254,8 +301,14 @@ private fun Modifier.lifeline(): Modifier =
 
 private val LIFELINE_COLOR = Color(0xFF303030)
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LaneHeaderRow(lanes: TraceLanes.Lanes) {
+private fun LaneHeaderRow(
+    lanes: TraceLanes.Lanes,
+    geometry: LaneGeometry,
+    onResize: (TraceLanes.Lane, Dp) -> Unit,
+    onFit: (TraceLanes.Lane) -> Unit,
+) {
     val background = Color(0xFF2D2D2D)
     Row(modifier = Modifier.background(background).height(HEADER_HEIGHT)) {
         Box(modifier = Modifier.width(GUTTER_WIDTH).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {
@@ -270,39 +323,45 @@ private fun LaneHeaderRow(lanes: TraceLanes.Lanes) {
         }
         lanes.lanes.forEachIndexed { position, lane ->
             val dividesHere = position == lanes.acceptorDividerAt
-            Row(
+            // The rule itself is painted on the lane's leading edge, where it lines up with the same edge on every
+            // row below. This marks where it falls without taking space from the title, and stands outside the
+            // clickable cell so the cell's merged semantics do not swallow it.
+            if (dividesHere) Box(modifier = Modifier.width(0.dp).testTag("trace-lane-divider"))
+            Box(
                 modifier =
                     Modifier
-                        .width(LANE_WIDTH)
+                        .width(geometry.widthOf(position))
                         .fillMaxHeight()
                         .acceptorRule(dividesHere)
                         .testTag("trace-lane-header")
-                        .padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                        .combinedClickable(onClick = {}, onDoubleClick = { onFit(lane) }),
             ) {
-                // The rule itself is painted on the lane's leading edge, where it lines up with the same
-                // edge on every row below. This marks where it falls without taking space from the title.
-                if (dividesHere) Box(modifier = Modifier.width(0.dp).testTag("trace-lane-divider"))
-                LaneDot(lane.session)
-                Text(
-                    text = lane.title,
-                    fontSize = 10.sp,
-                    color = laneColor(lane.session),
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = 6.dp),
-                )
-                Text(
-                    // A negotiation's own word when the venue declares one — requester, venue, responder — since
-                    // on a relaying venue both edges are initiators and the wire side no longer tells them apart.
-                    text = lane.party ?: roleWord(lane.role),
-                    fontSize = 10.sp,
-                    color = AppTheme.Colors.textDisabled,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                )
+                Row(
+                    modifier = Modifier.fillMaxHeight().padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    LaneDot(lane.session)
+                    Text(
+                        text = lane.title,
+                        fontSize = 10.sp,
+                        color = laneColor(lane.session),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false).padding(end = 6.dp),
+                    )
+                    Text(
+                        // A negotiation's own word when the venue declares one — requester, venue, responder — since
+                        // on a relaying venue both edges are initiators and the wire side no longer tells them apart.
+                        text = lane.party ?: roleWord(lane.role),
+                        fontSize = 10.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                    )
+                }
+                ColumnResizeGrip(onResize = { onResize(lane, it) }, tag = "trace-lane-resize-$position")
             }
         }
     }
@@ -321,6 +380,7 @@ private fun LaneRowView(
     row: TraceLanes.LaneRow,
     position: Int,
     lanes: TraceLanes.Lanes,
+    geometry: LaneGeometry,
     selectedMessage: FixMessage?,
     dictionary: FixDictionary,
     appSettings: AppSettings,
@@ -347,20 +407,9 @@ private fun LaneRowView(
             )
         }
 
-        Box(modifier = Modifier.width(LANE_WIDTH * lanes.lanes.size).fillMaxHeight()) {
+        Box(modifier = Modifier.width(geometry.total).fillMaxHeight()) {
             // The lifelines first, so every chip and every arrow lands on top of them.
-            Row(modifier = Modifier.fillMaxSize()) {
-                lanes.lanes.forEachIndexed { lanePosition, _ ->
-                    Box(
-                        modifier =
-                            Modifier
-                                .width(LANE_WIDTH)
-                                .fillMaxHeight()
-                                .lifeline()
-                                .acceptorRule(lanePosition == lanes.acceptorDividerAt),
-                    )
-                }
-            }
+            Lifelines(lanes, geometry)
 
             val fromLane = lanes.laneOf(row.from.session)
             val toLane = row.to?.let { lanes.laneOf(it.session) } ?: -1
@@ -371,11 +420,17 @@ private fun LaneRowView(
             // chips and the ◀ are — and between two neighbouring lanes, that is all the room there is.
             Box(modifier = Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
                 if (hops) {
-                    HopArrow(fromLane = fromLane, toLane = toLane, elapsedMillis = row.hopMillis)
-                    Landing(fromLane = fromLane, toLane = toLane)
+                    HopArrow(fromLane = fromLane, toLane = toLane, geometry = geometry, elapsedMillis = row.hopMillis)
+                    Landing(fromLane = fromLane, toLane = toLane, geometry = geometry)
                 }
                 if (fromLane >= 0) {
-                    Box(modifier = Modifier.offset(x = LANE_WIDTH * fromLane).width(LANE_WIDTH).fillMaxHeight()) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .offset(x = geometry.startOf(fromLane))
+                                .width(geometry.widthOf(fromLane))
+                                .fillMaxHeight(),
+                    ) {
                         MessageChip(
                             entry = row.from,
                             selected = selectedMessage == row.from.message,
@@ -387,7 +442,26 @@ private fun LaneRowView(
                 }
             }
 
-            if (hops && relayed != null) RelayReason(fromLane = fromLane, toLane = toLane, text = relayed)
+            if (hops && relayed != null) {
+                RelayReason(fromLane = fromLane, toLane = toLane, geometry = geometry, text = relayed)
+            }
+        }
+    }
+}
+
+/** Every lane's thread for one row, each as wide as its lane, with the dashed rule on the lane it divides before. */
+@Composable
+private fun Lifelines(lanes: TraceLanes.Lanes, geometry: LaneGeometry) {
+    Row(modifier = Modifier.fillMaxSize()) {
+        lanes.lanes.forEachIndexed { position, _ ->
+            Box(
+                modifier =
+                    Modifier
+                        .width(geometry.widthOf(position))
+                        .fillMaxHeight()
+                        .lifeline()
+                        .acceptorRule(position == lanes.acceptorDividerAt),
+            )
         }
     }
 }
@@ -403,9 +477,9 @@ private fun relayedLabel(message: FixMessage): String? {
  * well as off the glyph.
  */
 @Composable
-private fun Landing(fromLane: Int, toLane: Int) {
+private fun Landing(fromLane: Int, toLane: Int, geometry: LaneGeometry) {
     Box(
-        modifier = Modifier.offset(x = LANE_WIDTH * toLane).width(LANE_WIDTH).fillMaxHeight(),
+        modifier = Modifier.offset(x = geometry.startOf(toLane)).width(geometry.widthOf(toLane)).fillMaxHeight(),
         contentAlignment = if (toLane > fromLane) Alignment.CenterStart else Alignment.CenterEnd,
     ) {
         Text(
@@ -420,11 +494,11 @@ private fun Landing(fromLane: Int, toLane: Int) {
 
 /** A relayed row's reason, in the strip under its hop, across both lanes the hop joins. */
 @Composable
-private fun RelayReason(fromLane: Int, toLane: Int, text: String) {
+private fun RelayReason(fromLane: Int, toLane: Int, geometry: LaneGeometry, text: String) {
     val left = minOf(fromLane, toLane)
     val right = maxOf(fromLane, toLane)
     Box(
-        modifier = Modifier.offset(x = LANE_WIDTH * left, y = ROW_HEIGHT).width(LANE_WIDTH * (right - left + 1)),
+        modifier = Modifier.offset(x = geometry.startOf(left), y = ROW_HEIGHT).width(geometry.spanOf(left, right)),
         contentAlignment = Alignment.TopCenter,
     ) {
         Text(
@@ -455,6 +529,7 @@ private fun RelayReason(fromLane: Int, toLane: Int, text: String) {
 private fun HopArrow(
     fromLane: Int,
     toLane: Int,
+    geometry: LaneGeometry,
     elapsedMillis: Long?,
 ) {
     val left = minOf(fromLane, toLane)
@@ -463,8 +538,8 @@ private fun HopArrow(
     Box(
         modifier =
             Modifier
-                .offset(x = LANE_WIDTH * left + LANE_WIDTH / 2)
-                .width(LANE_WIDTH * (right - left))
+                .offset(x = geometry.centreOf(left))
+                .width(geometry.centreOf(right) - geometry.centreOf(left))
                 .fillMaxHeight()
                 .testTag("trace-lane-pair")
                 .drawBehind {
@@ -607,7 +682,7 @@ private const val ORD_STATUS = 39
  *
  * [Conversations.idsOf] is the one decider about which tags are correlation ids, here as everywhere —
  * the chip must cite the same values the grouping joined on, or the picture would explain itself with
- * evidence the relation never used. Two is what a 200dp lane holds; the rest is on the row's message in
+ * evidence the relation never used. Two is what a lane holds at its declared width; the rest is on the row's message in
  * the pane a click raises.
  */
 private fun correlationLabel(

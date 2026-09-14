@@ -102,6 +102,8 @@ fun TracePanel(
      * switching to the search results and back.
      */
     columnWidths: GridColumnWidths = remember { GridColumnWidths() },
+    /** What each Lanes column has been dragged to, held by the dock for the same reason [columnWidths] is. */
+    laneWidths: GridColumnWidths = remember { laneColumnWidths() },
     onSetRendering: (TraceRendering) -> Unit = {},
     onToggleTrace: (TraceKey) -> Unit = {},
     onToggleUngrouped: () -> Unit = {},
@@ -143,6 +145,7 @@ fun TracePanel(
                 selectedMessage = selectedMessage,
                 dictionary = dictionary,
                 appSettings = appSettings,
+                laneWidths = laneWidths,
                 onFollow = onFollow,
                 onSelectMember = onSelectMember,
             )

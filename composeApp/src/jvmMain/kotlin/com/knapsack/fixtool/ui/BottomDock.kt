@@ -125,9 +125,10 @@ fun BottomDock(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
     var terminalStarted by remember { mutableStateOf(false) }
     LaunchedEffect(tab) { if (tab is BottomTab.Terminal) terminalStarted = true }
 
-    // The widths a reader dragged the Ledger's and the search results' columns to. Held here, where they outlive
-    // the grids: each grid leaves composition whenever the other tab is chosen or the dock is hidden.
+    // The widths a reader dragged the Ledger's, Lanes' and the search results' columns to. Held here, where they
+    // outlive the grids: each grid leaves composition whenever the other tab is chosen or the dock is hidden.
     val traceColumnWidths = remember { GridColumnWidths() }
+    val traceLaneWidths = remember { laneColumnWidths() }
     val searchColumnWidths = remember { GridColumnWidths() }
 
     val visible = tab != null
@@ -172,7 +173,8 @@ fun BottomDock(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
         if (selected != null && selected !is BottomTab.Terminal) {
             Box(modifier = Modifier.fillMaxWidth().height(heightDp)) {
                 when (selected) {
-                    is BottomTab.Trace -> DockTracePanel(viewModel, traceColumnWidths, Modifier.fillMaxSize())
+                    is BottomTab.Trace ->
+                        DockTracePanel(viewModel, traceColumnWidths, traceLaneWidths, Modifier.fillMaxSize())
                     is BottomTab.SearchResults ->
                         SearchResultsPane(
                             searchResults = pinnedSearchResults,
@@ -312,7 +314,12 @@ private fun DockTab(
  * slot when the dock took over the foot of the window.
  */
 @Composable
-private fun DockTracePanel(viewModel: FixMessageViewModel, columnWidths: GridColumnWidths, modifier: Modifier = Modifier) {
+private fun DockTracePanel(
+    viewModel: FixMessageViewModel,
+    columnWidths: GridColumnWidths,
+    laneWidths: GridColumnWidths,
+    modifier: Modifier = Modifier,
+) {
     val followedTrace by viewModel.followedTrace.collectAsState()
     val index by viewModel.traceIndex.collectAsState()
     val expandedTraces by viewModel.expandedTraces.collectAsState()
@@ -377,6 +384,7 @@ private fun DockTracePanel(viewModel: FixMessageViewModel, columnWidths: GridCol
         rendering = rendering,
         lanes = lanes,
         columnWidths = columnWidths,
+        laneWidths = laneWidths,
         onSetRendering = { viewModel.setTraceRendering(it) },
         onToggleTrace = { key -> viewModel.toggleTrace(key) },
         onToggleUngrouped = { viewModel.toggleUngroupedTraces() },

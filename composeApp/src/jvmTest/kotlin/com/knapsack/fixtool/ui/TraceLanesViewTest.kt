@@ -1,13 +1,22 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.width
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
@@ -24,7 +33,9 @@ import org.junit.Rule
 import org.junit.Test
 import quickfix.Message
 import java.time.LocalDateTime
+import kotlin.math.abs
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * **Lanes as it appears on screen.**
@@ -185,6 +196,103 @@ class TraceLanesViewTest {
         composeTestRule.onNodeWithText("RFQ-A1").assertExists()
         composeTestRule.onAllNodesWithTag("trace-lane-chip")[0].performClick()
         assertEquals(0 to "R", picked, "the OUT side of the hop, on the client's pane")
+    }
+
+    // ---------------------------------------------------------------- the widths
+
+    private fun SemanticsNodeInteraction.left(): Dp = getUnclippedBoundsInRoot().left
+
+    private fun SemanticsNodeInteraction.right(): Dp = getUnclippedBoundsInRoot().right
+
+    private fun SemanticsNodeInteraction.width(): Dp = getUnclippedBoundsInRoot().width
+
+    private fun assertMoved(
+        expected: Dp,
+        before: Dp,
+        after: Dp,
+        what: String,
+    ) = assertTrue(abs((after - before - expected).value) < 1.5f, "$what moved ${after - before}, expected $expected")
+
+    /**
+     * The reported defect: a lane was 200dp and nothing could change it. Drag one lane's edge and that lane widens,
+     * and everything drawn to its right — the next lane's header, its chips, the ◀ a hop lands on — moves over by
+     * the same distance, while the arrow between the two lane centres grows by half of it.
+     */
+    @Test
+    fun `dragging a lane's edge widens that lane, and what is drawn to its right moves with it`() {
+        composeTestRule.setContent {
+            TraceLanesView(
+                lanes = lanes(),
+                headers = headers(),
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = AppSettings.default(),
+            )
+        }
+        val headers = composeTestRule.onAllNodesWithTag("trace-lane-header")
+        val clientWidth = headers[0].width()
+        val venueLeft = headers[1].left()
+        val quoteRight = composeTestRule.onAllNodesWithTag("trace-lane-chip")[1].right()
+        val landingLeft = composeTestRule.onNodeWithTag("trace-lane-landing").left()
+        val arrowWidth = composeTestRule.onNodeWithTag("trace-lane-pair").width()
+        val arrowLeft = composeTestRule.onNodeWithTag("trace-lane-pair").left()
+
+        composeTestRule.onNodeWithTag("trace-lane-resize-0", useUnmergedTree = true).performMouseInput {
+            moveTo(center)
+            press()
+            repeat(6) { moveBy(Offset(10f, 0f)) }
+            release()
+        }
+        composeTestRule.waitForIdle()
+
+        assertMoved(60.dp, clientWidth, headers[0].width(), "the dragged lane's edge")
+        assertMoved(60.dp, venueLeft, headers[1].left(), "the next lane's header")
+        assertMoved(60.dp, quoteRight, composeTestRule.onAllNodesWithTag("trace-lane-chip")[1].right(), "its chip")
+        assertMoved(60.dp, landingLeft, composeTestRule.onNodeWithTag("trace-lane-landing").left(), "the landing")
+        // The arrow runs centre to centre: its start follows the dragged lane's centre, half the drag.
+        assertMoved(30.dp, arrowLeft, composeTestRule.onNodeWithTag("trace-lane-pair").left(), "the arrow's start")
+        assertMoved(30.dp, arrowWidth, composeTestRule.onNodeWithTag("trace-lane-pair").width(), "the arrow")
+    }
+
+    /**
+     * A fill carrying two long ids does not fit a 200dp lane, which is what made Lanes unreadable. Double-click the
+     * lane's header and the chip shows whole; double-click again and the lane is back to its declared width.
+     */
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `double-clicking a lane's header fits its widest chip, and again puts the declared width back`() {
+        val fill = at(120, "35=8|11=RFQ-A1|37=VENUE-ORDER-2026-0914-000123|17=EXEC-2026-0914-000456|39=2|")
+        val panes = listOf(snapshots[0] + fill, snapshots[1])
+        val widths = laneColumnWidths()
+        // Room for the fill's chip to lay out whole, so its natural width can be read before the lane shrinks.
+        widths.resizeBy("CLIENT", 600.dp, default = 200.dp)
+        composeTestRule.setContent {
+            TraceLanesView(
+                lanes = lanes(panes = panes),
+                headers = headers(panes),
+                selectedMessage = null,
+                dictionary = dictionary,
+                appSettings = AppSettings.default(),
+                laneWidths = widths,
+            )
+        }
+        val chip = { composeTestRule.onAllNodesWithTag("trace-lane-chip")[2] }
+        val header = composeTestRule.onAllNodesWithTag("trace-lane-header")[0]
+        composeTestRule.onAllNodesWithTag("trace-lane-chip").assertCountEquals(3)
+        val whole = chip().width()
+
+        widths.resizeBy("CLIENT", (-600).dp, default = 200.dp)
+        composeTestRule.waitForIdle()
+        assertTrue(chip().width() < whole - 1.dp, "at 200dp the fill's chip is cut: ${chip().width()} of $whole")
+
+        header.performMouseInput { doubleClick() }
+        composeTestRule.waitForIdle()
+        assertTrue(chip().width() >= whole - 0.5.dp, "fitted, the chip shows whole: ${chip().width()} of $whole")
+        assertTrue(header.width() < 800.dp, "fitted to the chip, not thrown to the limit: ${header.width()}")
+
+        header.performMouseInput { doubleClick() }
+        composeTestRule.waitForIdle()
+        assertMoved(0.dp, 200.dp, header.width(), "the second double-click's lane edge")
     }
 
     // ---------------------------------------------------------------- nothing followed

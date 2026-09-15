@@ -2785,8 +2785,10 @@ class ControlServer(
         if (ex.requestMethod == "POST" && example != null) {
             val opened = onEdt { viewModel.openExample(example) }
             opened.exceptionOrNull()?.let { return errorObject("could not open example '$example': ${it.message}") }
-        } else if (ex.requestMethod == "POST") {
-            if (requested.isNullOrBlank()) {
+        } else if (ex.requestMethod == "POST" && requested != null) {
+            // MCP calls arrive as POST even for the documented no-argument read.
+            // Closing the workspace requires an explicitly supplied empty path.
+            if (requested.isBlank()) {
                 onEdt { viewModel.closeWorkspace() }
             } else {
                 val opened = onEdt { viewModel.openWorkspace(File(requested)) }

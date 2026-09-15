@@ -455,6 +455,29 @@ class ControlServerIntegrationTest {
     // -------------------------------------------------------- embedded MCP server
 
     @Test
+    fun `mcp workspace reads preserve the workspace and panes until explicitly closed`() {
+        val workspace = File(testDir, "demo-workspace").apply { mkdirs() }
+        val openArgs = buildJsonObject { put("workspace", workspace.absolutePath) }.toString()
+        val opened = Json.parseToJsonElement(mcpCall("fixtool_workspace", openArgs)).jsonObject
+        assertEquals(workspace.absolutePath, opened["workspace"]!!.jsonPrimitive.content)
+        assertFalse(opened["isDefault"]!!.jsonPrimitive.boolean)
+        val pane = viewModel.createSessionForTest("Keep this pane")
+
+        val read = Json.parseToJsonElement(mcpCall("fixtool_workspace", "{}")).jsonObject
+        assertEquals(workspace.absolutePath, read["workspace"]!!.jsonPrimitive.content)
+        assertFalse(read["isDefault"]!!.jsonPrimitive.boolean)
+        assertTrue(viewModel.sessions.any { it.id == pane.id }, "a status read must not close session panes")
+
+        val emptyPost = obj(post("/workspace", "{}"))
+        assertEquals(workspace.absolutePath, emptyPost["workspace"]!!.jsonPrimitive.content)
+        assertTrue(viewModel.sessions.any { it.id == pane.id })
+
+        val closed = Json.parseToJsonElement(mcpCall("fixtool_workspace", """{"workspace":""}""")).jsonObject
+        assertTrue(closed["isDefault"]!!.jsonPrimitive.boolean)
+        assertTrue(viewModel.sessions.isEmpty(), "an explicit close still closes the workspace and its panes")
+    }
+
+    @Test
     fun `mcp initialize and tools list expose all tools`() {
         val init =
             obj(post("/mcp", """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"""))

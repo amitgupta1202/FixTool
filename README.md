@@ -4,6 +4,17 @@
 
 FixTool is a desktop app and runs entirely on your machine — nothing is hosted. Everything it does can also run headless in CI, or be driven by an AI agent over MCP.
 
+## Video demos
+
+Technical walkthroughs of the running app, with narration, English captions, and timestamp links. Select **2160p (4K)** in YouTube for the clearest view of the interface.
+
+| Overview · 6:56 | Load testing · 5:44 | MCP and integrated terminal · 5:06 |
+| --- | --- | --- |
+| [![Watch the FixTool overview](https://i.ytimg.com/vi/0dvxs7lQu38/hqdefault.jpg)](https://www.youtube.com/watch?v=0dvxs7lQu38) | [![Watch the load testing demo](https://i.ytimg.com/vi/fei27FYW77Y/hqdefault.jpg)](https://www.youtube.com/watch?v=fei27FYW77Y) | [![Watch the MCP demo](https://i.ytimg.com/vi/JHZo7eQ0APA/hqdefault.jpg)](https://www.youtube.com/watch?v=JHZo7eQ0APA) |
+| Build and inspect messages, configure venue responses, and capture repeatable tests. | Run burst and paced traffic, compare reports, and carry values between load-set phases. | Use Codex inside FixTool to create a request, save a scenario, and author and run a load set. |
+
+[Watch the full playlist](https://www.youtube.com/playlist?list=PLHWhWh53xOrY) · [FixTool on YouTube](https://www.youtube.com/@FixToolOSS)
+
 ## Features
 
 ### Connect and send

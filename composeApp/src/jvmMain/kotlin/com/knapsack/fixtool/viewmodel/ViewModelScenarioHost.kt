@@ -189,14 +189,24 @@ class ViewModelScenarioHost(
         val list = viewModel.sessions
         return when {
             key == null -> defaultSession?.let { title -> list.firstOrNull { it.title == title } } ?: list.firstOrNull()
-            key.toIntOrNull() != null -> list.getOrNull(key.toInt())
-            else -> list.firstOrNull { it.id == key || it.title == key }
+            else -> named(list, key)
         }
     }
 
-    private companion object {
+    companion object {
         /** The " [n]" tail a multi-session slot's title wears over its profile's name. */
-        val SLOT_SUFFIX = Regex("""\s\[\d+]$""")
+        private val SLOT_SUFFIX = Regex("""\s\[\d+]$""")
+
+        /**
+         * The session a step that names one drives: by index into [list] when the name is a number, else by
+         * id or title. The run slot claims through this as well, so it claims what the host will drive.
+         */
+        internal fun named(list: List<FixMessageSession>, key: String): FixMessageSession? =
+            if (key.toIntOrNull() != null) {
+                list.getOrNull(key.toInt())
+            } else {
+                list.firstOrNull { it.id == key || it.title == key }
+            }
     }
 
     private fun <T> onEdt(block: () -> T): T {

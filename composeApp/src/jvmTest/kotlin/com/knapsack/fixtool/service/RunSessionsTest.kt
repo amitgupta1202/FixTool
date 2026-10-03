@@ -81,6 +81,21 @@ class RunSessionsTest {
         assertTrue(RunSessions.conflict(loadgen, alsoLoadgen), "one shared session is enough to refuse")
     }
 
+    /** A step may name its session by index or id as well as by title, and the claim compares what they drive. */
+    @Test
+    fun `two names for one session conflict once each is resolved to the session it drives`() {
+        val byTitle = RunSessions.Touched(setOf("UAT"))
+        val byIndex = RunSessions.Touched(setOf("0"))
+        val drives = mapOf("UAT" to "id-uat", "0" to "id-uat")
+
+        assertFalse(RunSessions.conflict(byTitle, byIndex), "as written, they look disjoint")
+        assertTrue(RunSessions.conflict(byTitle, byIndex) { drives[it] ?: it }, "resolved, they are one session")
+        assertFalse(
+            RunSessions.conflict(byTitle, RunSessions.Touched(setOf("NOSUCH"))) { drives[it] ?: it },
+            "a name that resolves to nothing is compared as written",
+        )
+    }
+
     /** A set claims every session any of its entries would drive, before the first one starts. */
     @Test
     fun `a set claims the union of its entries, and one unknown entry taints the whole claim`() {

@@ -56,7 +56,14 @@ object RunSessions {
     /**
      * **May these two run at the same time?** Only when both know what they touch and the two sets are
      * disjoint — the licence fan-out already rests on for its lanes, one level up.
+     *
+     * [sessionKey] names the session a claimed name drives. A step may name its session by title, by id or
+     * by index, so `"0"` and `"UAT"` can be one session, and comparing the names as written let two runs
+     * drive it at once. The default compares them as written, for a caller with no sessions to resolve.
      */
-    fun conflict(held: Touched, wanted: Touched): Boolean =
-        held.exclusive || wanted.exclusive || held.sessions.any { it in wanted.sessions }
+    fun conflict(held: Touched, wanted: Touched, sessionKey: (String) -> String = { it }): Boolean {
+        if (held.exclusive || wanted.exclusive) return true
+        val wantedKeys = wanted.sessions.mapTo(mutableSetOf(), sessionKey)
+        return held.sessions.any { sessionKey(it) in wantedKeys }
+    }
 }

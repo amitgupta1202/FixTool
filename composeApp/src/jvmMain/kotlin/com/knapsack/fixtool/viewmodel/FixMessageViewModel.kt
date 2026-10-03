@@ -3255,7 +3255,7 @@ class FixMessageViewModel(
      */
     @Synchronized
     private fun claimSessions(touched: RunSessions.Touched, label: String, setId: String? = null): RunClaim? {
-        val blocker = claims.firstOrNull { held -> RunSessions.conflict(held.touched, touched) }
+        val blocker = claims.firstOrNull { held -> RunSessions.conflict(held.touched, touched, ::claimKey) }
         if (blocker != null) {
             busyReason = describeClash(blocker, touched)
             return null
@@ -3285,9 +3285,17 @@ class FixMessageViewModel(
     @Volatile
     private var busyReason: String = "a scenario run is already in progress"
 
+    /**
+     * The session a claimed name will drive, by its id. The host resolves a step's session by title, by id
+     * and by index, so two names for one session must claim the same thing. A name that resolves to no
+     * session is compared as written.
+     */
+    private fun claimKey(name: String): String = ViewModelScenarioHost.named(_sessions, name)?.id ?: name
+
     /** The refusal, in the terms the author can act on: which session, and what is holding it. */
     private fun describeClash(blocker: RunClaim, wanted: RunSessions.Touched): String {
-        val shared = blocker.touched.sessions.filter { it in wanted.sessions }
+        val wantedKeys = wanted.sessions.mapTo(mutableSetOf(), ::claimKey)
+        val shared = blocker.touched.sessions.filter { claimKey(it) in wantedKeys }
         return when {
             shared.isNotEmpty() ->
                 "'${blocker.label}' is running on ${shared.joinToString()} — wait for it, or run against other sessions"

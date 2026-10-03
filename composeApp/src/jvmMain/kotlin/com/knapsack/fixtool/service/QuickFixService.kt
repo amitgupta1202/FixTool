@@ -10,6 +10,7 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.OrderBook
+import com.knapsack.fixtool.model.OrderEvent
 import com.knapsack.fixtool.model.PendingSendReason
 import com.knapsack.fixtool.model.QuoteReading
 import com.knapsack.fixtool.model.SendReason
@@ -132,6 +133,18 @@ sealed interface VenueEvent {
     data class NotDelivered(
         override val sessionId: SessionID,
         val ruleIndex: Int?,
+        override val at: LocalDateTime = LocalDateTime.now(),
+    ) : VenueEvent
+
+    /**
+     * **A fill step owed to [sessionId] was withdrawn**, because by the time it was due the venue had accepted
+     * a cancel or a replace of the order [clOrdId] names. A client told its order is canceled must not then be
+     * told it filled. [ruleIndex] is the card that queued the fill, when a rule did.
+     */
+    data class FillWithdrawn(
+        override val sessionId: SessionID,
+        val ruleIndex: Int?,
+        val clOrdId: String?,
         override val at: LocalDateTime = LocalDateTime.now(),
     ) : VenueEvent
 }
@@ -429,6 +442,7 @@ class QuickFixService(
             },
             onError = { message, e -> logger.error(message, e) },
             onNotDelivered = { sessionId, reason -> noteNotDelivered(sessionId, reason?.ruleIndex) },
+            onWithdrawn = { sessionId, reason -> noteFillWithdrawn(sessionId, reason) },
         )
 
     /** Steps owed and never sent — see [AcceptorStatus.notDelivered]. */
@@ -440,6 +454,21 @@ class QuickFixService(
         notDelivered.incrementAndGet()
         logger.info("Acceptor step for {} not delivered: the counterparty is not logged on", sessionId)
         onVenueEvent?.invoke(VenueEvent.NotDelivered(sessionId, ruleIndex))
+    }
+
+    /** What [sessionId]'s book has recorded for the order [key], oldest first: what [FillGuard] asks of it. */
+    private fun orderEvents(sessionId: SessionID, key: String): List<OrderEvent> =
+        orderBooks.order(sessionId.toString(), key)?.events.orEmpty()
+
+    /** A queued fill dropped because the venue has accepted a cancel or replace of its order. See [FillGuard]. */
+    private fun noteFillWithdrawn(sessionId: SessionID, reason: SendReason?) {
+        val clOrdId = reason?.reading?.key
+        logger.info(
+            "Acceptor fill of {} for {} withdrawn: the venue has accepted a cancel or replace of it",
+            clOrdId,
+            sessionId,
+        )
+        onVenueEvent?.invoke(VenueEvent.FillWithdrawn(sessionId, reason?.ruleIndex, clOrdId))
     }
 
     /**
@@ -1064,6 +1093,8 @@ class QuickFixService(
                 )
             }
 
+            // A fill this reply queues is withdrawn if the venue accepts a cancel or replace of its order first.
+            val withdrawn = FillGuard.forReply(rule, heldBefore.key, request.timestamp) { orderEvents(sessionId, it) }
             planned.forEachIndexed { index, send ->
                 // **The decision was made here, once, and every step of the reply carries it.** Taken
                 // now rather than when each step goes out, because there was one decision — a sequence
@@ -1082,7 +1113,8 @@ class QuickFixService(
                         constraint = rule.whenOrder,
                         reading = heldBefore,
                     )
-                autoResponseDispatch.schedule(sessionId, send.offsetMillis + latencyMillis, reason, send::build)
+                val delay = send.offsetMillis + latencyMillis
+                autoResponseDispatch.schedule(sessionId, delay, reason, withdrawn(index), send::build)
             }
         } catch (e: Exception) {
             logger.error("Acceptor auto-response failed to plan: ${e.message}", e)

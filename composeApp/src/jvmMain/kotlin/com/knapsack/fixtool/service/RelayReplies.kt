@@ -72,7 +72,7 @@ internal class RelayReplies(
         plan.sends.forEach { send ->
             val target = send.to?.sessionId ?: return@forEach
             val reason = LiveRelayVenue.reasonFor(rule, ruleNumber, request, send, heldBefore, trigger)
-            dispatch.schedule(target, send.offsetMillis + latencyMillis, reason, send::build)
+            dispatch.schedule(target, send.offsetMillis + latencyMillis, reason, build = send::build)
         }
     }
 
@@ -109,7 +109,7 @@ internal class RelayReplies(
             plan.sends.forEach { send ->
                 val target = send.to?.sessionId ?: return@forEach
                 val reason = LiveRelayVenue.reasonOnExpiry(rule, ruleNumber, at, send, trigger, entry.openingUid)
-                dispatch.schedule(target, send.offsetMillis, reason, send::build)
+                dispatch.schedule(target, send.offsetMillis, reason, build = send::build)
             }
         } catch (e: Exception) {
             logger.error("Acceptor could not play the rule for expired {}: {}", rfqId, e.message, e)

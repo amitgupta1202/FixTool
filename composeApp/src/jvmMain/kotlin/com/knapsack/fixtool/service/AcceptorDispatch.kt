@@ -51,6 +51,8 @@ class AcceptorDispatch(
     private val isLoggedOn: (SessionID) -> Boolean = { Session.lookupSession(it)?.isLoggedOn == true },
     /** A step that was due and did not go, because its counterparty was not there to receive it. */
     private val onNotDelivered: (SessionID, SendReason?) -> Unit = { _, _ -> },
+    /** A step that was due and did not go, because the step's own `withdrawn` said the venue had overtaken it. */
+    private val onWithdrawn: (SessionID, SendReason?) -> Unit = { _, _ -> },
 ) : Closeable {
     private val executor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -87,8 +89,19 @@ class AcceptorDispatch(
      * [reason] is carried, never decided: this class owns *when* a reply goes out, and the caller who
      * owned *why* wrote it down when the decision was made. It rides as far as the capture of the
      * outgoing message so nothing downstream has to reconstruct it — see [SendReason], decision 6a.
+     *
+     * [withdrawn] is asked as the step falls due, before [build]. True means the venue has since done
+     * something that makes the step untrue, such as accepting a cancel of the order a queued fill is
+     * about, so the step is neither built nor sent and [onWithdrawn] is told. The caller decides what
+     * overtakes a step, because only the caller knows what the step is about.
      */
-    fun schedule(sessionId: SessionID, delayMillis: Long, reason: SendReason? = null, build: () -> Message) {
+    fun schedule(
+        sessionId: SessionID,
+        delayMillis: Long,
+        reason: SendReason? = null,
+        withdrawn: () -> Boolean = { false },
+        build: () -> Message,
+    ) {
         val queued = pending.computeIfAbsent(sessionId) { ConcurrentHashMap.newKeySet() }
         // Finished work is pruned here rather than by each task removing itself. Self-removal needs
         // the future to be reachable from inside its own body, which it is not until schedule()
@@ -96,7 +109,11 @@ class AcceptorDispatch(
         // null and the entry never leaves. Pruning on the way in has neither problem.
         queued.removeIf { it.future.isDone }
         val future =
-            executor.schedule({ dispatch(build, sessionId, reason) }, delayMillis.coerceAtLeast(0), TimeUnit.MILLISECONDS)
+            executor.schedule(
+                { dispatch(build, sessionId, reason, withdrawn) },
+                delayMillis.coerceAtLeast(0),
+                TimeUnit.MILLISECONDS,
+            )
         queued.add(Pending(future, reason))
         // Lost the race with cancelAll: the session went away while this was being queued, so the set
         // just added to is one nobody will ever cancel. Identity, not mere presence — a same-named
@@ -170,12 +187,17 @@ class AcceptorDispatch(
     }
 
     @Suppress("TooGenericExceptionCaught")
-    private fun dispatch(build: () -> Message, sessionId: SessionID, reason: SendReason?) {
+    private fun dispatch(build: () -> Message, sessionId: SessionID, reason: SendReason?, withdrawn: () -> Boolean) {
         try {
             // Asked before building, so a step owed to a departed counterparty draws no ExecID and reads
             // no book: nothing about it happened except that it was due.
             if (!isLoggedOn(sessionId)) {
                 onNotDelivered(sessionId, reason)
+                return
+            }
+            // Before building too, and for the same reason: a step the venue has overtaken is not built.
+            if (withdrawn()) {
+                onWithdrawn(sessionId, reason)
                 return
             }
             val message = build()

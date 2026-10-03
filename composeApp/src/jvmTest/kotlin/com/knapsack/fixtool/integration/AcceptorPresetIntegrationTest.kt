@@ -171,6 +171,48 @@ class AcceptorPresetIntegrationTest {
         assertTrue(empty.isEmpty(), "the venue put ${empty.joinToString()} on the wire")
     }
 
+    /**
+     * A cancel the venue accepts while the order's fill is still queued. The starter venue fills a limit order
+     * 250ms after acking it, and a cancel sent straight after the order reaches the venue well inside that gap
+     * and is accepted, pending or working. The queued fill used to go out anyway, so the client was told its
+     * order both filled and canceled.
+     *
+     * Judged by the venue's own counts, not by an absence on the client: once nothing is queued and the
+     * canceled report is in, the venue has sent all it ever will, and three reports is the ack and the cancel's
+     * two. A fill would be the fourth.
+     */
+    @Test
+    fun `a fill still queued when the venue accepts a cancel of its order is never sent`() {
+        startVenue()
+        val client = connectClient()
+        val venue = viewModel.sessions.first { it.title == "PRESET VENUE" }
+
+        client.sendFixMessage("35=D|11=RACE-1|55=VOD.L|54=1|38=1000|40=2|44=185.25|60=20260730-09:14:22.000", viewModel.dictionary)
+        client.sendFixMessage("35=F|41=RACE-1|11=RACE-CXL-1|55=VOD.L|54=1|60=20260730-09:14:22.100", viewModel.dictionary)
+
+        assertTrue(
+            awaitCondition(15_000) {
+                val status = venue.acceptorStatus()
+                status != null &&
+                    status.triggersMatched == 2L &&
+                    status.pendingResponses == 0 &&
+                    executionReports(client).any { field(it, 150) == "4" }
+            },
+            "the venue should accept the cancel and finish everything it queued; reports so far " +
+                executionReports(client).map { field(it, 150) },
+        )
+        assertEquals(
+            3L,
+            venue.acceptorStatus()?.responsesSent,
+            "the ack, the pending cancel and the canceled report, and no fill; the client got " +
+                executionReports(client).map { field(it, 150) },
+        )
+        assertTrue(
+            executionReports(client).none { field(it, 150) == "F" },
+            "a canceled order must not also be reported filled; the client got " + executionReports(client).map { field(it, 150) },
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private fun startVenue() {

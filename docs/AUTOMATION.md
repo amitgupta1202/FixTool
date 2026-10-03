@@ -939,7 +939,9 @@ Replies always leave *after* the inbound callback has returned, on a dispatch th
 including a zero-delay one. A reply sent inline can reach the counterparty before their own `send()`
 has returned, which would let a client with wrong ordering assumptions pass here and fail against a
 real venue. Steps of one sequence keep their order; sequences triggered by different inbound messages
-interleave. Anything still queued for a session is dropped when that session logs out.
+interleave. Anything still queued for a session is dropped when that session logs out. A fill still queued
+for an order is withdrawn, not sent, if the venue accepts a cancel or a replace of that order (a report with
+`150=6`, `4`, `E` or `5`) before the fill is due. The cancel's own later steps still go.
 
 The older one-message spelling, `{whenMsgType, responseTemplate}`, still works and reads as a single
 step with no delay. A rule carrying both plays `steps` and says so in `validationError` on

@@ -142,7 +142,7 @@ class HelpDocTest {
                 "which the unattributed counter then shows" to "1 unattributed",
                 "a replace of a working order keeps the OrderID" to "keeps the same OrderID",
                 "a replace that beats the ack does not" to "the replacement gets a new one",
-                "a queued fill outlives the cancel before it" to "Why a canceled order can still fill",
+                "a queued fill is withdrawn once the venue accepts a cancel" to "Why a canceled order does not fill",
             )
         val missing = says.filterValues { it.flat() !in section.flat() }.keys
         assertTrue(missing.isEmpty(), "the order book walkthrough no longer says: $missing")

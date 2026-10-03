@@ -4229,6 +4229,11 @@ ${incoming["D"].valueOfTag(38)}
     messages interleave &mdash; which is what a real venue does with two orders in flight. Anything still
     queued for a session is dropped when that session logs out.</p>
 
+    <p>A fill still queued for an order is <strong>withdrawn</strong> if, before it falls due, the venue
+    accepts a cancel or a replace of that order (a report with <code>150=6</code>, <code>4</code>,
+    <code>E</code> or <code>5</code>). A client told its order is canceled is never then told it filled.
+    The cancel's own later steps still go, and FixTool's log names each fill the venue withdrew.</p>
+
     <p>The <strong>&#9632; Stop</strong> button in the Auto-Responses header (shown only while a session is
     live) drops every reply still queued on that session. A sequence is a claim about time &mdash; "and
     then, four seconds later, the fill" &mdash; so the moment you see it is the wrong claim, you need it to
@@ -4505,12 +4510,11 @@ ${incoming["D"].valueOfTag(38)}
     because a rule you can read said so.</p>
 
     <div class="tip">
-        <strong>Why a canceled order can still fill.</strong> A reply's later steps are scheduled when its
-        trigger matches, so a cancel or a replace arriving afterwards does not retract fills already
-        queued: cancel <code>DEMO-B1</code> a moment after placing it and its trail reads <em>canceled</em>
-        and then two fills. That is the example's rules rather than the book &mdash; and the book showing
-        it is the point. It records what the venue really sent, including where the venue contradicted
-        itself, because the client's view is the view under test.
+        <strong>Why a canceled order does not fill.</strong> A reply's later steps are scheduled when its
+        trigger matches, but each fill asks the book again as it falls due. Cancel <code>DEMO-B1</code> a
+        moment after placing it and its trail reads <em>canceled</em> with no fill after it: the venue
+        accepted the cancel, so the two fills still queued were withdrawn rather than sent. The book records
+        only what the venue really sent, because the client's view is the view under test.
     </div>
 
     <h3 id="quote-book">What the venue remembers: the quote book</h3>

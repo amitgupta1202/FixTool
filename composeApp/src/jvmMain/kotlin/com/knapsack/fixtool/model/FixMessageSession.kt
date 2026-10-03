@@ -306,6 +306,7 @@ class FixMessageSession(
             is VenueEvent.RuleFired -> _lastRuleFired.value = event
             is VenueEvent.ClientArrived -> Unit
             is VenueEvent.NotDelivered -> Unit
+            is VenueEvent.FillWithdrawn -> Unit
         }
         venueEventListener?.invoke(event)
     }

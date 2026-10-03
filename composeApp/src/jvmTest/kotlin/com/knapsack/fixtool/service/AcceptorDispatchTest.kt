@@ -183,6 +183,40 @@ class AcceptorDispatchTest {
         assertEquals(listOf(gone), notDelivered.toList())
     }
 
+    /**
+     * A step its caller says has been overtaken by the time it falls due, such as a fill of an order the venue
+     * has since accepted a cancel of, is not built and not sent, and is reported withdrawn rather than sent or
+     * not delivered. The step beside it goes as it always did.
+     */
+    @Test
+    fun `a step withdrawn by the time it is due is not built, not sent, and is reported withdrawn`() {
+        val built = ConcurrentLinkedQueue<String>()
+        val sent = ConcurrentLinkedQueue<String>()
+        val withdrawn = ConcurrentLinkedQueue<SessionID>()
+        val both = CountDownLatch(2)
+        val session = sessionId()
+        val dispatch =
+            AcceptorDispatch(
+                send = { message, _ -> sent.add(message.getString(11)) },
+                isLoggedOn = { true },
+                onSent = { both.countDown() },
+                onNotDelivered = { _, _ -> error("the counterparty is logged on") },
+                onWithdrawn = { id, _ ->
+                    withdrawn.add(id)
+                    both.countDown()
+                },
+            )
+        dispatch.use {
+            it.schedule(session, delayMillis = 0, withdrawn = { true }) { message("fill").also { built.add("fill") } }
+            it.schedule(session, delayMillis = 0) { message("canceled").also { built.add("canceled") } }
+            assertTrue(both.await(5, TimeUnit.SECONDS), "one step should be sent and one withdrawn")
+        }
+
+        assertEquals(listOf("canceled"), built.toList(), "a withdrawn step must not draw ids or read a book")
+        assertEquals(listOf("canceled"), sent.toList())
+        assertEquals(listOf(session), withdrawn.toList())
+    }
+
     /** The session can leave between the check and the write; QuickFIX/J's false is a step that did not go. */
     @Test
     fun `a send the engine refuses is reported as not delivered, never as sent`() {

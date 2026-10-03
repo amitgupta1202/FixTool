@@ -6141,6 +6141,9 @@ class FixMessageViewModel(
                     // Counted on the venue and shown as its badge; one notification per undelivered step
                     // would be the same flood RuleFired avoids.
                     is VenueEvent.NotDelivered -> Unit
+                    // Logged by the venue. A withdrawn fill is the venue keeping its word about a cancel,
+                    // not something a person has to act on.
+                    is VenueEvent.FillWithdrawn -> Unit
                 }
             }
         }

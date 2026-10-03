@@ -438,7 +438,8 @@ object ScenarioCapture {
      * 2. else, for a pair, a **presence** discriminator on a tag one carries and the other does not (e.g. the
      *    terminal report's `QuoteReqID`) — value-agnostic, so replay-safe for id tags;
      * 3. else **occurrence** ordinals by arrival order — always separates, but a bare count, so it is the last
-     *    resort.
+     *    resort. They count only the members whose seeded constraints are identical, since that is the list
+     *    the runner counts in.
      */
     private fun disambiguateSameType(
         steps: MutableList<ScenarioStep>,
@@ -502,7 +503,16 @@ object ScenarioCapture {
         // The k-th same-type reply is occurrence k — in STEP order, which is what the runner walks when it
         // binds "the k-th match" at replay. Not by timestamp: a pasted candidate's timestamp is its own
         // SendingTime(52), and log fragments pasted out of order would hand the 1st ordinal to the 2nd step.
-        members.sortedBy { (idx, _) -> idx }.forEachIndexed { k, (idx, _) -> setOccurrence(steps, idx, k + 1) }
+        // Counted per bind signature, because the runner counts inside the list the step's own fields already
+        // filtered: two orders' replies on one session are two lists, and ORD-2's ack is the 1st of its own,
+        // not the 3rd of the session's. A member alone under its fields is separated already and gets none.
+        members
+            .groupBy { (idx, _) -> bindSignature(steps[idx]) }
+            .values
+            .filter { it.size > 1 }
+            .forEach { same ->
+                same.sortedBy { (idx, _) -> idx }.forEachIndexed { k, (idx, _) -> setOccurrence(steps, idx, k + 1) }
+            }
     }
 
     private fun firstValue(c: Candidate, tag: Int): String? {

@@ -319,6 +319,107 @@ class ScenarioCaptureTest {
     }
 
     /**
+     * Two orders on one session: ORD-1 is acked and filled, then ORD-2 is acked. The ORD-1 pair needs
+     * ordinals (same ClOrdID, and 150/39 repeat across the group), but the runner counts an occurrence inside
+     * the list its own fields already filtered. Numbering the whole group 1..3 gave the ORD-2 ack
+     * occurrence 3 over a filter only one message passes, and every replay failed on it.
+     */
+    private fun twoOrdersOnOneSession() =
+        ScenarioCapture.CapturedSession(
+            "TRADE",
+            listOf(
+                msg(order("ORD-1", 2, 0), FixMessage.Direction.OUTGOING, 0),
+                msg(report("ORD-1", 3, 1, "E-1", "0", "0"), FixMessage.Direction.INCOMING, 1),
+                msg(report("ORD-1", 4, 2, "E-2", "F", "2"), FixMessage.Direction.INCOMING, 2),
+                msg(order("ORD-2", 3, 3), FixMessage.Direction.OUTGOING, 3),
+                msg(report("ORD-2", 5, 4, "E-3", "0", "0"), FixMessage.Direction.INCOMING, 4),
+            ),
+        )
+
+    private fun order(id: String, seq: Int, s: Int) =
+        "8=FIX.4.4|35=D|34=$seq|49=CLI|56=TV|52=20260630-10:00:0$s|11=$id|55=EUR/USD|54=1|38=1000000|40=2|" +
+            "60=20260630-10:00:0$s.000|10=001|"
+
+    private fun report(id: String, seq: Int, s: Int, exec: String, execType: String, ordStatus: String) =
+        "8=FIX.4.4|35=8|34=$seq|49=TV|56=CLI|52=20260630-10:00:0$s|11=$id|17=$exec|150=$execType|39=$ordStatus|" +
+            "60=20260630-10:00:0$s.000|10=002|"
+
+    @Test
+    fun `occurrence ordinals count only the replies that share a bind predicate`() {
+        val scenario = ScenarioCapture.capture("sc-two-orders", "two orders", null, listOf(twoOrdersOnOneSession()), dictionary)
+        val expects = scenario.steps.filterIsInstance<ScenarioStep.Expect>()
+
+        assertEquals(3, expects.size)
+        assertEquals(
+            listOf(1, 2, null),
+            expects.map { it.match?.occurrence },
+            "ORD-1's ack and fill are its 1st and 2nd, and ORD-2's ack is alone under its own ClOrdID: " +
+                expects.map { it.match },
+        )
+    }
+
+    @Test
+    fun `a captured two-order flow replays green against the same replies`() {
+        val scenario = ScenarioCapture.capture("sc-two-orders", "two orders", null, listOf(twoOrdersOnOneSession()), dictionary)
+        val host = ReplayHost()
+
+        val result = ScenarioRunner(host, pollMs = 10, now = { host.clock }).run(scenario)
+
+        assertTrue(result.passed, "the venue answered exactly as captured: ${result.steps.filter { !it.passed }}")
+    }
+
+    /** Answers each sent NewOrderSingle with the reports the capture recorded for it, echoing the sent ClOrdID. */
+    private class ReplayHost : ScenarioHost {
+        var clock = 0L
+        private val inbox = mutableListOf<FixMessage>()
+        private val replies = ArrayDeque(listOf(listOf("E-1" to "0", "E-2" to "F"), listOf("E-3" to "0")))
+        private var seq = 10
+
+        override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String =
+            FixMessageTemplate.evaluate(raw, emptyMap(), emptyMap(), scope, null)
+
+        override fun send(raw: String, session: String?): Boolean {
+            val fields = FixMessageHelper.parseFixMessage(raw).toMap()
+            val id = fields[11]?.takeIf { fields[35] == "D" } ?: return true
+            replies.removeFirst().forEach { (exec, execType) ->
+                seq += 1
+                val stamp = LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))
+                val ordStatus = if (execType == "F") "2" else "0"
+                val r = "8=FIX.4.4|35=8|34=$seq|49=TV|56=CLI|52=$stamp|11=$id|17=$exec|150=$execType|39=$ordStatus|60=$stamp|10=002|"
+                inbox +=
+                    FixMessage(
+                        timestamp = LocalDateTime.now(),
+                        direction = FixMessage.Direction.INCOMING,
+                        rawMessage = r,
+                        quickfixMessage = AcceptorResponder.buildMessage(r, null),
+                        wireRaw = r.replace('|', FixMessageHelper.SOH),
+                    )
+            }
+            return true
+        }
+
+        override fun messages(session: String?): List<FixMessage> = inbox.toList()
+
+        override fun connectionState(session: String?): String? = "LOGGED_ON"
+
+        override fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String? =
+            { expr -> scope[expr.removePrefix("\${").removeSuffix("}")] }
+
+        override fun view(message: FixMessage): MessageView? = FixMessageView.of(message)
+
+        override fun clearMessages(session: String?): Boolean {
+            inbox.clear()
+            return true
+        }
+
+        override fun resetSeqNum(session: String?, sender: Int?, target: Int?): Boolean = true
+
+        override fun sleep(ms: Long) {
+            clock += ms
+        }
+    }
+
+    /**
      * **`TradeReportID(571)` is minted by whoever submits the report, and a capture holds both cases.**
      *
      * It is in the client-minted set *and* the venue-assigned one, exactly as `QuoteID(117)` is, and the

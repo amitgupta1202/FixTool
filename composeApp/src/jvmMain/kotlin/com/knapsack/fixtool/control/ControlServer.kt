@@ -1,6 +1,7 @@
 // This file is an HTTP request-handling boundary: each endpoint legitimately catches broad
-// exceptions to convert any failure into a 500 response, and the per-endpoint handlers
-// naturally push the class past detekt's function-count threshold.
+// exceptions to convert any failure into an error response (a 400 for a request the caller got
+// wrong, a 500 for the rest), and the per-endpoint handlers naturally push the class past
+// detekt's function-count threshold.
 @file:Suppress("TooManyFunctions", "TooGenericExceptionCaught", "ReturnCount", "LargeClass", "CyclomaticComplexMethod")
 
 package com.knapsack.fixtool.control
@@ -4560,6 +4561,11 @@ class ControlServer(
     /**
      * MCP Streamable HTTP endpoint (JSON-RPC 2.0). Lets Claude Code connect directly with
      * `claude mcp add --transport http fixtool http://127.0.0.1:<port>/mcp` — no extra process.
+     *
+     * A failure answers under the request's own id once it has been read. Only a body that is not a JSON
+     * object answers with a null id, because there is no id to answer under. The MCP SDK accepts only a
+     * string or a number there, so a null id for a request it sent reads to the client as a broken
+     * transport and hides the reason. A tool that fails is not a protocol failure at all: see [mcpToolsCall].
      */
     private fun mcpHandle(ex: HttpExchange) {
         try {
@@ -4575,23 +4581,37 @@ class ControlServer(
                 respondText(ex, HTTP_METHOD_NOT_ALLOWED, "use POST")
                 return
             }
-            val request = Json.parseToJsonElement(ex.requestBody.readBytes().decodeToString()).jsonObject
+            val request =
+                try {
+                    Json.parseToJsonElement(ex.requestBody.readBytes().decodeToString()).jsonObject
+                } catch (e: IllegalArgumentException) {
+                    respondJson(ex, HTTP_OK, mcpError(JsonNull, MCP_PARSE_ERROR, e.message ?: "parse error"))
+                    return
+                }
             val id = request["id"]
             if (id == null || id is JsonNull) {
                 // A notification (e.g. notifications/initialized) — acknowledge with no body.
                 ex.sendResponseHeaders(HTTP_NO_CONTENT, -1)
                 return
             }
-            val result =
-                when (request["method"]?.jsonPrimitive?.content) {
-                    "initialize" -> mcpInitialize(request)
-                    "tools/list" ->
-                        buildJsonObject { put("tools", buildJsonArray { McpTools.tools.forEach { add(it) } }) }
-                    "tools/call" -> mcpToolsCall(request)
-                    "ping" -> buildJsonObject {}
-                    else -> null
+            val reply =
+                try {
+                    val method = request["method"]?.jsonPrimitive?.content
+                    val result =
+                        when (method) {
+                            "initialize" -> mcpInitialize(request)
+                            "tools/list" ->
+                                buildJsonObject { put("tools", buildJsonArray { McpTools.tools.forEach { add(it) } }) }
+                            "tools/call" -> mcpToolsCall(request)
+                            "ping" -> buildJsonObject {}
+                            else -> null
+                        }
+                    mcpEnvelope(id, result, method)
+                } catch (e: Exception) {
+                    logger.error("MCP request failed", e)
+                    mcpError(id, MCP_INTERNAL_ERROR, e.message ?: "internal error")
                 }
-            respondJson(ex, HTTP_OK, mcpEnvelope(id, result, request["method"]?.jsonPrimitive?.content))
+            respondJson(ex, HTTP_OK, reply)
         } catch (e: Exception) {
             logger.error("MCP request failed", e)
             respondJson(ex, HTTP_OK, mcpError(JsonNull, MCP_INTERNAL_ERROR, e.message ?: "internal error"))
@@ -4644,15 +4664,29 @@ class ControlServer(
         }
     }
 
+    /**
+     * One tool call. A tool that throws answers with `isError` and the reason, which is MCP's word for a
+     * tool that failed: the caller reads it and can try again, where a JSON-RPC error reads as the
+     * transport failing. The usual cause is the caller's own arguments, an array passed as a JSON string.
+     */
     private fun mcpToolsCall(request: JsonObject): JsonObject {
         val params = request["params"]?.jsonObject ?: return mcpToolResult("missing params", isError = true)
         val name = params["name"]?.jsonPrimitive?.content ?: return mcpToolResult("missing tool name", isError = true)
         val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
-        if (name == "fixtool_screenshot") return mcpScreenshotResult(args["window"]?.jsonPrimitive?.content)
-        // Markdown prose, not a JSON body — hand it back verbatim rather than escaped inside one.
-        if (name == "fixtool_syntax") return mcpToolResult(SyntaxReference.markdown)
-        val handler = mcpDispatch[name] ?: return mcpToolResult("unknown tool: $name", isError = true)
-        return mcpToolResult(handler(args).toString())
+        return try {
+            when (name) {
+                "fixtool_screenshot" -> mcpScreenshotResult(args["window"]?.jsonPrimitive?.content)
+                // Markdown prose, not a JSON body — hand it back verbatim rather than escaped inside one.
+                "fixtool_syntax" -> mcpToolResult(SyntaxReference.markdown)
+                else -> {
+                    val handler = mcpDispatch[name] ?: return mcpToolResult("unknown tool: $name", isError = true)
+                    mcpToolResult(handler(args).toString())
+                }
+            }
+        } catch (e: Exception) {
+            logger.warn("MCP tool $name failed", e)
+            mcpToolResult(e.message ?: e.toString(), isError = true)
+        }
     }
 
     private fun mcpToolResult(text: String, isError: Boolean = false): JsonObject =
@@ -4727,6 +4761,8 @@ class ControlServer(
             }
             val coded = block()
             respondJson(ex, coded.code, coded.body)
+        } catch (e: IllegalArgumentException) {
+            refuseBadRequest(ex, e)
         } catch (e: Exception) {
             logger.error("Control request failed: ${ex.requestURI}", e)
             respondJson(ex, HTTP_SERVER_ERROR, errorObject(e.message ?: e.toString()))
@@ -4746,12 +4782,26 @@ class ControlServer(
                 return
             }
             respondJson(ex, HTTP_OK, block())
+        } catch (e: IllegalArgumentException) {
+            refuseBadRequest(ex, e)
         } catch (e: Exception) {
             logger.error("Control request failed: ${ex.requestURI}", e)
             respondJson(ex, HTTP_SERVER_ERROR, errorObject(e.message ?: e.toString()))
         } finally {
             ex.close()
         }
+    }
+
+    /**
+     * **A request the caller got wrong is a 400 with the reason**, not a 500 that reads as FixTool failing.
+     *
+     * A body that is not JSON, and a field of the wrong shape (an array sent as a string), both arrive here
+     * as an [IllegalArgumentException]: kotlinx's `SerializationException` is one, and so is what its
+     * `jsonArray`, `jsonObject` and `jsonPrimitive` casts throw. So is a `require` a handler makes of its input.
+     */
+    private fun refuseBadRequest(ex: HttpExchange, e: IllegalArgumentException) {
+        logger.warn("Control request refused: ${ex.requestURI}: ${e.message}")
+        respondJson(ex, HTTP_BAD_REQUEST, errorObject(e.message ?: e.toString()))
     }
 
     private fun authorized(ex: HttpExchange): Boolean {
@@ -4981,6 +5031,7 @@ class ControlServer(
         private const val INLINE_SET_REFUSAL =
             "a phase needs a label, a template, a profile and a shape"
         private const val MCP_PROTOCOL_VERSION = "2025-06-18"
+        private const val MCP_PARSE_ERROR = -32700
         private const val MCP_METHOD_NOT_FOUND = -32601
         private const val MCP_INTERNAL_ERROR = -32603
     }

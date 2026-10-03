@@ -5,7 +5,10 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -22,6 +25,8 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * **The control surface does what its tool descriptions and AUTOMATION.md say it does.**
@@ -100,6 +105,68 @@ class ControlServerContractTest {
 
         assertEquals(emptyList(), viewModel.pinnedSearchResults.value)
         assertEquals("", viewModel.globalSearchQuery.value)
+    }
+
+    // ------------------------------------------------------------------ failures
+
+    /**
+     * An LLM caller often passes an array as a JSON string. The handler's cast throws, and that used to come
+     * back as a JSON-RPC error under `id: null`, which the MCP SDK's schema rejects (an id is a string or a
+     * number), so the client reported a broken transport instead of the reason. MCP's word for a tool that
+     * failed is a result with `isError`.
+     */
+    @Test
+    fun `a tool that throws answers its own call with isError and the reason`() {
+        addSession("VENUE")
+        val call =
+            """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"fixtool_assert",""" +
+                """"arguments":{"messageType":"8","fields":"[{\"tag\":150}]"}}}"""
+
+        val reply = obj(post("/mcp", call))
+
+        assertEquals(JsonPrimitive(7), reply["id"], "the reply answers the call it was given: $reply")
+        val result = assertNotNull(reply["result"]?.jsonObject, "a tool failure is a result, not an error: $reply")
+        assertEquals(true, result["isError"]!!.jsonPrimitive.boolean)
+        val text =
+            result["content"]!!
+                .jsonArray
+                .single()
+                .jsonObject["text"]!!
+                .jsonPrimitive.content
+        assertTrue("JsonArray" in text, "the reason the tool failed reaches the caller: $text")
+    }
+
+    @Test
+    fun `any other method that fails answers under the request's own id`() {
+        val reply = obj(post("/mcp", """{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":"x"}"""))
+
+        assertEquals(JsonPrimitive("init-1"), reply["id"], "$reply")
+        assertNotNull(reply["error"]?.jsonObject, "$reply")
+    }
+
+    @Test
+    fun `a body that is not JSON is a parse error with no id, because none could be read`() {
+        val reply = obj(post("/mcp", "{"))
+
+        assertEquals(JsonNull, reply["id"])
+        assertEquals(-32700, reply["error"]!!.jsonObject["code"]!!.jsonPrimitive.int, "$reply")
+    }
+
+    @Test
+    fun `a request the caller got wrong is a 400 with the reason, not a 500`() {
+        addSession("VENUE")
+
+        val wrongShape = post("/assert", """{"fields":"x"}""")
+        assertEquals(400, wrongShape.statusCode(), wrongShape.body())
+        assertTrue("JsonArray" in obj(wrongShape)["error"]!!.jsonPrimitive.content, wrongShape.body())
+
+        val notJson = post("/assert", "{")
+        assertEquals(400, notJson.statusCode(), notJson.body())
+        assertEquals("error", obj(notJson)["status"]!!.jsonPrimitive.content)
+
+        // handleCoded's routes too: the job API reads its body through the same parser.
+        val coded = post("/load", "{")
+        assertEquals(400, coded.statusCode(), coded.body())
     }
 
     // ------------------------------------------------------------------ helpers

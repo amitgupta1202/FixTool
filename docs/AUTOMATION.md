@@ -364,7 +364,9 @@ read its phases without being told its name.
 
 ## HTTP API
 
-Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are JSON.
+Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are JSON. A body that is not
+JSON, or a field of the wrong shape (an array sent as a string, say), answers **400** with
+`{status:"error", error}` naming what was wrong, rather than a 500.
 
 | Method & path        | Body                                   | Returns                                              |
 | -------------------- | -------------------------------------- | ---------------------------------------------------- |
@@ -402,7 +404,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /acceptor/rfqs` | query: `profile` | a relaying venue's RFQ book: every RFQ with its requester and the id it used, its state, and a leg per responder with the quotes it sent, the id the requester was shown for each, and how its part ended |
 | `POST /acceptor/rfqs` | `{"profile", "clear": true}` | forget every RFQ the venue holds |
 | `POST /acceptor/test` | `{"profile", "raw", "from"?, "rfqState"?, "rfq"?, "online"?, "orderState"?, "order"?, "quoteState"?, "quote"?}` | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back. `order` is the order to render `${order.…}` against, by the book's own names. `quoteState` and `quote` are the same pair for the quote book (`unknown`\|`open`\|`expired`\|`done`, default `unknown`; `quote` given alone assumes `open`), reported back as `assumedQuoteState` and per rule as `whenQuote` |
-| `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
+| `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call). A tool that fails answers its call with a `result` carrying `isError: true` and the reason. Any other failure is a JSON-RPC `error` under the request's own `id`, and only a body that is not JSON answers with a null `id` (code -32700) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),

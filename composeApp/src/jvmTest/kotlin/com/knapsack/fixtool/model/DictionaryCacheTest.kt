@@ -72,6 +72,23 @@ class DictionaryCacheTest {
         assertTrue(FixDictionaryAdapter.fromFiles(file, null).isLoaded())
     }
 
+    /** Each save added an adapter under the file's new stamp, and the versions before it were never let go. */
+    @Test
+    fun `an edited dictionary file replaces the version read before it in the cache`() {
+        val file = File(dir, "venue.xml").apply { writeText(dictionary()) }
+        val before = FixDictionaryAdapter.fromFile(file)
+        val beforeWithTransport = FixDictionaryAdapter.fromFiles(file, null)
+
+        edit(file, dictionary("""<field number="9001" name="VenueDesk" type="STRING"/>"""))
+        val after = FixDictionaryAdapter.fromFile(file)
+        val afterWithTransport = FixDictionaryAdapter.fromFiles(file, null)
+
+        val held = FixDictionaryAdapter.cachedAdapters()
+        assertTrue(held.any { it === after } && held.any { it === afterWithTransport }, "the latest version is held")
+        assertFalse(held.any { it === before }, "the version read before the edit is let go")
+        assertFalse(held.any { it === beforeWithTransport }, "for an app and transport pair too")
+    }
+
     @Test
     fun `an unchanged file is still served from the cache`() {
         val file = File(dir, "venue.xml").apply { writeText(dictionary()) }

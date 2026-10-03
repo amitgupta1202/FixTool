@@ -193,6 +193,12 @@ class FixDictionaryAdapter private constructor(
          */
         private val dictionaryCache = ConcurrentHashMap<String, FixDictionaryAdapter>()
 
+        /**
+         * The key each file (or app and transport pair) is cached under now, so caching an edited file lets go
+         * of the version read before it. Without it every save kept one more adapter for the life of the app.
+         */
+        private val currentKeys = ConcurrentHashMap<String, String>()
+
         /** Cache for temp files created from resources */
         private val tempFileCache = ConcurrentHashMap<String, File>()
 
@@ -201,10 +207,14 @@ class FixDictionaryAdapter private constructor(
          */
         fun clearCache() {
             dictionaryCache.clear()
+            currentKeys.clear()
             tempFileCache.values.forEach { it.delete() }
             tempFileCache.clear()
             logger.info("Dictionary cache cleared")
         }
+
+        /** Every adapter the cache holds, so a test can see what an edit leaves behind. */
+        internal fun cachedAdapters(): List<FixDictionaryAdapter> = dictionaryCache.values.toList()
 
         /**
          * Parses all fields from an InputStream
@@ -427,7 +437,7 @@ class FixDictionaryAdapter private constructor(
          * Creates an adapter from a data dictionary file path
          */
         fun fromFile(file: File): FixDictionaryAdapter =
-            cachedUnlessFailed(stamp(file)) {
+            cachedUnlessFailed(file.absolutePath, stamp(file)) {
                 try {
                     val path = file.absolutePath
                     val dataDictionary = DataDictionary(path)
@@ -444,10 +454,20 @@ class FixDictionaryAdapter private constructor(
 
         /**
          * The adapter cached under [key], or what [load] returns, which is cached only when it loaded: a file
-         * that failed (an XML typo) must be tried again once the author fixes it, not until a restart.
+         * that failed (an XML typo) must be tried again once the author fixes it, not until a restart. Caching
+         * it drops the adapter [files] was cached under before, which is the version read before an edit.
          */
-        private fun cachedUnlessFailed(key: String, load: () -> FixDictionaryAdapter): FixDictionaryAdapter =
-            dictionaryCache[key] ?: load().also { if (it.isLoaded()) dictionaryCache[key] = it }
+        private fun cachedUnlessFailed(
+            files: String,
+            key: String,
+            load: () -> FixDictionaryAdapter,
+        ): FixDictionaryAdapter =
+            dictionaryCache[key] ?: load().also { adapter ->
+                if (adapter.isLoaded()) {
+                    dictionaryCache[key] = adapter
+                    currentKeys.put(files, key)?.takeIf { it != key }?.let(dictionaryCache::remove)
+                }
+            }
 
         /**
          * A file as the cache keys it: its path, when it last changed and how long it is. The path alone kept
@@ -467,7 +487,10 @@ class FixDictionaryAdapter private constructor(
          * @return A FixDictionaryAdapter with both dictionaries loaded
          */
         fun fromFiles(appDictionaryFile: File, transportDictionaryFile: File?): FixDictionaryAdapter =
-            cachedUnlessFailed("${stamp(appDictionaryFile)}|${transportDictionaryFile?.let(::stamp) ?: "none"}") {
+            cachedUnlessFailed(
+                "${appDictionaryFile.absolutePath}|${transportDictionaryFile?.absolutePath ?: "none"}",
+                "${stamp(appDictionaryFile)}|${transportDictionaryFile?.let(::stamp) ?: "none"}",
+            ) {
                 try {
                     val appPath = appDictionaryFile.absolutePath
                     val appDictionary = DataDictionary(appPath)

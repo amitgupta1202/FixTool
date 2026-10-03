@@ -325,19 +325,24 @@ object OrderBook {
             ) ?: OrderSnapshot(state = OrderState.PENDING)
         val out = mutableListOf<OrderSnapshot>()
         order.events.forEach { event ->
-            snapshot = advance(snapshot, event)
+            snapshot = advance(snapshot, event, order.key)
             out += snapshot
         }
         return out
     }
 
-    private fun advance(previous: OrderSnapshot, event: OrderEvent): OrderSnapshot {
+    private fun advance(previous: OrderSnapshot, event: OrderEvent, key: String): OrderSnapshot {
         val orderQty = event.field(TAG_ORDER_QTY) ?: previous.orderQty
         val cumQty = event.field(TAG_CUM_QTY) ?: previous.cumQty
         val leavesQty = event.field(TAG_LEAVES_QTY) ?: derivedLeaves(orderQty, cumQty, previous.leavesQty)
         val ordStatus = event.field(TAG_ORD_STATUS) ?: previous.ordStatus
+        // A report replacing this order under a ClOrdID of its own ends it, whatever its 39 says, because that 39 is
+        // the replacement's status. Every shipped replace template sends `150=5 39=0`, and read as this order's it
+        // kept a replaced order working, so a stale cancel or a second replace naming it was accepted. The report
+        // stays on this order's trail. Only the state it would have given this order is not taken.
+        val replaced = supersedes(event) && event.field(TAG_ORIG_CL_ORD_ID) == key && event.field(TAG_CL_ORD_ID) != key
         return OrderSnapshot(
-            state = stateOf(event, ordStatus, leavesQty, previous.state),
+            state = if (replaced) OrderState.DONE else stateOf(event, ordStatus, leavesQty, previous.state),
             orderId = event.field(TAG_ORDER_ID) ?: previous.orderId,
             ordStatus = ordStatus,
             orderQty = orderQty,

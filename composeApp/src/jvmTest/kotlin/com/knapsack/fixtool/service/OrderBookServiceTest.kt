@@ -123,6 +123,61 @@ class OrderBookServiceTest {
         assertEquals("VOD.L", replacement.current.symbol, "the chain's symbol, which the report did not repeat")
     }
 
+    /**
+     * Every shipped replace template reports `150=5 39=0`, and that 39 is the replacement's status. Read as the
+     * predecessor's too, a replaced order stayed working: the panel counted it twice, and a stale cancel or a
+     * second replace naming it was accepted.
+     */
+    @Test
+    fun `a replaced order is done, whatever OrdStatus its replace report carries`() {
+        val service = OrderBookService()
+        service.receive("ALPHA", *order("ORD-1"))
+        service.send("ALPHA", *ack("ORD-1"))
+        service.receive(
+            "ALPHA",
+            TAG_MSG_TYPE to "G",
+            TAG_CL_ORD_ID to "ORD-2",
+            TAG_ORIG_CL_ORD_ID to "ORD-1",
+            TAG_ORDER_QTY to "2000",
+        )
+
+        service.send(
+            "ALPHA",
+            TAG_MSG_TYPE to "8",
+            TAG_EXEC_TYPE to "5",
+            TAG_ORD_STATUS to "0",
+            TAG_CL_ORD_ID to "ORD-2",
+            TAG_ORIG_CL_ORD_ID to "ORD-1",
+        )
+
+        val original = service.order("ALPHA", "ORD-1")!!
+        assertEquals(OrderState.DONE, original.state, "ORD-1 was replaced, so nothing more will happen to it")
+        assertEquals("5", original.events.last().execType, "and its trail still ends with the report that replaced it")
+        assertEquals(OrderState.WORKING, service.order("ALPHA", "ORD-2")!!.state, "ORD-2 is the live order")
+        assertEquals(1, service.view("ALPHA").working, "one order is working, not two")
+        val staleCancel = mapOf(TAG_MSG_TYPE to "F", TAG_CL_ORD_ID to "CXL-1", TAG_ORIG_CL_ORD_ID to "ORD-1")
+        assertEquals(OrderState.DONE, service.reading("ALPHA", staleCancel).state, "a cancel for ORD-1 finds it done")
+    }
+
+    /** A replace that keeps its ClOrdID names itself in 41, and the order it reports on is still the live one. */
+    @Test
+    fun `a replace report naming the order's own ClOrdID leaves it working`() {
+        val service = OrderBookService()
+        service.receive("ALPHA", *order("ORD-1"))
+        service.send("ALPHA", *ack("ORD-1"))
+
+        service.send(
+            "ALPHA",
+            TAG_MSG_TYPE to "8",
+            TAG_EXEC_TYPE to "5",
+            TAG_ORD_STATUS to "0",
+            TAG_CL_ORD_ID to "ORD-1",
+            TAG_ORIG_CL_ORD_ID to "ORD-1",
+        )
+
+        assertEquals(OrderState.WORKING, service.order("ALPHA", "ORD-1")!!.state)
+    }
+
     // ------------------------------------------------------------------ what it says about its gaps
 
     @Test

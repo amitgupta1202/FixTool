@@ -107,6 +107,33 @@ class TracesTest {
         grouping.traces.forEach { assertEquals(1, it.sessions.size, "${it.label} touched one session") }
     }
 
+    /**
+     * Two unrelated orders whose cancels were both rejected with the placeholder `37=NONE`, the reply
+     * FixTool's own CANCEL_REJECT preset sends. A placeholder names no order, so it joins nothing.
+     */
+    @Test
+    fun `a placeholder order id does not join two orders into one trace`() {
+        val grouping =
+            Traces.group(
+                listOf(
+                    listOf(
+                        at(0, "35=D|11=A1|", out),
+                        at(1, "35=8|37=OID-1|17=E1|11=A1|39=0|"),
+                        at(2, "35=D|11=B1|", out),
+                        at(3, "35=8|37=OID-2|17=E2|11=B1|39=0|"),
+                        at(4, "35=F|11=C1|41=A1|", out),
+                        at(5, "35=9|37=NONE|11=C1|41=A1|39=8|434=1|102=1|"),
+                        at(6, "35=F|11=C2|41=B1|", out),
+                        at(7, "35=9|37=NONE|11=C2|41=B1|39=8|434=1|102=1|"),
+                    ),
+                ),
+                dictionary,
+            )
+
+        assertEquals(listOf("A1", "B1"), grouping.traces.map { it.label }, "two orders, two traces")
+        grouping.traces.forEach { assertEquals(4, it.members.size, "${it.label} holds its own four messages") }
+    }
+
     // ---- the invariant: a pane's conversation is its trace's slice ---------------------------------
 
     /** One session's log, in arrival order, with a heartbeat and a second RFQ mixed through it. */

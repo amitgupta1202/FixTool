@@ -7,6 +7,7 @@ import org.junit.Test
 import quickfix.Message
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -122,6 +123,42 @@ class ConversationsTest {
         assertEquals(1, grouping.conversations.size)
         val merged = grouping.conversations.first()
         assertEquals(2, merged.messages.size)
+    }
+
+    /** Two orders, each cancelled and each cancel rejected with the placeholder `37=NONE`. */
+    private fun twoRejectedCancels(placeholder: String = "NONE"): List<FixMessage> =
+        listOf(
+            msg("35=D|11=A1|", out),
+            msg("35=8|37=OID-1|17=E1|11=A1|39=0|"),
+            msg("35=D|11=B1|", out),
+            msg("35=8|37=OID-2|17=E2|11=B1|39=0|"),
+            msg("35=F|11=C1|41=A1|", out),
+            msg("35=9|37=$placeholder|11=C1|41=A1|39=8|434=1|102=1|"),
+            msg("35=F|11=C2|41=B1|", out),
+            msg("35=9|37=$placeholder|11=C2|41=B1|39=8|434=1|102=1|"),
+        )
+
+    /**
+     * `37=NONE` is a venue saying it has no order id, and FixTool's own CANCEL_REJECT preset sends exactly
+     * that. Joined on as a value, it made every rejected cancel on the session one conversation.
+     */
+    @Test
+    fun `a placeholder order id joins nothing`() {
+        val grouping = Conversations.group(twoRejectedCancels(), dictionary)
+
+        assertEquals(listOf("A1", "B1"), grouping.conversations.map { it.label }, "two orders, two conversations")
+        grouping.conversations.forEach { conversation ->
+            assertEquals(listOf("D", "8", "F", "9"), conversation.messages.map { it.messageType })
+            assertFalse("NONE" in conversation.ids, "the placeholder is not an id: ${conversation.ids}")
+        }
+    }
+
+    @Test
+    fun `every placeholder spelling joins nothing, whatever its case`() {
+        for (placeholder in listOf("none", "N/A", "n/a", "NA", "Unknown", "UNKNOWN")) {
+            val grouping = Conversations.group(twoRejectedCancels(placeholder), dictionary)
+            assertEquals(2, grouping.conversations.size, "37=$placeholder must not join the two orders")
+        }
     }
 
     // ---- the header row (slice 2) ----------------------------------------------------------------

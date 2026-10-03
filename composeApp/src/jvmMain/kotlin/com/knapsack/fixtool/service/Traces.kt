@@ -155,7 +155,8 @@ object Traces {
         snapshots.forEachIndexed { session, snapshot ->
             snapshot.forEachIndexed { index, message ->
                 // One read of the cached field list serves both the sort key and the id pass; asking
-                // Conversations.idsOf afterwards would walk the same list a second time.
+                // Conversations.idsOf afterwards would walk the same list a second time. Conversations.idsOn
+                // is that function's body, so the two groupings decide which values draw edges in one place.
                 val fields = FixMessageHelper.fieldsForDisplay(message)
                 entries +=
                     Entry(
@@ -163,7 +164,7 @@ object Traces {
                         message = message,
                         seq = valueOn(fields, MSG_SEQ_NUM)?.toIntOrNull(),
                         sender = valueOn(fields, SENDER_COMP_ID),
-                        ids = correlationIdsOn(fields, dictionary),
+                        ids = Conversations.idsOn(fields, dictionary),
                     )
             }
         }
@@ -265,21 +266,6 @@ object Traces {
 
     private fun valueOn(fields: List<Pair<Int, String>>, tag: Int): String? =
         fields.firstOrNull { it.first == tag }?.second?.takeIf { it.isNotBlank() }
-
-    /**
-     * [Conversations.idsOf]'s body over fields already in hand.
-     *
-     * The same predicate and the same `distinctBy`, deliberately — [Minting.isCorrelationId] stays the one
-     * decider about which tags draw edges. Only the parse is skipped, because the caller read the field
-     * list a line earlier to build the sort key and `idsOf` would walk the message again to get it.
-     */
-    private fun correlationIdsOn(
-        fields: List<Pair<Int, String>>,
-        dictionary: FixDictionaryAdapter?,
-    ): List<Pair<Int, String>> =
-        fields
-            .filter { (tag, value) -> value.isNotBlank() && Minting.isCorrelationId(tag, dictionary) }
-            .distinctBy { it.second }
 
     /**
      * One message on its way into the merged list: where it came from, what it sorts by, what it joins on.

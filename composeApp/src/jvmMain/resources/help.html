@@ -1793,7 +1793,10 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     group. The chain follows the ids themselves: a Quote carrying both <code>QuoteReqID</code> and
     <code>QuoteID</code> joins them, so the order placed off that quote lands in the RFQ's group with no
     configuration. Your venue's own correlation ids join the moment they are declared beside its
-    dictionary &mdash; see <a href="#venue-tag-roles">Your venue's own correlation ids</a>.</p>
+    dictionary &mdash; see <a href="#venue-tag-roles">Your venue's own correlation ids</a>. A placeholder
+    value (<code>NONE</code>, <code>N/A</code>, <code>NA</code> or <code>UNKNOWN</code>, in any case) names no
+    exchange, so two cancel rejects that both carry <code>37=NONE</code> are not joined by it. The Trace panel
+    follows the same rule.</p>
 
     <p>Each group gets a <strong>summary row</strong> in the grid's own columns: the id that opened the
     exchange and its instrument, what arrived (<em>NewOrderSingle &times;1 &middot; ExecutionReport

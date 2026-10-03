@@ -85,12 +85,27 @@ object Conversations {
         val total: Int get() = conversations.sumOf { it.messages.size } + ungrouped.size
     }
 
-    /** The correlation values a message carries, in wire order, without blanks or repeats. */
+    /** The correlation values a message carries, in wire order, without blanks, placeholders or repeats. */
     fun idsOf(message: FixMessage, dictionary: FixDictionaryAdapter?): List<Pair<Int, String>> =
-        FixMessageHelper
-            .fieldsForDisplay(message)
-            .filter { (tag, value) -> value.isNotBlank() && Minting.isCorrelationId(tag, dictionary) }
+        idsOn(FixMessageHelper.fieldsForDisplay(message), dictionary)
+
+    /**
+     * [idsOf] over fields already in hand: the one place that decides which values draw edges, for this
+     * grouping and for [Traces] alike.
+     *
+     * A placeholder is not an id. `37=NONE` is a venue saying it has no order id (FixTool's own
+     * CANCEL_REJECT preset sends it), and joined on as a value it made every rejected cancel on a session
+     * one conversation, whatever order each one was about.
+     */
+    internal fun idsOn(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<Pair<Int, String>> =
+        fields
+            .filter { (tag, value) -> !isPlaceholder(value) && Minting.isCorrelationId(tag, dictionary) }
             .distinctBy { it.second }
+
+    /** Blank, or one of the words a venue writes where it has no id to give. */
+    private fun isPlaceholder(value: String): Boolean = value.isBlank() || value.trim().uppercase() in PLACEHOLDERS
+
+    private val PLACEHOLDERS = setOf("NONE", "N/A", "NA", "UNKNOWN")
 
     /**
      * The relation over one session's log.

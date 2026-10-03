@@ -487,7 +487,8 @@ shortcut either, so ⌃R with nothing saved to run does nothing.
 
 A **trace** is the grouped grid's relation over every session at once: one business exchange followed
 through every pane that saw it, joined by shared correlation-id **values** — and a substring never
-matches. `GET /traces` (MCP: `fixtool_traces`) lists them all; `GET /trace?id=` (MCP: `fixtool_trace`)
+matches. A blank or placeholder value (`NONE`, `N/A`, `NA` or `UNKNOWN`, in any case) joins nothing, so
+two cancel rejects carrying `37=NONE` stay with their own orders. `GET /traces` (MCP: `fixtool_traces`) lists them all; `GET /trace?id=` (MCP: `fixtool_trace`)
 returns one in full.
 
 This is the answer to *what happened to `RFQ-A1`* — as opposed to *what happened to `RFQ-A1` on this

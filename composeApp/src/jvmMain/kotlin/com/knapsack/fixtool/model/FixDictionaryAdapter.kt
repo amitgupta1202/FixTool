@@ -11,6 +11,7 @@ import javax.xml.parsers.DocumentBuilderFactory
  * Adapter class that wraps QuickFIX's DataDictionary to provide a simplified interface
  * for UI components. Supports both FIX 4.x and FIX 5.0+ (with FIXT.1.1 transport layer).
  */
+@Suppress("TooManyFunctions") // every question asked of a dictionary (names, types, values, groups) is asked here
 class FixDictionaryAdapter private constructor(
     private val dataDictionary: DataDictionary?,
     private val dictionaryPath: String? = null,
@@ -153,6 +154,32 @@ class FixDictionaryAdapter private constructor(
             }
         return type == null || type == quickfix.FieldType.NUMINGROUP || type == quickfix.FieldType.INT
     }
+
+    /** Per message type, every count tag [definesGroup] says yes to. An adapter's dictionary never changes. */
+    private val groupsByMessageType = ConcurrentHashMap<String, Set<Int>>()
+
+    /**
+     * True when this dictionary defines [tag] as a repeating group of [messageType] **at any depth**:
+     * `NoPartyIDs(453)` on the message, and `NoPartySubIDs(802)` inside each of its entries.
+     *
+     * QuickFIX/J's own `isGroup` answers for one level only, so asking the message-level dictionary about a
+     * nested count says no, and the nested group looks like one the dictionary never heard of.
+     */
+    fun definesGroup(messageType: String, tag: Int): Boolean =
+        tag in
+            groupsByMessageType.getOrPut(messageType) {
+                val found = mutableSetOf<Int>()
+
+                fun descend(parent: DataDictionary) {
+                    for (field in parent.orderedFields) {
+                        if (!parent.isGroup(messageType, field)) continue
+                        found += field
+                        descend(parent.getGroup(messageType, field).dataDictionary)
+                    }
+                }
+                dataDictionary?.let { descend(it) }
+                found
+            }
 
     companion object {
         private val logger = org.slf4j.LoggerFactory.getLogger(FixDictionaryAdapter::class.java)

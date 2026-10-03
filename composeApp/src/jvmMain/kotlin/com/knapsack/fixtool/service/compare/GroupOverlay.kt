@@ -143,6 +143,9 @@ data class GroupOverlay(
          *   count row whose group the dictionary defines, and whose very next row is that group's
          *   delimiter, cannot start a guess: [known] is certain to build an entry there and put the row in
          *   `covered`.
+         * - A guess whose count tag the dictionary defines as a group of this message type, **at any
+         *   depth**, is never returned. `processFields` builds those inside their parent entry, and filing
+         *   a nested one on the message took it out of the entry it belongs to.
          *
          * When every count row on the message is one of those, there is provably nothing to rescue and
          * neither walk is made. When any row fails the test (a venue's own `9005`, or a defined group whose
@@ -259,9 +262,22 @@ private class Builder(
         // tested here because every node `guessed()` builds is HEURISTIC by construction, so the other
         // half of that filter never excluded anything.
         return guessed().mapNotNull { group ->
-            group.countRow?.let { Salvaged(group.groupTag, it, group.entries.map { entry -> entry.rows }) }
+            group.countRow
+                ?.takeUnless { definedAnywhere(group.groupTag) }
+                ?.let { Salvaged(group.groupTag, it, group.entries.map { entry -> entry.rows }) }
         }
     }
+
+    /**
+     * True when the dictionary defines [countTag] as a group of this message type at any depth, which makes
+     * it `processFields`' to build, inside its parent entry, delimiter tracking and all.
+     *
+     * A guess cannot tell that its count row sits inside a parent entry: `NoPartySubIDs(802)` whose entries
+     * open with 803 rather than their delimiter 523 is not covered by [known], so the guess bracketed it,
+     * and the parse filed it as a group of the message, taking it out of the party it belongs to.
+     */
+    private fun definedAnywhere(countTag: Int): Boolean =
+        messageType != null && dictionary?.definesGroup(messageType, countTag) == true
 
     /**
      * **True when no guess could produce a group with a count row**, decided by a pass over the fields

@@ -23,7 +23,11 @@ import kotlin.test.assertTrue
  * refuse to prove.
  */
 class SalvageGateEquivalenceTest {
-    /** What `FixMessageHelper.salvageableGroups` did before the gate: the whole overlay, then filtered. */
+    /**
+     * What `FixMessageHelper.salvageableGroups` did before the gate: the whole overlay, then filtered. The
+     * filter also leaves out a guess whose count tag the dictionary defines at any depth, the rule both paths
+     * now share, because `processFields` builds those inside their parent entry.
+     */
     private fun throughTheWholeOverlay(
         fields: List<Pair<Int, String?>>,
         messageType: String?,
@@ -33,6 +37,7 @@ class SalvageGateEquivalenceTest {
             .build(fields, messageType, dictionary)
             .groups
             .filter { it.source == EntrySource.HEURISTIC && it.countRow != null }
+            .filterNot { messageType != null && dictionary.definesGroup(messageType, it.groupTag) }
             .map { group -> Salvaged(group.groupTag, group.countRow!!, group.entries.map { it.rows }) }
 
     private fun bodyOf(raw: String): Pair<List<Pair<Int, String?>>, String> {

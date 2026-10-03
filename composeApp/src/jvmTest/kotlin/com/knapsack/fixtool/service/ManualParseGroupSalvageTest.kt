@@ -1,10 +1,12 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -112,6 +114,35 @@ class ManualParseGroupSalvageTest {
         val msg = raw.toQuickFixMessageManual(dictionary())
 
         assertEquals("3", msg.getString(453), "the wire said three; a tool that shows two has hidden the defect")
+    }
+
+    /**
+     * A nested group the dictionary defines stays inside its parent entry, even when its entries do not
+     * open with their delimiter.
+     *
+     * The rescue only asked the message-level dictionary, so `NoPartySubIDs(802)` looked undefined and its
+     * entries were guessed into a group of the message itself. FIRMA lost its sub-IDs, NoPartyIDs gained an
+     * empty second entry, and FIRMB's fields were set flat on the body.
+     */
+    @Test
+    fun `a nested group the dictionary defines stays inside its parent entry`() {
+        val raw =
+            "35=D|11=ORD-1|453=2|448=FIRMA|447=D|452=11|802=2|803=2|523=alice|803=4|523=DESK1|" +
+                "448=FIRMB|447=D|452=3|55=IBM|54=1|60=20260928-10:00:00|38=100|40=1|"
+
+        val msg = raw.toQuickFixMessageManual(FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))
+
+        assertEquals(2, msg.getGroupCount(453), "both parties, and no phantom")
+        val (firmA, firmB) = msg.getGroups(453)
+        assertEquals("FIRMA", firmA.getString(448))
+        assertEquals(2, firmA.getGroupCount(802), "FIRMA keeps both of its sub-IDs")
+        assertEquals(listOf("alice", "DESK1"), firmA.getGroups(802).map { it.getString(523) })
+        assertEquals(listOf("2", "4"), firmA.getGroups(802).map { it.getString(803) })
+        assertEquals("FIRMB", firmB.getString(448))
+        assertEquals("3", firmB.getString(452))
+        assertEquals(0, msg.getGroupCount(802), "NoPartySubIDs is not a group of the message")
+        assertFalse(msg.isSetField(448), "and FIRMB's fields are not set flat on the body")
+        assertEquals("IBM", msg.getString(55))
     }
 
     /**

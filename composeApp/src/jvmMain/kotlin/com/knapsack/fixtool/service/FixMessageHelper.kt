@@ -152,8 +152,8 @@ object FixMessageHelper {
      * `addGroup` keys the group by its count tag, and without one there is no tag to file the
      * entries under.
      *
-     * Dictionary-defined groups are absent deliberately: `processFields` already builds those, with
-     * delimiter tracking the overlay does not need to duplicate.
+     * Dictionary-defined groups are absent deliberately, nested ones included: `processFields` already
+     * builds those, with delimiter tracking the overlay does not need to duplicate.
      *
      * Asked through [GroupOverlay.salvageable] rather than by building a whole overlay and filtering it:
      * the answer is the same, and on the messages where it is "none" (which is every conformant one) it

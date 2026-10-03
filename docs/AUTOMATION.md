@@ -51,6 +51,14 @@ with the same value:
 FIXTOOL_CONTROL_PORT=8765 FIXTOOL_CONTROL_TOKEN=secret ./gradlew :composeApp:run
 ```
 
+Requests from web pages are refused with `403`, token or no token. That covers a request whose
+`Origin` is not a loopback address (`null` included), one the browser marks
+`Sec-Fetch-Site: cross-site`, and one addressed (`Host`) to any name but `localhost`, `127.0.0.1`
+or `[::1]`. Binding loopback keeps other machines out, but not a page open in a browser on this
+machine, and the port sends orders and evaluates expressions. curl, the MCP bridge and agent HTTP
+clients send none of these headers, so they are unaffected, and a tunnel that arrives on another
+port still reaches it by a loopback name.
+
 Implementation: `composeApp/src/jvmMain/kotlin/com/knapsack/fixtool/control/ControlServer.kt`,
 started from `main.kt` via the `onViewModelCreated` hook. All ViewModel access is marshalled
 onto the Swing EDT, since Compose state is EDT-bound.

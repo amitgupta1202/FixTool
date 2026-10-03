@@ -4375,6 +4375,10 @@ class ControlServer(
      */
     private fun syntax(ex: HttpExchange) {
         try {
+            browserRefusal(ex)?.let { refusal ->
+                respondText(ex, HTTP_FORBIDDEN, refusal)
+                return
+            }
             if (!authorized(ex)) {
                 respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
                 return
@@ -4393,6 +4397,10 @@ class ControlServer(
 
     private fun screenshot(ex: HttpExchange) {
         try {
+            browserRefusal(ex)?.let { refusal ->
+                respondText(ex, HTTP_FORBIDDEN, refusal)
+                return
+            }
             if (!authorized(ex)) {
                 respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
                 return
@@ -4548,6 +4556,10 @@ class ControlServer(
      */
     private fun mcpHandle(ex: HttpExchange) {
         try {
+            browserRefusal(ex)?.let { refusal ->
+                respondJson(ex, HTTP_FORBIDDEN, errorObject(refusal))
+                return
+            }
             if (!authorized(ex)) {
                 respondJson(ex, HTTP_UNAUTHORIZED, errorObject("unauthorized"))
                 return
@@ -4698,6 +4710,10 @@ class ControlServer(
 
     private fun handleCoded(ex: HttpExchange, block: () -> Coded) {
         try {
+            browserRefusal(ex)?.let { refusal ->
+                respondJson(ex, HTTP_FORBIDDEN, errorObject(refusal))
+                return
+            }
             if (!authorized(ex)) {
                 respondJson(ex, HTTP_UNAUTHORIZED, errorObject("unauthorized"))
                 return
@@ -4714,6 +4730,10 @@ class ControlServer(
 
     private fun handle(ex: HttpExchange, block: () -> JsonElement) {
         try {
+            browserRefusal(ex)?.let { refusal ->
+                respondJson(ex, HTTP_FORBIDDEN, errorObject(refusal))
+                return
+            }
             if (!authorized(ex)) {
                 respondJson(ex, HTTP_UNAUTHORIZED, errorObject("unauthorized"))
                 return
@@ -4731,6 +4751,14 @@ class ControlServer(
         val required = token ?: return true
         return ex.requestHeaders.getFirst("X-Control-Token") == required
     }
+
+    /** Why [ex] reads as a web page's request, or null. Asked before the token, of every route. */
+    private fun browserRefusal(ex: HttpExchange): String? =
+        browserRefusal(
+            host = ex.requestHeaders.getFirst("Host"),
+            origin = ex.requestHeaders.getFirst("Origin"),
+            fetchSite = ex.requestHeaders.getFirst("Sec-Fetch-Site"),
+        )
 
     private fun resolveSession(key: String?): FixMessageSession? =
         onEdt {
@@ -4855,6 +4883,61 @@ class ControlServer(
          */
         internal const val REDACTED = "[REDACTED]"
 
+        /** An IPv4 loopback address, which is any address in 127.0.0.0/8. */
+        private val IPV4_LOOPBACK = Regex("127(?:\\.\\d{1,3}){3}")
+
+        /**
+         * **Why a request reads as a web page's, or null when it reads as a tool's.**
+         *
+         * Binding loopback keeps other machines out and nothing else. A browser on this machine reaches
+         * `127.0.0.1` for any page that asks it to, and with no token set a page could POST a text/plain body
+         * to `/send` with `resolve: true`. That sends orders and evaluates Kotlin, and a text/plain POST is a
+         * "simple" request, so the browser delivers it without asking first. The page never reads the answer,
+         * and it does not need to.
+         *
+         * A browser says where a request came from in three ways, and each is checked:
+         * - [origin], on anything but a plain GET. Refused unless the page is itself on a loopback address,
+         *   which keeps a local dev page working and turns away every site on the internet. `null`, which a
+         *   sandboxed frame or a local file sends, is refused.
+         * - [fetchSite], on everything a modern browser sends, the plain GET an `<img src>` makes included.
+         *   Refused when it is `cross-site`. `none` is a URL typed into the address bar, and gets in.
+         * - [host], the name the page used. A page that points a name of its own at this machine (DNS
+         *   rebinding) arrives with that name here, so only a loopback name gets in, on any port, because a
+         *   tunnel arrives on another one.
+         *
+         * Tools (curl, the MCP bridge, an agent's HTTP client) send no Origin and no fetch metadata, and they
+         * address the port by a loopback name, so none of this touches them.
+         */
+        internal fun browserRefusal(host: String?, origin: String?, fetchSite: String?): String? {
+            if (host != null && !isLoopbackName(hostName(host))) {
+                return "refused: this request was addressed to '$host'. The control port answers only to " +
+                    "localhost, 127.0.0.1 and [::1], so a web page pointing a name of its own here is turned away."
+            }
+            if (origin != null) {
+                val page = runCatching { URI(origin.trim()).host }.getOrNull()
+                if (page == null || !isLoopbackName(page)) {
+                    return "refused: this request came from a web page at '$origin'. The control port sends " +
+                        "orders and evaluates expressions, so it answers tools and pages on this machine only."
+                }
+            }
+            if (fetchSite?.trim().equals("cross-site", ignoreCase = true)) {
+                return "refused: the browser marked this request cross-site. The control port answers tools " +
+                    "and pages on this machine only."
+            }
+            return null
+        }
+
+        /** The name part of a Host header: `[::1]` from `[::1]:8765`, `localhost` from `localhost:8765`. */
+        private fun hostName(host: String): String {
+            val trimmed = host.trim()
+            return if (trimmed.startsWith("[")) trimmed.substringBefore("]") + "]" else trimmed.substringBefore(':')
+        }
+
+        private fun isLoopbackName(name: String): Boolean {
+            val bare = name.lowercase().removeSuffix(".")
+            return bare == "localhost" || bare == "[::1]" || bare == "::1" || IPV4_LOOPBACK.matches(bare)
+        }
+
         /** Config keys never echoed by a read. See [REDACTED]. */
         internal val SECRET_CONFIG_KEYS = setOf("password", "keyStorePassword", "trustStorePassword")
 
@@ -4864,6 +4947,7 @@ class ControlServer(
 
         private const val HTTP_OK = 200
         private const val HTTP_UNAUTHORIZED = 401
+        private const val HTTP_FORBIDDEN = 403
         private const val HTTP_BAD_REQUEST = 400
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_SERVER_ERROR = 500

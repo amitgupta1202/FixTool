@@ -187,7 +187,10 @@ class FixDictionaryAdapter private constructor(
         /** Default bundled dictionary resource path */
         const val BUNDLED_FIX44_RESOURCE = "/dictionaries/FIX44.xml"
 
-        /** Cache for loaded dictionaries to avoid repeated parsing */
+        /**
+         * Cache for loaded dictionaries to avoid repeated parsing. A file is keyed by [stamp], so an edited file
+         * is read again, and a failed load is never kept ([cachedUnlessFailed]).
+         */
         private val dictionaryCache = ConcurrentHashMap<String, FixDictionaryAdapter>()
 
         /** Cache for temp files created from resources */
@@ -423,9 +426,8 @@ class FixDictionaryAdapter private constructor(
         /**
          * Creates an adapter from a data dictionary file path
          */
-        fun fromFile(file: File): FixDictionaryAdapter {
-            val cacheKey = file.absolutePath
-            return dictionaryCache.getOrPut(cacheKey) {
+        fun fromFile(file: File): FixDictionaryAdapter =
+            cachedUnlessFailed(stamp(file)) {
                 try {
                     val path = file.absolutePath
                     val dataDictionary = DataDictionary(path)
@@ -439,7 +441,19 @@ class FixDictionaryAdapter private constructor(
                     FixDictionaryAdapter(null, null, emptyMap(), emptyList())
                 }
             }
-        }
+
+        /**
+         * The adapter cached under [key], or what [load] returns, which is cached only when it loaded: a file
+         * that failed (an XML typo) must be tried again once the author fixes it, not until a restart.
+         */
+        private fun cachedUnlessFailed(key: String, load: () -> FixDictionaryAdapter): FixDictionaryAdapter =
+            dictionaryCache[key] ?: load().also { if (it.isLoaded()) dictionaryCache[key] = it }
+
+        /**
+         * A file as the cache keys it: its path, when it last changed and how long it is. The path alone kept
+         * handing back the adapter read before an edit, so Save in Settings reloaded a stale dictionary.
+         */
+        private fun stamp(file: File): String = "${file.absolutePath}@${file.lastModified()}:${file.length()}"
 
         /**
          * Creates an adapter from a data dictionary file path string
@@ -452,9 +466,8 @@ class FixDictionaryAdapter private constructor(
          * @param transportDictionaryFile The transport dictionary file (FIXT11.xml)
          * @return A FixDictionaryAdapter with both dictionaries loaded
          */
-        fun fromFiles(appDictionaryFile: File, transportDictionaryFile: File?): FixDictionaryAdapter {
-            val cacheKey = "${appDictionaryFile.absolutePath}|${transportDictionaryFile?.absolutePath ?: "none"}"
-            return dictionaryCache.getOrPut(cacheKey) {
+        fun fromFiles(appDictionaryFile: File, transportDictionaryFile: File?): FixDictionaryAdapter =
+            cachedUnlessFailed("${stamp(appDictionaryFile)}|${transportDictionaryFile?.let(::stamp) ?: "none"}") {
                 try {
                     val appPath = appDictionaryFile.absolutePath
                     val appDictionary = DataDictionary(appPath)
@@ -487,7 +500,6 @@ class FixDictionaryAdapter private constructor(
                     FixDictionaryAdapter(null, null, emptyMap(), emptyList())
                 }
             }
-        }
 
         /**
          * Creates an adapter for a specific FIX version using bundled dictionaries.

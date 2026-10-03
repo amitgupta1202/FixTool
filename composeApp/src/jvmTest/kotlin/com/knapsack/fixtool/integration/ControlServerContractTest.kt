@@ -169,6 +169,42 @@ class ControlServerContractTest {
         assertEquals(400, coded.statusCode(), coded.body())
     }
 
+    // ------------------------------------------------------------------ sessions by index
+
+    /** Every tool says `session id/title/index`, and `GET /messages?session=1` always took one. */
+    @Test
+    fun `send takes a session by its index, as every other route does`() {
+        addSession("FIRST")
+        addSession("SECOND")
+
+        val reply = obj(post("/send", """{"session":"1","raw":"35=D|11=ORD-1|55=EUR/USD|"}"""))
+
+        assertEquals(1, viewModel.activeSessionIndex, "the send went from session 1: $reply")
+        assertEquals(
+            "session not found: 5",
+            obj(post("/send", """{"session":"5","raw":"35=D|"}"""))["error"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `a template is sent from a session named by its index`() {
+        addSession("FIRST")
+        addSession("SECOND")
+        val profile =
+            obj(post("/profiles", """{"name":"TplProf","config":{"port":"1"}}"""))["id"]!!.jsonPrimitive.content
+        val template =
+            obj(post("/templates", """{"profile":"$profile","name":"NOS","raw":"35=D|55=EUR/USD|"}"""))["id"]!!
+                .jsonPrimitive.content
+
+        val reply = obj(post("/templates/send", """{"id":"$template","session":"1"}"""))
+
+        assertEquals("NOS", reply["template"]?.jsonPrimitive?.content, "session 1 was found: $reply")
+        assertEquals(
+            "session not found: 5",
+            obj(post("/templates/send", """{"id":"$template","session":"5"}"""))["error"]?.jsonPrimitive?.content,
+        )
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private fun order(clOrdId: String) = "8=FIX.4.4|35=D|49=CLI|56=VENUE|11=$clOrdId|55=EUR/USD|54=1|38=100|40=1|"

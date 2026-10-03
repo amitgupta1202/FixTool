@@ -2980,7 +2980,7 @@ class ControlServer(
         return onEdt {
             val index =
                 if (sessionKey != null) {
-                    val i = viewModel.sessions.indexOfFirst { it.id == sessionKey || it.title == sessionKey }
+                    val i = sessionIndexOf(sessionKey)
                     if (i < 0) return@onEdt errorObject("session not found: $sessionKey")
                     viewModel.setActiveSession(i)
                     i
@@ -3036,8 +3036,7 @@ class ControlServer(
                     ?: return@onEdt errorObject("template not found: $id")
             val index =
                 if (sessionKey != null) {
-                    viewModel.sessions
-                        .indexOfFirst { it.id == sessionKey || it.title == sessionKey }
+                    sessionIndexOf(sessionKey)
                         .also { if (it < 0) return@onEdt errorObject("session not found: $sessionKey") }
                 } else {
                     viewModel.activeSessionIndex
@@ -4820,12 +4819,24 @@ class ControlServer(
     private fun resolveSession(key: String?): FixMessageSession? =
         onEdt {
             val list = viewModel.sessions
-            when {
-                key == null -> list.firstOrNull()
-                key.toIntOrNull() != null -> list.getOrNull(key.toInt())
-                else -> list.firstOrNull { it.id == key || it.title == key }
-            }
+            if (key == null) list.firstOrNull() else list.getOrNull(sessionIndexOf(key))
         }
+
+    /**
+     * Where the session [key] names sits in the list (its index, its id or its title), or -1. On the EDT.
+     *
+     * The one reading of a session key, so the routes that need the index (the sends, which make it the
+     * active session) take the same keys as every route that needs only the session.
+     */
+    private fun sessionIndexOf(key: String): Int {
+        val list = viewModel.sessions
+        val index = key.toIntOrNull()
+        return if (index != null) {
+            index.takeIf { it in list.indices } ?: -1
+        } else {
+            list.indexOfFirst { it.id == key || it.title == key }
+        }
+    }
 
     private fun queryParams(ex: HttpExchange): Map<String, String> =
         ex.requestURI.rawQuery

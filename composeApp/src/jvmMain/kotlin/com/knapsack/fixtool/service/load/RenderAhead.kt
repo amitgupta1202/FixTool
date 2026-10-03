@@ -99,9 +99,13 @@ class RenderAhead(
         private const val POLL_MS = 20L
 
         /**
-         * One producer per lane, or none at all when there is nothing to render: a template with no
-         * per-message field renders the same message every time, and a thread to hand it over is cost
-         * with no benefit.
+         * One producer per lane, or none at all when the template reads the clock.
+         *
+         * A clock is only true when it is read. Rendered [DEPTH] messages ahead, a `${'$'}{utcnow}` is that
+         * many of the lane's sends old when it leaves: at 5/s over ten lanes, two minutes, and a
+         * `${'$'}{utcnow+20s}` ValidUntilTime is already past. With no producer the pacer renders each
+         * message as it sends it, which is what every lane did before this class existed. The price is the
+         * round-robin skew this class removes: lane N's message waits for lanes 1 to N-1 to render theirs.
          */
         fun forLanes(
             prototypes: List<CompiledTemplate.LanePrototype>,
@@ -117,6 +121,7 @@ class RenderAhead(
              */
             phase: Int = 1,
         ): List<RenderAhead> {
+            if (prototypes.any { it.readsTheClock }) return emptyList()
             val lanes = prototypes.size
             return prototypes.mapIndexed { index, prototype ->
                 RenderAhead(

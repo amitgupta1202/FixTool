@@ -1180,7 +1180,8 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
             from the phase it reacts to and so has nothing a single run could ever fire it with.</li>
         <li><strong>Per-message values.</strong> <code>11=ORD-${run}-${messageIndex}</code> gives every message
             its own ClOrdID, with <code>run</code> seeded by <code>--set run=b7f2</code> so a second run can
-            address what the first created. <code>${uuid}</code> and <code>${utcnow}</code> render per message.
+            address what the first created. <code>${uuid}</code> and <code>${utcnow}</code> render per message,
+            and a template that reads the clock is rendered as each message goes rather than ahead of it.
             <code>${sessionIndex}</code> is the lane's slot, 1-based as in a fan-out, so a profile that opens
             one session issues on lane 1 and it is never 0. Anything else is evaluated once per
             lane, and the report lists its tag under <em>fixed</em>.</li>

@@ -207,6 +207,8 @@ collide.
 
 **What varies per message.** `${messageIndex}` (1-based), the `--seed` values, `${uuid}`, `${uuid:N}`,
 `${now}` and `${utcnow}` with their offsets and patterns are rendered per message by string substitution.
+A template that reads the clock is rendered as each message is sent rather than ahead of it, so a
+timestamp is as old as the send.
 `${sessionIndex}` and the other lane names are the lane's, as in a fan-out: it is the profile **slot**,
 1-based, so it reads 1 on a one-session profile and is never 0. Anything else, a `${out.D.11}` or a Kotlin
 expression, is evaluated **once per lane** and frozen, and the report lists its tag under

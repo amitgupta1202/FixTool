@@ -192,7 +192,8 @@ class LoadRunner(
 
         // Each lane renders ahead of its own sends, so a lane's message is not queued behind every other
         // lane's rendering on the pacer thread. See RenderAhead: this is what makes a per-lane number
-        // worth showing rather than a picture of the round-robin.
+        // worth showing rather than a picture of the round-robin. Not a template that reads the clock,
+        // whose timestamps would be stale by the depth of the look-ahead: forLanes hands back none.
         //
         // A reactive phase cannot look ahead at all, because its next index is whichever request its
         // trigger answered next. It renders on demand instead, which is the same one-renderer-per-lane
@@ -265,7 +266,8 @@ class LoadRunner(
                         // The pacer counts 1..requested. `indexFrom` shifts that once, here, so a phase of a
                         // set can address the half another phase left: "pass the other 2,000" is index 2,001.
                         val index = plan.indexFrom - 1 + messageIndex
-                        val rendered = producers[laneIndex].next(index) ?: prototypes[laneIndex].renderOrRefuse(index)
+                        val rendered =
+                            producers.getOrNull(laneIndex)?.next(index) ?: prototypes[laneIndex].renderOrRefuse(index)
                         handOver(laneIndex, rendered)
                     },
                     cancelled = cancelled,

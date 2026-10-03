@@ -79,6 +79,25 @@ class RenderAheadTest {
         }
     }
 
+    /**
+     * **A clock is only true when it is read**, so a template that reads one is not rendered ahead.
+     * Sixty-four messages ahead at 5/s over ten lanes is a `${'$'}{utcnow}` two minutes old when it leaves,
+     * and a `${'$'}{utcnow+20s}` ValidUntilTime that is already past.
+     */
+    @Test
+    fun `a template that reads the clock gets no producer, so each message is rendered as it is sent`() {
+        val clocked = CompiledTemplate.compile(LoadTemplate("NOS", listOf(35 to "D", 11 to "ORD-\${messageIndex}", 60 to "\${utcnow}")))
+        val prototypes =
+            (1..2).map { slot ->
+                clocked.prepare(Lane(slot, "LOADGEN [$slot]", "LG0$slot", ""), emptyMap(), FixDictionaryAdapter.createDefault()) { it }
+            }
+
+        val producers = RenderAhead.forLanes(prototypes, requested = 9)
+        producers.forEach { it.close() }
+
+        assertEquals(0, producers.size, "the pacer renders each message of a clocked template as it sends it")
+    }
+
     /** The queue carries a render, so a message that could not be addressed rides it too. */
     private fun sent(rendered: CompiledTemplate.Rendered): quickfix.Message =
         assertIs<CompiledTemplate.Rendered.Message>(rendered, "expected a message, got $rendered").message

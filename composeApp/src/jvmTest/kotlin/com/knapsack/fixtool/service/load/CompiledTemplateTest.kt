@@ -8,6 +8,7 @@ import com.knapsack.fixtool.service.ShorthandTemplateExpander
 import com.knapsack.fixtool.service.ShorthandTemplateExpander.Generator
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -248,6 +249,24 @@ class CompiledTemplateTest {
         prices.forEach {
             assertEquals(5, it.substringAfter('.').length, it)
             assertTrue(it.toBigDecimal() in "1.09000".toBigDecimal().."1.09090".toBigDecimal(), it)
+        }
+    }
+
+    /**
+     * Whether a template reads the clock is what decides whether its lanes may render ahead of their sends.
+     * A per-message `now` in any spelling does. A once-per-lane field is frozen at prepare whatever it reads.
+     */
+    @Test
+    fun `a template reads the clock when a per-message field holds now or utcnow, however it is spelled`() {
+        val clocked = listOf("\${utcnow}", "\${now}", "\${utcnow+20s}", "\${utcnow:yyyyMMdd}", "\${t = utcnow}", "T-\${now}-\${messageIndex}")
+        val unclocked = listOf("EUR/USD", "\${uuid}", "ORD-\${messageIndex}", "\${random:1.09:1.10:5}", "\${out.D.60}")
+
+        clocked.forEach { value ->
+            assertTrue(CompiledTemplate.compile(template(60 to value)).readsTheClock, "$value reads the clock")
+            assertTrue(CompiledTemplate.compile(template(60 to value)).prepare(lane(1), emptyMap(), dictionary) { it }.readsTheClock, value)
+        }
+        unclocked.forEach { value ->
+            assertFalse(CompiledTemplate.compile(template(60 to value)).readsTheClock, "$value does not read the clock")
         }
     }
 }

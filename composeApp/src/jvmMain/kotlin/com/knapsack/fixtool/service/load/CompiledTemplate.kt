@@ -124,6 +124,16 @@ class CompiledTemplate private constructor(
     val onceTags: List<Int> get() = slots.filterIsInstance<Slot.Once>().map { it.tag }
 
     /**
+     * **Whether a per-message field reads the clock**: `${'$'}{now}` or `${'$'}{utcnow}`, with or without an
+     * offset or a pattern, bare or behind an assignment.
+     *
+     * Such a field is only true at the moment it is rendered, so a lane whose template has one is rendered
+     * as it is sent and never ahead of it: see [RenderAhead.forLanes]. A once-per-lane field is frozen at
+     * prepare whatever it reads, so it does not count.
+     */
+    val readsTheClock: Boolean get() = slots.any { it is Slot.PerMessage && isClocked(it) }
+
+    /**
      * The variable names the per-message fields read that nothing will seed, given what a run does seed.
      *
      * The evaluator's rule for an unknown name is to leave `${name}` in the wire, which for a load run is
@@ -236,6 +246,9 @@ class CompiledTemplate private constructor(
          */
         private val capturedNames: List<String> = emptyList(),
     ) {
+        /** The same question as [CompiledTemplate.readsTheClock], asked of the lane that is about to render. */
+        val readsTheClock: Boolean = perMessage.any { isClocked(it) }
+
         /** [messageIndex] is 1-based, so `${messageIndex}` counts the way "4,000 issued" counts. */
         fun render(messageIndex: Int): Message =
             (renderOrRefuse(messageIndex) as? Rendered.Message)?.message
@@ -323,6 +336,15 @@ class CompiledTemplate private constructor(
             ShorthandTemplateExpander.generatorOf(expression)?.let { return Part.Generated(it) }
             return if (VARIABLE.matches(expression)) Part.Variable(expression) else null
         }
+
+        private fun isClocked(slot: Slot.PerMessage): Boolean = slot.parts.any { isClocked(it) }
+
+        private fun isClocked(part: Part): Boolean =
+            when (part) {
+                is Part.Generated -> part.generator is Generator.Timestamp
+                is Part.Assign -> isClocked(part.value)
+                else -> false
+            }
 
         /** A [Part.Variable] whose name a later phase reads from a capture is a [Part.Captured]. */
         private fun asCaptured(part: Part, captured: Set<String>): Part =

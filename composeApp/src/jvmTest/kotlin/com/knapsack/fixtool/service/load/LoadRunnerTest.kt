@@ -65,6 +65,20 @@ class LoadRunnerTest {
         assertEquals(10L, r.replies.matched)
     }
 
+    /** A lane with no look-ahead renders inline, as every lane did before RenderAhead, and sends everything. */
+    @Test
+    fun `a template that reads the clock is rendered as each message goes, and every message still goes`() {
+        val clock = FakeClock()
+        val lanes = (1..3).map { FakeLane(it, clock, ::echo) }
+        val stamped = template.copy(fields = template.fields + (60 to "\${utcnow}"))
+
+        val r = LoadRunner(FakeHost(clock, lanes), clock = clock).run(plan(shape = LoadShape.Burst(10)).copy(template = stamped)).report
+
+        assertEquals(10L, r.replies.matched)
+        assertEquals(LoadReport.Completeness.COMPLETE, r.verdict.completeness)
+        assertTrue(lanes.flatMap { it.sent }.all { WireTags.tagValue(it, 60) != null }, "every message carries its own TransactTime")
+    }
+
     @Test
     fun `a clean burst finishes settle early, matches everything, and releases the sessions`() {
         val clock = FakeClock()

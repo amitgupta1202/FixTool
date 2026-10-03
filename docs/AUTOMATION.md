@@ -906,10 +906,13 @@ carries its own ExecID and its own TransactTime rather than the acknowledgement'
 
 A `req` reference **inside** a larger expression is computed, by the same Kotlin engine the message
 editor uses: `14=${req.38 / 2}` fills half the order quantity, so one partial-fill rule works for every
-order size instead of the one its author hardcoded. The value is substituted raw, which is what makes
-the arithmetic work and what keeps this to numbers — a string field is read with the standalone
-`${req.11}` form, which needs none of it. Expressions are scoped to the message that **triggered the
-rule**, not "the latest incoming", so two orders in flight cannot read each other's quantities.
+order size instead of the one its author hardcoded. Inside an expression the value becomes Kotlin
+source, so only a plain number goes in (`1000`, `-1.25`). Anything else refuses that step, by name,
+rather than running what the client sent. A string field is read with the standalone `${req.11}` form,
+which echoes the client's value exactly: a `${...}` or a `|` in it is text, never template and never
+a field boundary. The same holds for `${order.…}`, `${quote.…}`, `${to.…}` and `${rfq.…}`, and for
+what an expression answers. Expressions are scoped to the message that **triggered the rule**, not
+"the latest incoming", so two orders in flight cannot read each other's quantities.
 
 Replies always leave *after* the inbound callback has returned, on a dispatch thread of their own —
 including a zero-delay one. A reply sent inline can reach the counterparty before their own `send()`

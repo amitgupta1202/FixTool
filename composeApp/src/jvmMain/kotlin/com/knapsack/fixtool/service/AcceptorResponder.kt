@@ -52,8 +52,15 @@ data class PlannedSend(
     val to: Recipient? = null,
     /** Which step of the rule, as authored, this send belongs to — a fan-out is one step with many sends. */
     val authoredStep: Int = 0,
-    val render: () -> String,
+    /**
+     * The reply as the passes leave it, every value a counterparty supplied still sealed. Read it through
+     * [render], which opens them. See [EchoedValues].
+     */
+    private val text: () -> String,
 ) {
+    /** The reply as a raw FIX message. SOH-delimited when a value the counterparty sent carries a `|`. */
+    fun render(): String = EchoedValues.raw(text())
+
     fun build(): Message = AcceptorResponder.buildMessage(render(), dictionary)
 }
 
@@ -174,6 +181,9 @@ object AcceptorResponder {
 
     // Any ${...} expression, so a req reference *inside* one can be filled in before Kotlin sees it.
     private val ANY_EXPR = Regex("\\\$\\{([^}]*)}")
+
+    // What the expression pass evaluates one at a time: the shape FixMessageTemplate itself evaluates.
+    private val EXPRESSION = Regex("\\\$\\{[^}]+}")
 
     // A req reference sitting inside a larger expression, e.g. the `req.38` of ${req.38 / 2}.
     private val REQ_IN_EXPR = Regex("\\breq\\.(\\d+)\\b")
@@ -507,12 +517,14 @@ object AcceptorResponder {
         val requestId = UUID.randomUUID().toString()
         return rule.sequence().map { step ->
             offset += step.delayMillis.coerceAtLeast(0)
-            val againstRequest = resolveRequestRefs(step.template, incoming, requestId)
+            // Held as a result and thrown when the step is built, so a request value an expression cannot take
+            // loses that step, said so, and not the rest of the reply.
+            val againstRequest = runCatching { resolveRequestRefs(step.template, incoming, requestId) }
             PlannedSend(offset, dictionary) {
                 // Order refs before the expression pass, exactly as request refs are, so
                 // `${order.leavesQty / 2}` is arithmetic and not a literal.
                 val books =
-                    resolveQuoteRefs(resolveOrderRefs(resolveAtSendTime(againstRequest), order()), quote())
+                    resolveQuoteRefs(resolveOrderRefs(resolveAtSendTime(againstRequest.getOrThrow()), order()), quote())
                 resolveExpressions(books, request, dictionary)
             }
         }
@@ -558,11 +570,12 @@ object AcceptorResponder {
                 if (address == StepAddress.Sender) Resolution(listOf(sender)) else venue.resolve(address, trigger)
             resolution.notDelivered.forEach { notDelivered += index to it }
             if (resolution.recipients.isEmpty() && resolution.notDelivered.isEmpty()) nobody += index
-            val againstRequest = resolveRequestRefs(step.template, incoming, requestId)
+            val againstRequest = runCatching { resolveRequestRefs(step.template, incoming, requestId) }
             resolution.recipients.forEach { recipient ->
                 sends +=
                     PlannedSend(offset, dictionary, to = recipient, authoredStep = index) {
-                        val addressed = resolveToRefs(resolveAtSendTime(againstRequest), venue, recipient, trigger)
+                        val addressed =
+                            resolveToRefs(resolveAtSendTime(againstRequest.getOrThrow()), venue, recipient, trigger)
                         val relayed = resolveRfqRefs(addressed, venue, trigger)
                         val books = resolveQuoteRefs(resolveOrderRefs(relayed, order()), quote())
                         resolveExpressions(books, request, dictionary)
@@ -583,8 +596,10 @@ object AcceptorResponder {
         if (!template.contains(TO_PREFIX)) return template
         return TO_REF.replace(template) { match ->
             val tag = match.groupValues[1].toInt()
-            venue.toValue(recipient, trigger, tag)
-                ?: error("\${to.$tag}: ${recipient.compId} has no $tag on this RFQ, so the step cannot say it")
+            val value =
+                venue.toValue(recipient, trigger, tag)
+                    ?: error("\${to.$tag}: ${recipient.compId} has no $tag on this RFQ, so the step cannot say it")
+            EchoedValues.seal(value)
         }
     }
 
@@ -593,8 +608,10 @@ object AcceptorResponder {
         if (!template.contains(RFQ_PREFIX)) return template
         return RFQ_REF.replace(template) { match ->
             val name = match.groupValues[1]
-            venue.rfqField(trigger, name)
-                ?: error("\${rfq.$name}: the venue holds no $name for this RFQ, so the step cannot say it")
+            val value =
+                venue.rfqField(trigger, name)
+                    ?: error("\${rfq.$name}: the venue holds no $name for this RFQ, so the step cannot say it")
+            EchoedValues.seal(value)
         }
     }
 
@@ -676,9 +693,12 @@ object AcceptorResponder {
         val reading = quote ?: return template
         val fields = quoteNames(template).mapNotNull { name -> reading.field(name)?.let { name to it } }.toMap()
         if (fields.isEmpty()) return template
-        val whole = QUOTE_REF.replace(template) { m -> fields.getValue(m.groupValues[1]) }
+        val whole = QUOTE_REF.replace(template) { m -> EchoedValues.seal(fields.getValue(m.groupValues[1])) }
         return ANY_EXPR.replace(whole) { m ->
-            "\${" + QUOTE_IN_EXPR.replace(m.groupValues[1]) { r -> fields.getValue(r.groupValues[1]) } + "}"
+            "\${" +
+                QUOTE_IN_EXPR.replace(m.groupValues[1]) { r ->
+                    EchoedValues.number(fields.getValue(r.groupValues[1]), "\${quote.${r.groupValues[1]}}")
+                } + "}"
         }
     }
 
@@ -797,21 +817,32 @@ object AcceptorResponder {
      * Skipped entirely when no `${...}` survives, which is every template written before this existed:
      * the script engine costs real milliseconds, and an acceptor under load should not pay them to
      * discover there was nothing to evaluate.
+     *
+     * **Each answer is sealed as it is spliced in.** `${in.D.58}` answers with the client's own Text, and a
+     * Text carrying a `|` would otherwise become fields of the reply. One expression at a time, with one
+     * variable scope across them, is the same evaluation [FixMessageTemplate.evaluate] does in a single call.
+     * Everything still wearing `${...}` here is the author's, because every value spliced in before this pass
+     * was sealed. See [EchoedValues].
      */
-    fun resolveExpressions(template: String, request: FixMessage?, dictionary: FixDictionary?): String =
-        if (request == null || !FixMessageTemplate.hasTemplateExpressions(template)) {
-            template
-        } else {
-            FixMessageTemplate.evaluate(
-                template,
-                incomingMessages = request.messageType?.let { mapOf(it to request) } ?: emptyMap(),
-                dictionary = dictionary,
-            )
+    fun resolveExpressions(template: String, request: FixMessage?, dictionary: FixDictionary?): String {
+        if (request == null || !FixMessageTemplate.hasTemplateExpressions(template)) return template
+        val incoming = request.messageType?.let { mapOf(it to request) } ?: emptyMap()
+        val scope = mutableMapOf<String, String>()
+        return EXPRESSION.replace(template) { m ->
+            val answer =
+                FixMessageTemplate.evaluate(
+                    m.value,
+                    incomingMessages = incoming,
+                    variables = scope,
+                    dictionary = dictionary,
+                )
+            EchoedValues.seal(answer)
         }
+    }
 
     /** Substitutes `${req.<tag>}`, `${req.uuid}`, `${uuid}` and `${now}` in [template]. */
     fun resolve(template: String, incoming: Message): String =
-        resolveAtSendTime(resolveRequestRefs(template, incoming, UUID.randomUUID().toString()))
+        EchoedValues.raw(resolveAtSendTime(resolveRequestRefs(template, incoming, UUID.randomUUID().toString())))
 
     /**
      * The half of [resolve] that reads the request: `${req.<tag>}`. Fixed when the trigger arrives.
@@ -821,9 +852,10 @@ object AcceptorResponder {
      * braces left for the Kotlin engine, so half the order quantity is written the way anyone would
      * guess rather than as `${incoming["D"].valueOfTag(38)!!.toInt() / 2}`.
      *
-     * The value goes in raw, which is what makes the arithmetic work and what limits this to numbers:
-     * a string substituted into an expression would need quoting, and quoting would break the sums.
-     * A string field is read with the standalone form, which needs none of this.
+     * Inside an expression the value becomes Kotlin source, which is what makes the arithmetic work, so
+     * only a plain number goes in there and anything else refuses the step ([EchoedValues.number]). A
+     * string field is read with the standalone form, whose value is sealed ([EchoedValues.seal]) so that
+     * no later pass reads the client's text as template.
      *
      * **`${req.uuid}` is an id belonging to the request**, and [requestId] is that id — one draw for
      * the whole reply, so every step of a sequence carries the same OrderID. It sits in the `req.`
@@ -833,9 +865,14 @@ object AcceptorResponder {
      */
     fun resolveRequestRefs(template: String, incoming: Message, requestId: String): String {
         val withId = template.replace("\${req.uuid}", requestId)
-        val whole = REQ_REF.replace(withId) { m -> valueOf(incoming, m.groupValues[1].toInt()) ?: "" }
+        val whole =
+            REQ_REF.replace(withId) { m -> EchoedValues.seal(valueOf(incoming, m.groupValues[1].toInt()) ?: "") }
         return ANY_EXPR.replace(whole) { m ->
-            "\${" + REQ_IN_EXPR.replace(m.groupValues[1]) { r -> valueOf(incoming, r.groupValues[1].toInt()) ?: "" } + "}"
+            "\${" +
+                REQ_IN_EXPR.replace(m.groupValues[1]) { r ->
+                    val tag = r.groupValues[1]
+                    EchoedValues.number(valueOf(incoming, tag.toInt()), "\${req.$tag}")
+                } + "}"
         }
     }
 
@@ -860,9 +897,12 @@ object AcceptorResponder {
     fun resolveOrderRefs(template: String, order: Map<String, String>?): String {
         orderRefusal(template, order)?.let { throw IllegalStateException(it) }
         val fields = order ?: return template
-        val whole = ORDER_REF.replace(template) { m -> fields.getValue(m.groupValues[1]) }
+        val whole = ORDER_REF.replace(template) { m -> EchoedValues.seal(fields.getValue(m.groupValues[1])) }
         return ANY_EXPR.replace(whole) { m ->
-            "\${" + ORDER_IN_EXPR.replace(m.groupValues[1]) { r -> fields.getValue(r.groupValues[1]) } + "}"
+            "\${" +
+                ORDER_IN_EXPR.replace(m.groupValues[1]) { r ->
+                    EchoedValues.number(fields.getValue(r.groupValues[1]), "\${order.${r.groupValues[1]}}")
+                } + "}"
         }
     }
 

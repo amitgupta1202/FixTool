@@ -83,7 +83,7 @@ internal fun relayReplyJson(rule: AcceptorResponseRule, plan: RelayPlan): JsonAr
                     put("offsetMillis", planned.offsetMillis)
                     put("step", planned.authoredStep + 1)
                     planned.to?.let { put("to", recipientJson(it)) }
-                    rendered(planned.render).fold(
+                    rendered(planned::render).fold(
                         onSuccess = { put("message", it.replace(FixMessageHelper.SOH, '|')) },
                         onFailure = { failure ->
                             put("unrendered", failure.message ?: "this step could not be built")

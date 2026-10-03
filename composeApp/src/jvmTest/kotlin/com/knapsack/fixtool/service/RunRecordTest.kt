@@ -294,12 +294,54 @@ class RunRecordTest {
     @Test
     fun `pruning keeps the most recent sets and drops the rest`() {
         val store = RunRecordStore(customDir = dir.absolutePath)
-        (1..5).forEach { n -> store.begin(sampleSet().copy(id = "set-$n", startedAt = n.toLong())) }
+        // Finished sets. A set the store reads back as running is never pruned, so five of those kept all five.
+        (1..5).forEach { n ->
+            store.begin(sampleSet().copy(id = "set-$n", startedAt = n.toLong(), finishedAt = n.toLong(), status = RunSetStatus.PASSED))
+        }
 
         store.prune(keep = 2)
 
         assertEquals(listOf("set-5", "set-4"), store.listSets().map { it.id }, "newest first, and only what was kept")
         assertNull(store.readSet("set-1"))
+    }
+
+    /**
+     * **Runs on disjoint sessions overlap, and retention must not reach into one that is still going.**
+     *
+     * Ranked by `startedAt` alone, the long suite on session A was the oldest set on disk the moment two short
+     * sets on session B finished, so B's second prune deleted A mid-run. Its next entry then recreated the
+     * directory holding only the later records, under a `set.json` naming files that no longer existed. And
+     * once A did finish, its own prune would have deleted it at once, being the oldest start.
+     */
+    @Test
+    fun `pruning never deletes a set that is still being run, and keeps the one that just finished`() {
+        val live = mutableSetOf<String>()
+        val store = RunRecordStore(customDir = dir.absolutePath, isLive = { it in live })
+        val suite = sampleSet().copy(id = "suite-on-a", startedAt = 1)
+        assertTrue(store.begin(suite))
+        live += suite.id
+        val first = assertNotNull(store.write(sampleRecord(suite.id)))
+        store.writeSet(suite.withEntry(0) { it.copy(state = RunState.PASSED, record = first) })
+
+        listOf("short-on-b-1" to 2L, "short-on-b-2" to 4L).forEach { (id, startedAt) ->
+            val short = sampleSet().copy(id = id, startedAt = startedAt)
+            assertTrue(store.begin(short))
+            store.writeSet(short.copy(status = RunSetStatus.PASSED, finishedAt = startedAt + 1))
+            store.prune(keep = 2)
+        }
+
+        assertNotNull(store.readEntry(suite.id, 1), "the running suite's first record is still on disk")
+        assertEquals(RunSetStatus.RUNNING, assertNotNull(store.readSet(suite.id)).status)
+
+        store.writeSet(suite.copy(status = RunSetStatus.PASSED, finishedAt = 6))
+        live -= suite.id
+        store.prune(keep = 2)
+
+        assertEquals(
+            setOf("suite-on-a", "short-on-b-2"),
+            store.listSets().map { it.id }.toSet(),
+            "the set that just finished is the newest result, whenever it started",
+        )
     }
 
     /** The record's own shape, through JSON and back — Phase 2's viewer reads exactly what CI was handed. */

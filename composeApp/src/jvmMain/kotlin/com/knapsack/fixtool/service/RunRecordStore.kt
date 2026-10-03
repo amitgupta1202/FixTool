@@ -41,8 +41,8 @@ import java.io.File
  * entry nine. Headless writes the same directory under its own `--home`, so `fixtool run --set nightly`
  * on a build box leaves the records a click would.
  *
- * Retention is a directory, not a tab. Closing a tab releases nothing here; [prune] keeps the most recent
- * sets and drops the rest, oldest first.
+ * Retention is a directory, not a tab. Closing a tab releases nothing here. [prune] keeps the most recently
+ * finished sets, and any still running, and drops the rest.
  */
 class RunRecordStore(
     customDir: String = "",
@@ -56,7 +56,8 @@ class RunRecordStore(
      * owner answers: the app asks its claim registry, a headless process names the one set it is running.
      * A set read back as `running` that the owner does not vouch for is healed on read — marked stopped,
      * its unrun entries skipped by name — so the rail, the poll route and the record viewer stop describing
-     * a run that is not happening. The default vouches for everything, so a store nobody wired heals nothing.
+     * a run that is not happening. The default vouches for everything, so a store nobody wired heals nothing,
+     * and [prune] never deletes a set it reads back as `running`.
      */
     private val isLive: (String) -> Boolean = { true },
 ) {
@@ -225,18 +226,28 @@ class RunRecordStore(
         }
 
     /**
-     * Keeps the [keep] most recent sets and deletes the rest.
+     * Keeps the [keep] most recently finished sets, and every set still being run, and deletes the rest.
      *
      * Twenty sets of twelve entries of five thousand messages is real disk, so the count is a setting and
-     * a set's own size is visible where it is listed. Ordering is by the set's own `startedAt` rather than
-     * the directory's mtime: a set whose `set.json` is rewritten as it progresses would otherwise look
-     * like the newest thing on disk while it ran.
+     * a set's own size is visible where it is listed. Ordering is by the set's own `finishedAt` rather than
+     * the directory's mtime, which every rewrite of `set.json` moves.
+     *
+     * A set still being run is never deleted. Runs on disjoint sessions overlap, so the suite on one session
+     * can be the oldest set on disk when a short set on another finishes and prunes. "Still being run" is the
+     * same test the read applies: the file says `running` and [isLive] vouches for it. [listSets] has already
+     * healed every `running` set the owner does not vouch for, so a set still `running` here is live, in the
+     * app (its claim registry) and in a headless process (the one set it runs) alike. Ranking by `startedAt`
+     * would then delete that suite as soon as it finished, so the rank is when a set finished.
      */
     @Suppress("TooGenericExceptionCaught")
     fun prune(keep: Int) {
         if (keep <= 0) return
         try {
-            listSets().drop(keep).forEach { directoryFor(it.id).deleteRecursively() }
+            listSets()
+                .filter { it.status != RunSetStatus.RUNNING }
+                .sortedByDescending { it.finishedAt ?: it.startedAt }
+                .drop(keep)
+                .forEach { directoryFor(it.id).deleteRecursively() }
         } catch (e: Exception) {
             logger.error("Could not prune the runs directory: ${e.message}", e)
         }

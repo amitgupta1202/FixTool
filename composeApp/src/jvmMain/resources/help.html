@@ -1679,6 +1679,10 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     would load the rest of its scenarios from the new workspace and write its records there. FixTool
     refuses instead and names the run (<em>A run set is running. Stop it first.</em>). Stop it, then
     switch.</p>
+    <p><strong>Nor while a scenario has unsaved edits.</strong> Its Save would write into whichever
+    workspace is open by then, so the switch is refused and names the scenario: save it or discard the
+    edits first. Scenario tabs and diff windows with nothing unsaved are closed by the switch, because
+    they show files in the workspace you are leaving.</p>
     <p><strong>The data dictionary moves only when a workspace names one.</strong> A dictionary decides
     where each repeating group starts, so it decides the order a venue's fields arrive in, and a
     scenario's rows are written in that order. Read in a different dictionary, the same scenario fails on

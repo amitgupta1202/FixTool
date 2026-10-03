@@ -191,7 +191,7 @@ object McpTools {
                     "installation's own directory, the recently opened ones and the bundled examples. Pass " +
                     "workspace=<path> to open that folder, or workspace=\"\" to close and go back to the " +
                     "installation's own directory. Opening one takes every session down first, and is refused " +
-                    "while a run holds sessions (stop it first). Also reports the " +
+                    "while a run holds sessions or a scenario has unsaved edits. Also reports the " +
                     "workspace's environments, if any: an environment is where a counterparty is (host, port, TLS) " +
                     "as distinct from who it is, and a connection is a counterparty times an environment.",
                 props("workspace" to string("folder to open, or empty to close")),

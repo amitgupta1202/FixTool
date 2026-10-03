@@ -5524,7 +5524,7 @@ class FixMessageViewModel(
      * Sessions come down first and are not brought back up. They were logged on against the previous
      * workspace's profiles, and a pane whose profile no longer exists is one nothing can explain.
      *
-     * Refused while a run holds sessions: see [workspaceSwitchRefusal].
+     * Refused while a run holds sessions or a scenario has unsaved edits: see [workspaceSwitchRefusal].
      */
     @Suppress("ReturnCount") // One guard per reason the folder cannot be opened, each with its own answer.
     fun openWorkspace(directory: File): Result<File> {
@@ -5569,7 +5569,7 @@ class FixMessageViewModel(
     /**
      * Goes back to keeping project data in the installation's own directory, and answers with it.
      *
-     * Refused while a run holds sessions, as opening one is: see [workspaceSwitchRefusal].
+     * Refused for the same reasons opening one is: see [workspaceSwitchRefusal].
      */
     fun closeWorkspace(): Result<File> {
         if (openWorkspaceIsHome) return Result.success(WorkspacePaths.home.root)
@@ -5591,8 +5591,32 @@ class FixMessageViewModel(
      * its records there. A switch under it tore those sessions down and pointed every store at the new
      * folder, so the rest of a run set ran the new workspace's scenarios and filed its records beside them.
      * Worded as Close all words a live load run, so a menu and `POST /workspace` give the same answer.
+     *
+     * An unsaved scenario draft refuses it too, by name. Its Save would write into whichever workspace is open
+     * by then, which is the wrong folder after an open and the fresh copy's own scenario after a reset. Clean
+     * tabs are closed by the switch instead: see [closeScenarioViews].
      */
-    private fun workspaceSwitchRefusal(): String? = claims.firstOrNull()?.let { "${it.kind} is running. Stop it first." }
+    private fun workspaceSwitchRefusal(): String? {
+        claims.firstOrNull()?.let { return "${it.kind} is running. Stop it first." }
+        val unsaved =
+            _openScenarios.value.values
+                .filter { it.dirty }
+                .map { "'${it.draft.name.ifBlank { "untitled scenario" }}'" }
+        if (unsaved.isEmpty()) return null
+        val has = if (unsaved.size == 1) "has" else "have"
+        return "${unsaved.joinToString()} $has unsaved edits. Save or discard them first."
+    }
+
+    /**
+     * Closes every scenario tab and diff window, which by the time a switch runs are all clean.
+     *
+     * Each is a view of a file in the workspace being left. Kept open, the editor drew it on top of the new
+     * workspace and its Save wrote it into that one.
+     */
+    private fun closeScenarioViews() {
+        _openDocuments.value.filter { it.scenarioId != null }.forEach { closeDocument(it.id) }
+        _openDiffWindows.value.forEach { closeDiffWindow(it.id) }
+    }
 
     /** The refusal, said and returned as the failure, or null when the switch may go ahead. */
     private fun refuseWorkspaceSwitch(): Result<File>? {
@@ -5678,6 +5702,7 @@ class FixMessageViewModel(
 
     /** Drops every store that reads the workspace and loads the new one's contents into the UI. */
     private fun rereadWorkspace() {
+        closeScenarioViews()
         environmentStore.reset()
         profileStore.reset()
         savedMessagesStore.reset()

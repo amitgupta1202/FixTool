@@ -7,6 +7,9 @@ import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadShape
 import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.FieldExpectation
+import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.service.ExampleWorkspaces
@@ -19,6 +22,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -29,6 +33,9 @@ import kotlin.test.assertTrue
  * loads the rest of its scenarios from the new folder and writes its records there, and its sessions are
  * torn down under it. So a switch is refused while a run holds sessions, in the sentence Close all uses for
  * a load run, and the run and the workspace it started in are both left as they were.
+ *
+ * A scenario tab is the same hazard at rest: its Save writes into whichever workspace is open by then. So an
+ * unsaved draft refuses the switch by name, and a clean tab is closed by it.
  */
 class WorkspaceSwitchTest {
     private lateinit var home: File
@@ -178,6 +185,77 @@ class WorkspaceSwitchTest {
         viewModel.openWorkspace(beta).getOrThrow()
 
         assertEquals(beta, viewModel.openWorkspace)
+    }
+
+    /** A scenario with an Expect, so a diff window has a step to open on. */
+    private val flow =
+        Scenario(
+            id = "sc-1",
+            name = "rfq flow",
+            steps =
+                listOf(
+                    ScenarioStep.Send("35=D|11=X|"),
+                    ScenarioStep.Expect(
+                        expectation = Expectation(fields = listOf(FieldExpectation(150, Matcher.Exact("F"))), messageType = "8"),
+                    ),
+                ),
+        )
+
+    /** [flow] saved into the open workspace and read back, the way the rail hands it to the editor. */
+    private fun savedFlow(): Scenario {
+        assertTrue(viewModel.scenarioService.save(flow))
+        return assertNotNull(viewModel.scenarioService.load(flow.id))
+    }
+
+    /**
+     * A tab left open across a switch is a view of a file in the previous workspace, and its Save wrote into
+     * the new one: the scenario landed in the wrong folder and the workspace it came from never got the edit.
+     */
+    @Test
+    fun `a switch closes clean scenario tabs and diff windows, so their Save cannot reach the new workspace`() {
+        viewModel.openWorkspace(workspace("alpha")).getOrThrow()
+        val onDisk = savedFlow()
+        viewModel.openScenarioEditor(onDisk)
+        viewModel.openDiffWindow(onDisk, onDisk.steps[1].stepId)
+
+        viewModel.openWorkspace(workspace("beta")).getOrThrow()
+
+        assertEquals(emptyList(), viewModel.openDocuments.value.map { it.id }, "the editor tab was alpha's")
+        assertEquals(emptyList(), viewModel.openDiffWindows.value.map { it.id }, "and so was the diff window")
+        assertNull(viewModel.scenarioDraft(flow.id), "no view, no draft")
+    }
+
+    @Test
+    fun `a switch is refused while a scenario has unsaved edits, and the refusal names it`() {
+        val alpha = workspace("alpha")
+        viewModel.openWorkspace(alpha).getOrThrow()
+        viewModel.openScenarioEditor(savedFlow())
+        viewModel.updateScenarioDraft(flow.id) { it.copy(draft = it.draft.copy(name = "rfq flow, edited")) }
+
+        val opened = viewModel.openWorkspace(workspace("beta"))
+
+        val expected = "'rfq flow, edited' has unsaved edits. Save or discard them first."
+        assertEquals(expected, opened.exceptionOrNull()?.message)
+        assertEquals(alpha, viewModel.openWorkspace)
+        assertTrue(viewModel.scenarioDraft(flow.id)!!.dirty, "and the edit is still there to be saved")
+        assertTrue(viewModel.notifications.any { it.message == expected }, "${viewModel.notifications.map { it.message }}")
+    }
+
+    /**
+     * Reset lays the same ids down again, so a tab carried over it saved the old draft over the fresh copy's
+     * scenario and quietly undid the reset for it.
+     */
+    @Test
+    fun `resetting an example with an unsaved scenario edit is refused, so a Save cannot undo the reset`() {
+        val example = viewModel.openExample(ExampleWorkspaces.FX_VENUE).getOrThrow()
+        val shipped = assertNotNull(viewModel.scenarioService.list().firstOrNull(), "the example ships scenarios")
+        viewModel.openScenarioEditor(shipped)
+        viewModel.updateScenarioDraft(shipped.id) { it.copy(draft = it.draft.copy(name = "mine now")) }
+
+        val reset = viewModel.resetOpenExample()
+
+        assertEquals("'mine now' has unsaved edits. Save or discard them first.", reset.exceptionOrNull()?.message)
+        assertEquals(example, viewModel.openWorkspace)
     }
 
     /** Polled against a snapshot, because the sessions list is written on the view model's own dispatcher. */

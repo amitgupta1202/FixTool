@@ -696,7 +696,8 @@ timeoutMs?, expectation}`, `wait {session?, state?, match?, timeoutMs?}`, `clear
 acceptor — a run boundary that `clearMessages` does not reach), `resetSeqNum {session?, sender?,
 target?}`. An `expect` consumes the message it matches, so a
 partial-fill sequence is just successive `expect`s; `match {messageType?, direction?, fields:[{tag,
-value}]}` selects by AND. Each step can target a different `session` (initiator + acceptor in one
+value}]}` selects by AND. With no `direction`, an `expect` and a `wait` both select an incoming message,
+so a `wait` is never satisfied by what the scenario itself sent unless its `match` says `"out"`. Each step can target a different `session` (initiator + acceptor in one
 scenario). Scenarios are stored one-file-per-scenario under `~/.fixtool/scenarios/`.
 
 A send's `raw`, a `match` value and a `reference` matcher all resolve `${…}` expressions (above) —

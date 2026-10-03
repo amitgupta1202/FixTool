@@ -231,6 +231,56 @@ class ScenarioRunnerTest {
         assertFalse(result.steps.first().passed)
     }
 
+    /**
+     * **A Wait for a message means a message from the counterparty**, exactly as an Expect does.
+     *
+     * The session log holds both directions, and a Wait's match had no default, so a scenario that sent a
+     * TradeCaptureReport and waited for the AE carrying its TradeReportID was satisfied on the first poll by
+     * the AE it had just sent. That is a green about a venue that never answered.
+     */
+    @Test
+    fun `a wait with no direction is not satisfied by the message FixTool itself sent`() {
+        val host = FakeHost()
+        host.arriving += ownTradeReport("TR-1")
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=AE|571=TR-1|", session = "s"),
+                ScenarioStep.Wait(session = "s", match = MatchPredicate("AE", fields = listOf(TagValue(571, "TR-1"))), timeoutMs = 200),
+            )
+
+        val result = run(host, scenario)
+
+        val wait = result.steps.single { it.kind == "wait" }
+        assertFalse(wait.passed, "only our own AE is in the log, so the wait must time out: ${wait.detail}")
+    }
+
+    /** The default is only a default: a Wait that names the outgoing side still waits for what was sent. */
+    @Test
+    fun `a wait whose match names direction out still matches what FixTool sent`() {
+        val host = FakeHost()
+        host.arriving += ownTradeReport("TR-1")
+        val match = MatchPredicate("AE", direction = "out", fields = listOf(TagValue(571, "TR-1")))
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=AE|571=TR-1|", session = "s"),
+                ScenarioStep.Wait(session = "s", match = match, timeoutMs = 200),
+            )
+
+        val result = run(host, scenario)
+
+        assertTrue(result.steps.single { it.kind == "wait" }.passed, "${result.steps}")
+    }
+
+    /** What FixTool's own send of a TradeCaptureReport looks like once it lands in the session log. */
+    private fun ownTradeReport(tradeReportId: String): FixMessage =
+        FixMessage(
+            timestamp = LocalDateTime.now(),
+            direction = FixMessage.Direction.OUTGOING,
+            rawMessage = "35=AE|571=$tradeReportId|",
+            messageType = "AE",
+            quickfixMessage = Message(),
+        ).also { viewTags[it] = mapOf(35 to "AE", 571 to tradeReportId) }
+
     @Test
     fun `preflight auto-connects a missing session and reports it as a passing connect row`() {
         val host = FakeHost()

@@ -494,7 +494,12 @@ class ScenarioRunner(
             // `firstOrNull`, not `any`: a Wait satisfied by a message older than the run is the same false
             // green an Expect would be — "the venue has said this" when the venue said it last time — and to
             // report that, the check has to know *which* message satisfied it.
-            val hit = match?.let { m -> host.messages(step.session).firstOrNull { pre.bindable(it) && matches(it, null, null, m) } }
+            // Incoming unless the match says otherwise, as an Expect is. The log holds what FixTool sent too, and
+            // with no direction a wait for the AE it had just sent was satisfied by that AE on the first poll.
+            val hit =
+                match?.let { m ->
+                    host.messages(step.session).firstOrNull { pre.bindable(it) && matches(it, null, "in", m) }
+                }
             if (hit != null) {
                 if (pre.predates(hit)) {
                     pre.note("step ${index + 1} (wait for ${hit.messageType} on '${label(step.session)}')")

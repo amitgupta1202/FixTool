@@ -204,7 +204,11 @@ sealed interface ScenarioStep {
         override val muted: Boolean = false,
     ) : ScenarioStep
 
-    /** Block until a connection state is reached or a matching message arrives (no consume). */
+    /**
+     * Block until a connection state is reached or a matching message arrives (no consume). A [match] with
+     * no direction waits for an incoming message, as an [Expect] does, so the session log's copy of what
+     * the scenario itself sent cannot satisfy it.
+     */
     data class Wait(
         override val session: String? = null,
         val state: String? = null,

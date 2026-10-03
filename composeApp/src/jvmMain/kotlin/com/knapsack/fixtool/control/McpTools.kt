@@ -422,7 +422,8 @@ object McpTools {
                     "teardown?:[step]}. A step is {type, ...}: send {raw, session?}; wait {session?, state?, match?, " +
                     "timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, mode?, " +
                     "fields:[{tag, matcher}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
-                    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create. " +
+                    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND), and with no direction " +
+                    "an expect or a wait selects an incoming message. Omit id to create. " +
                     "PARAMETERIZE IT: a send's raw, a match value and a reference matcher all resolve \${...} " +
                     "expressions — always, with no resolve flag — over one variable scope that persists across every " +
                     "step. The idiom is 11=\${clOrdId = uuid} in the send, then assert the echo with " +

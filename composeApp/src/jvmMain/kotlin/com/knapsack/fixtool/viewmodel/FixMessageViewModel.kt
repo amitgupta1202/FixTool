@@ -3726,9 +3726,11 @@ class FixMessageViewModel(
         cancelled: () -> Boolean = { false },
         onProgress: (RunSet) -> Unit,
     ): RunSet {
-        runRecordStore.begin(set)
+        // Taken once, so the set writes every record where it began. See [ViewModelRunSetHost].
+        val records = runRecordStore
+        records.begin(set)
         val done =
-            RunSetRunner(ViewModelRunSetHost(pinned, cancelled)).run(set) { progress ->
+            RunSetRunner(ViewModelRunSetHost(pinned, cancelled, records = records)).run(set) { progress ->
                 // Only the run the rail is showing may repaint it. Two concurrent sets both assigning
                 // here made the one visible report alternate between two different runs' progress.
                 if (_activeRunSet.value?.id == progress.id) _activeRunSet.value = progress
@@ -3738,7 +3740,7 @@ class FixMessageViewModel(
         // during — a lane's verdict is not known until it has one, and a record trimmed on a guess is the
         // evidence for the failure nobody kept.
         if (done.source is RunSource.FanOut) {
-            val trimmed = runRecordStore.trimToSpecimens(done)
+            val trimmed = records.trimToSpecimens(done)
             if (trimmed > 0) {
                 showNotification(
                     "$trimmed lane record(s) trimmed to counts — failed lanes and one passing lane keep " +
@@ -3748,7 +3750,7 @@ class FixMessageViewModel(
             }
         }
         // After the set, not before: the run just finished is the one that must survive the pruning.
-        runRecordStore.prune(_appSettings.value.runRecordsKept)
+        records.prune(_appSettings.value.runRecordsKept)
         // The verdict this set ended on, and whatever the prune took, are both news to Recent.
         refreshRunConfigurations()
         return done
@@ -4972,20 +4974,26 @@ class FixMessageViewModel(
     /**
      * [pinned] wins over the store, which is what "re-run it as it ran" means: a record keeps the
      * scenario as it was that day, and looking the id up would run whatever the file says now.
+     *
+     * [scenarios] and [records] are the stores the set started with, held for its whole length the way a load
+     * run holds its own. Read through the view model instead, a Settings save that moved the scenarios store
+     * mid-set skipped every remaining entry as "no longer on disk".
      */
     private inner class ViewModelRunSetHost(
         private val pinned: Map<String, Scenario> = emptyMap(),
         private val cancelled: () -> Boolean = { false },
+        private val scenarios: ScenarioService = scenarioService,
+        private val records: RunRecordStore = runRecordStore,
     ) : RunSetHost {
-        override fun scenario(id: String): Scenario? = pinned[id] ?: scenarioService.load(id)
+        override fun scenario(id: String): Scenario? = pinned[id] ?: scenarios.load(id)
 
         override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? =
             runOne(scenario, entry.sessionMap, publish = false, entry = entry, cancelled = cancelled)
 
-        override fun write(record: RunRecord): String? = runRecordStore.write(record)
+        override fun write(record: RunRecord): String? = records.write(record)
 
         override fun writeSet(set: RunSet) {
-            runRecordStore.writeSet(set)
+            records.writeSet(set)
         }
 
         override fun sleep(ms: Long) = Thread.sleep(ms)

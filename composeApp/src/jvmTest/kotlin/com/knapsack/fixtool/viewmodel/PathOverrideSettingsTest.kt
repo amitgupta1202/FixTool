@@ -1,9 +1,12 @@
 package com.knapsack.fixtool.viewmodel
 
+import com.knapsack.fixtool.integration.settled
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.scenario.RunState
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.ui.FixField
 import org.junit.After
@@ -12,6 +15,8 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * **Clearing a path override in Settings hands that store back to the workspace on Save, not on restart.**
@@ -92,6 +97,53 @@ class PathOverrideSettingsTest {
         viewModel.saveAppSettings(viewModel.appSettings.copy(savedMessagesPath = ""))
 
         assertEquals(listOf("workspace NOS"), viewModel.savedMessages.map { it.name }, "the templates are the workspace's")
+    }
+
+    /**
+     * Now that a Settings save moves the scenarios store, it must not move it under a run set in flight: the
+     * rest of the set would look its scenarios up in the new directory and skip each one it could not find.
+     * A set reads the stores it started with, the way a load run already did.
+     */
+    @Test
+    fun `a run set in flight keeps reading the scenarios it started with when the override changes`() {
+        val viewModel = viewModel()
+        viewModel.createSessionForTest("S")
+        // Parked in a Wait for a logon that never comes, so each entry runs for its timeout and then fails.
+        val waits =
+            Scenario(
+                id = "waits",
+                name = "waits",
+                steps = listOf(ScenarioStep.Wait(session = "S", state = "LOGGED_ON", timeoutMs = 1_500)),
+            )
+        viewModel.scenarioService.save(waits)
+        val set = assertNotNull(viewModel.startRunSet(RunSets.repeat(waits, times = 2, now = System.currentTimeMillis())))
+        try {
+            assertTrue(awaitCondition(5_000) { viewModel.isRunSetRunning(set.id) }, "the set should be running")
+
+            val elsewhere = File(home, "elsewhere/scenarios").apply { mkdirs() }
+            viewModel.saveAppSettings(viewModel.appSettings.copy(scenariosPath = elsewhere.absolutePath))
+
+            assertTrue(awaitCondition(15_000) { !viewModel.isRunSetRunning(set.id) }, "the set should finish")
+            val entries = assertNotNull(viewModel.activeRunSet.value).entries
+            assertEquals(
+                listOf(RunState.FAILED, RunState.FAILED),
+                entries.map { it.state },
+                "both entries ran the scenario the set started with: ${entries.map { it.note }}",
+            )
+        } finally {
+            viewModel.requestScenarioStop()
+            awaitCondition(10_000) { !viewModel.scenarioRunning.value }
+        }
+    }
+
+    /** Polled against a snapshot, because the sessions list is written on the view model's own dispatcher. */
+    private fun awaitCondition(timeoutMs: Long, predicate: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            if (settled(predicate)) return true
+            if (System.currentTimeMillis() >= deadline) return false
+            Thread.sleep(100)
+        }
     }
 
     private fun profile(id: String) =

@@ -223,9 +223,13 @@ object RunSetStats {
         return this[rank - 1]
     }
 
-    private fun List<Long>.nearestRank(percentile: Double): Long {
-        val rank = Math.ceil(percentile * size).toInt().coerceIn(1, size)
-        return this[rank - 1]
+    /**
+     * The same nearest rank over samples **already sorted** in a list. The latency panel reads its
+     * percentiles through here, so the panel and a load report give the same samples the same p50.
+     */
+    fun nearestRank(sorted: List<Long>, percentile: Double): Long {
+        val rank = Math.ceil(percentile * sorted.size).toInt().coerceIn(1, sorted.size)
+        return sorted[rank - 1]
     }
 
     private const val P50 = 0.50

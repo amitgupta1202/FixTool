@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.model
 
+import com.knapsack.fixtool.service.RunSetStats
 import kotlinx.serialization.Serializable
 
 /**
@@ -233,10 +234,12 @@ class LatencyStatsAccumulator(
             minMicros = sorted.first(),
             maxMicros = sorted.last(),
             meanMicros = mean,
-            medianMicros = sorted[sorted.size / 2],
-            p90Micros = sorted[(sorted.size * 0.90).toInt().coerceAtMost(sorted.size - 1)],
-            p95Micros = sorted[(sorted.size * 0.95).toInt().coerceAtMost(sorted.size - 1)],
-            p99Micros = sorted[(sorted.size * 0.99).toInt().coerceAtMost(sorted.size - 1)],
+            // Nearest rank, as a load report's are. `sorted[(n * p).toInt()]` was one rank high: ten samples
+            // read their slowest as p90, and the median of four was the third.
+            medianMicros = RunSetStats.nearestRank(sorted, 0.50),
+            p90Micros = RunSetStats.nearestRank(sorted, 0.90),
+            p95Micros = RunSetStats.nearestRank(sorted, 0.95),
+            p99Micros = RunSetStats.nearestRank(sorted, 0.99),
             stdDevMicros = stdDev,
         )
 

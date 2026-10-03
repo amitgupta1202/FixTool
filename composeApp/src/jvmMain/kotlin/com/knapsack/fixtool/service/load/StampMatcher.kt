@@ -559,8 +559,14 @@ class StampMatcher(
         }
     }
 
-    /** The round trips so far, sorted, for a progress line's distribution. A copy: the run keeps writing. */
-    fun roundTripsSoFar(): LongArray = synchronized(samples) { samples.toArray().also { it.sort() } }
+    /**
+     * The round trips so far, sorted, for a progress line's distribution. A copy: the run keeps writing.
+     *
+     * Copied under the lock and sorted outside it. Every send and every reply takes this lock on an I/O
+     * thread, and a progress tick that sorted three hundred thousand samples while holding it held up the
+     * very traffic it was measuring.
+     */
+    fun roundTripsSoFar(): LongArray = synchronized(samples) { samples.toArray() }.also { it.sort() }
 
     /** The per-second story so far, so the live document has one. Beside [roundTripsSoFar], by design. */
     fun bucketsSoFar(): List<SecondBucket> = synchronized(samples) { buckets() }

@@ -93,6 +93,26 @@ class StampMatcherTest {
         assertEquals(live, m.finish().perSecond, "and the final report says exactly what the live read said")
     }
 
+    /**
+     * What a progress tick draws its distribution from. A copy taken under the lock and sorted outside it,
+     * because the I/O threads need that lock for every send and every reply while the tick sorts.
+     */
+    @Test
+    fun `the round trips so far are a sorted copy, which later matches leave alone`() {
+        val m = matcher()
+        listOf(300L, 100L, 200L).forEachIndexed { i, rtt ->
+            m.onStamp(send(laneA, "ORD-$i", at = 1_000L + i))
+            m.onStamp(receive(laneA, "ORD-$i", at = 1_000L + i + rtt))
+        }
+
+        val soFar = m.roundTripsSoFar()
+        m.onStamp(send(laneA, "ORD-9", at = 5_000))
+        m.onStamp(receive(laneA, "ORD-9", at = 5_050))
+
+        assertEquals(listOf(100L, 200L, 300L), soFar.toList(), "sorted, and untouched by the match after it")
+        assertEquals(listOf(50L, 100L, 200L, 300L), m.roundTripsSoFar().toList())
+    }
+
     /** Thirty counts, whatever the run's size, and correct as replies land rather than at the end. */
     @Test
     fun `the round-trip histogram counts every match into its own log bucket`() {

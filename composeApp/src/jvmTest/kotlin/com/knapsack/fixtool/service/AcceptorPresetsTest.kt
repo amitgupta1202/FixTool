@@ -528,6 +528,49 @@ class AcceptorPresetsTest {
         assertEquals("0", built[2].getString(151))
     }
 
+    /**
+     * After the FX venue's limit flow sends `14=500000 151=500000`, a cancel used to report `14=0`, so a
+     * client tracking CumQty watched a fill it had been told about undone. The cancel of a working order reads
+     * the book: CumQty is what traded, a pending cancel leaves the rest open, and a canceled order has none.
+     */
+    @Test
+    fun `a cancel of a partly filled order keeps what has traded`() {
+        val partlyFilled =
+            OrderBook.fields(
+                BookedOrder(
+                    key = "ORD-1",
+                    events =
+                        listOf(
+                            OrderEvent(
+                                at = LocalDateTime.now(),
+                                sent = false,
+                                msgType = "D",
+                                fields = mapOf(11 to "ORD-1", 55 to "EUR/USD", 54 to "1", 38 to "1000000", 44 to "1.085"),
+                            ),
+                            OrderEvent(
+                                at = LocalDateTime.now(),
+                                sent = true,
+                                msgType = "8",
+                                fields = mapOf(11 to "ORD-1", 37 to "EX-1", 150 to "F", 39 to "1", 14 to "500000", 151 to "500000"),
+                            ),
+                        ),
+                ),
+            )
+
+        val (pending, canceled) =
+            AcceptorResponder
+                .plan(leadRule("cancel-accepted-working"), AcceptorResponder.buildMessage(cancel), request(cancel)) {
+                    partlyFilled
+                }.map { it.build() }
+
+        assertEquals("6", pending.getString(39))
+        assertEquals("500000", pending.getString(14), "the half that traded is still traded")
+        assertEquals("500000", pending.getString(151), "and until the cancel is done, the rest is still open")
+        assertEquals("4", canceled.getString(39))
+        assertEquals("500000", canceled.getString(14), "a cancel ends what is left, not what has filled")
+        assertEquals("0", canceled.getString(151), "and nothing is left working")
+    }
+
     // ------------------------------------------------------------------ placement
 
     private fun unconditioned(msgType: String) =

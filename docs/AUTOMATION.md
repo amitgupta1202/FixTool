@@ -1007,7 +1007,7 @@ curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"order-re
 | `order-reject-size` | `35=D` with `38 > 1000000` → rejected, `103=3` |
 | `duplicate-clordid` | `35=D` whose ClOrdID the venue already holds live → rejected, `103=6` (two rules: `pending` and `working`) |
 | `cancel-accepted` | `35=F` → pending cancel, then canceled, whatever the book holds |
-| `cancel-accepted-working` | `35=F` **and the order is working** → pending cancel, then canceled |
+| `cancel-accepted-working` | `35=F` **and the order is working** → pending cancel, then canceled, each with the CumQty the book holds |
 | `cancel-rejected` | `35=F` → `35=9`, unknown order, whatever the book holds |
 | `cancel-rejected-unknown` | `35=F` **and the order is unknown** → `35=9`, `102=1` |
 | `replace-accepted` | `35=G` carrying `38` → replaced, with a **new** OrderID |

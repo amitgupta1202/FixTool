@@ -308,6 +308,18 @@ object AcceptorPresets {
         "35=9|37=\${order.orderId}|11=\${req.11}|41=\${req.41}|39=\${order.ordStatus}|434=1|102=0" +
             "|58=Too late to cancel|60=\${now}"
 
+    /**
+     * The cancel of an order the book holds, where [PENDING_CANCEL] and [CANCELED] can only say `14=0`. That is
+     * wrong once anything has filled: after the FX venue's `14=500000`, a cancel reporting `14=0` takes back a fill
+     * the client was told about. What traded stays traded, a pending cancel leaves the rest open, and a canceled
+     * order has nothing left.
+     */
+    private val PENDING_CANCEL_BOOKED =
+        executionReport("150=6", "39=6", CANCEL_ECHO, "14=\${order.cumQty}", "151=\${order.leavesQty}", "6=0")
+
+    private val CANCELED_BOOKED =
+        executionReport("150=4", "39=4", CANCEL_ECHO, "14=\${order.cumQty}", "151=0", "6=0")
+
     /** A replacement that keeps the chain's OrderID, where [REPLACED] mints a new one. Decision 3a. */
     private val REPLACED_SAME_ID =
         bookedReport(
@@ -401,12 +413,15 @@ object AcceptorPresets {
             steps = listOf(ResponseStep(CANCEL_REJECT)),
         )
 
-    /** Its other half: a cancel for an order the venue is actually holding gets accepted. */
+    /**
+     * Its other half: a cancel for an order the venue is actually holding gets accepted, and its reports say
+     * what has traded, read from the book.
+     */
     internal val cancelAcceptedWorking =
         AcceptorResponseRule(
             whenMsgType = "F",
             whenOrder = OrderConstraint.WORKING,
-            steps = listOf(ResponseStep(PENDING_CANCEL), ResponseStep(CANCELED, delayMillis = 150)),
+            steps = listOf(ResponseStep(PENDING_CANCEL_BOOKED), ResponseStep(CANCELED_BOOKED, delayMillis = 150)),
         )
 
     /**
@@ -417,6 +432,10 @@ object AcceptorPresets {
      * `pending`. That is the case `pending` was added to the vocabulary for, and without a rule for it
      * the cancel matches nothing and the venue says *nothing at all* — which is a worse answer than
      * any wrong one, because a client waiting on silence has no error path to take.
+     *
+     * Its reports stay the stateless ones. Nothing has been reported filled on a pending order, so
+     * `14=0` is true, and the book holds no CumQty for it: a report reading one would be refused, and
+     * the cancel answered with the silence this rule exists to prevent.
      */
     internal val cancelAcceptedPending =
         AcceptorResponseRule(

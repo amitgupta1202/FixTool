@@ -543,10 +543,11 @@ private fun RuleCard(
             TooltipIconButton("Move later", { onMove(1) }, Modifier.size(16.dp), enabled = position < total - 1) {
                 Icon(Icons.Default.ArrowDownward, "Move rule later", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
             }
-            // A deleted rule takes its steps with it, so it asks in the row it sat in. Keyed on the
-            // rule's position, so re-ordering the list disarms rather than leaving the question pointed
-            // at whichever rule slid into that slot.
-            val armed = rememberArmed(position)
+            // A deleted rule takes its steps with it, so it asks in the row it sat in. Keyed on the rule
+            // itself, not its position: the cards are drawn by slot, so a move, an insert or a delete that
+            // slides a different rule into this slot disarms rather than leaving the question pointed at
+            // it. A rule has no id, but two equal rules are the same rule to delete.
+            val armed = rememberArmed(rule)
             InlineConfirm(
                 armed = armed.value,
                 onConfirm = {

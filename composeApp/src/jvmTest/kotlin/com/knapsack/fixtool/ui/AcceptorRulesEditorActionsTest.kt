@@ -253,6 +253,68 @@ class AcceptorRulesEditorActionsTest {
     }
 
     /**
+     * The cards are drawn by position, so an armed Delete that was remembered by position stayed on the slot
+     * while a different rule slid into it, and the next click on Delete removed that rule instead.
+     */
+    @Test
+    fun `an armed Delete does not stay behind on its slot when the rule in it moves`() {
+        val three =
+            listOf("D", "F", "G").map { AcceptorResponseRule(whenMsgType = it, steps = listOf(ResponseStep("35=8"))) }
+        var latest = three
+        composeTestRule.setContent {
+            var rules by remember { mutableStateOf(three) }
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(
+                    rules = rules,
+                    onRulesChange = {
+                        rules = it
+                        latest = it
+                    },
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("rule-delete-1").performClick()
+        composeTestRule.onNodeWithTag("rule-delete-confirm-1").assertExists()
+        composeTestRule.onAllNodesWithContentDescription("Move rule earlier")[1].performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(listOf("F", "D", "G"), latest.map { it.whenMsgType })
+        composeTestRule.onNodeWithTag("rule-delete-confirm-1").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rule-delete-confirm-0").assertDoesNotExist()
+    }
+
+    @Test
+    fun `an armed Delete does not stay behind on its slot when a preset is inserted above it`() {
+        val start =
+            listOf("D", "F", "G").map { AcceptorResponseRule(whenMsgType = it, steps = listOf(ResponseStep("35=8"))) }
+        var latest = start
+        composeTestRule.setContent {
+            var rules by remember { mutableStateOf(start) }
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(
+                    rules = rules,
+                    onRulesChange = {
+                        rules = it
+                        latest = it
+                    },
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("rule-delete-1").performClick()
+        composeTestRule.onNodeWithTag("rule-delete-confirm-1").assertExists()
+        // Conditioned on the book, so it has to go above the unconditioned 35=F rule to ever fire: into slot 1.
+        composeTestRule.onNodeWithText("+ preset").performClick()
+        composeTestRule.onNodeWithText("Cancel rejected — unknown order").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(listOf("D", "F", "F", "G"), latest.map { it.whenMsgType })
+        assertEquals(OrderConstraint.UNKNOWN, latest[1].whenOrder, "the preset went into the armed slot")
+        composeTestRule.onNodeWithTag("rule-delete-confirm-1").assertDoesNotExist()
+    }
+
+    /**
      * On the **closed** card, which is the point: nothing is opened here first. A rule that can never
      * fire looks perfectly configured and produces nothing at run time, so the one place that says so
      * cannot be behind a fold — a reader scrolling twenty-one closed cards has to be able to see it.

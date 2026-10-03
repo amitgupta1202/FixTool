@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.util.AtomicFiles
 import com.knapsack.fixtool.util.NotifyingLogger
 import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.encodeToString
@@ -82,7 +83,7 @@ class AppSettingsService(
         return try {
             val content = json.encodeToString(settings)
             settingsFile.parentFile?.mkdirs()
-            settingsFile.writeText(content)
+            AtomicFiles.writeAtomically(settingsFile, content)
             logger.info("Settings saved to: {}. Dictionary path: '{}'", settingsFile.absolutePath, settings.defaultDataDictionary)
             true
         } catch (e: Exception) {

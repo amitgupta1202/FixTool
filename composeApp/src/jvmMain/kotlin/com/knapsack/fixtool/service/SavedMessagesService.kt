@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.util.AtomicFiles
 import com.knapsack.fixtool.util.NotifyingLogger
 import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
@@ -132,8 +133,8 @@ class SavedMessagesService(
                 // Serialize to JSON
                 val content = json.encodeToString(container)
 
-                // Write to file atomically
-                savedMessagesFile.writeText(content)
+                // Replaced whole, so an interrupted write leaves the old file rather than half of the new one
+                AtomicFiles.writeAtomically(savedMessagesFile, content)
 
                 return true
             } catch (e: Exception) {

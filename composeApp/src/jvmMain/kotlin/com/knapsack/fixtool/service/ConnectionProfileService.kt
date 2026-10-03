@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.util.AtomicFiles
 import com.knapsack.fixtool.util.NotifyingLogger
 import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
@@ -97,7 +98,7 @@ class ConnectionProfileService(
         return try {
             val container = ProfilesContainer(secrets.extractFrom(profiles))
             val content = json.encodeToString(container)
-            profilesFile.writeText(content)
+            AtomicFiles.writeAtomically(profilesFile, content)
             true
         } catch (e: Exception) {
             val errorMsg = "Failed to save connection profiles: ${e.message}"

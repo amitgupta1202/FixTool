@@ -10,9 +10,12 @@ import java.nio.file.StandardCopyOption
  * target, so a crash or interrupted write never leaves a half-written (corrupt) file — the target
  * is either the old content or the new content, never a truncated mix.
  *
- * This is the storage primitive for the scenario directory store; it also fixes the
- * truncate-in-place gap in the existing whole-file stores (`SavedMessagesService`,
- * `ConnectionProfileService`), which currently use a plain `writeText`.
+ * This is the storage primitive for the scenario directory store and for the whole-file stores a
+ * workspace is kept in: profiles, secrets, saved messages, settings, environments and the workspace's
+ * dictionary declaration.
+ *
+ * A file that is already there keeps its permissions. The rename would otherwise bring the temp file's,
+ * and a `secrets.json` someone had made private would quietly stop being so at the next save.
  */
 object AtomicFiles {
     @Suppress("SwallowedException")
@@ -22,6 +25,7 @@ object AtomicFiles {
         val tmp = File.createTempFile(file.name + ".", ".tmp", parent)
         try {
             tmp.writeText(content)
+            keepPermissions(of = file, on = tmp)
             try {
                 Files.move(
                     tmp.toPath(),
@@ -36,6 +40,16 @@ object AtomicFiles {
             }
         } finally {
             if (tmp.exists()) tmp.delete()
+        }
+    }
+
+    /** Copies [of]'s POSIX permissions onto [on], where there are any to copy and a filesystem that has them. */
+    private fun keepPermissions(
+        of: File,
+        on: File,
+    ) {
+        if (of.exists()) {
+            runCatching { Files.setPosixFilePermissions(on.toPath(), Files.getPosixFilePermissions(of.toPath())) }
         }
     }
 }

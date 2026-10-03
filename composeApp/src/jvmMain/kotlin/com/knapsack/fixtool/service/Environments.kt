@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.util.AtomicFiles
 import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -61,7 +62,7 @@ class Environments(
         return try {
             file.parentFile?.mkdirs()
             val ordered = environments.sortedBy { it.name.lowercase() }
-            file.writeText(json.encodeToString(Container(ordered)))
+            AtomicFiles.writeAtomically(file, json.encodeToString(Container(ordered)))
             true
         } catch (e: IOException) {
             logger.error("Could not write ${file.name}", e)

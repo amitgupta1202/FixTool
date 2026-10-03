@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.util.AtomicFiles
 import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -66,7 +67,7 @@ class ProfileSecrets(
         }
         return try {
             file.parentFile?.mkdirs()
-            file.writeText(json.encodeToString(secrets))
+            AtomicFiles.writeAtomically(file, json.encodeToString(secrets))
             true
         } catch (e: IOException) {
             logger.error("Could not write ${file.name}", e)

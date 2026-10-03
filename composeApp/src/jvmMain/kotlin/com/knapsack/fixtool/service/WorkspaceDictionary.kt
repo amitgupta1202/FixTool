@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.util.AtomicFiles
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -75,7 +76,8 @@ data class WorkspaceDictionary(
             workspace: File,
             dictionary: WorkspaceDictionary,
         ) {
-            File(workspace, FILE).writeText(json.encodeToString(Contents.serializer(), Contents(dictionary)) + "\n")
+            val text = json.encodeToString(Contents.serializer(), Contents(dictionary)) + "\n"
+            AtomicFiles.writeAtomically(File(workspace, FILE), text)
         }
 
         internal fun parse(text: String): Contents = json.decodeFromString(Contents.serializer(), text)

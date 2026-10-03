@@ -110,6 +110,7 @@ import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLEncoder
 import java.util.Base64
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import javax.imageio.ImageIO
@@ -165,6 +166,9 @@ class ControlServer(
     private val logger = LoggerFactory.getLogger(ControlServer::class.java)
     private var server: HttpServer? = null
 
+    /** The pool [server] answers on. Ours to shut down: `HttpServer.stop` leaves an executor it was given running. */
+    private var executor: ExecutorService? = null
+
     // Tolerant decoder so an agent can post a partial config and let model defaults fill the rest.
     private val profileJson =
         Json {
@@ -176,7 +180,9 @@ class ControlServer(
     fun start() {
         val httpServer = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0)
         // Handlers block on invokeAndWait round-trips to the EDT, so give a little headroom.
-        httpServer.executor = Executors.newFixedThreadPool(HTTP_POOL_SIZE)
+        val pool = Executors.newFixedThreadPool(HTTP_POOL_SIZE)
+        executor = pool
+        httpServer.executor = pool
         httpServer.createContext("/health") { ex -> handle(ex) { health() } }
         httpServer.createContext("/sessions") { ex -> handleCoded(ex) { sessionsEndpoint(ex) } }
         httpServer.createContext("/profiles") { ex -> handle(ex) { profilesEndpoint(ex) } }
@@ -230,9 +236,15 @@ class ControlServer(
         logger.info("FixTool control server listening on http://127.0.0.1:$port (token={})", token != null)
     }
 
+    /**
+     * Stops answering, and ends the threads it answered on. Each Settings toggle of Automation Control
+     * stops one server and starts another, so a pool left running here was four idle threads per toggle.
+     */
     fun stop() {
         server?.stop(0)
         server = null
+        executor?.shutdown()
+        executor = null
     }
 
     // ---------------------------------------------------------------- endpoints

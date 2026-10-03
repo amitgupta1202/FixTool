@@ -24,6 +24,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.LocalDateTime
+import java.util.concurrent.ThreadPoolExecutor
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -250,6 +251,41 @@ class ControlServerContractTest {
         assertEquals("timeout", wait("""{"session":"VENUE","match":{"messageType":"8"},"timeoutMs":0}"""))
     }
 
+    // ------------------------------------------------------------------ lifecycle
+
+    /**
+     * Every Settings toggle of Automation Control stops one server and starts another. `stop()` stopped the
+     * HTTP server, which leaves an executor its caller supplied running, so each toggle left the pool's idle
+     * threads behind, non-daemon, for the life of the process.
+     *
+     * Counted from the JVM's own thread list rather than through a hook in the server: a worker thread of a
+     * pool that was not there before this server started, and is still there once it has stopped.
+     */
+    @Test
+    fun `stopping the server ends the threads it answered requests on`() {
+        get("/health") // whatever a first request starts (the EDT, say) is started before the count
+        val before = Thread.getAllStackTraces().keys
+        val otherPort = TestPorts.free()
+        val other = ControlServer(otherPort, viewModel, windowProvider = { emptyList() }, token = null)
+        other.start()
+        // A fixed pool adds a worker for each task until it is full, so this many requests fill it.
+        repeat(HTTP_POOL_SIZE) { assertEquals(200, request("GET", "/health", null, otherPort).statusCode()) }
+
+        other.stop()
+
+        fun leftBehind() =
+            Thread
+                .getAllStackTraces()
+                .filter { (thread, stack) ->
+                    val pooled = stack.any { it.className == ThreadPoolExecutor::class.java.name }
+                    pooled && thread.isAlive && !thread.isDaemon && thread !in before
+                }.keys
+                .map { it.name }
+        val deadline = System.currentTimeMillis() + 5_000
+        while (leftBehind().isNotEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        assertEquals(emptyList(), leftBehind(), "the stopped server's pool threads are still running")
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private fun order(clOrdId: String) = "8=FIX.4.4|35=D|49=CLI|56=VENUE|11=$clOrdId|55=EUR/USD|54=1|38=100|40=1|"
@@ -282,12 +318,12 @@ class ControlServerContractTest {
 
     private fun count(body: JsonObject): Int = body["count"]!!.jsonPrimitive.int
 
-    private fun request(method: String, path: String, body: String?): HttpResponse<String> {
+    private fun request(method: String, path: String, body: String?, to: Int = port): HttpResponse<String> {
         val publisher =
             if (body == null) HttpRequest.BodyPublishers.noBody() else HttpRequest.BodyPublishers.ofString(body)
         val req =
             HttpRequest
-                .newBuilder(URI.create("http://127.0.0.1:$port$path"))
+                .newBuilder(URI.create("http://127.0.0.1:$to$path"))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")
                 .method(method, publisher)
@@ -300,4 +336,9 @@ class ControlServerContractTest {
     private fun post(path: String, body: String) = request("POST", path, body)
 
     private fun obj(resp: HttpResponse<String>) = Json.parseToJsonElement(resp.body()).jsonObject
+
+    private companion object {
+        /** The server's own pool size, `ControlServer.HTTP_POOL_SIZE`. */
+        const val HTTP_POOL_SIZE = 4
+    }
 }

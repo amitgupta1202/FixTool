@@ -278,7 +278,9 @@ object McpTools {
             ),
             tool(
                 "fixtool_search",
-                "Cross-session search returning matches sorted chronologically (a timeline); pins them to the search pane.",
+                "Cross-session search returning matches sorted chronologically (a timeline), scanned for this query " +
+                    "when it is asked. pin (default true) shows exactly these matches in the search pane. pin=false " +
+                    "leaves the pane and the search box alone.",
                 props("query" to string("regex or substring, e.g. a ClOrdID"), "pin" to boolean("default true")),
                 required = listOf("query"),
             ),

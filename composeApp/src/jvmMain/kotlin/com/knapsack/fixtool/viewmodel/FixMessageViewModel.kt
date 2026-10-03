@@ -5287,6 +5287,27 @@ class FixMessageViewModel(
             .launchIn(viewModelScope)
     }
 
+    /**
+     * Shows [results] as the matches for [query] at once, without waiting out the debounce.
+     *
+     * For a caller that has already scanned and answers with what it found (the control surface's search),
+     * so the pane shows exactly what the caller was given. The pipeline still sees the query, and its own
+     * scan lands the same matches a moment later, plus any message that arrived in between.
+     */
+    fun showGlobalSearchResults(query: String, results: List<SearchResult>) {
+        _globalSearchQuery.value = query
+        _globalSearchResults.value = results
+    }
+
+    /**
+     * Every message in every session that [query] matches, in time order, and nothing for a blank query.
+     *
+     * The search box's own rule, for the control surface's search to scan with. It reads only snapshots, so
+     * it runs off the UI thread, which is where the pipeline runs it.
+     */
+    internal fun globalSearchResultsFor(query: String): List<SearchResult> =
+        if (query.isBlank()) emptyList() else computeGlobalSearchResults(query)
+
     private fun computeGlobalSearchResults(query: String): List<SearchResult> {
         val results = mutableListOf<SearchResult>()
         val regex =

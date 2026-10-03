@@ -2416,18 +2416,25 @@ class ControlServer(
      * Runs a global (cross-session) search and returns the matches sorted chronologically — i.e.
      * a timeline. When `pin` is true (default) the results are pinned to the on-screen search-
      * results pane so a follow-up screenshot shows them.
+     *
+     * It scans for its own query when it is asked, with the search box's own rule. The box's results
+     * arrive through a debounce, so reading them here answered with the previous query's matches, and a
+     * query equal to the last one was never scanned again at all. The pane is handed the same list this
+     * answers with, so a screenshot shows what the caller was told. Unpinned, nothing on screen moves.
      */
     private fun search(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val query = body["query"]?.jsonPrimitive?.content ?: return errorObject("missing 'query'")
         val pin = body["pin"]?.jsonPrimitive?.booleanOrNull ?: true
 
-        val results =
+        // Off the EDT, as the search box's pipeline scans: a full scan of every pane is not UI work.
+        val results = viewModel.globalSearchResultsFor(query)
+        if (pin) {
             onEdt {
-                viewModel.setGlobalSearchQuery(query)
-                if (pin) viewModel.pinSearchResults()
-                viewModel.globalSearchResults.value.toList()
+                viewModel.showGlobalSearchResults(query, results)
+                viewModel.pinSearchResults()
             }
+        }
 
         return buildJsonObject {
             put("query", query)

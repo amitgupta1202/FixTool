@@ -5408,6 +5408,14 @@ class FixMessageViewModel(
         get() = if (openWorkspaceIsHome) defaultWorkspaceLabel else openWorkspace.name
 
     /**
+     * Bumped by every open, close and reset, for a composable whose remembered state belongs to the workspace
+     * it was made in: keyed on this, it starts fresh. The folder cannot say so on its own, because a reset
+     * opens the same folder it closed.
+     */
+    private val _workspaceEpoch = MutableStateFlow(0)
+    val workspaceEpoch: StateFlow<Int> = _workspaceEpoch.asStateFlow()
+
+    /**
      * The workspaces opened before, newest first, minus any that have since gone.
      *
      * Filtered on read rather than pruned on write, because a folder on a volume that is not mounted
@@ -5721,6 +5729,7 @@ class FixMessageViewModel(
         refreshRunConfigurations()
         _savedMessages.clear()
         loadSavedMessagesForActiveSession()
+        _workspaceEpoch.value += 1
     }
 
     fun saveAppSettings(settings: AppSettings) {

@@ -634,40 +634,7 @@ private fun AppContent(
                                                         with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
                                                     ),
                                             ) {
-                                                ConnectionPanel(
-                                                    profiles = viewModel.connectionProfiles,
-                                                    sessions = viewModel.sessions,
-                                                    onConnect = { profileId, profile ->
-                                                        viewModel.connectProfile(
-                                                            profileId,
-                                                            profile,
-                                                        )
-                                                    },
-                                                    onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
-                                                    onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
-                                                    onDeleteProfile = { profileId ->
-                                                        viewModel.deleteConnectionProfile(profileId)
-                                                    },
-                                                    onCloneProfile = { profile -> viewModel.cloneConnectionProfile(profile) },
-                                                    onGetProfileSession = { profileId ->
-                                                        viewModel.getProfileSession(profileId)
-                                                    },
-                                                    onGetProfileSessions = { profileId ->
-                                                        viewModel.getProfileSessions(profileId)
-                                                    },
-                                                    onClose = { viewModel.toggleConnectionPanel() },
-                                                    selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
-                                                    rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
-                                                    onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
-                                                    dictionary = viewModel.dictionary,
-                                                    onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
-                                                        viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
-                                                    },
-                                                    replyStepApply = viewModel.pendingReplyStepApply,
-                                                    onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
-                                                    editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
+                                                AppConnectionPanel(viewModel, modifier = Modifier.fillMaxSize())
                                             }
                                         }
 
@@ -827,48 +794,7 @@ private fun AppContent(
                                                             with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
                                                         ),
                                                 ) {
-                                                    ConnectionPanel(
-                                                        profiles = viewModel.connectionProfiles,
-                                                        sessions = viewModel.sessions,
-                                                        onConnect = { profileId, profile ->
-                                                            viewModel.connectProfile(
-                                                                profileId,
-                                                                profile,
-                                                            )
-                                                        },
-                                                        onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
-                                                        onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
-                                                        onDeleteProfile = { profileId ->
-                                                            viewModel.deleteConnectionProfile(
-                                                                profileId,
-                                                            )
-                                                        },
-                                                        onCloneProfile = { profile ->
-                                                            viewModel.cloneConnectionProfile(profile)
-                                                        },
-                                                        onGetProfileSession = { profileId ->
-                                                            viewModel.getProfileSession(
-                                                                profileId,
-                                                            )
-                                                        },
-                                                        onGetProfileSessions = { profileId ->
-                                                            viewModel.getProfileSessions(
-                                                                profileId,
-                                                            )
-                                                        },
-                                                        onClose = { viewModel.toggleConnectionPanel() },
-                                                        selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
-                                                        rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
-                                                        onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
-                                                        dictionary = viewModel.dictionary,
-                                                        onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
-                                                            viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
-                                                        },
-                                                        replyStepApply = viewModel.pendingReplyStepApply,
-                                                        onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
-                                                        editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                    )
+                                                    AppConnectionPanel(viewModel, modifier = Modifier.fillMaxSize())
                                                 }
                                             }
 
@@ -1019,6 +945,43 @@ private fun ColumnScope.SplitCentre(
         onOpenConnectionPanel = { if (!connectionPanelOpen) viewModel.toggleConnectionPanel() },
         modifier = Modifier.weight(1f),
     )
+}
+
+/**
+ * The Connection panel, wired to the view model. Written out once for both layouts, which each drew their own
+ * copy of it before.
+ *
+ * **Keyed on the workspace.** The form is remembered state, and the profile on it carries its own workspace's
+ * store and log paths. Kept across a switch, Save wrote that profile into the new workspace's file and Connect
+ * dialled it with its sequence numbers kept in the old folder.
+ */
+@Composable
+internal fun AppConnectionPanel(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
+    key(viewModel.workspaceEpoch.collectAsState().value) {
+        ConnectionPanel(
+            profiles = viewModel.connectionProfiles,
+            sessions = viewModel.sessions,
+            onConnect = { profileId, profile -> viewModel.connectProfile(profileId, profile) },
+            onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
+            onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
+            onDeleteProfile = { profileId -> viewModel.deleteConnectionProfile(profileId) },
+            onCloneProfile = { profile -> viewModel.cloneConnectionProfile(profile) },
+            onGetProfileSession = { profileId -> viewModel.getProfileSession(profileId) },
+            onGetProfileSessions = { profileId -> viewModel.getProfileSessions(profileId) },
+            onClose = { viewModel.toggleConnectionPanel() },
+            selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
+            rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
+            onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
+            dictionary = viewModel.dictionary,
+            onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
+                viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
+            },
+            replyStepApply = viewModel.pendingReplyStepApply,
+            onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
+            editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
+            modifier = modifier,
+        )
+    }
 }
 
 /**

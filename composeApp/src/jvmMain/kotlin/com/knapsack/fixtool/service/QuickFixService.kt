@@ -837,11 +837,24 @@ class QuickFixService(
             // editor, a Reply With… shape, a scenario step. That is exactly why the book is fed from
             // the wire and not from the rules engine (decision 2): by the time these bytes exist,
             // who composed them is no longer a distinction the counterparty could make.
-            book(sessionId, fixMessage, message, sent = true)
+            //
+            // Except a resend. QuickFIX/J answers a ResendRequest by passing each replayed message
+            // through here again with PossDupFlag set, and booking it would rewind an order or re-open
+            // a quote to what it was when the message first went out. It is shown, and booked nowhere.
+            if (!isPossDup(message)) book(sessionId, fixMessage, message, sent = true)
         } catch (e: Exception) {
             logger.error("Error displaying outgoing app message: ${e.message}", e)
         }
     }
+
+    /** True when [message] carries PossDupFlag(43)=Y in its header, which is how QuickFIX/J marks a resend. */
+    private fun isPossDup(message: Message): Boolean =
+        try {
+            message.header.isSetField(POSS_DUP_FLAG) && message.header.getBoolean(POSS_DUP_FLAG)
+        } catch (e: Exception) {
+            logger.debug("Could not read PossDupFlag: ${e.message}")
+            false
+        }
 
     /**
      * Records one application message against this counterparty's order book.
@@ -1452,6 +1465,9 @@ class QuickFixService(
     private companion object {
         /** ResetSeqNumFlag — the one field whose presence means QFJ will rewrite the Logon after toAdmin. */
         const val RESET_SEQ_NUM_FLAG = 141
+
+        /** PossDupFlag, which QuickFIX/J sets on every message it replays for a ResendRequest. */
+        const val POSS_DUP_FLAG = 43
     }
 }
 

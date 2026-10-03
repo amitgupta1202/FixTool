@@ -1323,7 +1323,9 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
                 asked to hold at once, which a count and a rate together cannot tell you.</td></tr>
         <tr><td><strong>achieved</strong></td>
             <td>Messages a second over the issue span &mdash; first send to last send. What the run did,
-                against what a rate asked for.</td></tr>
+                against what a rate asked for. Counted as the intervals between the sends over the
+                microseconds they took, so a hundred sends at 100/s read 100/s and a burst that left inside
+                one millisecond still has a rate.</td></tr>
         <tr><td><strong>captured</strong></td>
             <td>How many replies carried each name a phase keeps. Worth seeing when it differs from the
                 number matched: that difference is the venue answering without the tag, and it is what a

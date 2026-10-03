@@ -188,12 +188,27 @@ data class LoadReport(
          * message's. Any at all fails the phase: see [Completeness.AMBIGUOUS].
          */
         val collisions: Long = 0,
+        /**
+         * First send to last send in microseconds, off the socket stamps themselves. Null for a record
+         * written before it was carried, which [achievedPerSecond] reads through [spanMs] instead.
+         */
+        val spanUs: Long? = null,
     ) {
         val spanMs: Long? get() = if (firstSendAt != null && lastSendAt != null) lastSendAt - firstSendAt else null
 
-        /** Messages per second over the issue span. Null for a single message or none. */
+        /**
+         * Messages per second over the issue span: the intervals between the sends, over the time they took.
+         * Null for a single message or none, which have no interval.
+         *
+         * N sends are N-1 intervals, and the span is in microseconds. N over the millisecond span read a 100/s
+         * schedule over its 990ms as 101/s, put a 2.4ms burst at 33,333/s or 50,000/s by where its millisecond
+         * edges fell, and gave a burst inside one millisecond no rate at all.
+         */
         val achievedPerSecond: Long?
-            get() = spanMs?.takeIf { it > 0 }?.let { leftSocket * MILLIS_PER_SECOND / it }
+            get() {
+                val span = spanUs ?: spanMs?.let { it * MICROS_PER_MILLI } ?: return null
+                return if (span <= 0 || leftSocket < 2) null else (leftSocket - 1) * MICROS_PER_SECOND / span
+            }
 
         val neverLeftSocket: Long get() = (handedToEngine - leftSocket).coerceAtLeast(0)
     }
@@ -531,7 +546,8 @@ data class LoadReport(
         const val UNMATCHED_IN_JSON = 1_000
         const val EXIT_PASSED = 0
         const val EXIT_FAILED = 1
-        private const val MILLIS_PER_SECOND = 1_000L
+        private const val MICROS_PER_MILLI = 1_000L
+        private const val MICROS_PER_SECOND = 1_000_000L
 
         /**
          * **The verdict, from the numbers.** Exit 1 when anything was unmatched, when requests shared an id

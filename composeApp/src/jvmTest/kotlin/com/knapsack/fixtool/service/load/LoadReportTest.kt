@@ -90,6 +90,27 @@ class LoadReportTest {
         assertEquals(0L, LoadReportCodec.fromJson(before).issue.collisions)
     }
 
+    /**
+     * **Throughput is the gaps between the sends over the time they took, in microseconds.** N messages
+     * have N-1 gaps. Counting N made a 100/s schedule over its 990ms read 101/s, above what it was asked
+     * for, and millisecond stamps put a 2.4ms burst at 33,333/s or 50,000/s by where the edges fell, and a
+     * burst inside one millisecond at no rate at all.
+     */
+    @Test
+    fun `achieved throughput is the intervals between sends over their microsecond span`() {
+        fun issue(leftSocket: Long, spanMs: Long, spanUs: Long?) =
+            LoadReport.Issue(leftSocket, leftSocket, leftSocket, LoadFixtures.T0, LoadFixtures.T0 + spanMs, prepareMs = 0, spanUs = spanUs)
+
+        assertEquals(100L, issue(100, spanMs = 990, spanUs = 990_000).achievedPerSecond, "a 100/s schedule held for its second")
+        assertEquals(41_250L, issue(100, spanMs = 3, spanUs = 2_400).achievedPerSecond, "a 2.4ms burst, wherever its millisecond edges fell")
+        assertEquals(330_000L, issue(100, spanMs = 0, spanUs = 300).achievedPerSecond, "a burst inside one millisecond")
+        assertNull(issue(1, spanMs = 0, spanUs = 0).achievedPerSecond, "one message has no interval to measure")
+        assertEquals(100L, issue(100, spanMs = 990, spanUs = null).achievedPerSecond, "a record from before the microsecond span")
+
+        val report = burstReport(unmatched = 0).let { it.copy(issue = it.issue.copy(spanUs = 812_604)) }
+        assertEquals(812_604L, LoadReportCodec.fromJson(LoadReportCodec.toJson(report)).issue.spanUs)
+    }
+
     @Test
     fun `the JSON round-trips a whole report`() {
         val report = burstReport(rate = shortfall, strictRate = true)

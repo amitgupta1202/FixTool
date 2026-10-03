@@ -164,6 +164,7 @@ object LoadReportCodec {
                     put("firstSendAt", r.issue.firstSendAt?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("lastSendAt", r.issue.lastSendAt?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("spanMs", r.issue.spanMs?.let { JsonPrimitive(it) } ?: JsonNull)
+                    r.issue.spanUs?.let { put("spanUs", it) }
                     put("achievedPerSecond", r.issue.achievedPerSecond?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("prepareMs", r.issue.prepareMs)
                     if (r.issue.unaddressable > 0) put("unaddressable", r.issue.unaddressable)
@@ -466,6 +467,7 @@ object LoadReportCodec {
                     prepareMs = issue.longOrNull("prepareMs") ?: 0,
                     unaddressable = issue.longOrNull("unaddressable") ?: 0,
                     collisions = issue.longOrNull("collisions") ?: 0,
+                    spanUs = issue.longOrNull("spanUs"),
                 ),
             rate = (o["rate"] as? JsonObject)?.let(::rateFrom),
             replies =

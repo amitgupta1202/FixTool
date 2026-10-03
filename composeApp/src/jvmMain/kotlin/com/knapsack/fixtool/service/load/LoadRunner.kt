@@ -397,16 +397,20 @@ class LoadRunner(
         ): LoadReport {
             val counts = result?.counts ?: matcher?.snapshot()
             val issued = stats
+            val firstSend = counts?.firstSendMicros
+            val lastSend = counts?.lastSendMicros
             val issue =
                 LoadReport.Issue(
                     requested = plan.requested,
                     handedToEngine = issued?.handedToEngine ?: handed,
                     leftSocket = counts?.leftSocket ?: 0,
-                    firstSendAt = counts?.firstSendMicros?.let { it / MICROS_PER_MILLI },
-                    lastSendAt = counts?.lastSendMicros?.let { it / MICROS_PER_MILLI },
+                    firstSendAt = firstSend?.let { it / MICROS_PER_MILLI },
+                    lastSendAt = lastSend?.let { it / MICROS_PER_MILLI },
                     prepareMs = prepareMs,
                     unaddressable = issued?.unaddressable ?: refusedCount,
                     collisions = counts?.collisions ?: 0,
+                    // The microseconds the stamps already carry, so a throughput is not read off milliseconds.
+                    spanUs = if (firstSend != null && lastSend != null) lastSend - firstSend else null,
                 )
             val replies =
                 LoadReport.Replies(

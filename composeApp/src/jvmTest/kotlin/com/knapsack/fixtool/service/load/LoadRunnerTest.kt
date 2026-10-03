@@ -113,6 +113,22 @@ class LoadRunnerTest {
         assertNotNull(r.timing)
     }
 
+    /**
+     * Forty sends two microseconds apart, all inside one millisecond: 39 gaps over 78µs. Read from the
+     * millisecond stamps the span was nought and the run reported no throughput at all.
+     */
+    @Test
+    fun `a burst inside one millisecond reports its throughput, from the microsecond stamps`() {
+        val clock = FakeClock()
+        val lanes = (1..4).map { FakeLane(it, clock, ::echo) }
+
+        val r = LoadRunner(FakeHost(clock, lanes), clock = clock).run(plan()).report
+
+        assertEquals(0L, r.issue.spanMs)
+        assertEquals(78L, r.issue.spanUs)
+        assertEquals(500_000L, r.issue.achievedPerSecond)
+    }
+
     @Test
     fun `a swallowed request is unmatched by id, settle runs its full window, and the exit code is 1`() {
         val clock = FakeClock()

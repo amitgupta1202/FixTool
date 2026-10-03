@@ -392,7 +392,7 @@ JSON, or a field of the wrong shape (an array sent as a string, say), answers **
 | `POST /templates/send` | `{"id", "session"?}`                 | send a saved template (expressions resolved)         |
 | `GET /messages`      | query: `session`, `limit`, `direction` | `{session, total, messages:[…]}` with parsed fields  |
 | `POST /messages/clear` | `{"session"}`                        | clear a session's message log                        |
-| `POST /wait`         | `{"session", "state"?, "match"?, "timeoutMs"?}` | block until state/message-match or timeout; returns the match |
+| `POST /wait`         | `{"session", "state"?, "match"?, "timeoutMs"?}` | block until state/message-match or timeout; returns the match. It always checks once, so `"timeoutMs": 0` asks whether it is already so |
 | `POST /admin`        | `{"session", "action", …}`             | session/admin control (see below)                    |
 | `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary    |
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |

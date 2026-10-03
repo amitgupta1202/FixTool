@@ -3085,7 +3085,8 @@ class ControlServer(
      * Blocks (up to `timeoutMs`) until a session reaches `state` (e.g. LOGGED_ON) or a message
      * matching `match` ({messageType?, direction?, tag?, value?}) arrives. Returns the matched
      * message, or {status:"timeout"}. Polls StateFlow values off-thread (no EDT blocking) so it is
-     * the deterministic replacement for client-side polling loops.
+     * the deterministic replacement for client-side polling loops. It always looks once, so a
+     * `timeoutMs` of 0 asks whether the session is already there.
      */
     private fun waitFor(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
@@ -3097,7 +3098,8 @@ class ControlServer(
         val timeoutMs = (body["timeoutMs"]?.jsonPrimitive?.longOrNull ?: DEFAULT_WAIT_MS).coerceIn(0, MAX_WAIT_MS)
 
         val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
+        // Looks before it checks the deadline, as awaitMessage does, so a timeout of 0 is "check once".
+        while (true) {
             if (targetState != null && session.connectionState.value.name == targetState) {
                 return buildJsonObject {
                     put("status", "matched")
@@ -3116,9 +3118,9 @@ class ControlServer(
                     }
                 }
             }
+            if (System.currentTimeMillis() >= deadline) return buildJsonObject { put("status", "timeout") }
             Thread.sleep(WAIT_POLL_MS)
         }
-        return buildJsonObject { put("status", "timeout") }
     }
 
     private fun matchesMessage(msg: FixMessage, match: JsonObject): Boolean {

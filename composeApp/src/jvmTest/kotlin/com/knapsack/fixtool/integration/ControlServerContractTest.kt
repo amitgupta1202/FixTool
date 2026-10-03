@@ -235,6 +235,21 @@ class ControlServerContractTest {
         assertEquals("closed", obj(closed)["status"]!!.jsonPrimitive.content)
     }
 
+    // ------------------------------------------------------------------ wait
+
+    /** `while (now < deadline)` ran no times at all for a zero timeout, so it answered timeout unlooked. */
+    @Test
+    fun `a wait with no time to wait still looks once`() {
+        addSession("VENUE").receive(order("ORD-1"))
+
+        fun wait(body: String) = obj(post("/wait", body))["status"]!!.jsonPrimitive.content
+
+        assertEquals("matched", wait("""{"session":"VENUE","match":{"messageType":"D"},"timeoutMs":0}"""))
+        assertEquals("matched", wait("""{"session":"VENUE","state":"DISCONNECTED","timeoutMs":0}"""))
+        assertEquals("matched", wait("""{"session":"VENUE","state":"DISCONNECTED","timeoutMs":-5}"""), "coerced to 0")
+        assertEquals("timeout", wait("""{"session":"VENUE","match":{"messageType":"8"},"timeoutMs":0}"""))
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private fun order(clOrdId: String) = "8=FIX.4.4|35=D|49=CLI|56=VENUE|11=$clOrdId|55=EUR/USD|54=1|38=100|40=1|"

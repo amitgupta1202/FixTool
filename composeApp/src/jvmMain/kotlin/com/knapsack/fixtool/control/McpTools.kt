@@ -258,7 +258,8 @@ object McpTools {
             tool(
                 "fixtool_wait",
                 "Block until a session reaches a state (e.g. LOGGED_ON) or a matching message arrives, or until " +
-                    "timeoutMs elapses. The deterministic replacement for client-side polling.",
+                    "timeoutMs elapses. The deterministic replacement for client-side polling. It always checks " +
+                    "once, so timeoutMs=0 asks whether the state or message is already there.",
                 props(
                     "session" to string("session id/title/index"),
                     "state" to string("connection state to await, e.g. LOGGED_ON"),

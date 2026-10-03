@@ -1241,6 +1241,26 @@ class ControlServerIntegrationTest {
         assertNull(rendered["orderNote"], "a caller who supplied an order does not need telling to")
     }
 
+    /** The half of what is left is the book's arithmetic, so a dry run works it out from the order it is given. */
+    @Test
+    fun `a dry run of a partial of what is left halves the order it is given exactly`() {
+        val id = obj(post("/profiles", """{"name":"Halves","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+        post("/acceptor/rules", """{"profile":"$id","preset":"ack-accumulating-fills"}""")
+        val order =
+            """{"orderId":"EX-7","clOrdId":"ORD-1","symbol":"BTC/USD","side":"1","orderQty":"0.3",""" +
+                """"cumQty":"0.15","leavesQty":"0.15","price":"65000"}"""
+        val raw = "35=D|11=ORD-1|55=BTC/USD|54=1|38=0.3|40=2|44=65000|"
+
+        val body = obj(post("/acceptor/test", """{"profile":"$id","raw":"$raw","order":$order}"""))
+
+        val partial =
+            body["response"]!!
+                .jsonArray[1]
+                .jsonObject["message"]!!
+                .jsonPrimitive.content
+        assertTrue("|14=0.225|" in partial && "|151=0.075|" in partial && "|32=0.075|" in partial, "got: $partial")
+    }
+
     @Test
     fun `the rules endpoint reports the book constraint, and only when there is one`() {
         val id = statefulVenue()

@@ -4079,12 +4079,14 @@ class ControlServer(
      * The other half of [assumedState]'s argument: that one says what a *trigger* would read, this
      * says what a *reply* would substitute. A dry run of a template that reads the book needs both,
      * or it can only report that it could not render. Taken as the book's own names, so the caller
-     * writes what the template writes — see `OrderBook.fields`.
+     * writes what the template writes — see `OrderBook.fields`. The halves are worked out from the
+     * caller's cumQty and leavesQty as the book works them out, unless the caller gave its own.
      */
     private fun assumedOrder(body: JsonObject): Map<String, String>? =
         (body["order"] as? JsonObject)
             ?.mapNotNull { (name, value) -> value.jsonPrimitive.contentOrNull?.let { name to it } }
             ?.toMap()
+            ?.let { given -> OrderBook.halves(given["cumQty"], given["leavesQty"]) + given }
 
     /** The assumption, reported back whether or not it was given — see [assumedState]. */
     private fun assumedStateJson(assumed: BookReading, given: Boolean): JsonObject =

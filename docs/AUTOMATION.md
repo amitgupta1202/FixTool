@@ -1115,20 +1115,28 @@ Giving `quote` without `quoteState` assumes `open`, since fields describe a quot
 
 A step's template can also **read** what the venue is holding: `${order.<name>}`, where the names are
 `orderId`, `clOrdId`, `origClOrdId`, `symbol`, `side`, `orderQty`, `cumQty`, `leavesQty`, `avgPx`,
-`price`, `ordStatus`. Names and not tag numbers on purpose — half of them are facts the venue
+`price`, `ordStatus`, and three the book works out for a partial fill of half of what is left:
+`halfLeavesQty` (the fill), `cumQtyAfterHalf` and `leavesQtyAfterHalf` (the order once it is done).
+Names and not tag numbers on purpose — half of them are facts the venue
 *computed* rather than fields of any message, and `${order.14}` would send a reader looking at the
 wire for something that was never on it.
 
 Both spellings work, exactly as `${req.…}` does: `${order.leavesQty}` is the value and
 `${order.leavesQty / 2}` is arithmetic.
 
+Arithmetic on a decimal quantity is floating point, so `${order.cumQty + order.leavesQty / 2}` with 0.15
+traded and 0.15 left sends `0.22499999999999998`. The three half names are exact instead. A quantity
+written with a decimal point halves exactly (0.15 left is a fill of 0.075), and one written as a whole
+number halves in whole units (1001 left is a fill of 500, leaving 501). A single whole unit has no half,
+so an order with 1 left, or nothing, answers none of the three, and a step that reads them is not sent.
+
 **Resolved per step, as that step is sent** — which is the difference from `${req.…}`, a fact about
 the triggering message that cannot change. The book can, and does, *within one reply*:
 
 ```
 35=8|150=0|151=${req.38}|                                    ack — 1000 open
-35=8|150=F|14=${order.cumQty + order.leavesQty / 2}|…        +250ms → 14=500  151=500
-35=8|150=F|14=${order.cumQty + order.leavesQty / 2}|…        +250ms → 14=750  151=250
+35=8|150=F|14=${order.cumQtyAfterHalf}|…                     +250ms → 14=500  151=500
+35=8|150=F|14=${order.cumQtyAfterHalf}|…                     +250ms → 14=750  151=250
 35=8|150=F|14=${order.orderQty}|151=0|32=${order.leavesQty}| +250ms → 14=1000 151=0
 ```
 

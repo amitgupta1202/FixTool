@@ -4399,6 +4399,7 @@ ${incoming["D"].valueOfTag(38)}
         <tr><td><code>${order.symbol}</code>, <code>${order.side}</code></td><td>As the order was placed.</td></tr>
         <tr><td><code>${order.orderQty}</code></td><td>The quantity ordered.</td></tr>
         <tr><td><code>${order.cumQty}</code>, <code>${order.leavesQty}</code></td><td>Filled so far, and left to fill.</td></tr>
+        <tr><td><code>${order.halfLeavesQty}</code>, <code>${order.cumQtyAfterHalf}</code>, <code>${order.leavesQtyAfterHalf}</code></td><td>A partial fill of half of what is left, and the order once it is done. Exact for a decimal quantity, whole units for a whole one, and absent when only 1 unit or nothing is left.</td></tr>
         <tr><td><code>${order.avgPx}</code>, <code>${order.price}</code></td><td>Average fill price, and the order's limit price.</td></tr>
         <tr><td><code>${order.state}</code></td><td><code>pending</code>, <code>working</code> or <code>done</code>.</td></tr>
     </table>
@@ -4413,8 +4414,8 @@ ${incoming["D"].valueOfTag(38)}
     before the next is built:</p>
 
     <div class="example">
-        <p><code>14=${order.cumQty + order.leavesQty / 2}</code> &rarr; <code>500</code>, then
-        <code>750</code>, then <code>1000</code></p>
+        <p><code>14=${order.cumQtyAfterHalf}</code> &rarr; <code>500</code>, then <code>750</code>, and the
+        fill of what is left &rarr; <code>1000</code></p>
         <p>Read once at trigger time instead, all three report <code>500</code>, and a client tracking
         CumQty watches each fill undo the last.</p>
     </div>

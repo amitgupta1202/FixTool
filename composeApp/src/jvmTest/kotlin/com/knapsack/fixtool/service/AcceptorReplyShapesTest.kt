@@ -235,6 +235,56 @@ class AcceptorReplyShapesTest {
         )
     }
 
+    /** ORD-1 ordered for [orderQty], [cumQty] traded and [leavesQty] still open, as [OrderBook.fields] reads it. */
+    private fun holding(orderQty: String, cumQty: String, leavesQty: String): Map<String, String> =
+        OrderBook.fields(
+            BookedOrder(
+                key = "ORD-1",
+                events =
+                    listOf(
+                        OrderEvent(
+                            at = LocalDateTime.now(),
+                            sent = false,
+                            msgType = "D",
+                            fields = mapOf(11 to "ORD-1", 55 to "ACME", 54 to "1", 38 to orderQty, 44 to "185.25"),
+                        ),
+                        OrderEvent(
+                            at = LocalDateTime.now(),
+                            sent = true,
+                            msgType = "8",
+                            fields = mapOf(11 to "ORD-1", 37 to "EX-1", 39 to "1", 14 to cumQty, 151 to leavesQty),
+                        ),
+                    ),
+            ),
+        )
+
+    /** Halved in the script engine, 0.15 + 0.15 / 2 was 0.22499999999999998: a CumQty no client can reconcile. */
+    @Test
+    fun `a partial of a decimal remainder is exact`() {
+        val fields = fieldsOf(reply("partial-of-remainder", limitOrder, holding("0.3", "0.15", "0.15")))
+
+        assertEquals("0.225", fields["14"])
+        assertEquals("0.075", fields["151"])
+        assertEquals("0.075", fields["32"])
+        assertEquals("1", fields["39"], "something is still open, so the order is partially filled")
+    }
+
+    /**
+     * Half of a remainder of 1, in whole units, is 0: a fill of nothing. A partial that took the 1 instead would
+     * finish the order, and the fill-what-is-left step after it would then report a fill of nothing. So there is
+     * no partial of a single unit, and the shape says why rather than sending one.
+     */
+    @Test
+    fun `a remainder of one is not split into a fill of nothing`() {
+        val oneLeft = holding("1001", "1000", "1")
+
+        val offered = offers(limitOrder, oneLeft).associateBy { it.shape.id }
+
+        val refusal = offered.getValue("partial-of-remainder").refusal
+        assertTrue(refusal != null && "1 left" in refusal, "a partial of one unit is refused, saying why: $refusal")
+        assertNull(offered.getValue("fill-what-is-left").refusal, "the 1 can still be filled")
+    }
+
     @Test
     fun `the tags a reply reads are found inside expressions too, not only standing alone`() {
         // The partial fill reads OrderQty only as `${req.38 / 2}`. A scan that missed it would call the

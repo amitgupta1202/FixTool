@@ -213,8 +213,8 @@ object AcceptorPresets {
     // Everything below reads `${order.…}`, and each one is truthful in a way its stateless sibling
     // above cannot be. The difference is not decoration:
     //
-    //   ack-partial-fill    14=${req.38 / 2}                       half the order, always, every time
-    //   this one            14=${order.cumQty + order.leavesQty/2} half of what is actually left
+    //   ack-partial-fill    14=${req.38 / 2}               half the order, always, every time
+    //   this one            14=${order.cumQtyAfterHalf}    half of what is actually left
     //
     // Two stateless partials in a row report the same 14= twice and a client tracking CumQty watches
     // the second fill undo the first. These accumulate, because each step reads the book *after* the
@@ -240,16 +240,18 @@ object AcceptorPresets {
     /** Echoed from the book rather than the request, so a reply is about the order and not the message. */
     private const val BOOK_ECHO = "11=\${order.clOrdId}|55=\${order.symbol}|54=\${order.side}|38=\${order.orderQty}"
 
-    // Integer halves of what is *left*, taken the same way twice, so CumQty + LeavesQty is OrderQty
-    // at every step for any remainder — including an odd one.
+    // Half of what is *left*, worked out by the book rather than the script engine, so a decimal
+    // quantity stays exact and CumQty + LeavesQty is OrderQty at every step for any remainder. The
+    // book has no half of a single unit, so this never fills nothing and never finishes the order,
+    // which is what keeps 39=1 true. See OrderBook.halves.
     private val PARTIAL_OF_REMAINDER =
         bookedReport(
             "150=F",
             "39=1",
             BOOK_ECHO,
-            "14=\${order.cumQty + order.leavesQty / 2}",
-            "151=\${order.leavesQty - order.leavesQty / 2}",
-            "32=\${order.leavesQty / 2}",
+            "14=\${order.cumQtyAfterHalf}",
+            "151=\${order.leavesQtyAfterHalf}",
+            "32=\${order.halfLeavesQty}",
             "31=\${order.price}",
             "6=\${order.price}",
         )
@@ -492,6 +494,9 @@ object AcceptorPresets {
      *
      * Step one is the ordinary stateless ack, because there is nothing in the book to read yet — it
      * is the message that puts something there.
+     *
+     * An order of 1 or 2 whole units skips the partials it cannot make: the book has no half of a
+     * single unit, so such a step is not sent and says why, and the last step fills what is left.
      */
     private val ackThenAccumulatingFills =
         AcceptorResponseRule(

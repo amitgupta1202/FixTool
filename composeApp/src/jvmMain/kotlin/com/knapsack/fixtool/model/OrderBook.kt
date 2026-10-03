@@ -496,7 +496,39 @@ object OrderBook {
             current.price?.let { put("price", it) }
             current.symbol?.let { put("symbol", it) }
             current.side?.let { put("side", it) }
+            putAll(halves(current.cumQty, current.leavesQty))
         }
+    }
+
+    /** The names [halves] answers: a partial fill of half of what is left, and the order once it is done. */
+    val halfNames: Set<String> = setOf("halfLeavesQty", "cumQtyAfterHalf", "leavesQtyAfterHalf")
+
+    private val TWO = BigDecimal(2)
+
+    /**
+     * **A partial fill of half of what is left**, worked out here so its template does no arithmetic.
+     *
+     * `halfLeavesQty` is the fill, `cumQtyAfterHalf` and `leavesQtyAfterHalf` the order once it is done. Exact,
+     * where the script engine's arithmetic was floating point: `0.15 + 0.15 / 2` went on the wire as
+     * `0.22499999999999998`. A quantity written with a decimal point halves exactly, so 0.15 left is a fill of 0.075.
+     * One written as a whole number halves in whole units, the smaller half filled, so 1001 left is 500 and 501.
+     *
+     * Empty when the venue has not stated both quantities, and when the half would be nothing: a single whole unit
+     * cannot be split, and an order with nothing left has nothing to fill. A partial that took the last unit would
+     * not be a partial, and the fill of what is left after it would report a fill of nothing.
+     */
+    fun halves(cumQty: String?, leavesQty: String?): Map<String, String> {
+        val done = cumQty?.toBigDecimalOrNull()
+        val left = leavesQty?.toBigDecimalOrNull()
+        if (done == null || left == null) return emptyMap()
+        val decimal = done.scale() > 0 || left.scale() > 0
+        val half = if (decimal) left.divide(TWO) else left.divideToIntegralValue(TWO)
+        if (half.signum() <= 0) return emptyMap()
+        return mapOf(
+            "halfLeavesQty" to half.toPlainString(),
+            "cumQtyAfterHalf" to (done + half).toPlainString(),
+            "leavesQtyAfterHalf" to (left - half).toPlainString(),
+        )
     }
 
     /**
@@ -518,7 +550,7 @@ object OrderBook {
             "avgPx",
             "price",
             "ordStatus",
-        )
+        ) + halfNames
 
     /**
      * The entries [fields] names, in the order a lookup should try them.

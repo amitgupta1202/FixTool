@@ -213,7 +213,7 @@ language than §1 — plain replacement, no variables, offsets or message refere
 | `${now}` | current local timestamp (`${utcnow}` for UTC) |
 | `${utcnow+30s}`, `${utcnow:yyyyMMdd}` | the UTC clock, shifted or in a pattern of your own, with the same units as §1 |
 | `${random:1.09010:1.09019:5}` | a drawn, quantised number |
-| `${order.<name>}` | what this venue is holding for the order the message names: `orderId`, `clOrdId`, `origClOrdId`, `symbol`, `side`, `orderQty`, `cumQty`, `leavesQty`, `avgPx`, `price`, `ordStatus`. Needs a `whenOrder` of `pending`/`working`/`done`, or a `35=D` trigger, or the rule will not validate |
+| `${order.<name>}` | what this venue is holding for the order the message names: `orderId`, `clOrdId`, `origClOrdId`, `symbol`, `side`, `orderQty`, `cumQty`, `leavesQty`, `avgPx`, `price`, `ordStatus`, and `halfLeavesQty`, `cumQtyAfterHalf`, `leavesQtyAfterHalf` for a partial fill of half of what is left, worked out exactly. Needs a `whenOrder` of `pending`/`working`/`done`, or a `35=D` trigger, or the rule will not validate |
 | `${quote.<name>}` | what this venue quoted, over the same names `quoteField` takes. Needs a `whenQuote` of `open`/`expired`/`done`, since no trigger can mint the quote it reads |
 
 `${req.…}` is fixed when the trigger arrives. Everything else resolves **per step, as that step is

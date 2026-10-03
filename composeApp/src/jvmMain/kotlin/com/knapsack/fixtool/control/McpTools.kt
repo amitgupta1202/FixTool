@@ -729,7 +729,9 @@ object McpTools {
                     "this message names, as unknown|pending|working|done — so a cancel for an order that was never " +
                     "placed and a cancel for a live one can be answered differently by the same rule list. " +
                     "A template can READ the book too: \${order.<name>} where name is one of orderId, clOrdId, " +
-                    "origClOrdId, symbol, side, orderQty, cumQty, leavesQty, avgPx, price, ordStatus — names and " +
+                    "origClOrdId, symbol, side, orderQty, cumQty, leavesQty, avgPx, price, ordStatus, and the exact " +
+                    "halves of what is left for a partial fill (halfLeavesQty, cumQtyAfterHalf, leavesQtyAfterHalf), " +
+                    "absent when 1 unit or nothing is left — names and " +
                     "not tag numbers, because half of them are facts the venue computed rather than fields of any " +
                     "message. Both spellings work, so \${order.leavesQty} is the value and " +
                     "\${order.leavesQty / 2} is arithmetic, and each is resolved as its own step is sent. " +
@@ -773,8 +775,8 @@ object McpTools {
                     "A rule is {whenMsgType, conditions?, whenFields?, whenOrder?, whenQuote?, enabled?, " +
                     "steps:[{template, delayMillis}]} — see fixtool_acceptor_rules for the full vocabulary. " +
                     "A step's template can also READ the book: \${order.orderId}, \${order.cumQty}, " +
-                    "\${order.leavesQty} and the rest of the names, standing alone or inside arithmetic " +
-                    "(14=\${order.cumQty + order.leavesQty / 2}). Resolved per step AS IT IS SENT, so a " +
+                    "\${order.leavesQty} and the rest of the names, standing alone (14=\${order.cumQtyAfterHalf}) " +
+                    "or inside arithmetic. Resolved per step AS IT IS SENT, so a " +
                     "sequence's later fills see what its earlier ones left. A rule whose reply reads the book " +
                     "must be able to guarantee one — set whenOrder to pending/working/done, or trigger on 35=D, " +
                     "which brings the order with it; anything else is a validationError. " +

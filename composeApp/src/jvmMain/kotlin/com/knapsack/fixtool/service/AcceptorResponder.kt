@@ -710,6 +710,9 @@ object AcceptorResponder {
      * trigger that should have been conditioned; and a name this order has simply not got is a venue
      * that has not said that yet — an unacknowledged order has no LeavesQty because nobody has
      * claimed one.
+     *
+     * A missing half ([OrderBook.halfNames]) is explained by what it is worked out from: the CumQty or
+     * LeavesQty the venue has not said, or too little left to split.
      */
     fun orderRefusal(template: String, order: Map<String, String>?): String? {
         val wanted = orderNames(template)
@@ -722,10 +725,22 @@ object AcceptorResponder {
         if (order == null) return "this reply reads the book, and there is no order here to read"
         val absent = wanted.filterNot { order.containsKey(it) }
         if (absent.isEmpty()) return null
+        if (absent.all { it in OrderBook.halfNames }) return halvesRefusal(order)
         return if (absent.size == 1) {
             "the venue has not said this order's ${absent.single()} yet, and the reply reads it"
         } else {
             "the venue has not said this order's ${absent.joinToString(", ")} yet, and the reply reads them"
+        }
+    }
+
+    /** Why [order] has no half of what is left to fill. See [OrderBook.halves]. */
+    private fun halvesRefusal(order: Map<String, String>): String {
+        val unsaid = listOf("cumQty", "leavesQty").filterNot { order.containsKey(it) }
+        return if (unsaid.isEmpty()) {
+            "this order has ${order.getValue("leavesQty")} left, too little to split into a partial fill"
+        } else {
+            "the venue has not said this order's ${unsaid.joinToString(", ")} yet, " +
+                "and half of what is left is worked out from it"
         }
     }
 

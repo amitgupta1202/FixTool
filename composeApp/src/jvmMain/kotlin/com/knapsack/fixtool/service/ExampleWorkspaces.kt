@@ -142,6 +142,12 @@ object ExampleWorkspaces {
      *
      * A fresh one is a different intent with a different answer: rename or delete the folder, the same
      * as for any other workspace.
+     *
+     * **Only a copy of this example is opened as one.** A folder already at the name that has no [ORIGIN_FILE]
+     * naming [exampleId] is someone else's: a workspace the user made there, or a copy of another example. It
+     * is left alone and the example goes beside it, at `<slug>-2` or the first free number after, which a later
+     * Open then finds by its origin. Opening the user's folder instead would have stamped it as the example,
+     * read it in the example's dictionary and offered Reset on it.
      */
     fun open(
         exampleId: String,
@@ -152,19 +158,59 @@ object ExampleWorkspaces {
         val example =
             byId(exampleId)
                 ?: return Result.failure(IllegalArgumentException("no bundled example '$exampleId'"))
-        val target = File(location, slug(name))
-        if (target.isDirectory && target.listFiles().orEmpty().isNotEmpty()) {
+        val target = placeFor(exampleId, slug(name), location)
+        if (exampleAt(target)?.id == exampleId) {
             logger.info("Example '{}' is already at {}; opening it rather than copying again", exampleId, target)
-            // A copy made before origin files existed gets one now, so Reset finds it without anyone
-            // having to migrate anything.
-            val origin = File(target, ORIGIN_FILE)
-            if (!origin.isFile) {
-                runCatching { origin.writeText(exampleId + "\n") }
-                    .onFailure { logger.warn("Could not record the origin of {}", target, it) }
-            }
             return Result.success(target)
         }
+        return copyOut(example, target, now)
+    }
+
+    /**
+     * Lays [exampleId] down in [target] itself, which must be missing or empty.
+     *
+     * For Reset, which has just moved the old copy out of [target] and wants the fresh one in the same folder
+     * under the same name. Going through [open] would put it at the slug of that name instead, which for a copy
+     * moved to `~/Projects/FX Venue` is `~/Projects/fx-venue`, and that can be a folder of the user's own.
+     */
+    fun layDownAt(
+        exampleId: String,
+        target: File,
+        now: Long = System.currentTimeMillis(),
+    ): Result<File> {
+        val example =
+            byId(exampleId)
+                ?: return Result.failure(IllegalArgumentException("no bundled example '$exampleId'"))
+        return copyOut(example, target, now)
+    }
+
+    /** The first of `<slug>`, `<slug>-2`, `<slug>-3`… that is missing, empty, or a copy of [exampleId]. */
+    private fun placeFor(
+        exampleId: String,
+        slug: String,
+        location: File,
+    ): File =
+        generateSequence(1) { it + 1 }
+            .map { n -> File(location, if (n == 1) slug else "$slug-$n") }
+            .first { folder ->
+                !folder.exists() ||
+                    (folder.isDirectory && folder.listFiles().orEmpty().isEmpty()) ||
+                    exampleAt(folder)?.id == exampleId
+            }.also { folder ->
+                if (folder.name != slug) {
+                    logger.info("{} is not a copy of '{}', so it goes to {}", File(location, slug), exampleId, folder)
+                }
+            }
+
+    /** Copies [example] out of the build into [target], refusing a folder that already holds anything. */
+    private fun copyOut(
+        example: Example,
+        target: File,
+        now: Long,
+    ): Result<File> {
+        val exampleId = example.id
         return runCatching {
+            check(target.listFiles().orEmpty().isEmpty()) { "'${target.absolutePath}' already holds a workspace" }
             example.files.forEach { relative ->
                 val body =
                     readResource("$ROOT/$exampleId/$relative")
@@ -176,7 +222,7 @@ object ExampleWorkspaces {
             stampTimes(target, now)
             writeGitignore(target)
             File(target, ORIGIN_FILE).writeText(exampleId + "\n")
-            logger.info("Opened example '{}' as '{}' in {}", exampleId, name, target.absolutePath)
+            logger.info("Opened example '{}' in {}", exampleId, target.absolutePath)
             target
         }
     }

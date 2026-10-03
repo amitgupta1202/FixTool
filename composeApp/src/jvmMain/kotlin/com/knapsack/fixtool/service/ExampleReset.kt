@@ -30,6 +30,9 @@ object ExampleReset {
      * button that silently destroys an afternoon's rule edits, and someone who wanted one thing out of
      * the old copy can go and get it. The cost is a folder left behind, which is the right way round
      * for that trade, and it is why Reset needs no confirmation.
+     *
+     * In its place means [target] itself, under the name it has. A copy moved to `~/Projects/FX Venue` is
+     * reset there, and not into `~/Projects/fx-venue`, which may be a folder of the user's own.
      */
     fun run(
         exampleId: String,
@@ -40,7 +43,7 @@ object ExampleReset {
             requireNotNull(ExampleWorkspaces.byId(exampleId)) { "no bundled example '$exampleId'" }
             val location = requireNotNull(target.parentFile) { "'${target.absolutePath}' has no parent" }
             val movedAside = moveAside(target, location, now)
-            val fresh = ExampleWorkspaces.open(exampleId, target.name, location, now).getOrThrow()
+            val fresh = ExampleWorkspaces.layDownAt(exampleId, target, now).getOrThrow()
             logger.info("Reset {} to the shipped {}; previous copy at {}", target, exampleId, movedAside)
             Outcome(workspace = fresh, movedAside = movedAside)
         }

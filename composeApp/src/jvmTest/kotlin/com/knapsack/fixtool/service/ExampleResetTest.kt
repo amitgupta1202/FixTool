@@ -4,6 +4,7 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -54,15 +55,21 @@ class ExampleResetTest {
         assertEquals(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.exampleAt(moved)?.id)
     }
 
+    /**
+     * A folder with no origin cannot be told from a workspace of your own, so opening the example does not claim
+     * it. Copies used to be stamped here, but origin files shipped in the same release as the examples, so no
+     * released build made a copy without one.
+     */
     @Test
-    fun `a copy made before origin files existed gets one when it is opened again`() {
+    fun `a folder with no origin is not stamped when the example is opened again`() {
         val workspace = openExample()
         assertTrue(File(workspace, ExampleWorkspaces.ORIGIN_FILE).delete())
         assertNull(ExampleWorkspaces.exampleAt(workspace), "the fixture must start with no origin")
 
-        openExample()
+        val opened = openExample()
 
-        assertEquals(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.exampleAt(workspace)?.id)
+        assertNull(ExampleWorkspaces.exampleAt(workspace), "a folder with no origin was claimed as the example")
+        assertEquals(File(location, "fx-venue-2"), opened)
     }
 
     @Test
@@ -107,6 +114,34 @@ class ExampleResetTest {
         val reset = ExampleReset.run(ExampleWorkspaces.FX_VENUE, workspace).getOrThrow()
 
         assertEquals(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.exampleAt(reset.workspace)?.id)
+    }
+
+    /** A copy moved somewhere of the user's choosing is reset where it is, under the name it has. */
+    @Test
+    fun `reset lays the fresh copy down in the moved copy's own folder`() {
+        val moved = File(location, "FX Venue")
+        assertTrue(openExample().renameTo(moved))
+
+        val reset = ExampleReset.run(ExampleWorkspaces.FX_VENUE, moved, now = 1_700_000_000_000L).getOrThrow()
+
+        assertEquals(moved, reset.workspace, "the fresh copy went somewhere other than the folder being reset")
+        assertEquals(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.exampleAt(moved)?.id)
+        assertFalse(File(location, "fx-venue").exists(), "a slug of the folder's name was laid down beside it")
+    }
+
+    /** The slug of a moved copy's name can be a folder of the user's own, and Reset must not open or stamp it. */
+    @Test
+    fun `resetting a moved copy leaves a workspace of yours at the example's name alone`() {
+        val moved = File(location, "FX Venue")
+        assertTrue(openExample().renameTo(moved))
+        val mine = ExampleWorkspaces.createEmpty("FX Venue", location).getOrThrow()
+        File(mine, "connection_profiles.json").writeText("[]")
+
+        val reset = ExampleReset.run(ExampleWorkspaces.FX_VENUE, moved).getOrThrow()
+
+        assertEquals(moved, reset.workspace)
+        assertNull(ExampleWorkspaces.exampleAt(mine), "a workspace of the user's own was stamped as the example")
+        assertEquals("[]", File(mine, "connection_profiles.json").readText())
     }
 
     @Test

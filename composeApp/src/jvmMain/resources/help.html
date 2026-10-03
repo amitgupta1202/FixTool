@@ -1656,7 +1656,9 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     your work. Once copied it is an ordinary workspace with nothing example-ish about it &mdash; same
     files, same loaders, opened with Open and listed in Recent beside any other.</p>
     <p>The copy happens <strong>once</strong>. A folder that is already there is never written over, so
-    whatever you changed in it survives every start. Delete one and the next start lays it down fresh.</p>
+    whatever you changed in it survives every start. Delete one and the next start lays it down fresh.
+    A folder of your own that has an example's name is left alone as well: opening that example, from
+    automation for instance, lays it down beside yours as <code>fx-venue-2</code>.</p>
     <p>A copy remembers which example it came from, in a small <code>.fixtool-origin</code> file. That
     is the only thing distinguishing it from a workspace you made yourself, and it is there so
     <strong>Settings &rarr; Storage</strong> can offer <strong>Reset</strong>: the shipped example laid

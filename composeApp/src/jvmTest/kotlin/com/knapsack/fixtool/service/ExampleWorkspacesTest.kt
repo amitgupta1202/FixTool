@@ -315,6 +315,51 @@ class ExampleWorkspacesTest {
         assertTrue(File(opened, "connection_profiles.json").isFile)
     }
 
+    /**
+     * Open is reached from `/demo start` and `POST /workspace {"example":…}` as well as the menu, so it meets the
+     * folders a user made at an example's name: after deleting the laid-down copy, or before that example shipped.
+     * It used to open one of those as the example and stamp it, and Reset was then offered on the user's own work.
+     */
+    @Test
+    fun `opening an example where a workspace of your own has its name lays the example down beside it`() {
+        val location = Files.createTempDirectory("example-beside-mine").toFile()
+        val mine = File(location, "fx-venue").apply { mkdirs() }
+        File(mine, "connection_profiles.json").writeText("[]")
+
+        val opened = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+
+        assertEquals(File(location, "fx-venue-2"), opened, "the example was not laid down beside the user's folder")
+        assertEquals("[]", File(mine, "connection_profiles.json").readText(), "the user's workspace was written over")
+        assertFalse(File(mine, ExampleWorkspaces.ORIGIN_FILE).exists(), "the user's workspace was stamped")
+        assertEquals(ExampleWorkspaces.FX_VENUE, ExampleWorkspaces.exampleAt(opened)?.id)
+        assertTrue(File(opened, "connection_profiles.json").readText().contains("demo-profile-venue"))
+    }
+
+    @Test
+    fun `opening the example again after that returns the copy beside yours, not a third`() {
+        val location = Files.createTempDirectory("example-beside-twice").toFile()
+        File(location, "fx-venue").mkdirs()
+        File(location, "fx-venue/notes.txt").writeText("mine")
+
+        val first = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+        val second = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+
+        assertEquals(first, second)
+        assertEquals(listOf("fx-venue", "fx-venue-2"), location.list()!!.sorted())
+    }
+
+    @Test
+    fun `a copy of another example at this one's name is not taken for it`() {
+        val location = Files.createTempDirectory("example-beside-other").toFile()
+        val other = File(location, "fx-venue").apply { mkdirs() }
+        File(other, ExampleWorkspaces.ORIGIN_FILE).writeText(ExampleWorkspaces.RFQ_VENUE + "\n")
+
+        val opened = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+
+        assertEquals(File(location, "fx-venue-2"), opened)
+        assertEquals(ExampleWorkspaces.RFQ_VENUE, ExampleWorkspaces.exampleAt(other)?.id, "the other copy was stamped")
+    }
+
     // ---------------------------------------------------------------- laid down at start
 
     /**

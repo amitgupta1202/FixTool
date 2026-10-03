@@ -763,6 +763,8 @@ class ScenarioRunner(
      * the message, it is capped, and it says in words that it is a guess. The alternative — letting a
      * plausible pairing satisfy a step — is out-of-order matching, which is precisely what strict ordering
      * exists to prevent, and it would buy a nicer report at the cost of the property the model is built on.
+     * Nor does it mark a message an earlier step bound. The grid and the run record keep one verdict per
+     * message, and that message's verdict is the step's.
      */
     private inner class PostMortem(
         private val scenario: Scenario,
@@ -825,6 +827,11 @@ class ScenarioRunner(
                 // An `occurrence` step that timed out did so because too few arrived, not because any one
                 // that did was wrong — and its own detail already says "fewer than N".
                 if (binds && occurrence != null) continue
+                // A message an earlier step bound is that step's, and its verdict stands. Judged against THIS
+                // step's predicate it is no near miss: the ack of a D, ack, fill flow was reported as one the
+                // fill "did not bind", with advice to correct a predicate that is right. Only one this step
+                // would also have bound says something, and that is the collision below.
+                if (m in consumed && !binds) continue
                 val key =
                     when {
                         binds && m in consumed -> NearMiss.TAKEN to ""
@@ -870,7 +877,7 @@ class ScenarioRunner(
                 // predicate, and the reconcile view repairs expectations. Offering that door would offer a fix
                 // that cannot fix this. Only the newest example is marked in the grid — marking nine hundred
                 // identical ticks marks nothing.
-                unpaired(group.first(), detail)
+                if (kind == NearMiss.TAKEN) unmarked(detail) else unpaired(group.first(), detail)
             }
         }
 
@@ -1126,6 +1133,14 @@ class ScenarioRunner(
         /** A message with nothing to hold it against: marked and described, but no route to a repair. */
         private fun unpaired(m: FixMessage, detail: String) =
             emit(m, row(at = -1, stepId = null, phase = failure.phase, passed = false, detail = detail))
+
+        /**
+         * A row about a message an earlier step bound: described, and not marked. The grid and the run record
+         * keep one verdict per message, so marking it here replaced the verdict of the step that bound it.
+         */
+        private fun unmarked(detail: String) {
+            out += row(at = -1, stepId = null, phase = failure.phase, passed = false, detail = detail)
+        }
 
         /** The unmuted `Expect`s the run never got to, in order — [failure] stopped short of all of them. */
         private fun pendingExpects(): List<PendingExpect> {

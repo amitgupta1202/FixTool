@@ -1229,6 +1229,72 @@ class ScenarioRunnerTest {
         )
     }
 
+    /**
+     * **A message an earlier step bound belongs to that step, and the post-mortem may not take it back.**
+     *
+     * A captured D, ack, fill flow against a venue that only acks: the fill step times out. The near-miss
+     * pass classified every same-type message on the session, the ack included, so the ack step 2 had bound
+     * was reported as one the fill's predicate "did not bind" (it wants 150=F, the message has 150=0), with
+     * advice to correct a predicate that is right. Worse, the row was published through the verdict channel,
+     * which keeps the last verdict per message: the grid tinted the ack red, and the run record, which drops
+     * a verdict with no step id, lost step 2's binding altogether.
+     */
+    @Test
+    fun `the post-mortem leaves a message an earlier step bound to that step`() {
+        val host = FakeHost()
+        val ack = incoming("8", mapOf(35 to "8", 11 to "ORD-1", 150 to "0", 39 to "0"))
+        host.arriving += ack
+
+        fun expectReport(execType: String, timeoutMs: Long) =
+            ScenarioStep.Expect(
+                session = "s",
+                match = MatchPredicate("8", fields = listOf(TagValue(11, "ORD-1"), TagValue(150, execType))),
+                timeoutMs = timeoutMs,
+                expectation = Expectation(fields = listOf(FieldExpectation(150, Matcher.Exact(execType))), messageType = "8"),
+            )
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|11=ORD-1|", session = "s"),
+                expectReport("0", timeoutMs = 1_000),
+                expectReport("F", timeoutMs = 50),
+            )
+
+        val reported = mutableListOf<Pair<FixMessage, StepResult>>()
+        val result = runRecordingVerdicts(host, scenario, reported)
+
+        assertFalse(result.passed, "the fill never came")
+        assertTrue(
+            result.steps.none { it.kind == "diagnosis" && it.detail.orEmpty().contains("did not bind") },
+            "the ack is step 2's, not a near miss of step 3's: ${result.steps.filter { it.kind == "diagnosis" }.map { it.detail }}",
+        )
+        val verdicts = reported.filter { it.first === ack }.map { it.second }
+        assertEquals(listOf(1), verdicts.map { it.stepIndex }, "only step 2 may publish a verdict on the ack: $verdicts")
+    }
+
+    /** The collision is still reported, but as a row of its own: the message keeps the verdict of the step that bound it. */
+    @Test
+    fun `a candidate an earlier step already bound keeps that step's verdict on the message`() {
+        val host = FakeHost()
+        val fill = incoming("8", mapOf(35 to "8", 39 to "2"))
+        host.inbox += fill
+
+        val reported = mutableListOf<Pair<FixMessage, StepResult>>()
+        val result =
+            runRecordingVerdicts(
+                host,
+                scenario(
+                    expect("8", FieldExpectation(39, Matcher.Presence)),
+                    expectWith(timeoutMs = 50, FieldExpectation(39, Matcher.Presence)),
+                ),
+                reported,
+            )
+
+        val diagnosis = result.steps.single { it.kind == "diagnosis" }
+        assertTrue(diagnosis.detail.orEmpty().contains("already bound"), "${diagnosis.detail}")
+        val verdicts = reported.filter { it.first === fill }.map { it.second }
+        assertEquals(listOf(0), verdicts.map { it.stepIndex }, "the diagnosis row must not overwrite step 1's verdict: $verdicts")
+    }
+
     @Test
     fun `traffic no step expects anywhere is reported as unexplained, not paired with something`() {
         val host = FakeHost()

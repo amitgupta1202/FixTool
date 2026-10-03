@@ -117,7 +117,7 @@ class HeadlessRunIntegrationTest {
         assertEquals(HeadlessRun.EXIT_PASSED, code, "expected a pass\nout:\n$out\nerr:\n$err")
         assertTrue(out.contains("PASSED"), out)
         assertTrue(
-            server.applicationMessages.any { it.contains("11=HDLS-$runId") },
+            venueReceives { it.contains("11=HDLS-$runId") },
             "the venue should have received the order: ${server.applicationMessages}",
         )
         assertTrue(junit.isFile, "the JUnit report should have been written")

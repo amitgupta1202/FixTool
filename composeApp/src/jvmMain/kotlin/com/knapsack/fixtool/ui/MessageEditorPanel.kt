@@ -1940,7 +1940,7 @@ private fun buildPreviewMessage(
     return fieldsToShow.joinToString("|") { "${it.tag}=${it.value}" } + "|"
 }
 
-private fun parseRawMessageToFields(rawMessage: String): List<FixField>? {
+internal fun parseRawMessageToFields(rawMessage: String): List<FixField>? {
     if (rawMessage.isBlank()) return listOf(FixField())
 
     // Detect Cucumber test template format (contains [FieldName] pattern)
@@ -1962,12 +1962,14 @@ private fun parseRawMessageToFields(rawMessage: String): List<FixField>? {
         // Normalize message format (handles both traditional and line-based formats)
         val normalizedMessage = rawMessage.normalizeFixMessage()
 
-        // Parse the normalized traditional format
+        // Parse the normalized traditional format on the delimiter it carries. SOH wins, as everywhere else,
+        // so a wire line pasted from a log reads as its fields and a `|` inside one of its values stays there.
+        val delimiter = FixMessageHelper.delimiterOf(normalizedMessage)
         val fields =
             normalizedMessage
                 .trim()
-                .trimEnd('|')
-                .split('|')
+                .trimEnd(delimiter)
+                .split(delimiter)
                 .filter { it.isNotBlank() }
                 .mapNotNull { pair ->
                     val parts = pair.split('=', limit = 2)

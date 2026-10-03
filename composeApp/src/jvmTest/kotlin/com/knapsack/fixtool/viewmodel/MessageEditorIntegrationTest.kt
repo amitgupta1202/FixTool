@@ -497,4 +497,19 @@ class MessageEditorIntegrationTest {
         assertEquals(session2, viewModel.activeSession)
         assertTrue(message.contains("ORDER_A"))
     }
+
+    /**
+     * A messages.log line pasted into the detail panel is SOH-delimited and carries its line break. It used
+     * to be read as the line-based format, which found nothing in it, so the panel showed an empty message.
+     */
+    @Test
+    fun `a pasted wire line is displayed as the message it is`() {
+        val line = "8=FIX.4.4\u00019=65\u000135=D\u000111=ORD-1\u000155=IBM\u000154=1\u000138=100\u000140=1\u000110=123\u0001\n"
+
+        viewModel.pasteAndDisplayMessage(line)
+
+        val shown = viewModel.selectedMessage.value
+        assertEquals("D", shown?.messageType, "the pasted order, not an empty message")
+        assertEquals("ORD-1", shown!!.quickfixMessage.getString(11))
+    }
 }

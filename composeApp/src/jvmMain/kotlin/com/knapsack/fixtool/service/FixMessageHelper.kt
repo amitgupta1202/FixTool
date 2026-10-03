@@ -423,7 +423,7 @@ object FixMessageHelper {
     /**
      * Normalizes a FIX message from line-based format to traditional format.
      * Supports two formats:
-     * 1. Traditional: "35=R|131=ORD-1|"
+     * 1. Traditional: "35=R|131=ORD-1|", or the same SOH-delimited, returned as it is but for line breaks around it
      * 2. Line-based: "35 R\n131 ORD-1\n# comment"
      *
      * Line-based format rules:
@@ -438,14 +438,18 @@ object FixMessageHelper {
     fun String.normalizeFixMessage(): String {
         if (this.isBlank()) return ""
 
-        // Detect format: if contains newlines and limited use of '=' or '|', use line-based format
+        // Detect format: if contains newlines and limited use of '=' or a delimiter, use line-based format
         val hasNewlines = this.contains('\n')
         val hasEquals = this.contains('=')
-        val hasPipes = this.contains('|')
+        // SOH counts as a delimiter, and wins (see [delimiterOf]): a wire line copied from a messages.log has
+        // a line break and no pipe, and read as the line-based format it came back empty.
+        val hasDelimiter = this.contains(delimiterOf(this))
 
-        // If already in traditional format, return as-is
-        if (!hasNewlines || (hasEquals && hasPipes)) {
-            return this
+        // If already in traditional format, return as-is, less any line break around it. A line copied from a
+        // log brings its own, and left on, QuickFIX/J read the stray segment after the last delimiter as a
+        // field with no `=`, and the paste failed.
+        if (!hasNewlines || (hasEquals && hasDelimiter)) {
+            return this.trim('\r', '\n')
         }
 
         // Convert line-based format to traditional format

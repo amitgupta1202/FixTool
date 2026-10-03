@@ -233,6 +233,20 @@ class FixMessageHelperTest {
         assertEquals("35=D|38=1000|44=99.50|54=1|", result, "Numeric values should be preserved")
     }
 
+    /**
+     * A messages.log line is SOH-delimited and is copied with its line break. Having a newline and no pipe,
+     * it was read as the line-based format, which found no `tag value` line in it and returned nothing.
+     */
+    @Test
+    fun `a pasted wire line keeps its fields`() {
+        val line = "8=FIX.4.4\u00019=65\u000135=D\u000111=ORD-1\u000155=IBM\u000154=1\u000138=100\u000140=1\u000110=123\u0001\n"
+
+        val fields = FixMessageHelper.parseFixMessage(line.normalizeFixMessage())
+
+        assertEquals(listOf(8, 9, 35, 11, 55, 54, 38, 40, 10), fields.map { it.first })
+        assertEquals("ORD-1", fields.single { it.first == 11 }.second)
+    }
+
     @Test
     fun testNormalizeEmptyString() {
         val input = ""

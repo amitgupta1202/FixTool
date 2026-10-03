@@ -205,12 +205,25 @@ class LoadRecordStore(
             .mapNotNull { readRecord(it.name) }
             .sortedByDescending { it.startedAt }
 
-    /** Keeps the [keep] most recent runs and deletes the rest. Same setting as the run records. */
+    /**
+     * Keeps the [keep] most recently finished runs, and every run still going, and deletes the rest. Same
+     * setting as the run records.
+     *
+     * A run still going is never deleted. Load runs on disjoint sessions overlap, so a long run on one profile
+     * can be the oldest record on disk when a short run on another finishes and prunes. "Still going" is the
+     * test the read applies: the record says `RUNNING` and [isLive] vouches for it. [listRecords] has already
+     * healed every `RUNNING` record the owner does not vouch for, so one still `RUNNING` here is live. Ranking
+     * by `startedAt` would then delete that long run as soon as it finished, so the rank is when a run finished.
+     */
     @Suppress("TooGenericExceptionCaught")
     fun prune(keep: Int) {
         if (keep <= 0) return
         try {
-            list().drop(keep).forEach { directoryFor(it.id).deleteRecursively() }
+            listRecords()
+                .filter { it.status != LoadStatus.RUNNING }
+                .sortedByDescending { it.finishedAt ?: it.startedAt }
+                .drop(keep)
+                .forEach { directoryFor(it.id).deleteRecursively() }
         } catch (e: Exception) {
             logger.error("Could not prune the loads directory: ${e.message}", e)
         }

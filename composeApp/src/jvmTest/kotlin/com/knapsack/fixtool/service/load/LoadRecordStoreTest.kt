@@ -80,6 +80,42 @@ class LoadRecordStoreTest {
         assertNull(store.read(first))
     }
 
+    /**
+     * **Load runs on disjoint sessions overlap, and retention must not reach into one that is still going.**
+     *
+     * Ranked by `startedAt` alone, a long run on one profile was the oldest record on disk when two short
+     * runs on another finished, so the second one's prune deleted it mid-run, evidence and all, and its next
+     * tick recreated a `load.json` with nothing beside it. And once the long run did finish, its own prune
+     * would have deleted it at once, being the oldest start.
+     */
+    @Test
+    fun `pruning never deletes a load that is still running, and keeps the one that just finished`() {
+        val live = mutableSetOf<String>()
+        val store = LoadRecordStore(dir.absolutePath, isLive = { it in live })
+        val long =
+            burstReport(status = LoadStatus.RUNNING)
+                .copy(id = store.reserve("long-on-a"), stage = LoadStage.ISSUING, startedAt = 1, finishedAt = null)
+        live += long.id
+        assertTrue(store.write(long))
+
+        listOf("short-on-b-1" to 2L, "short-on-b-2" to 4L).forEach { (id, startedAt) ->
+            store.write(burstReport().copy(id = store.reserve(id), startedAt = startedAt, finishedAt = startedAt + 1))
+            store.prune(keep = 2)
+        }
+
+        assertEquals(LoadStatus.RUNNING, store.read(long.id)?.status, "the running load's record is still on disk")
+
+        store.write(long.copy(status = LoadStatus.DONE, stage = LoadStage.DONE, finishedAt = 6))
+        live -= long.id
+        store.prune(keep = 2)
+
+        assertEquals(
+            setOf("long-on-a", "short-on-b-2"),
+            store.list().map { it.id }.toSet(),
+            "the load that just finished is the newest result, whenever it started",
+        )
+    }
+
     @Test
     fun `a record that says running with no process behind it reads as stopped, once`() {
         val store = LoadRecordStore(dir.absolutePath, isLive = { false })

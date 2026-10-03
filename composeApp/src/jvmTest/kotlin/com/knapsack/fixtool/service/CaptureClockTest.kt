@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import org.junit.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -48,5 +49,34 @@ class CaptureClockTest {
         val after = CaptureClock.micros()
         val elapsedMs = (after - before) / 1_000
         assertTrue(elapsedMs in 40..5_000, "50ms of sleep should read as roughly 50ms, read ${elapsedMs}ms")
+    }
+
+    /**
+     * **A re-anchor moves the origin, so the stamps after a sleep count microseconds again.**
+     *
+     * It used to hand back the wall clock itself on every call after the first sleep, because the origin
+     * never moved and the gap never closed. Every stamp was then a whole millisecond, and a 300µs round
+     * trip on a loopback venue read 0 or 1,000 until the app was restarted.
+     */
+    @Test
+    fun `after the machine sleeps, stamps count the counter's microseconds again`() {
+        var wallMillis = 1_800_000_000_000L
+        var nanos = 5_000_000_000L
+        val clock = CaptureClock.Anchored(wallMillis = { wallMillis }, nanos = { nanos })
+
+        // Five minutes with the lid shut: the wall clock moves and the counter does not.
+        wallMillis += 300_000
+        val woke = clock.micros()
+        assertEquals(wallMillis * 1_000, woke, "the first stamp after the sleep is back on civil time")
+
+        // A 300µs round trip inside one wall-clock millisecond, then another across a millisecond edge.
+        nanos += 300_000
+        val reply = clock.micros()
+        nanos += 300_000
+        wallMillis += 1
+        val second = clock.micros()
+
+        assertEquals(300L, reply - woke, "a round trip after the sleep is measured by the counter, not the wall clock")
+        assertEquals(300L, second - reply, "and so is the next one, whichever millisecond the wall clock is in")
     }
 }

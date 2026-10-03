@@ -569,158 +569,61 @@ private fun AppContent(
                                         SplitOrientation.VERTICAL
                                     }
 
-                                // Wrap content in split pane if the rail, detail panel, message editor, connection panel, or latency panel is shown
-                                if (showScenariosRail ||
-                                    showDetailPanel ||
-                                    showMessageEditor ||
-                                    showConnectionPanel ||
-                                    showLatencyPanel ||
-                                    showOrderBookPanel
-                                ) {
-                                    BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                                        val maxWidthPx = with(density) { maxWidth.toPx() }
-                                        // A dock is never dragged narrower than its own folded header, so no width exists at
-                                        // which one of its controls is half drawn. The ratio floors are still what decides on a
-                                        // wide window, where a tenth of the width is far more than a header needs; the folded
-                                        // header takes over on a window narrow enough that a tenth of it is not a header at all.
-                                        val dockFloor = dockFloorRatio(0.1f, maxWidthPx, density)
-                                        val bookFloor = dockFloorRatio(0.15f, maxWidthPx, density)
+                                // **One call site for the centre, whichever docks are open.** There used to be a
+                                // second, bare one for when every dock was closed, and the first dock to open (a
+                                // click on a row opens Detail onto an empty right stripe) switched between them,
+                                // which threw every pane away and built it again. A closed dock draws nothing here,
+                                // so this row is the bare one too.
+                                BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                                    val maxWidthPx = with(density) { maxWidth.toPx() }
+                                    // A dock is never dragged narrower than its own folded header, so no width exists at
+                                    // which one of its controls is half drawn. The ratio floors are still what decides on a
+                                    // wide window, where a tenth of the width is far more than a header needs; the folded
+                                    // header takes over on a window narrow enough that a tenth of it is not a header at all.
+                                    val dockFloor = dockFloorRatio(0.1f, maxWidthPx, density)
+                                    val bookFloor = dockFloorRatio(0.15f, maxWidthPx, density)
 
-                                        Row(modifier = Modifier.fillMaxSize()) {
-                                            ScenariosRailDock(
-                                                viewModel = viewModel,
-                                                show = showScenariosRail,
-                                                ratio = scenariosRailSplitRatio,
-                                                maxWidthPx = maxWidthPx,
-                                                onDeltaPx = { dx ->
-                                                    scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.45f)
-                                                },
-                                                onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
-                                            )
+                                    Row(modifier = Modifier.fillMaxSize()) {
+                                        ScenariosRailDock(
+                                            viewModel = viewModel,
+                                            show = showScenariosRail,
+                                            ratio = scenariosRailSplitRatio,
+                                            maxWidthPx = maxWidthPx,
+                                            onDeltaPx = { dx ->
+                                                scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.45f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
+                                        )
 
-                                            // Leftmost panel - Message editor (if shown)
-                                            if (showMessageEditor) {
-                                                Box(
-                                                    modifier =
-                                                        Modifier.width(
-                                                            with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
-                                                        ),
-                                                ) {
-                                                    AppMessageEditorPanel(
-                                                        viewModel = viewModel,
-                                                        savedMessages = savedMessages,
-                                                        currentProfileId = currentProfileId,
-                                                        editorState = editorState,
-                                                        editorPanelSplitRatio = editorPanelSplitRatio,
-                                                        onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
-                                                        modifier = Modifier.fillMaxSize(),
-                                                    )
-                                                }
-
-                                                // Resizable divider for editor panel
-                                                WidthResizeHandle(
-                                                    onDeltaPx = { dx ->
-                                                        editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
-                                                    },
-                                                    onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
-                                                )
-                                            }
-
-                                            // Center panel - the sessions (the scenario editor is the bottom dock now)
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                SplitCentre(
+                                        // Leftmost panel - Message editor (if shown)
+                                        if (showMessageEditor) {
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                AppMessageEditorPanel(
                                                     viewModel = viewModel,
-                                                    orientation = splitOrientation,
-                                                    globalViewMode = globalViewMode,
-                                                    selectedMessage = selectedMessage,
-                                                    globalFilter = globalFilter,
-                                                    followedUids = followedUids,
-                                                    followedTraceIds = followedTraceIds,
+                                                    savedMessages = savedMessages,
+                                                    currentProfileId = currentProfileId,
+                                                    editorState = editorState,
+                                                    editorPanelSplitRatio = editorPanelSplitRatio,
+                                                    onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
+                                                    modifier = Modifier.fillMaxSize(),
                                                 )
                                             }
 
-                                            // Message detail panel (if shown)
-                                            if (showDetailPanel) {
-                                                // Resizable divider for detail panel
-                                                WidthResizeHandle(
-                                                    onDeltaPx = { dx ->
-                                                        detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
-                                                    },
-                                                    onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
-                                                )
-
-                                                Box(
-                                                    modifier =
-                                                        Modifier.width(
-                                                            with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
-                                                        ),
-                                                ) {
-                                                    AppMessageDetailPanel(
-                                                        viewModel = viewModel,
-                                                        selectedMessage = selectedMessage,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                    )
-                                                }
-                                            }
-
-                                            // Rightmost panel - Connection panel (if shown)
-                                            if (showConnectionPanel) {
-                                                // Resizable divider for connection panel
-                                                WidthResizeHandle(
-                                                    onDeltaPx = { dx ->
-                                                        connectionPanelSplitRatio =
-                                                            (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
-                                                    },
-                                                    onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
-                                                )
-
-                                                Box(
-                                                    modifier =
-                                                        Modifier.width(
-                                                            with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
-                                                        ),
-                                                ) {
-                                                    AppConnectionPanel(viewModel, modifier = Modifier.fillMaxSize())
-                                                }
-                                            }
-
-                                            // The venue's own memory, beside the counterparty's messages.
-                                            if (showOrderBookPanel) {
-                                                WidthResizeHandle(
-                                                    onDeltaPx = { dx ->
-                                                        orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(bookFloor, 0.7f)
-                                                    },
-                                                    onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
-                                                )
-
-                                                Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
-                                                    AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                                                }
-                                            }
-
-                                            // Latency panel (if shown)
-                                            if (showLatencyPanel) {
-                                                // Resizable divider for latency panel
-                                                WidthResizeHandle(
-                                                    onDeltaPx = { dx ->
-                                                        latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.5f)
-                                                    },
-                                                    onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
-                                                )
-
-                                                Box(
-                                                    modifier =
-                                                        Modifier.width(
-                                                            with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
-                                                        ),
-                                                ) {
-                                                    AppLatencyPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                                                }
-                                            }
+                                            // Resizable divider for editor panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
+                                            )
                                         }
-                                    }
-                                } else {
-                                    Row(modifier = Modifier.weight(1f)) {
+
+                                        // Center panel - the sessions (the scenario editor is the bottom dock now)
                                         Column(modifier = Modifier.weight(1f)) {
                                             SplitCentre(
                                                 viewModel = viewModel,
@@ -731,6 +634,85 @@ private fun AppContent(
                                                 followedUids = followedUids,
                                                 followedTraceIds = followedTraceIds,
                                             )
+                                        }
+
+                                        // Message detail panel (if shown)
+                                        if (showDetailPanel) {
+                                            // Resizable divider for detail panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                AppMessageDetailPanel(
+                                                    viewModel = viewModel,
+                                                    selectedMessage = selectedMessage,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                        }
+
+                                        // Rightmost panel - Connection panel (if shown)
+                                        if (showConnectionPanel) {
+                                            // Resizable divider for connection panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    connectionPanelSplitRatio =
+                                                        (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                AppConnectionPanel(viewModel, modifier = Modifier.fillMaxSize())
+                                            }
+                                        }
+
+                                        // The venue's own memory, beside the counterparty's messages.
+                                        if (showOrderBookPanel) {
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(bookFloor, 0.7f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
+                                            )
+
+                                            Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
+                                                AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                                            }
+                                        }
+
+                                        // Latency panel (if shown)
+                                        if (showLatencyPanel) {
+                                            // Resizable divider for latency panel
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(dockFloor, 0.5f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                AppLatencyPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                                            }
                                         }
                                     }
                                 }

@@ -345,7 +345,9 @@ fun HierarchicalGridView(
         if (renderRows.isNotEmpty() && autoScroll) {
             // Wait for layout to complete before scrolling
             kotlinx.coroutines.delay(50)
-            if (renderRows.isNotEmpty()) {
+            // Asked again after the wait: a row selected meanwhile (see below) stopped the following, and
+            // jumping to the bottom now would throw away the scroll to it.
+            if (renderRows.isNotEmpty() && autoScroll) {
                 listState.scrollToItem(renderRows.size - 1)
             }
         }
@@ -477,10 +479,15 @@ fun HierarchicalGridView(
     // Scroll to selected message when it changes — by ROW index, which differs from the message
     // index whenever headers are spliced in. -1 means a collapsed group hides it; scrolling
     // nowhere is right, jumping to an unrelated row was not.
+    //
+    // A row above the last one stops the tail being followed, as scrolling up to it by hand does. Without it a
+    // grid that came up with a row selected (rebuilt, or a tab opened on a search result) jumped to its bottom
+    // 50ms later and lost the row.
     LaunchedEffect(selectedMessage, renderRows) {
         if (selectedMessage != null) {
             val rowIndex = messages.indexOf(selectedMessage).takeIf { it >= 0 }?.let(::rowIndexOf) ?: -1
             if (rowIndex >= 0) {
+                if (rowIndex < renderRows.lastIndex) autoScroll = false
                 coroutineScope.launch {
                     listState.animateScrollToItem(rowIndex)
                 }

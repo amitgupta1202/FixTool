@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.ui
 
+import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.StepAddress
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -289,6 +290,19 @@ class HelpDocTest {
         val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the fixed-income chapter no longer says: $missing")
+    }
+
+    /**
+     * The table of what a reply can read from the book names exactly the names the book answers. A name in the
+     * table the book does not have is refused when the reply is sent, and one missing from it is a name nobody
+     * learns to write.
+     */
+    @Test
+    fun `the book table names every name a reply can read from the book and no other`() {
+        val table = html.substringAfter("""id="order-vocabulary"""").substringBefore("</table>")
+        val listed = Regex("""\$\{order\.([A-Za-z]+)}""").findAll(table).map { it.groupValues[1] }.toSet()
+
+        assertEquals(OrderBook.names.toSet(), listed, "the help's book table and OrderBook.names disagree")
     }
 
     /** Relaying, by the three things that make it: who the parties are, what a trigger asks, and who a step reaches. */

@@ -259,10 +259,10 @@
                         "whenMsgType": "F",
                         "steps": [
                             {
-                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=${order.cumQty}|151=${order.leavesQty}|6=0|60=${now}"
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=${order.cumQty}|151=${order.leavesQty}|6=${order.avgPx}|60=${now}"
                             },
                             {
-                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=${order.cumQty}|151=0|6=0|60=${now}",
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=${order.cumQty}|151=0|6=${order.avgPx}|60=${now}",
                                 "delayMillis": 150
                             }
                         ],

@@ -4399,12 +4399,13 @@ ${incoming["D"].valueOfTag(38)}
         <tr><th>Reference</th><th>What it resolves to</th></tr>
         <tr><td><code>${order.orderId}</code></td><td>The OrderID this venue gave the client.</td></tr>
         <tr><td><code>${order.clOrdId}</code></td><td>The client's own id for the order.</td></tr>
+        <tr><td><code>${order.origClOrdId}</code></td><td>The client's id for the order this one replaced. Only a replacement has one.</td></tr>
         <tr><td><code>${order.symbol}</code>, <code>${order.side}</code></td><td>As the order was placed.</td></tr>
         <tr><td><code>${order.orderQty}</code></td><td>The quantity ordered.</td></tr>
         <tr><td><code>${order.cumQty}</code>, <code>${order.leavesQty}</code></td><td>Filled so far, and left to fill.</td></tr>
         <tr><td><code>${order.halfLeavesQty}</code>, <code>${order.cumQtyAfterHalf}</code>, <code>${order.leavesQtyAfterHalf}</code></td><td>A partial fill of half of what is left, and the order once it is done. Exact for a decimal quantity, whole units for a whole one, and absent when only 1 unit or nothing is left.</td></tr>
         <tr><td><code>${order.avgPx}</code>, <code>${order.price}</code></td><td>Average fill price, and the order's limit price.</td></tr>
-        <tr><td><code>${order.state}</code></td><td><code>pending</code>, <code>working</code> or <code>done</code>.</td></tr>
+        <tr><td><code>${order.ordStatus}</code></td><td>The OrdStatus (39) the venue last reported for the order.</td></tr>
     </table>
 
     <p>Names, not tag numbers, because half of them are facts the venue <em>computed</em> rather than fields

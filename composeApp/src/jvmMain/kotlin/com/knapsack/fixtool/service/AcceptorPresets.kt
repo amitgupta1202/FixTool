@@ -313,12 +313,22 @@ object AcceptorPresets {
      * wrong once anything has filled: after the FX venue's `14=500000`, a cancel reporting `14=0` takes back a fill
      * the client was told about. What traded stays traded, a pending cancel leaves the rest open, and a canceled
      * order has nothing left.
+     *
+     * The OrderID and the AvgPx are the book's too. An order keeps the `37` its ack gave it for its whole life,
+     * and a cancel of a partly filled order reports the average price of what traded, not `6=0`.
      */
     private val PENDING_CANCEL_BOOKED =
-        executionReport("150=6", "39=6", CANCEL_ECHO, "14=\${order.cumQty}", "151=\${order.leavesQty}", "6=0")
+        bookedReport(
+            "150=6",
+            "39=6",
+            CANCEL_ECHO,
+            "14=\${order.cumQty}",
+            "151=\${order.leavesQty}",
+            "6=\${order.avgPx}",
+        )
 
     private val CANCELED_BOOKED =
-        executionReport("150=4", "39=4", CANCEL_ECHO, "14=\${order.cumQty}", "151=0", "6=0")
+        bookedReport("150=4", "39=4", CANCEL_ECHO, "14=\${order.cumQty}", "151=0", "6=\${order.avgPx}")
 
     /** A replacement that keeps the chain's OrderID, where [REPLACED] mints a new one. Decision 3a. */
     private val REPLACED_SAME_ID =

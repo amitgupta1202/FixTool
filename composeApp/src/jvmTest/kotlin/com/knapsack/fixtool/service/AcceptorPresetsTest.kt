@@ -551,7 +551,16 @@ class AcceptorPresetsTest {
                                 at = LocalDateTime.now(),
                                 sent = true,
                                 msgType = "8",
-                                fields = mapOf(11 to "ORD-1", 37 to "EX-1", 150 to "F", 39 to "1", 14 to "500000", 151 to "500000"),
+                                fields =
+                                    mapOf(
+                                        11 to "ORD-1",
+                                        37 to "EX-1",
+                                        150 to "F",
+                                        39 to "1",
+                                        14 to "500000",
+                                        151 to "500000",
+                                        6 to "1.085",
+                                    ),
                             ),
                         ),
                 ),
@@ -569,6 +578,56 @@ class AcceptorPresetsTest {
         assertEquals("4", canceled.getString(39))
         assertEquals("500000", canceled.getString(14), "a cancel ends what is left, not what has filled")
         assertEquals("0", canceled.getString(151), "and nothing is left working")
+    }
+
+    /**
+     * An order keeps one OrderID for its whole life, and a cancel of a partly filled order reports the average
+     * price of what traded. The working-order cancel reads both from the book, where it used to draw a fresh
+     * `37` for the cancel and report `6=0` over a fill at 1.085.
+     */
+    @Test
+    fun `a cancel of a partly filled order keeps its OrderID and the average price of what traded`() {
+        val partlyFilled =
+            OrderBook.fields(
+                BookedOrder(
+                    key = "ORD-1",
+                    events =
+                        listOf(
+                            OrderEvent(
+                                at = LocalDateTime.now(),
+                                sent = false,
+                                msgType = "D",
+                                fields = mapOf(11 to "ORD-1", 55 to "EUR/USD", 54 to "1", 38 to "1000000", 44 to "1.085"),
+                            ),
+                            OrderEvent(
+                                at = LocalDateTime.now(),
+                                sent = true,
+                                msgType = "8",
+                                fields =
+                                    mapOf(
+                                        11 to "ORD-1",
+                                        37 to "EX-1",
+                                        150 to "F",
+                                        39 to "1",
+                                        14 to "500000",
+                                        151 to "500000",
+                                        6 to "1.085",
+                                    ),
+                            ),
+                        ),
+                ),
+            )
+
+        val (pending, canceled) =
+            AcceptorResponder
+                .plan(leadRule("cancel-accepted-working"), AcceptorResponder.buildMessage(cancel), request(cancel)) {
+                    partlyFilled
+                }.map { it.build() }
+
+        assertEquals("EX-1", pending.getString(37), "the pending cancel is about the order the client already holds")
+        assertEquals("EX-1", canceled.getString(37), "and so is the canceled report")
+        assertEquals("1.085", pending.getString(6), "the half that traded traded at 1.085")
+        assertEquals("1.085", canceled.getString(6), "and a cancel does not change what it traded at")
     }
 
     // ------------------------------------------------------------------ placement

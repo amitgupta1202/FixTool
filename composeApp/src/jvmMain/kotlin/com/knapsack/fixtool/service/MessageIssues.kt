@@ -248,7 +248,8 @@ object MessageIssues {
     ): MessageIssue? {
         val expressionTags = fields.filter { isExpression(it.value) }.map { it.tag }.toSet()
         val judged = fields.filterNot { isExpression(it.value) || it.value.isBlank() }
-        val raw = judged.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+        // Through joinFields, so a value carrying a literal `|` is judged as the one field it is.
+        val raw = FixMessageHelper.joinFields(judged.map { it.tag to it.value })
         val problem =
             runCatching { dd.validate(raw.toQuickFixMessage(dd, validate = false), true) }.exceptionOrNull()
                 ?: return null

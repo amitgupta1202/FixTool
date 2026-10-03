@@ -79,6 +79,15 @@ class MessageIssuesTest {
         assertEquals(emptyList(), MessageIssues.check(orderWith(38 to "\${qty}", 60 to "\${utcnow}"), dictionary))
     }
 
+    /**
+     * A pipe is a character of a value. The message QuickFIX/J judges was pipe-joined, so `58=filled|in full`
+     * split into a field and a fragment that is not one, and the lint reported an error the message does not have.
+     */
+    @Test
+    fun `a value that carries a pipe is judged whole`() {
+        assertEquals(emptyList(), MessageIssues.check(orderWith(58 to "filled|in full"), dictionary))
+    }
+
     @Test
     fun `errors come before warnings`() {
         val issues = MessageIssues.check(orderWith(9303 to "DESK7", 54 to "X"), dictionary)

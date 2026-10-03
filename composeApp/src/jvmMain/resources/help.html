@@ -1187,8 +1187,11 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
         <li><strong>Matching.</strong> A reply is matched wherever it lands, on the lane that sent or on a
             <code>--listen</code> session such as a drop-copy. The first reply carrying the request's id is the
             match and the round trip; a repeat is a duplicate, reported rather than judged. Nothing is forgotten
-            before the settle window closes.</li>
-        <li><strong>Three verdicts.</strong> Completeness (anything unanswered fails), rate (held, or a shortfall,
+            before the settle window closes. A request sent while another with its id is still waiting takes
+            that one's place, so the id needs a value per message, such as <code>${messageIndex}</code> or
+            <code>${uuid}</code>.</li>
+        <li><strong>Three verdicts.</strong> Completeness (anything unanswered fails, and so does an id two
+            requests shared while the first was waiting), rate (held, or a shortfall,
             which exits 0 unless <code>--strict-rate</code>), and tool (whether FixTool itself discarded traffic or
             could not get a message onto the socket). Issued is three numbers for the same reason: requested,
             handed to the engine, left the socket.</li>
@@ -1353,7 +1356,7 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --seed ru
         two different things to say.</p>
     <table>
         <tr><th>Verdict</th><th>Values</th><th>Fails the run?</th></tr>
-        <tr><td>Completeness</td><td>COMPLETE, UNMATCHED, INCOMPLETE</td>
+        <tr><td>Completeness</td><td>COMPLETE, UNMATCHED, INCOMPLETE, AMBIGUOUS (ids reused while pending)</td>
             <td>Yes, on anything but COMPLETE</td></tr>
         <tr><td>Rate</td><td>HELD, SHORTFALL, CAPPED, or not applicable to a burst</td>
             <td>Only with <code>--strict-rate</code>. CAPPED is never a failure: a reactive phase under

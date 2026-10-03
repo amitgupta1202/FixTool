@@ -179,6 +179,15 @@ data class LoadReport(
          * sent is a hole in the proof and not a smaller proof.
          */
         val unaddressable: Long = 0,
+        /**
+         * Requests that left the socket carrying an id another request still had pending.
+         *
+         * Each one replaced the request waiting under that id, so the one replaced was never matched and
+         * never unanswered, and the replies to the two could not be told apart. The template's match tag
+         * renders the same value more than once: a literal, or a value that is the lane's rather than the
+         * message's. Any at all fails the phase: see [Completeness.AMBIGUOUS].
+         */
+        val collisions: Long = 0,
     ) {
         val spanMs: Long? get() = if (firstSendAt != null && lastSendAt != null) lastSendAt - firstSendAt else null
 
@@ -423,6 +432,15 @@ data class LoadReport(
         UNMATCHED,
 
         /**
+         * Requests left the socket carrying an id another request still had pending, so no reply could
+         * say which of them it answered. See [Issue.collisions].
+         *
+         * Its own word, because neither the venue nor a missing capture is to blame: the template gave its
+         * match tag one value for several messages, and that is the thing to fix.
+         */
+        AMBIGUOUS,
+
+        /**
          * A message the plan asked for was never sent, because what it needed was not there: a capture an
          * earlier phase should have filled, or a trigger that never fired for that index.
          *
@@ -516,8 +534,9 @@ data class LoadReport(
         private const val MILLIS_PER_SECOND = 1_000L
 
         /**
-         * **The verdict, from the numbers.** Exit 1 when anything was unmatched, when the tool limited the
-         * run, when the run was stopped before it finished, or on a rate shortfall the plan asked to fail on.
+         * **The verdict, from the numbers.** Exit 1 when anything was unmatched, when requests shared an id
+         * still pending, when the tool limited the run, when the run was stopped before it finished, or on a
+         * rate shortfall the plan asked to fail on.
          * A shortfall without `strictRate` is reported and exits 0, because the venue answered everything and
          * a build that wants to gate on the tool's own pacing has to say so.
          *
@@ -541,6 +560,9 @@ data class LoadReport(
             val completeness =
                 when {
                     status == LoadStatus.RUNNING -> Completeness.PENDING
+                    // First of all: while requests share an id, no reply says which one it answers, so
+                    // matched and unanswered are both in doubt, and the template is the thing to fix.
+                    issue.collisions > 0 -> Completeness.AMBIGUOUS
                     // Before unanswered: a phase that could not address 4 of its 2,000 has a hole in its
                     // own proof, whether an earlier phase's capture was missing or its trigger was never
                     // answered for those four, and that is the thing to say first.
@@ -563,6 +585,7 @@ data class LoadReport(
                 when {
                     status == LoadStatus.RUNNING -> null
                     status == LoadStatus.STOPPED -> EXIT_FAILED
+                    completeness == Completeness.AMBIGUOUS -> EXIT_FAILED
                     completeness == Completeness.INCOMPLETE -> EXIT_FAILED
                     completeness == Completeness.UNMATCHED -> EXIT_FAILED
                     toolVerdict == ToolVerdict.LIMITED -> EXIT_FAILED

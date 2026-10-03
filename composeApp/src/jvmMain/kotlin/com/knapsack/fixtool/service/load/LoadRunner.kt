@@ -404,6 +404,7 @@ class LoadRunner(
                     lastSendAt = counts?.lastSendMicros?.let { it / MICROS_PER_MILLI },
                     prepareMs = prepareMs,
                     unaddressable = issued?.unaddressable ?: refusedCount,
+                    collisions = counts?.collisions ?: 0,
                 )
             val replies =
                 LoadReport.Replies(

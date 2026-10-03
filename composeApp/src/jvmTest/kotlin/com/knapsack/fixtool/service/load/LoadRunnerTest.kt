@@ -119,6 +119,32 @@ class LoadRunnerTest {
         assertTrue(r.finishedAt!! - r.startedAt >= 3_000, "with something pending the window runs its full length: ${r.finishedAt!! - r.startedAt}ms")
     }
 
+    /**
+     * **A ClOrdID that is the lane's and not the message's** puts ten requests on the wire under one id.
+     * Each replaced the one before it while it was still waiting, so only the last could ever be matched,
+     * and this run used to report one matched, none unanswered and COMPLETE with exit 0.
+     */
+    @Test
+    fun `requests that reuse an id still pending fail completeness, however the replies came back`() {
+        val clock = FakeClock()
+        val lane = FakeLane(1, clock, { emptyList() })
+        var sent = 0
+        // The venue sits on every reply until the tenth request is in, which is what a burst does to it.
+        lane.answer = { wire ->
+            echo(wire).forEach { lane.withhold(it) }
+            if (++sent == 10) lane.takeWithheld() else emptyList()
+        }
+        val perLane = plan(shape = LoadShape.Burst(10)).copy(template = LoadTemplate("NOS", listOf(35 to "D", 11 to "ORD-\${sessionIndex}")))
+
+        val r = LoadRunner(FakeHost(clock, listOf(lane)), clock = clock).run(perLane).report
+
+        assertEquals(10L, r.issue.leftSocket)
+        assertEquals(1L, r.replies.matched)
+        assertEquals(0L, r.replies.unmatched)
+        assertEquals(1, r.verdict.exitCode, "a run that cannot tell its replies apart has proved nothing")
+        assertEquals(9L, r.issue.collisions, "nine requests were sent while another with their id was still pending")
+    }
+
     @Test
     fun `a send the engine has not written yet holds the window open, instead of being reported as never sent`() {
         val clock = FakeClock()

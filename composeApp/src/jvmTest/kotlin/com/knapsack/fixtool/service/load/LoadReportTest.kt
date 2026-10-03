@@ -59,6 +59,37 @@ class LoadReportTest {
         assertEquals(LoadReport.ToolVerdict.LIMITED, v.tool)
     }
 
+    /**
+     * **Requests that shared a pending id are a hole in the proof**, whatever matched and unmatched say.
+     * Each one replaced a request still waiting, so the replaced one was neither matched nor unanswered:
+     * 4,000 left the socket, 588 matched, none unanswered, and this used to be COMPLETE with exit 0.
+     */
+    @Test
+    fun `requests that collided on a pending id fail completeness, and the reason says how to fix the template`() {
+        val issue = LoadReport.Issue(4_000, 4_000, 4_000, LoadFixtures.T0, LoadFixtures.T0 + 813, prepareMs = 0, collisions = 3_412)
+        val replies = LoadReport.Replies(matched = 588, unmatched = 0, duplicates = 3_412, late = 0, strays = 0, lastMatchedAt = null)
+
+        val v = LoadReport.verdict(LoadStatus.DONE, replies, null, clean, strictRate = false, issue = issue)
+
+        assertTrue(v.completeness != LoadReport.Completeness.COMPLETE, "a run that cannot tell its replies apart is not complete")
+        assertEquals(1, v.exitCode)
+        val report = burstReport(unmatched = 0).copy(issue = issue, replies = replies, verdict = v)
+        val xml = LoadReportCodec.toJUnitXml(report)
+        assertTrue(xml.contains("3,412 of 4,000 left carrying a tag 11 another request still had pending"), xml)
+        assertTrue(xml.contains("give tag 11 a value per message, such as \${messageIndex} or \${uuid}"), xml)
+    }
+
+    @Test
+    fun `the collision count round-trips, and a record written before it reads as none`() {
+        val issue = burstReport(unmatched = 0).issue.copy(collisions = 3_412)
+        val report = burstReport(unmatched = 0).copy(issue = issue)
+
+        assertEquals(3_412L, LoadReportCodec.fromJson(LoadReportCodec.toJson(report)).issue.collisions)
+        val before = LoadReportCodec.toJson(burstReport(unmatched = 0))
+        assertFalse("collisions" in before["issue"]!!.jsonObject, "a clean run writes what it always wrote")
+        assertEquals(0L, LoadReportCodec.fromJson(before).issue.collisions)
+    }
+
     @Test
     fun `the JSON round-trips a whole report`() {
         val report = burstReport(rate = shortfall, strictRate = true)

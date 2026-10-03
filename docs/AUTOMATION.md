@@ -217,9 +217,13 @@ lane dials, with the `--seed` that would fix it.
 and the `--listen` sessions alike. A request is pending from its SEND stamp until the first reply carrying
 its id arrives anywhere, which is the match and the round trip. A repeat is a **duplicate** (reported, not
 judged: an order legitimately draws several ExecutionReports). A reply matching nothing issued is a
-**stray**. Nothing is aged out before the settle window closes, and a reply after that is **late**.
+**stray**. Nothing is aged out before the settle window closes, and a reply after that is **late**. A
+request sent while another carrying its id is still pending is a **collision** (`issue.collisions`): it
+takes the waiting request's place, so the match tag needs a value per message, such as `${messageIndex}`
+or `${uuid}`.
 
-**Three verdicts, one exit code.** `completeness` fails on anything unanswered within the settle window.
+**Three verdicts, one exit code.** `completeness` fails on anything unanswered within the settle window,
+and is `AMBIGUOUS` when any request collided, because no reply can then say which request it answered.
 `rate` is not applicable to a burst, `HELD`, or `SHORTFALL` when the achieved rate fell more than 2%
 under the requested one for a full second or more; a shortfall exits 0 unless `--strict-rate`, because the
 venue answered everything and a build that wants to gate on the tool's own pacing has to say so. `tool`

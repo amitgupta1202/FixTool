@@ -1169,6 +1169,9 @@ private fun verdictHeadline(r: LoadReport): Pair<String, Color> =
         r.status == LoadStatus.STOPPED ->
             "STOPPED  after ${LoadReportCodec.fmt(r.issue.leftSocket)} of ${LoadReportCodec.fmt(r.issue.requested)} issued" to
                 AppTheme.Colors.textSecondary
+        r.verdict.completeness == LoadReport.Completeness.AMBIGUOUS ->
+            "IDS REUSED  ${LoadReportCodec.fmt(r.issue.collisions)} of ${LoadReportCodec.fmt(r.issue.leftSocket)}" to
+                AppTheme.Colors.error
         r.verdict.completeness == LoadReport.Completeness.INCOMPLETE ->
             "NOT SENT  ${LoadReportCodec.fmt(r.issue.unaddressable)} of ${LoadReportCodec.fmt(r.issue.requested)}" to
                 AppTheme.Colors.error
@@ -1189,6 +1192,7 @@ private fun verdictHeadline(r: LoadReport): Pair<String, Color> =
 private fun completenessWord(completeness: LoadReport.Completeness): String =
     when (completeness) {
         LoadReport.Completeness.COMPLETE -> "complete"
+        LoadReport.Completeness.AMBIGUOUS -> "ids reused"
         LoadReport.Completeness.INCOMPLETE -> "not sent"
         LoadReport.Completeness.UNMATCHED -> "unanswered"
         LoadReport.Completeness.PENDING -> "pending"
@@ -1200,6 +1204,8 @@ private fun stateWord(r: LoadReport): String =
         r.status == LoadStatus.RUNNING && r.stage == LoadStage.SETTLING -> "settling · ${humanDuration(r.settleLeftMs ?: r.settleMs)} left"
         r.status == LoadStatus.RUNNING -> r.stage.name.lowercase()
         r.status == LoadStatus.STOPPED -> "stopped"
+        r.verdict.completeness == LoadReport.Completeness.AMBIGUOUS ->
+            "ids reused ${LoadReportCodec.fmt(r.issue.collisions)}"
         r.verdict.completeness == LoadReport.Completeness.INCOMPLETE ->
             "not sent ${LoadReportCodec.fmt(r.issue.unaddressable)}"
         r.verdict.completeness == LoadReport.Completeness.UNMATCHED -> "unanswered ${LoadReportCodec.fmt(r.replies.unmatched)}"

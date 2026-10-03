@@ -636,6 +636,10 @@ object HeadlessLoad {
         val head =
             when {
                 r.status == LoadStatus.STOPPED -> "STOPPED".padEnd(COL) + "after ${LoadReportCodec.fmt(r.issue.leftSocket)} of ${LoadReportCodec.fmt(r.issue.requested)} issued"
+                // First, and its own word: while requests share an id no reply says which one it
+                // answers, and the line says what to change in the template.
+                r.verdict.completeness == LoadReport.Completeness.AMBIGUOUS ->
+                    "AMBIGUOUS".padEnd(COL) + LoadReportCodec.collisionSentence(r)
                 // Before unanswered, and its own word: "the tool never asked" and "the venue never
                 // replied" are different findings and a reader has to be able to tell them apart.
                 r.verdict.completeness == LoadReport.Completeness.INCOMPLETE ->

@@ -25,6 +25,10 @@ import java.util.concurrent.atomic.AtomicLong
  * matches nothing issued is a stray: another client's traffic seen on a listen-only session. Nothing is
  * aged out of `pending` before [closeSettle], and a reply after that is late rather than matched.
  *
+ * A request sent while another carrying its id is still pending is a collision. It replaces the one
+ * waiting, which can then be neither matched nor unanswered, so it is counted here or it is lost. A run
+ * with any fails completeness, because no reply can say which of the two it answers.
+ *
  * Round trips are kept as a primitive array and sorted once at the end, because the percentiles of a
  * 300,000-message run over a 10,000-sample ring would be percentiles of the last thirty seconds. The
  * request's wire is kept while it is pending, so the record can hold the bytes of what went unanswered
@@ -173,6 +177,8 @@ class StampMatcher(
         val firstSendMicros: Long?,
         val lastSendMicros: Long?,
         val lastMatchedMicros: Long?,
+        /** Requests sent while another carrying their id was still pending, each of which replaced it. */
+        val collisions: Long = 0,
     )
 
     /**
@@ -268,6 +274,7 @@ class StampMatcher(
     private val duplicates = AtomicLong()
     private val late = AtomicLong()
     private val strays = AtomicLong()
+    private val collisions = AtomicLong()
 
     @Volatile private var pendingPeak = 0
 
@@ -415,10 +422,16 @@ class StampMatcher(
     private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp): Claim {
         val id = requestId(sessionId, type, stamp.wire) ?: return Claim.NOT_A_REPLY
         val messageIndex = issuedIndex.remove(id) ?: 0
-        pending[id] = Pending(stamp.micros, laneOf(sessionId), stamp.wire, messageIndex)
+        val replaced = pending.put(id, Pending(stamp.micros, laneOf(sessionId), stamp.wire, messageIndex))
         leftSocket.incrementAndGet()
-        val now = outstanding.incrementAndGet()
-        if (now > pendingPeak) pendingPeak = now
+        if (replaced != null) {
+            // Keyed by the id, so this request took the place of one still waiting. That one can now be
+            // neither matched nor unanswered, so it is counted here, and it is not a second outstanding.
+            collisions.incrementAndGet()
+        } else {
+            val now = outstanding.incrementAndGet()
+            if (now > pendingPeak) pendingPeak = now
+        }
         synchronized(samples) {
             if (firstSendMicros == NONE) firstSendMicros = stamp.micros
             if (stamp.micros > lastSendMicros) lastSendMicros = stamp.micros
@@ -519,6 +532,7 @@ class StampMatcher(
             firstSendMicros = firstSendMicros.takeIf { it != NONE },
             lastSendMicros = lastSendMicros.takeIf { it != NONE },
             lastMatchedMicros = lastMatchedMicros.takeIf { it != NONE },
+            collisions = collisions.get(),
         )
 
     /**

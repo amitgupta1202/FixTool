@@ -167,6 +167,8 @@ object LoadReportCodec {
                     put("achievedPerSecond", r.issue.achievedPerSecond?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("prepareMs", r.issue.prepareMs)
                     if (r.issue.unaddressable > 0) put("unaddressable", r.issue.unaddressable)
+                    // The same bargain: only when there were any, so a clean run writes what it always wrote.
+                    if (r.issue.collisions > 0) put("collisions", r.issue.collisions)
                 },
             )
             put("rate", r.rate?.let(::rateJson) ?: JsonNull)
@@ -463,6 +465,7 @@ object LoadReportCodec {
                     lastSendAt = issue.longOrNull("lastSendAt"),
                     prepareMs = issue.longOrNull("prepareMs") ?: 0,
                     unaddressable = issue.longOrNull("unaddressable") ?: 0,
+                    collisions = issue.longOrNull("collisions") ?: 0,
                 ),
             rate = (o["rate"] as? JsonObject)?.let(::rateFrom),
             replies =
@@ -709,6 +712,7 @@ object LoadReportCodec {
             Case("completeness", failure = "stopped after ${fmt(r.issue.leftSocket)} of ${fmt(r.issue.requested)} issued: " + unmatchedSentence(r))
         } else when (r.verdict.completeness) {
             LoadReport.Completeness.COMPLETE -> Case("completeness", note = "${fmt(r.replies.matched)} of ${fmt(r.issue.leftSocket)} answered")
+            LoadReport.Completeness.AMBIGUOUS -> Case("completeness", failure = collisionSentence(r))
             LoadReport.Completeness.INCOMPLETE -> Case("completeness", failure = unaddressableSentence(r))
             LoadReport.Completeness.UNMATCHED -> Case("completeness", failure = unmatchedSentence(r))
             LoadReport.Completeness.PENDING -> Case("completeness", failure = "the run did not finish")
@@ -748,6 +752,19 @@ object LoadReportCodec {
         return "${fmt(r.replies.unmatched)} of ${fmt(r.issue.leftSocket)} unanswered within ${humanDuration(r.settleMs)}" +
             (if (named.isNotEmpty()) ": $named" else "") +
             (if (more > 0) " and $more more" else "")
+    }
+
+    /**
+     * "3,412 of 4,000 left carrying a tag 11 another request still had pending, so their replies cannot be
+     * told apart: give tag 11 a value per message, such as ${'$'}{messageIndex} or ${'$'}{uuid}"
+     *
+     * The request tag, because that is the one the template renders and the one the matcher keys on.
+     */
+    fun collisionSentence(r: LoadReport): String {
+        val tag = r.match.requestTag
+        return "${fmt(r.issue.collisions)} of ${fmt(r.issue.leftSocket)} left carrying a tag $tag another request " +
+            "still had pending, so their replies cannot be told apart: give tag $tag a value per message, " +
+            "such as \${messageIndex} or \${uuid}"
     }
 
     /** "4 of 2,000 not sent: no quoteId for index 412, no quoteId for index 931 and 2 more" */

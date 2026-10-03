@@ -468,6 +468,7 @@ private fun phaseWord(phase: LoadReport): String =
         phase.status == LoadStatus.SKIPPED -> "SKIPPED"
         phase.status == LoadStatus.STOPPED -> "STOPPED"
         phase.status == LoadStatus.RUNNING -> phase.stage.name
+        phase.verdict.completeness == LoadReport.Completeness.AMBIGUOUS -> "IDS REUSED"
         phase.verdict.completeness == LoadReport.Completeness.UNMATCHED -> "UNANSWERED"
         phase.verdict.exitCode != LoadReport.EXIT_PASSED -> "FAILED"
         else -> "COMPLETE"

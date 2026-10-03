@@ -179,6 +179,35 @@ class StampMatcherTest {
         assertEquals(0, counts.strays)
     }
 
+    /**
+     * **A request sent with an id another request still has pending is a collision**, counted, and never
+     * a second outstanding request. The pending entry is keyed by the id, so the second send replaced the
+     * first: the first can then be neither matched nor unanswered, and without the count it vanished.
+     */
+    @Test
+    fun `a send carrying an id still pending is a collision, and one after its match is not`() {
+        val m = matcher()
+
+        m.onStamp(send(laneA, "ORD-1", at = 1_000))
+        m.onStamp(send(laneA, "ORD-1", at = 1_100))
+        m.onStamp(send(laneB, "ORD-1", at = 1_200))
+        m.onStamp(receive(laneA, "ORD-1", at = 2_000))
+        m.onStamp(receive(laneA, "ORD-1", at = 2_100))
+        m.onStamp(send(laneA, "ORD-1", at = 3_000))
+        m.onStamp(receive(laneA, "ORD-1", at = 3_500))
+
+        val result = m.finish()
+        assertEquals(4, result.counts.leftSocket)
+        assertEquals(2, result.counts.collisions, "the second and third sends replaced a request still waiting")
+        assertEquals(2, result.counts.matched, "the send after the match was a request of its own, and was answered")
+        assertEquals(
+            result.counts.leftSocket,
+            result.counts.matched + result.counts.collisions + result.unmatched.size,
+            "every request that left is matched, unanswered or a collision",
+        )
+        assertEquals(1, result.pendingPeak, "a collision is not a second request outstanding")
+    }
+
     @Test
     fun `heartbeats, logons and a reply of the wrong type never match anything`() {
         val m = matcher(replyType = "8")

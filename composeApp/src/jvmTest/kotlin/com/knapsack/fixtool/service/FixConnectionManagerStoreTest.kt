@@ -111,6 +111,62 @@ class FixConnectionManagerStoreTest {
         assertNull(config(MessageStoreKind.MEMORY, MessageLogKind.NONE, resetOnLogon = true).storeProblem())
     }
 
+    // ---------------------------------------------------------------- Reset on Logon
+
+    /** The five files QuickFIX/J's FileStore keeps for the session [name] names. */
+    private fun storeFiles(name: String) = listOf("body", "header", "senderseqnums", "targetseqnums", "session").map { "$name.$it" }
+
+    private fun seedStore(vararg sessions: String) {
+        val store = File(home, "store").apply { mkdirs() }
+        sessions.flatMap(::storeFiles).forEach { File(store, it).writeText("1") }
+    }
+
+    private fun storeLeft(): Set<String> = File(home, "store").list().orEmpty().toSet()
+
+    private fun clearStoreFiles(manager: FixConnectionManager) {
+        val method = FixConnectionManager::class.java.getDeclaredMethod("clearStoreFiles")
+        method.isAccessible = true
+        method.invoke(manager)
+    }
+
+    /**
+     * The store directory is one per workspace, shared by every profile in it, so a reset clears the files of
+     * this profile's own sessions by QuickFIX/J's exact names. A venue's sessions are named for clients it
+     * has not met, so for a venue that is its own BeginString and CompID with any client after them.
+     */
+    @Test
+    fun `a venue's reset clears its own clients' store files and no other profile's`() {
+        seedStore("FIX.4.4-VENUE-CLIENT1", "FIX.4.4-VENUE-CLIENT2", "FIX.4.4-CLIENT-VENUE_UAT", "FIX.4.4-VENUE_UAT-CLIENT")
+        val venue =
+            config(MessageStoreKind.FILE, MessageLogKind.NONE).copy(
+                connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                senderCompID = "VENUE",
+                targetCompID = FixConnectionConfig.ANY_CLIENT,
+            )
+
+        clearStoreFiles(manager(venue))
+
+        assertEquals(
+            (storeFiles("FIX.4.4-CLIENT-VENUE_UAT") + storeFiles("FIX.4.4-VENUE_UAT-CLIENT")).toSet(),
+            storeLeft(),
+            "the venue's reset reached files that are not its sessions'",
+        )
+    }
+
+    @Test
+    fun `an initiator's reset clears its one session's store files and not a lookalike's`() {
+        seedStore("FIX.4.4-CLIENT-LSE", "FIX.4.4-CLIENTX-LSEG", "FIX.4.4-CLIENT-LSE-UAT")
+        val initiator = config(MessageStoreKind.FILE, MessageLogKind.NONE).copy(senderCompID = "CLIENT", targetCompID = "LSE")
+
+        clearStoreFiles(manager(initiator))
+
+        assertEquals(
+            (storeFiles("FIX.4.4-CLIENTX-LSEG") + storeFiles("FIX.4.4-CLIENT-LSE-UAT")).toSet(),
+            storeLeft(),
+            "the reset of CLIENT to LSE reached another profile's files",
+        )
+    }
+
     /**
      * Every profile file written before these fields existed must read exactly as it did, and a file
      * that names them must read what it names.

@@ -20,6 +20,9 @@ class FixConnectionManager(
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger(FixConnectionManager::class.java)
+
+        /** What FileStore appends to a session's file name, one file for each. */
+        private val STORE_FILE_SUFFIXES = listOf("body", "header", "senderseqnums", "targetseqnums", "session")
     }
 
     private var initiator: SocketInitiator? = null
@@ -346,33 +349,52 @@ class FixConnectionManager(
     }
 
     /**
-     * Clears the QuickFIX store files to reset sequence numbers
+     * Clears the QuickFIX store files to reset sequence numbers.
+     *
+     * Only the files FileStore names for this profile's own sessions. The store directory is shared by every
+     * profile in a workspace, and a file name that merely contained our CompID could be another profile's: a
+     * venue VENUE cleared CLIENT to VENUE_UAT's files, and CLIENT to LSE cleared CLIENTX to LSEG's, so that
+     * profile's next logon went out at 34=1.
      */
     private fun clearStoreFiles() {
         try {
             val storeDir = File(config.fileStorePath)
             if (storeDir.exists() && storeDir.isDirectory) {
-                storeDir.listFiles()?.forEach { file ->
-                    // A venue's counterparty is not known until a client logs on, so its store files
-                    // are named for clients this config has never heard of. Matching on the target
-                    // too would therefore match nothing at all, and ResetOnLogon would quietly stop
-                    // resetting — sequence numbers surviving a reset that reported success. Our own
-                    // CompID is the whole identity we have, and it is enough: these are our files.
-                    val matchesSenderTarget =
-                        file.name.contains(config.senderCompID) &&
-                            (config.acceptsAnyClient() || file.name.contains(config.targetCompID))
-                    val matchesQualifier = config.sessionQualifier.isBlank() || file.name.contains(config.sessionQualifier)
-
-                    if (matchesSenderTarget && matchesQualifier) {
-                        val deleted = file.delete()
-                        if (deleted) {
-                            logger.info("Deleted store file: {}", file.name)
-                        }
+                val ours = storeFileNames(createSessionSettings())
+                val files = storeDir.listFiles().orEmpty().filter { file -> ours.any { it.matches(file.name) } }
+                files.forEach { file ->
+                    val deleted = file.delete()
+                    if (deleted) {
+                        logger.info("Deleted store file: {}", file.name)
                     }
                 }
             }
         } catch (e: Exception) {
             logger.warn("Error clearing store files: {}", e.message)
+        }
+    }
+
+    /**
+     * The names FileStore gives the files of each session [settings] configures: [FileUtil.sessionIdFileName],
+     * a dot, and one of [STORE_FILE_SUFFIXES].
+     *
+     * A venue's counterparties are not known until they log on, and each client's session is named from its
+     * Logon, so a venue's template stands for our own BeginString and SenderCompID followed by any one target
+     * segment. A dash ends that segment, because a dash after the target is where a qualifier begins and such
+     * a file is another profile's. A client session created from a Logon never carries a qualifier.
+     */
+    private fun storeFileNames(settings: SessionSettings): List<Regex> {
+        val suffixes = STORE_FILE_SUFFIXES.joinToString("|")
+        val sessions = settings.sectionIterator().asSequence().toList()
+        return sessions.map { id ->
+            val session =
+                if (config.acceptsAnyClient()) {
+                    val ourSide = FileUtil.sessionIdFileName(SessionID(id.beginString, id.senderCompID, ""))
+                    Regex.escape(ourSide) + "[A-Za-z0-9._]+"
+                } else {
+                    Regex.escape(FileUtil.sessionIdFileName(id))
+                }
+            Regex("$session\\.($suffixes)")
         }
     }
 }

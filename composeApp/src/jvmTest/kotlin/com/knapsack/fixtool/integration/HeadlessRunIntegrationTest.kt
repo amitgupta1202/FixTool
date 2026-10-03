@@ -416,6 +416,63 @@ class HeadlessRunIntegrationTest {
         assertTrue(stats.jsonObject.containsKey("wallClock"), "$stats")
     }
 
+    /**
+     * **A scenario captured from slot 2 of a multi-session profile names its session `"Name [2]"`**, as the
+     * app titles it. The headless host compared that whole title against profile names, so no profile ever
+     * answered to it and the run failed preflight before dialling anything.
+     */
+    @Test
+    fun `a step naming a multi-session profile's slot connects that slot and sends as it`() {
+        writeFanOutProfile(count = 3)
+        val slot = "FAN$runId [2]"
+        writeScenario(
+            "slot2",
+            """{"type":"wait","session":"$slot","state":"LOGGED_ON","timeoutMs":15000},
+               {"type":"send","session":"$slot","raw":"35=D|11=SLOT2-$runId|55=EUR/USD|54=1|38=100|40=1|"}""",
+        )
+
+        val (code, out, err) = run("run", "slot2", "--home", home.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, "out=$out err=$err")
+        assertTrue(
+            venueReceives { it.contains("11=SLOT2-$runId") && it.contains("49=HLF2$runId") },
+            "the order should have gone out as slot 2's own identity: ${server.applicationMessages}",
+        )
+    }
+
+    /**
+     * Remapping that slot onto the profile's bare name opens the profile's first slot, which is titled
+     * `"Name [1]"`. Preflight then looked for a session called `"Name"` and timed out waiting for it.
+     */
+    @Test
+    fun `a session remapped onto a multi-session profile's name runs on its first slot`() {
+        writeFanOutProfile(count = 3)
+        val slot = "FAN$runId [2]"
+        writeScenario(
+            "slot-remap",
+            """{"type":"wait","session":"$slot","state":"LOGGED_ON","timeoutMs":15000},
+               {"type":"send","session":"$slot","raw":"35=D|11=REMAP-$runId|55=EUR/USD|54=1|38=100|40=1|"}""",
+        )
+
+        val (code, out, err) = run("run", "slot-remap", "--session", "$slot=FAN$runId", "--home", home.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, "out=$out err=$err")
+        assertTrue(
+            venueReceives { it.contains("11=REMAP-$runId") && it.contains("49=HLF1$runId") },
+            "the order should have gone out as slot 1: ${server.applicationMessages}",
+        )
+    }
+
+    /**
+     * The run returns once the order is handed to the session, and the venue's reader thread records it a
+     * moment later, so the check waits a bounded while for it rather than racing that thread.
+     */
+    private fun venueReceives(matches: (String) -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (server.applicationMessages.none(matches) && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        return server.applicationMessages.any(matches)
+    }
+
     /** An acceptor is the far end of lanes, never their source — and it says so rather than trying. */
     @Test
     fun `fanning out over a profile that opens one session is refused with the reason`() {

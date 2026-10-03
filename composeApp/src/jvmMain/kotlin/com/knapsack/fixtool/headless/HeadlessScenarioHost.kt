@@ -48,6 +48,9 @@ class HeadlessScenarioHost(
 ) : ScenarioHost {
     private val sessions = ConcurrentHashMap<String, FixMessageSession>()
 
+    /** The name a step used for a session titled otherwise, such as a group's bare name for its first slot. */
+    private val aliases = ConcurrentHashMap<String, String>()
+
     /** Every session this run brought up, for teardown. */
     val opened: Collection<FixMessageSession> get() = sessions.values
 
@@ -134,7 +137,10 @@ class HeadlessScenarioHost(
             )
         }
         val key = session
-        val matches = profiles.filter { it.id == key || it.name == key }.distinctBy { it.id }
+        // A slot is titled "Name [n]" over its profile's name, so the profile is found by the name without it,
+        // as the app's host finds it. Compared whole, no profile ever answered to a slot's title.
+        val base = key.replace(SLOT_SUFFIX, "")
+        val matches = profiles.filter { it.id == key || it.name == key || it.name == base }.distinctBy { it.id }
         return when {
             matches.isEmpty() ->
                 ConnectAttempt.Failed("no saved connection profile named '$key' (see ~/.fixtool)")
@@ -143,23 +149,35 @@ class HeadlessScenarioHost(
             // one that stops.
             matches.size > 1 ->
                 ConnectAttempt.Failed("${matches.size} saved profiles answer to '$key' — rename one, or pass --session")
-            else -> {
-                val profile = matches.single()
-                val slots = laneCount(profile)
-                // A step naming "Name [3]" wants slot 3 of the group, not a fresh session of its own.
-                val slot =
-                    SLOT_SUFFIX.find(key)
-                        ?.groupValues
-                        ?.get(1)
-                        ?.toIntOrNull()
-                if (slot != null && slot in 1..slots) {
-                    openSlot(profile, slot, slots)
-                } else {
-                    openSlot(profile, slot = if (slots > 1) 1 else 0, slots = slots)
-                }
-                ConnectAttempt.Started(profile.name)
-            }
+            else -> connectProfile(matches.single(), key)
         }
+    }
+
+    /**
+     * Opens the slot of [profile] that [key] names, and lets [key] find it by the title that slot gets.
+     *
+     * A step naming "Name [3]" wants slot 3 of the group, not a fresh session of its own. A step naming the
+     * bare "Name" of a group (a remap onto the profile, typically) gets its first slot, titled "Name [1]".
+     * Preflight and every later step look the session up by the step's own [key], so that key is recorded
+     * as another name for the slot's title. A slot number the group does not have is refused, since
+     * dialling some other slot would run the scenario as a client the author did not name.
+     */
+    private fun connectProfile(profile: FixConnectionProfile, key: String): ConnectAttempt {
+        val slots = laneCount(profile)
+        // Only a suffix the profile's own name does not carry is a slot number.
+        val named =
+            SLOT_SUFFIX.find(key)
+                ?.groupValues
+                ?.get(1)
+                ?.toIntOrNull()
+                ?.takeIf { profile.name != key && profile.id != key }
+        if (named != null && named !in 1..slots) {
+            return ConnectAttempt.Failed("profile '${profile.name}' opens $slots session(s), so it has no '$key'")
+        }
+        val slot = if (slots > 1) named ?: 1 else 0
+        val opened = openSlot(profile, slot, slots)
+        if (opened.title != key) aliases[key] = opened.title
+        return ConnectAttempt.Started(profile.name)
     }
 
     /**
@@ -276,7 +294,11 @@ class HeadlessScenarioHost(
      * be created first. Answering null instead makes the runner say so.
      */
     private fun resolve(session: String?): FixMessageSession? =
-        if (session == null) sessions.values.singleOrNull() else sessions[session]
+        if (session == null) {
+            sessions.values.singleOrNull()
+        } else {
+            sessions[session] ?: aliases[session]?.let { sessions[it] }
+        }
 
     private fun fixMessages(session: String?): List<FixMessage> =
         resolve(session)?.messages?.value?.filterIsInstance<FixMessage>() ?: emptyList()

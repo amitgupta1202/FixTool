@@ -101,7 +101,9 @@ fixtool run --all [options]
 
 **Sessions connect themselves.** A scenario names its sessions; each is dialled from the saved
 profile of the same name, and the runner waits for logon before any step runs — so an unattended run
-tells the same story a hand-connected one would.
+tells the same story a hand-connected one would. A session named `"Name [2]"`, as the app titles slot 2
+of a multi-session profile, dials that slot of profile `"Name"`. A session named `"Name"` alone dials
+the profile's first slot.
 
 **`--home` is what makes this work on a build box**, which has no `~/.fixtool` and should not be made
 to grow one. Point it at a directory holding `connection_profiles.json`, `app_settings.json` and

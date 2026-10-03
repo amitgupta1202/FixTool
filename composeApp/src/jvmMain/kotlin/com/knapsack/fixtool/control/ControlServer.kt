@@ -211,7 +211,7 @@ class ControlServer(
         httpServer.createContext("/trace") { ex -> handleCoded(ex) { trace(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
         httpServer.createContext("/filter") { ex -> handle(ex) { filter(ex) } }
-        httpServer.createContext("/demo") { ex -> handle(ex) { demo(ex) } }
+        httpServer.createContext("/demo") { ex -> handleCoded(ex) { demo(ex) } }
         httpServer.createContext("/workspace") { ex -> handle(ex) { workspace(ex) } }
         httpServer.createContext("/connect") { ex -> handle(ex) { connect(ex) } }
         httpServer.createContext("/disconnect") { ex -> handleCoded(ex) { disconnect(ex) } }
@@ -2788,28 +2788,44 @@ class ControlServer(
      * `start` copies the bundled FX venue into a workspace and opens it; `stop` closes the workspace,
      * which is the nearest true thing to the old uninstall — the copy stays on disk, because it is the
      * caller's now and deleting a directory is not what "stop" ought to mean.
+     *
+     * Only a POST acts. A GET (or any other method) only reports, and one that names an action is a 405:
+     * both actions take every session down, so neither may be what a link or a bare `curl` does.
+     * `/sessions/close` refuses a GET for the same reason.
      */
-    private fun demo(ex: HttpExchange): JsonElement {
+    private fun demo(ex: HttpExchange): Coded {
         val body = readJson(ex)
-        val action = body["action"]?.jsonPrimitive?.content?.lowercase() ?: "start"
-        val outcome =
-            onEdt {
-                when (action) {
-                    "stop" -> viewModel.closeWorkspace()
-                    else -> viewModel.openExample(ExampleWorkspaces.FX_VENUE)
-                }
-            }
-        outcome.exceptionOrNull()?.let { return errorObject("could not $action the example: ${it.message}") }
-
-        return buildJsonObject {
-            put("status", "ok")
-            put("action", action)
-            put("workspace", onEdt { viewModel.openWorkspace.absolutePath })
-            put("running", onEdt { !viewModel.openWorkspaceIsHome })
-            // Named so a caller can address the venue without knowing the constant.
-            put("venue", "FX Demo Venue")
-            put("port", DEMO_VENUE_PORT)
+        val named = (body["action"]?.jsonPrimitive?.content ?: queryParams(ex)["action"])?.lowercase()
+        val isPost = ex.requestMethod.uppercase() == "POST"
+        if (!isPost && named != null) {
+            return Coded(HTTP_METHOD_NOT_ALLOWED, errorObject("'$named' changes the workspace: use POST"))
         }
+        val action = if (isPost) named ?: "start" else null
+        if (action != null) {
+            val outcome =
+                onEdt {
+                    when (action) {
+                        "stop" -> viewModel.closeWorkspace()
+                        else -> viewModel.openExample(ExampleWorkspaces.FX_VENUE)
+                    }
+                }
+            outcome.exceptionOrNull()?.let {
+                return Coded(HTTP_OK, errorObject("could not $action the example: ${it.message}"))
+            }
+        }
+
+        return Coded(
+            HTTP_OK,
+            buildJsonObject {
+                put("status", "ok")
+                action?.let { put("action", it) }
+                put("workspace", onEdt { viewModel.openWorkspace.absolutePath })
+                put("running", onEdt { !viewModel.openWorkspaceIsHome })
+                // Named so a caller can address the venue without knowing the constant.
+                put("venue", "FX Demo Venue")
+                put("port", DEMO_VENUE_PORT)
+            },
+        )
     }
 
     /** The open workspace, and the door to changing it. */
@@ -4504,7 +4520,7 @@ class ControlServer(
             "fixtool_save_template" to { a -> upsertTemplate(mcpExchange(a)) },
             "fixtool_delete_template" to { a -> deleteTemplate(mcpExchange(a)) },
             "fixtool_load_template" to { a -> loadTemplate(mcpExchange(a)) },
-            "fixtool_demo" to { a -> demo(mcpExchange(a)) },
+            "fixtool_demo" to { a -> demo(mcpExchange(a)).body },
             "fixtool_workspace" to { a -> workspace(mcpExchange(a)) },
             "fixtool_connect" to { a -> connect(mcpExchange(a)) },
             // MCP has no status codes, so the 409 for a live load run is the body, as fixtool_load does.

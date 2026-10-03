@@ -251,6 +251,37 @@ class ControlServerContractTest {
         assertEquals("timeout", wait("""{"session":"VENUE","match":{"messageType":"8"},"timeoutMs":0}"""))
     }
 
+    // ------------------------------------------------------------------ demo
+
+    /**
+     * `/demo` answered any method and defaulted to `start`, so a plain `curl $B/demo`, or a link, opened the
+     * FX example and took every session down. `/sessions/close` already refuses a GET for that reason.
+     */
+    @Test
+    fun `a GET of demo reports the example and changes nothing`() {
+        try {
+            val reply = get("/demo")
+
+            assertEquals(200, reply.statusCode(), reply.body())
+            assertEquals(false, obj(reply)["running"]!!.jsonPrimitive.boolean, "a GET opened it: ${reply.body()}")
+            assertTrue(viewModel.openWorkspaceIsHome, "the open workspace is still the installation's own")
+        } finally {
+            post("/demo", """{"action":"stop"}""")
+        }
+    }
+
+    @Test
+    fun `a GET of demo that names an action is refused, and changes nothing`() {
+        try {
+            val reply = get("/demo?action=start")
+
+            assertEquals(405, reply.statusCode(), reply.body())
+            assertTrue(viewModel.openWorkspaceIsHome, "the open workspace is still the installation's own")
+        } finally {
+            post("/demo", """{"action":"stop"}""")
+        }
+    }
+
     // ------------------------------------------------------------------ lifecycle
 
     /**

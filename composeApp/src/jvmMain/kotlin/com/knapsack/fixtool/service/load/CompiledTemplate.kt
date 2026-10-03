@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service.load
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.scenario.Lane
+import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.ShorthandTemplateExpander
@@ -215,7 +216,8 @@ class CompiledTemplate private constructor(
                         is Slot.PerMessage -> renderParts(slot.parts.map { asCaptured(it, captured) }, placeholderScope)
                     }
             }
-        val raw = resolved.joinToString("|") { "${it.first}=${it.second}" } + "|"
+        // Through joinFields, so a value carrying a literal `|` is parsed back as one field.
+        val raw = FixMessageHelper.joinFields(resolved)
         val prototype = if (dictionary.getDataDictionary() != null) raw.toQuickFixMessageManual(dictionary) else raw.toQuickFixMessage()
         val perMessage =
             slots

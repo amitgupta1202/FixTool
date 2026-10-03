@@ -118,6 +118,18 @@ class CompiledTemplateTest {
         assertEquals("1", message.getString(11))
     }
 
+    /** The prototype was pipe-joined and parsed back, so `58=filled|in full` went out as `58=filled`. */
+    @Test
+    fun `a value that carries a pipe reaches the prototype whole`() {
+        val compiled = CompiledTemplate.compile(template(11 to "ORD-\${messageIndex}", 58 to "filled|in full", 55 to "EUR/USD"))
+        val proto = compiled.prepare(lane(1), emptyMap(), dictionary) { error("no engine") }
+
+        val message = proto.render(1)
+
+        assertEquals("filled|in full", message.getString(58))
+        assertEquals("EUR/USD", message.getString(55))
+    }
+
     @Test
     fun `the generators render what the expander's Kotlin would have`() {
         val uuid = CompiledTemplate.generate(generatorOf("uuid"))

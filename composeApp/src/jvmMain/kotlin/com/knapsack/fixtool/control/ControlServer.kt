@@ -2791,15 +2791,22 @@ class ControlServer(
      *
      * Only a POST acts. A GET (or any other method) only reports, and one that names an action is a 405:
      * both actions take every session down, so neither may be what a link or a bare `curl` does.
-     * `/sessions/close` refuses a GET for the same reason.
+     * `/sessions/close` refuses a GET for the same reason. A name that is neither action is a 400 by any
+     * method: anything but `stop` used to mean start, so a typo opened the example.
      */
     private fun demo(ex: HttpExchange): Coded {
         val body = readJson(ex)
         val named = (body["action"]?.jsonPrimitive?.content ?: queryParams(ex)["action"])?.lowercase()
         val isPost = ex.requestMethod.uppercase() == "POST"
-        if (!isPost && named != null) {
-            return Coded(HTTP_METHOD_NOT_ALLOWED, errorObject("'$named' changes the workspace: use POST"))
-        }
+        val refusal =
+            when {
+                named != null && named != "start" && named != "stop" ->
+                    Coded(HTTP_BAD_REQUEST, errorObject("unknown action '$named': the actions are start and stop"))
+                !isPost && named != null ->
+                    Coded(HTTP_METHOD_NOT_ALLOWED, errorObject("'$named' changes the workspace: use POST"))
+                else -> null
+            }
+        refusal?.let { return it }
         val action = if (isPost) named ?: "start" else null
         if (action != null) {
             val outcome =

@@ -282,6 +282,21 @@ class ControlServerContractTest {
         }
     }
 
+    /** Anything that was not `stop` meant start, so a typo such as `strat` opened the example. */
+    @Test
+    fun `a POST of demo with an action that is neither start nor stop is refused, and changes nothing`() {
+        try {
+            val reply = post("/demo", """{"action":"strat"}""")
+
+            assertEquals(400, reply.statusCode(), reply.body())
+            val error = obj(reply)["error"]!!.jsonPrimitive.content
+            assertTrue("start" in error && "stop" in error, "the refusal names the two actions: $error")
+            assertTrue(viewModel.openWorkspaceIsHome, "the open workspace is still the installation's own")
+        } finally {
+            post("/demo", """{"action":"stop"}""")
+        }
+    }
+
     // ------------------------------------------------------------------ lifecycle
 
     /**

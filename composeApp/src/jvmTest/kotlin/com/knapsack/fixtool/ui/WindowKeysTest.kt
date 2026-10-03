@@ -64,6 +64,65 @@ class WindowKeysTest {
         assertEquals(0, pressed)
     }
 
+    // ---------------------------------------------------------------- a held key is not a second press
+
+    private var asked = 0
+
+    private val closeAll =
+        MenuItem("Close all", "menu-close-all", { asked++ }, chord = Shortcuts.CLOSE_ALL, asks = true)
+
+    private fun holding() =
+        state.apply { menus = menus + AppMenu("Session", listOf(closeAll)) }
+
+    private val shiftW = InputEvent.META_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK
+
+    @Test
+    fun `a held chord is answered once on a row that asks, and on every repeat on a row that does not`() {
+        val window = holding()
+
+        repeat(3) { assertTrue(window.answer(press(KeyEvent.VK_1))) }
+        assertEquals(3, pressed, "a row that does not ask repeats as a held key always has")
+
+        repeat(3) { assertTrue(window.answer(press(KeyEvent.VK_W, shiftW)), "still the row's key, so consumed") }
+        assertEquals(1, asked, "the press asks, and its repeats are not the answer")
+
+        window.answer(press(KeyEvent.VK_W, shiftW, KeyEvent.KEY_RELEASED))
+        window.answer(press(KeyEvent.VK_W, shiftW))
+        assertEquals(2, asked, "a fresh press after the release is")
+    }
+
+    /**
+     * The menu bar's own accelerator answers the key before the window's handler hears it, consuming it on the way, so
+     * the handler is only counting. Both doors have to agree about which press is a repeat.
+     */
+    @Test
+    fun `the menu bar's accelerator is held to a press too`() {
+        val window = holding()
+
+        val first = press(KeyEvent.VK_W, shiftW)
+        assertTrue(window.acts(closeAll, first))
+        first.consume()
+        assertFalse(window.answer(first))
+
+        val repeat = press(KeyEvent.VK_W, shiftW)
+        assertFalse(window.acts(closeAll, repeat), "the repeat of a held chord does not act on a row that asks")
+        assertTrue(window.acts(closeAll.copy(asks = false), repeat), "on a row that does not ask, it does")
+
+        window.answer(press(KeyEvent.VK_W, shiftW, KeyEvent.KEY_RELEASED))
+        assertTrue(window.acts(closeAll, press(KeyEvent.VK_W, shiftW)))
+    }
+
+    @Test
+    fun `a key let go in another window is not left held`() {
+        val window = holding()
+
+        window.answer(press(KeyEvent.VK_W, shiftW))
+        window.releaseAll()
+        window.answer(press(KeyEvent.VK_W, shiftW))
+
+        assertEquals(2, asked, "the release went elsewhere, so the next press is a press")
+    }
+
     @Test
     fun `Esc is the one key answered that is no row's`() {
         var unfollowed = false

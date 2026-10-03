@@ -30,6 +30,8 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.awt.Canvas
+import java.awt.event.InputEvent
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -308,6 +310,41 @@ class AppMenusTest {
         rule.onNodeWithTag("toolbar-close-all").assertContentDescriptionContains("Close 1 pane? Click again.")
 
         assertTrue(menus.dispatch(press(Key.W, shift = true)))
+        rule.waitUntil(25_000) { viewModel.sessions.isEmpty() }
+    }
+
+    /**
+     * **Holding ⌘⇧W is one press.** AWT reports a held key as the same press again and again, so the first
+     * auto-repeat used to be the second press that answers, and every pane went with its log.
+     */
+    @Test
+    fun `holding Close all's chord asks once, and only a fresh press after a release answers`() {
+        connectedPane("HOLDALL")
+        compose()
+        val window = AppMenuState()
+
+        fun w(id: Int) =
+            java.awt.event.KeyEvent(
+                Canvas(),
+                id,
+                0L,
+                InputEvent.META_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK,
+                java.awt.event.KeyEvent.VK_W,
+                java.awt.event.KeyEvent.CHAR_UNDEFINED,
+            )
+
+        fun answer(id: Int): Boolean {
+            window.menus = menus
+            return window.answer(w(id)).also { rule.waitForIdle() }
+        }
+
+        assertTrue(answer(java.awt.event.KeyEvent.KEY_PRESSED), "the press asks")
+        repeat(3) { answer(java.awt.event.KeyEvent.KEY_PRESSED) }
+        assertEquals(1, viewModel.sessions.size, "the key's auto-repeats are the same press, not the answer")
+        assertEquals("Close 1 pane?", item("menu-close-all").label, "and the question still stands")
+
+        answer(java.awt.event.KeyEvent.KEY_RELEASED)
+        assertTrue(answer(java.awt.event.KeyEvent.KEY_PRESSED))
         rule.waitUntil(25_000) { viewModel.sessions.isEmpty() }
     }
 

@@ -12,6 +12,8 @@ import java.awt.Desktop
 import java.awt.KeyEventPostProcessor
 import java.awt.KeyboardFocusManager
 import java.awt.Window
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import javax.swing.SwingUtilities
 
 private val logger = LoggerFactory.getLogger("com.knapsack.fixtool.ui.AppMenuBar")
@@ -37,7 +39,7 @@ fun FrameWindowScope.AppMenuBar(state: AppMenuState) {
             .filterNot { IS_MAC && it.application }
             .forEach { menu ->
                 key(menu.title) {
-                    Menu(menu.title) { Rows(menu.rows) }
+                    Menu(menu.title) { Rows(menu.rows, state) }
                 }
             }
     }
@@ -60,9 +62,18 @@ fun FrameWindowScope.WindowKeys(state: AppMenuState) {
                 val owner = source as? Window ?: SwingUtilities.getWindowAncestor(source)
                 owner === frame && state.answer(event)
             }
+        // A key let go in another window is a release this window never hears, so it forgets what is down.
+        val leaving =
+            object : WindowAdapter() {
+                override fun windowLostFocus(event: WindowEvent?) = state.releaseAll()
+            }
         val focus = KeyboardFocusManager.getCurrentKeyboardFocusManager()
         focus.addKeyEventPostProcessor(processor)
-        onDispose { focus.removeKeyEventPostProcessor(processor) }
+        frame.addWindowFocusListener(leaving)
+        onDispose {
+            focus.removeKeyEventPostProcessor(processor)
+            frame.removeWindowFocusListener(leaving)
+        }
     }
 }
 
@@ -78,29 +89,40 @@ fun FrameWindowScope.WindowKeys(state: AppMenuState) {
  * The menus themselves stay keyed: they are the menu bar's own children, which it can move.
  */
 @Composable
-private fun MenuScope.Rows(rows: List<MenuRow>) {
+private fun MenuScope.Rows(
+    rows: List<MenuRow>,
+    state: AppMenuState,
+) {
     rows.forEach { row ->
         when (row) {
-            is MenuItem -> ItemRow(row)
-            is Submenu -> Menu(row.label, enabled = row.enabled) { Rows(row.rows) }
+            is MenuItem -> ItemRow(row, state)
+            is Submenu -> Menu(row.label, enabled = row.enabled) { Rows(row.rows, state) }
             is MenuSeparator -> Separator()
         }
     }
 }
 
+/**
+ * One row, whose shortcut Swing binds as an accelerator. That binding answers a key before the window's own
+ * handler hears it, and on every auto-repeat, so a row that asks is held to a press here too: see [AppMenuState.acts].
+ */
 @Composable
-private fun MenuScope.ItemRow(item: MenuItem) {
+private fun MenuScope.ItemRow(
+    item: MenuItem,
+    state: AppMenuState,
+) {
     val shortcut = item.chord?.keyShortcut
+    val onClick = { if (state.acts(item)) item.onClick() }
     when {
         item.checked == null ->
-            Item(item.label, enabled = item.enabled, shortcut = shortcut, onClick = item.onClick)
+            Item(item.label, enabled = item.enabled, shortcut = shortcut, onClick = onClick)
         item.choice ->
             RadioButtonItem(
                 item.label,
                 selected = item.checked,
                 enabled = item.enabled,
                 shortcut = shortcut,
-                onClick = item.onClick,
+                onClick = onClick,
             )
         else ->
             CheckboxItem(
@@ -108,7 +130,7 @@ private fun MenuScope.ItemRow(item: MenuItem) {
                 checked = item.checked,
                 enabled = item.enabled,
                 shortcut = shortcut,
-                onCheckedChange = { item.onClick() },
+                onCheckedChange = { onClick() },
             )
     }
 }

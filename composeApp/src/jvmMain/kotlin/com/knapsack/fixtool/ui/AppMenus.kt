@@ -203,6 +203,7 @@ private fun sessionMenu(viewModel: FixMessageViewModel): AppMenu {
                 { if (arming.confirm(closingAll)) viewModel.closeAllSessions() },
                 chord = WindowAction.CLOSE_ALL.chord,
                 enabled = closeAll.enabled,
+                asks = true,
             ),
         )
     return AppMenu(
@@ -387,6 +388,8 @@ private fun paneLogRows(
             "menu-pane-close",
             { if (active != null && closing != null && arming.confirm(closing)) viewModel.closeSession(active) },
             enabled = active != null,
+            // No chord today, but it arms: whatever key is given it later answers a press and not a hold.
+            asks = true,
         ),
     )
 }

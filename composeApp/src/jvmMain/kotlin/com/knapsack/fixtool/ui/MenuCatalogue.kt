@@ -8,6 +8,8 @@ import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import java.awt.AWTEvent
+import java.awt.EventQueue
 
 /**
  * **One row of the menu bar, as data rather than as a Swing menu item.**
@@ -26,6 +28,9 @@ internal sealed interface MenuRow {
  *
  * @param checked null for a plain action, or the state of a tick or a choice
  * @param choice one of a set, drawn as a radio rather than as a tick
+ * @param asks the row arms before it acts (see [WindowArming]): its first press asks and the next one answers.
+ *   So a held chord answers it once, on the press, and its auto-repeats are swallowed: the first repeat would
+ *   otherwise be the second press, and the answer nobody gave.
  */
 internal data class MenuItem(
     val label: String,
@@ -35,6 +40,7 @@ internal data class MenuItem(
     val enabled: Boolean = true,
     val checked: Boolean? = null,
     val choice: Boolean = false,
+    val asks: Boolean = false,
 ) : MenuRow
 
 /** A row that opens a list of its own. Greyed rather than withheld when it is empty, so the door is found. */
@@ -89,18 +95,21 @@ internal fun List<AppMenu>.items(): List<MenuItem> = flatMap { it.rows.items() }
  *
  * @param nativeApplicationMenu on a Mac, ⌘, and ⌘Q belong to the system's application menu, which answers
  *   them itself. Answering them here as well would open Settings twice.
+ * @param held the key is being held rather than pressed (see [AppMenuState.isHeld]). A row that [asks][MenuItem.asks]
+ *   still owns the key, so it is consumed, but it is not answered.
  * @return whether a row answered, which is whether the key is consumed
  */
 internal fun List<AppMenu>.dispatch(
     event: KeyEvent,
     nativeApplicationMenu: Boolean = IS_MAC,
+    held: Boolean = false,
 ): Boolean {
     val row =
         filterNot { nativeApplicationMenu && it.application }
             .items()
             .firstOrNull { it.enabled && it.chord?.matches(event) == true }
             ?: return false
-    row.onClick()
+    if (!(held && row.asks)) row.onClick()
     return true
 }
 
@@ -123,7 +132,41 @@ class AppMenuState {
     internal var unclaimed: (KeyEvent) -> Boolean = { false }
 
     /** Answers a key if a row's shortcut matches it, or if it is one of the [unclaimed] ones. See [dispatch]. */
-    fun dispatch(event: KeyEvent): Boolean = menus.dispatch(event) || unclaimed(event)
+    fun dispatch(
+        event: KeyEvent,
+        held: Boolean = false,
+    ): Boolean = menus.dispatch(event, held = held) || unclaimed(event)
+
+    /** The keys that are down, by key code: pressed, and not released since. See [isHeld]. */
+    private val down = mutableSetOf<Int>()
+
+    /**
+     * **Whether [event] is a held key's auto-repeat rather than a press.**
+     *
+     * AWT reports holding a key as the same KEY_PRESSED over and over, with nothing on the event to tell a repeat
+     * from a press. What tells them apart is what came before: a press of a key that has not been released since
+     * its last press is that key being held. Asked while the press is being answered, before [answer] counts it,
+     * which is also when the menu bar's own accelerators run (see `ItemRow` in AppMenuBar).
+     */
+    internal fun isHeld(event: AWTEvent?): Boolean =
+        event is java.awt.event.KeyEvent && event.id == java.awt.event.KeyEvent.KEY_PRESSED && event.keyCode in down
+
+    /**
+     * Forget every key that is down: the window lost focus, so their releases go to another window and would never
+     * be heard here. Without it the next press of such a key would read as a repeat.
+     */
+    internal fun releaseAll() {
+        down.clear()
+    }
+
+    /**
+     * Whether the menu bar's click on [item] acts: not when it is a held chord's auto-repeat on a row that
+     * [asks][MenuItem.asks]. The accelerator Swing binds to a row fires on every repeat, just as [answer] hears it.
+     */
+    internal fun acts(
+        item: MenuItem,
+        event: AWTEvent? = EventQueue.getCurrentEvent(),
+    ): Boolean = !(item.asks && isHeld(event))
 
     /**
      * **The window's key handler, fed by AWT rather than by a composable**, so it hears a key wherever focus is.
@@ -140,11 +183,17 @@ class AppMenuState {
      * consumed before it reaches here, and the terminal keeps the keys a shell needs — ⌃R is readline's
      * reverse search and the terminal consumes it — while the ⌘ shortcuts it has no use for reach the window.
      *
+     * It hears every press and release, consumed or not, so it is also what keeps count of which keys are down:
+     * see [isHeld].
+     *
      * @return whether it answered, in which case the event is consumed
      */
     fun answer(event: java.awt.event.KeyEvent): Boolean {
-        if (event.id != java.awt.event.KeyEvent.KEY_PRESSED || event.isConsumed) return false
-        val answered = dispatch(event.toComposeKeyEvent())
+        if (event.id == java.awt.event.KeyEvent.KEY_RELEASED) down -= event.keyCode
+        if (event.id != java.awt.event.KeyEvent.KEY_PRESSED) return false
+        val held = isHeld(event)
+        down += event.keyCode
+        val answered = !event.isConsumed && dispatch(event.toComposeKeyEvent(), held)
         if (answered) event.consume()
         return answered
     }

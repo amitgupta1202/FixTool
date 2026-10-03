@@ -17,6 +17,7 @@ import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
 
 /**
  * A FIX message as the assertion engine sees it: **an ordered list of `tag=value`**, and nothing else.
@@ -467,9 +468,9 @@ object ExpectationEvaluator {
                 // try next pattern
             }
         }
-        for (pattern in OFFSET_TIMESTAMP_PATTERNS) {
+        for (formatter in OFFSET_TIMESTAMP_PATTERNS) {
             try {
-                return OffsetDateTime.parse(value, DateTimeFormatter.ofPattern(pattern)).toInstant()
+                return OffsetDateTime.parse(value, formatter).toInstant()
             } catch (e: Exception) {
                 // try next pattern
             }
@@ -484,9 +485,9 @@ object ExpectationEvaluator {
         }
         // TZTIMEONLY: a time of day carrying an offset, and no date. The seeder seeds it temporal, so it has
         // to parse here or the row is hard-wired to fail.
-        for (pattern in OFFSET_TIME_ONLY_PATTERNS) {
+        for (formatter in OFFSET_TIME_ONLY_PATTERNS) {
             try {
-                val parsed = DateTimeFormatter.ofPattern(pattern).parse(value)
+                val parsed = formatter.parse(value)
                 val time = LocalTime.from(parsed)
                 val offset = ZoneOffset.from(parsed)
                 return nearestInstant(time, now, offset)
@@ -585,23 +586,35 @@ object ExpectationEvaluator {
             "yyyyMMdd-HH:mm:ss",
         )
 
-    /** TZTIMESTAMP — the same moment, carrying its offset. Same fraction precisions as the plain shapes. */
+    /**
+     * An offset the way the spec writes one: `Z`, `±hh` or `±hh:mm`. The pattern letters `XXX` take only `Z`
+     * and `±hh:mm`, so the spec's own `20060901-02:39-05` was refused.
+     */
+    private fun withOffset(local: String): DateTimeFormatter =
+        DateTimeFormatterBuilder().appendPattern(local).appendOffset("+HH:mm", "Z").toFormatter()
+
+    /**
+     * TZTIMESTAMP: the same moment, carrying its offset. Same fraction precisions as the plain shapes, and
+     * the minute precision the spec allows (`20060901-07:39Z`), since its seconds are optional.
+     */
     private val OFFSET_TIMESTAMP_PATTERNS =
         listOf(
-            "yyyyMMdd-HH:mm:ss.SSSSSSSSSXXX",
-            "yyyyMMdd-HH:mm:ss.SSSSSSXXX",
-            "yyyyMMdd-HH:mm:ss.SSSXXX",
-            "yyyyMMdd-HH:mm:ssXXX",
-        )
+            "yyyyMMdd-HH:mm:ss.SSSSSSSSS",
+            "yyyyMMdd-HH:mm:ss.SSSSSS",
+            "yyyyMMdd-HH:mm:ss.SSS",
+            "yyyyMMdd-HH:mm:ss",
+            "yyyyMMdd-HH:mm",
+        ).map(::withOffset)
 
-    /** TZTIMEONLY — a time of day with an offset, and no date at all. Same fraction precisions too. */
+    /** TZTIMEONLY: a time of day with an offset, and no date at all. Same precisions too, minutes included. */
     private val OFFSET_TIME_ONLY_PATTERNS =
         listOf(
-            "HH:mm:ss.SSSSSSSSSXXX",
-            "HH:mm:ss.SSSSSSXXX",
-            "HH:mm:ss.SSSXXX",
-            "HH:mm:ssXXX",
-        )
+            "HH:mm:ss.SSSSSSSSS",
+            "HH:mm:ss.SSSSSS",
+            "HH:mm:ss.SSS",
+            "HH:mm:ss",
+            "HH:mm",
+        ).map(::withOffset)
 
     /** UTCTIMEONLY / TIME — a time of day, read as that time TODAY. */
     private val TIME_ONLY_PATTERNS =

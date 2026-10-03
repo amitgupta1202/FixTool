@@ -159,6 +159,24 @@ class ExpectationEvaluatorTest {
         )
     }
 
+    /**
+     * **The FIX spec's own TZTIMESTAMP and TZTIMEONLY examples.** Seconds are optional there, and an offset is
+     * written `Z`, `±hh` or `±hh:mm`. The patterns required seconds and accepted only `Z` or `±hh:mm`, so all
+     * of these parsed as null, and a temporal row on such a field was red whatever its tolerance.
+     */
+    @Test
+    fun `the spec's TZ forms are judged at minute precision and with every offset form`() {
+        val moment = Instant.parse("2006-09-01T07:39:00Z")
+        listOf("20060901-07:39Z", "20060901-02:39-05", "20060901-15:39+08", "20060901-13:09+05:30", "20060901-02:39:00-05")
+            .forEach { assertEquals(moment, ExpectationEvaluator.parseTimestamp(it), "'$it' is 07:39Z on the 1st") }
+        listOf("07:39Z", "02:39-05", "15:39+08", "13:09+05:30", "02:39:00-05")
+            .forEach { assertEquals(moment, ExpectationEvaluator.parseTimestamp(it) { moment }, "'$it' is 07:39Z") }
+
+        val atFive = { Instant.parse("2006-09-01T22:00:20Z") }
+        val row = eval(wireView(273 to "17:00:00-05"), fe(273, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)), now = atFive)
+        assertTrue(row.single().passed, "17:00:00-05 judged at 22:00:20Z is 20s of skew: $row")
+    }
+
     @Test
     fun `reference resolves against the run scope`() {
         val v = wireView(11 to "ORD-1")

@@ -1097,8 +1097,8 @@ venue's answer echoes **693 and not 117**, because a 4.4 ExecutionReport has no 
 book remembers each response by its own id and resolves the venue's reply back to the quote through
 that map. An ExecutionReport that books a quote hit is deliberately **not** offered to the order
 book, because it carries a ClOrdID the venue never saw on an order, so the order book could only file
-it as unattributed noise. `POST /sessions/{}/clear-order-book` empties both, because they are one venue's
-memory.
+it as unattributed noise. `POST /acceptor/orders {"session": "<id, title or index>"}` empties both,
+because they are one venue's memory.
 
 A dry run takes both halves of the assumption, because a quote rule asks both questions at once:
 *is it open, and what was its offer*.

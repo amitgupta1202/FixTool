@@ -178,7 +178,7 @@ class ControlServer(
         // Handlers block on invokeAndWait round-trips to the EDT, so give a little headroom.
         httpServer.executor = Executors.newFixedThreadPool(HTTP_POOL_SIZE)
         httpServer.createContext("/health") { ex -> handle(ex) { health() } }
-        httpServer.createContext("/sessions") { ex -> handle(ex) { sessions() } }
+        httpServer.createContext("/sessions") { ex -> handleCoded(ex) { sessionsEndpoint(ex) } }
         httpServer.createContext("/profiles") { ex -> handle(ex) { profilesEndpoint(ex) } }
         httpServer.createContext("/panel") { ex -> handle(ex) { panel(ex) } }
         httpServer.createContext("/templates/load") { ex -> handle(ex) { loadTemplate(ex) } }
@@ -243,6 +243,24 @@ class ControlServer(
             put("sessionCount", onEdt { viewModel.sessions.size })
             put("version", "1")
         }
+
+    /**
+     * `/sessions` itself, and a 404 naming any other path under it.
+     *
+     * A context is a prefix, so this one is also handed every path below it that has no context of its own.
+     * Answering those with the list made a call to a route that does not exist read as a 200 that did
+     * nothing. `/sessions/close` has a context of its own and never arrives here.
+     */
+    private fun sessionsEndpoint(ex: HttpExchange): Coded {
+        val path = ex.requestURI.path
+        if (path.trimEnd('/') != "/sessions") {
+            return Coded(
+                HTTP_NOT_FOUND,
+                errorObject("no route at $path: under /sessions there is GET /sessions and POST /sessions/close"),
+            )
+        }
+        return Coded(HTTP_OK, sessions())
+    }
 
     private fun sessions(): JsonElement =
         buildJsonArray {

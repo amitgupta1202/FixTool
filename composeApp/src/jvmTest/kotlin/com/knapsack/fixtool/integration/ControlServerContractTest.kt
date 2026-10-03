@@ -205,6 +205,36 @@ class ControlServerContractTest {
         )
     }
 
+    // ------------------------------------------------------------------ routes
+
+    /**
+     * AUTOMATION.md documented `POST /sessions/{i}/clear-order-book`, which was never a route. The `/sessions`
+     * context answered every path under it with the sessions list, so the call read as a 200 and cleared nothing.
+     */
+    @Test
+    fun `a path under sessions that is no route is a 404 naming it, not the sessions list`() {
+        addSession("VENUE")
+
+        val unknown = post("/sessions/0/clear-order-book", "{}")
+
+        assertEquals(404, unknown.statusCode(), unknown.body())
+        assertTrue("/sessions/0/clear-order-book" in obj(unknown)["error"]!!.jsonPrimitive.content, unknown.body())
+    }
+
+    @Test
+    fun `the sessions list and close all still answer at their own paths`() {
+        addSession("VENUE")
+
+        val listed = get("/sessions")
+        assertEquals(200, listed.statusCode())
+        val sessions = Json.parseToJsonElement(listed.body()).jsonArray
+        assertEquals(listOf("VENUE"), sessions.map { it.jsonObject["title"]!!.jsonPrimitive.content })
+
+        val closed = post("/sessions/close", "{}")
+        assertEquals(200, closed.statusCode(), closed.body())
+        assertEquals("closed", obj(closed)["status"]!!.jsonPrimitive.content)
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private fun order(clOrdId: String) = "8=FIX.4.4|35=D|49=CLI|56=VENUE|11=$clOrdId|55=EUR/USD|54=1|38=100|40=1|"

@@ -28,6 +28,7 @@ object DictionaryLint {
             false
         }
         if (!knownType) return emptyList()
+        val frame = frameOf(dictionary)
         return FixStructure.walk(fields, dictionary)
             .filter { it.groupTag == null }
             .map { it.tag }
@@ -35,11 +36,32 @@ object DictionaryLint {
             .filter { it != 35 }
             .filterNot { tag ->
                 try {
-                    dd.isHeaderField(tag) || dd.isTrailerField(tag) || dd.isMsgField(msgType, tag) || dd.isGroup(msgType, tag)
+                    frame(tag) || dd.isMsgField(msgType, tag) || dd.isGroup(msgType, tag)
                 } catch (e: Exception) {
                     true // benefit of the doubt: never flag on dictionary errors
                 }
             }
+    }
+
+    /**
+     * Whether a tag is a header or trailer field, wherever this dictionary keeps them.
+     *
+     * A FIX 5.0 application dictionary has an empty `<header/>` and `<trailer/>`, because the session fields
+     * live in the FIXT transport dictionary. Asking the application dictionary alone called `8`, `49`, `1128`
+     * and the rest "not defined" on every FIX 5.0 send. So the version's standard set and the transport
+     * dictionary's own sections, where a venue declares its custom header fields, count too.
+     */
+    private fun frameOf(dictionary: FixDictionaryAdapter?): (Int) -> Boolean {
+        val dd = dictionary?.getDataDictionary()
+        val transport = dictionary?.getTransportDictionary()
+        val standard = dictionary?.let { it.getHeaderTags() + it.getTrailerTags() }.orEmpty()
+        return { tag ->
+            tag in standard ||
+                dd?.isHeaderField(tag) == true ||
+                dd?.isTrailerField(tag) == true ||
+                transport?.isHeaderField(tag) == true ||
+                transport?.isTrailerField(tag) == true
+        }
     }
 
     /** The tag numbers a QuickFIX complaint names, e.g. "…, field=200" → {200}. */

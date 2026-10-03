@@ -2,7 +2,10 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -44,6 +47,50 @@ class DictionaryLintTest {
         val fields = listOf(8 to "FIX.4.4", 9 to "100", 35 to "R", 34 to "2", 49 to "A", 56 to "B", 131 to "QR-1", 10 to "000")
         assertEquals(emptyList(), DictionaryLint.unknownTags(fields, dictionary))
     }
+
+    /**
+     * A FIX 5.0 application dictionary has an empty `<header/>` and `<trailer/>`: the session fields live in
+     * the FIXT transport dictionary. Asking only the application dictionary called every one of them "not
+     * defined", on every send.
+     */
+    @Test
+    fun `header and trailer tags are never flagged on FIX 5 either`() {
+        val raw =
+            "8=FIXT.1.1|9=80|35=D|49=C|56=V|34=2|52=20260928-10:00:00|1128=9|11=ORD-1|55=IBM|54=1|38=100|40=1|" +
+                "60=20260928-10:00:00|10=000|"
+        val fields = FixMessageHelper.parseFixMessage(raw)
+
+        assertEquals(emptyList(), DictionaryLint.unknownTags(fields, FixDictionaryAdapter.forVersion(FixVersion.FIX_5_0_SP2)))
+    }
+
+    /** A venue's own header field, declared in its FIXT file, is a header field to the lint and to the builder. */
+    @Test
+    fun `a header field the transport dictionary declares is neither flagged nor built into the body`() {
+        val dir = Files.createTempDirectory("fixtool-lint-fixt").toFile()
+        try {
+            val app = File(dir, "FIX50SP2.xml").apply { writeText(resource("FIX50SP2.xml")) }
+            val transport =
+                File(dir, "FIXT11.xml").apply {
+                    writeText(
+                        resource("FIXT11.xml")
+                            .replaceFirst("  </header>", "    <field name=\"VenueRoute\" required=\"N\"/>\n  </header>")
+                            .replaceFirst("  </fields>", "    <field number=\"9999\" name=\"VenueRoute\" type=\"STRING\"/>\n  </fields>"),
+                    )
+                }
+            val venue = FixDictionaryAdapter.fromFiles(app, transport)
+            val raw = "35=D|9999=DESK-7|11=ORD-1|55=IBM|54=1|38=100|40=1|60=20260928-10:00:00|"
+
+            assertEquals(emptyList(), DictionaryLint.unknownTags(FixMessageHelper.parseFixMessage(raw), venue))
+            val message = raw.toQuickFixMessageManual(venue)
+            assertEquals("DESK-7", message.header.getString(9999), "the venue's header field goes in the header")
+            assertFalse(message.isSetField(9999), "and not in the body")
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    private fun resource(name: String): String =
+        javaClass.getResourceAsStream("/dictionaries/$name")!!.use { it.reader().readText() }
 
     @Test
     fun `no dictionary or unknown message type stays silent`() {

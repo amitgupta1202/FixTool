@@ -59,13 +59,17 @@ object FixMessageHelper {
         // sections — venue dialects add custom fields there (a routing tag, a desk id), and the static
         // list alone put such a field in the body: the wire changed, the venue answered "tag specified
         // out of required order", and Validate — reading the same dictionary — saw nothing wrong. Send
-        // and Validate must describe the same message.
+        // and Validate must describe the same message. For FIX 5.0 those sections are in the FIXT
+        // transport dictionary, because the application dictionary's header and trailer are empty.
         val headerTags = FixVersion.getHeaderTags(fixVersion)
         val trailerTags = FixVersion.getTrailerTags(fixVersion)
+        val transport = adapter?.getTransportDictionary()
 
-        fun isHeader(tag: Int) = tag in headerTags || dataDictionary.isHeaderField(tag)
+        fun isHeader(tag: Int) =
+            tag in headerTags || dataDictionary.isHeaderField(tag) || transport?.isHeaderField(tag) == true
 
-        fun isTrailer(tag: Int) = tag in trailerTags || dataDictionary.isTrailerField(tag)
+        fun isTrailer(tag: Int) =
+            tag in trailerTags || dataDictionary.isTrailerField(tag) || transport?.isTrailerField(tag) == true
 
         // Process header fields
         fields.filter { isHeader(it.first) }.forEach { (tag, value) ->

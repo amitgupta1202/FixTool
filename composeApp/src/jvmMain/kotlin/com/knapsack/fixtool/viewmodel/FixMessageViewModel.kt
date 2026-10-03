@@ -5739,10 +5739,12 @@ class FixMessageViewModel(
     }
 
     fun saveAppSettings(settings: AppSettings) {
+        val before = _appSettings.value
         _appSettings.value = settings
         if (!settingsService.saveSettings(settings)) {
             logger.error("Failed to save application settings")
         }
+        rebuildMovedStores(before, settings)
         // A cap edited while a venue is up has to reach that venue. The alternative — apply on the
         // next connection — would mean the setting is unusable in the one situation it exists for: a
         // soak run that has just proved the book too small, where reconnecting costs the state being
@@ -5754,6 +5756,30 @@ class FixMessageViewModel(
         validateDataDictionary()
         // Start/stop the automation control server to match the new setting
         automationControlHook?.invoke(settings.automationControlEnabled, settings.automationControlPort)
+    }
+
+    /**
+     * Rebuilds and reloads each store whose legacy path override changed between [before] and [after], the
+     * way [rereadWorkspace] does for a switch.
+     *
+     * A store reads its override once, when it is built. So Clear in Settings > Storage changed the setting and
+     * nothing else until a restart: the rail kept listing the override directory, and new captures kept
+     * landing in it.
+     */
+    private fun rebuildMovedStores(before: AppSettings, after: AppSettings) {
+        val profilesMoved = before.connectionProfilesPath != after.connectionProfilesPath
+        val messagesMoved = before.savedMessagesPath != after.savedMessagesPath
+        if (profilesMoved) {
+            profileStore.reset()
+            loadConnectionProfiles()
+        }
+        if (messagesMoved) savedMessagesStore.reset()
+        // Templates are listed by profile, so a profile store that moved changes which of them are listed too.
+        if (profilesMoved || messagesMoved) loadSavedMessagesForActiveSession()
+        if (before.scenariosPath != after.scenariosPath) {
+            scenarioStore.reset()
+            refreshScenarios()
+        }
     }
 
     /**

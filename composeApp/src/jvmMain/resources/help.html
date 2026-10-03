@@ -2926,7 +2926,7 @@ ${incoming["D"].valueOfTag(38)}
         <tr><td><strong>Tags</strong></td><td><strong>Grid view columns</strong>, and <strong>Protocol tags</strong> &mdash; the ones the engine owns rather than you.</td></tr>
         <tr><td><strong>Appearance</strong></td><td><strong>Message colours</strong>, <strong>Default view mode</strong> (grid/terminal), <strong>Default layout</strong>.</td></tr>
         <tr><td><strong>Sessions</strong></td><td><strong>Message buffer</strong> (how many messages a session retains), <strong>Order book</strong> (how many orders a venue still remembers &mdash; see below), <strong>Auto-sync session to editor</strong>.</td></tr>
-        <tr><td><strong>Storage</strong></td><td><strong>Connection profiles</strong>, <strong>Saved messages</strong>, <strong>Scenarios</strong> &mdash; where each is written. All three apply on restart. <strong>Run records</strong> &mdash; <strong>Messages per run record</strong> and <strong>Run sets kept</strong>.</td></tr>
+        <tr><td><strong>Storage</strong></td><td><strong>Connection profiles</strong>, <strong>Saved messages</strong>, <strong>Scenarios</strong> &mdash; where each is written. All three apply when Settings is saved. <strong>Run records</strong> &mdash; <strong>Messages per run record</strong> and <strong>Run sets kept</strong>.</td></tr>
         <tr><td><strong>Latency</strong></td><td>Round-trip measurement &mdash; see <a href="#latency">10. Latency Measurement</a>. Stamped at the socket, so there is nothing to configure beyond the tags and thresholds.</td></tr>
         <tr><td><strong>Developer</strong></td><td>The loopback control server &mdash; see <a href="#automation">11. Automation &amp; AI Control</a>.</td></tr>
     </table>
@@ -2984,7 +2984,8 @@ ${incoming["D"].valueOfTag(38)}
     <h3>Storage</h3>
     <p>Where connection profiles, saved messages and scenarios are written. Point them at a checked-out
     directory to version-control your profiles and scenarios, or to share them across machines.
-    <strong>All three take effect on restart.</strong></p>
+    <strong>All three take effect when Settings is saved</strong>, so clearing one hands that store back to
+    the workspace at once.</p>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 

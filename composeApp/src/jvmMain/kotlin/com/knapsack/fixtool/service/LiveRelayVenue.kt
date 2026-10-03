@@ -68,6 +68,9 @@ internal class LiveRelayVenue(
      * on the caller's thread, because a second lift is already queued behind this one on the engine's single thread
      * and must read `done`. The caller schedules the sends only after this returns. See
      * `docs/rfq-relay-impl-plan.md`, decisions R2 and R3.
+     *
+     * The trade is decided from the whole resolution, the quoter reached or not. A quoter that has logged off is
+     * not delivered to, but the requester is still filled, so the RFQ has traded all the same.
      */
     @Suppress("LongParameterList") // the planner's own inputs, passed through
     fun plan(
@@ -82,7 +85,8 @@ internal class LiveRelayVenue(
         val trigger = trigger(sessionId, incoming)
         val plan = AcceptorResponder.planRelay(rule, incoming, request, dictionary, this, trigger, quote, order)
         val rfqId = trigger.rfqId ?: return trigger to plan
-        val quoter = plan.sends.firstOrNull { it.to?.address == StepAddress.Quoter }?.to
+        val reached = plan.sends.mapNotNull { it.to } + plan.notDelivered.map { (_, recipient) -> recipient }
+        val quoter = reached.firstOrNull { it.address == StepAddress.Quoter }
         if (quoter != null && rule.booksATrade()) book.decideTrade(rfqId, quoter.sessionKey, trigger.fields[TAG_SIDE])
         plan.notDelivered.forEach { (_, recipient) -> book.notDelivered(rfqId, recipient.sessionKey, recipient.compId) }
         if (plan.nobody.isNotEmpty()) {

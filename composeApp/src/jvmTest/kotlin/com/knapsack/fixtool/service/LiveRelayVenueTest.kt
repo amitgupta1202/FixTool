@@ -1,10 +1,12 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.Counterparty
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.PartyRole
 import com.knapsack.fixtool.model.RelayRef
 import com.knapsack.fixtool.model.RfqConstraint
 import com.knapsack.fixtool.model.RfqLife
+import com.knapsack.fixtool.model.StepAddress
 import com.knapsack.fixtool.model.scenario.Matcher
 import org.junit.Test
 import quickfix.SessionID
@@ -120,5 +122,34 @@ class LiveRelayVenueTest {
         )
         now += 120_000
         assertNull(book.expire(rfqId), "a traded RFQ never expires, so the buy side is never told it did")
+    }
+
+    // ------------------------------------------------------------------ who an address reaches
+
+    /**
+     * A responder family can have members carved out of it, by an exact entry or a longer prefix, and the carve-out
+     * decides their role everywhere else. Counted as responders here anyway, a requester carved out of `FIDLR*` was
+     * relayed its own RFQ.
+     */
+    @Test
+    fun `the responders are the sessions whose role is responder, not every session a responder family covers`() {
+        val carved =
+            listOf(
+                Counterparty("FIDLR*", PartyRole.RESPONDER.word),
+                Counterparty("FIDLR9", PartyRole.REQUESTER.word),
+                Counterparty("FIDLRX*", PartyRole.REQUESTER.word),
+            )
+        val platform = LiveRelayVenue(book, counterparties = { carved }, isLoggedOn = { true }, clock = { now })
+        val sessions = listOf("FIDLR1", "FIDLR9", "FIDLRX1").map { SessionID("FIX.4.4", "FIRFQ_VENUE", it) }
+        sessions.forEach(platform::created)
+        val asker = sessions[1]
+        val trigger = RelayTrigger(asker, asker.toString(), asker.targetCompID, "R", emptyMap(), rfqId = null)
+
+        // Named as a rule names it. Reaching for StepAddress.Responders before anything has read the vocabulary
+        // initialises it with a null in place of that address, for every test after this one.
+        val reached = platform.resolve(StepAddress.parse("responders")!!, trigger)
+
+        assertEquals(listOf("FIDLR1"), reached.recipients.map { it.compId }, "FIDLR9 and FIDLRX1 are requesters")
+        assertTrue(reached.notDelivered.isEmpty())
     }
 }

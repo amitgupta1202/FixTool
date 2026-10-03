@@ -242,11 +242,16 @@ internal class LiveRelayVenue(
         return best?.let { it.first to it.second }
     }
 
-    /** Declared responders: exact CompIDs whether or not they are on, and any live session a family covers. */
+    /**
+     * Declared responders: exact CompIDs whether or not they are on, and any live session a family covers. Judged by
+     * [roleOf], so a member carved out of a responder family by an exact entry or a longer prefix is not one.
+     */
     private fun responders(address: StepAddress): Resolution {
-        val declared = counterparties().filter { PartyRole.byWord(it.role) == PartyRole.RESPONDER }
-        val exact = declared.filterNot { it.isPrefix }.map { it.compId }
-        val family = sessions.keys.filter { id -> id !in exact && declared.any { it.isPrefix && it.covers(id) } }
+        val declared = counterparties()
+
+        fun responder(compId: String) = roleOf(declared, compId) == PartyRole.RESPONDER
+        val exact = declared.filter { !it.isPrefix && responder(it.compId) }.map { it.compId }
+        val family = sessions.keys.filter { id -> id !in exact && responder(id) }
         val online = family.filter { compId -> sessions[compId]?.let(isLoggedOn) == true }
         return reach(exact + online, address)
     }

@@ -104,11 +104,16 @@ internal class DryRunVenue(
         return if (requester in rfq.online) Resolution(recipients) else Resolution(notDelivered = recipients)
     }
 
-    /** Declared responders named exactly, and the online members of a declared responder family. */
+    /**
+     * Declared responders named exactly, and the online members of a declared responder family. Judged by [roleOf],
+     * as the running venue judges them, so a member carved out of a family is not one.
+     */
     private fun responders(): List<String> {
-        val declared = counterparties.filter { PartyRole.byWord(it.role) == PartyRole.RESPONDER }
-        val exact = declared.filterNot { it.isPrefix }.map { it.compId }
-        val family = rfq.online.filter { compId -> declared.any { it.isPrefix && it.covers(compId) } }
+        val exact =
+            counterparties
+                .filter { !it.isPrefix && roleOf(counterparties, it.compId) == PartyRole.RESPONDER }
+                .map { it.compId }
+        val family = rfq.online.filter { compId -> roleOf(counterparties, compId) == PartyRole.RESPONDER }
         return exact + family
     }
 

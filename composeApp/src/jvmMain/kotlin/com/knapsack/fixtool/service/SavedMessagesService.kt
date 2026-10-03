@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.util.NotifyingLogger
+import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -43,6 +44,9 @@ class SavedMessagesService(
             WorkspacePaths.current.savedMessages
         }
 
+    /** A messages file that could not be read is not saved over. See [UnreadableFileGuard]. */
+    private val guard = UnreadableFileGuard(savedMessagesFile)
+
     init {
         // Ensure directory exists
         savedMessagesFile.parentFile?.mkdirs()
@@ -60,6 +64,7 @@ class SavedMessagesService(
     private fun loadAll(): SavedMessagesContainer =
         synchronized(fileLock) {
             if (!savedMessagesFile.exists()) {
+                guard.read(succeeded = true)
                 return SavedMessagesContainer()
             }
 
@@ -67,6 +72,7 @@ class SavedMessagesService(
                 // Read file content
                 val content = savedMessagesFile.readText()
                 val container = json.decodeFromString<SavedMessagesContainer>(content)
+                guard.read(succeeded = true)
 
                 // Check if migration is needed
                 if (container.version < CURRENT_VERSION) {
@@ -79,6 +85,7 @@ class SavedMessagesService(
 
                 return container
             } catch (e: Exception) {
+                guard.read(succeeded = false)
                 val errorMsg = "Failed to load saved messages: ${e.message}"
                 logger.error(errorMsg, e, notifyUser = true)
                 return SavedMessagesContainer()
@@ -106,10 +113,18 @@ class SavedMessagesService(
 
     /**
      * Saves all messages to disk with thread-safe locking
+     *
+     * Refused while the file is one the last load could not read, because [container] is then built on the
+     * empty one that load answered with. The user is told which file and why.
+     *
      * @return true if save succeeded, false if failed
      */
     private fun saveAll(container: SavedMessagesContainer): Boolean =
         synchronized(fileLock) {
+            guard.refusal()?.let { why ->
+                logger.error(why, notifyUser = true)
+                return false
+            }
             try {
                 // Ensure parent directory exists
                 savedMessagesFile.parentFile?.mkdirs()

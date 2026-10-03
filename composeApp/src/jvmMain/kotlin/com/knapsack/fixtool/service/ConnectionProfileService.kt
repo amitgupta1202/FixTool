@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.util.NotifyingLogger
+import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -38,6 +39,9 @@ class ConnectionProfileService(
      */
     private val secrets = ProfileSecrets(File(profilesFile.parentFile ?: File("."), "secrets.json"))
 
+    /** A profiles file that could not be read is not saved over. See [UnreadableFileGuard]. */
+    private val guard = UnreadableFileGuard(profilesFile)
+
     init {
         // Ensure directory exists
         profilesFile.parentFile?.mkdirs()
@@ -54,10 +58,12 @@ class ConnectionProfileService(
     fun loadProfiles(): List<FixConnectionProfile> =
         try {
             if (!profilesFile.exists()) {
+                guard.read(succeeded = true)
                 emptyList()
             } else {
                 val content = profilesFile.readText()
                 val container = json.decodeFromString<ProfilesContainer>(content)
+                guard.read(succeeded = true)
                 val profiles = secrets.applyTo(container.profiles)
                 // A file written before the split still has its passwords inline. Rewriting it here
                 // rather than waiting for the next save means the credential stops being in the
@@ -69,6 +75,7 @@ class ConnectionProfileService(
                 profiles
             }
         } catch (e: Exception) {
+            guard.read(succeeded = false)
             val errorMsg = "Failed to load connection profiles: ${e.message}"
             logger.error(errorMsg, e, notifyUser = true)
             emptyList()
@@ -76,10 +83,18 @@ class ConnectionProfileService(
 
     /**
      * Saves profiles to disk
+     *
+     * Refused while the profiles file is one the last load could not read, because [profiles] is then built on
+     * the empty list that load answered with. The user is told which file and why.
+     *
      * @return true if save succeeded, false if failed
      */
-    fun saveProfiles(profiles: List<FixConnectionProfile>): Boolean =
-        try {
+    fun saveProfiles(profiles: List<FixConnectionProfile>): Boolean {
+        guard.refusal()?.let { why ->
+            logger.error(why, notifyUser = true)
+            return false
+        }
+        return try {
             val container = ProfilesContainer(secrets.extractFrom(profiles))
             val content = json.encodeToString(container)
             profilesFile.writeText(content)
@@ -89,6 +104,7 @@ class ConnectionProfileService(
             logger.error(errorMsg, e, notifyUser = true)
             false
         }
+    }
 
     /**
      * Saves a profile (creates new or updates existing)
@@ -117,8 +133,9 @@ class ConnectionProfileService(
      */
     fun deleteProfile(profileId: String): Result<List<FixConnectionProfile>> {
         val profiles = loadProfiles().filterNot { it.id == profileId }
-        secrets.forget(profileId)
+        // Forgotten only once the profile is gone, so a refused or failed save does not leave it without its password.
         return if (saveProfiles(profiles)) {
+            secrets.forget(profileId)
             Result.success(profiles)
         } else {
             Result.failure(java.io.IOException("Failed to delete profile"))

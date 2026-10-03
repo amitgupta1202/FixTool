@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
@@ -29,6 +30,9 @@ class ProfileSecrets(
 ) {
     private val logger = LoggerFactory.getLogger(ProfileSecrets::class.java)
 
+    /** A secrets file that could not be read is not saved over. See [UnreadableFileGuard]. */
+    private val guard = UnreadableFileGuard(file)
+
     private val json =
         Json {
             prettyPrint = true
@@ -42,17 +46,25 @@ class ProfileSecrets(
 
     private fun read(): Secrets =
         try {
-            if (file.exists()) json.decodeFromString<Secrets>(file.readText()) else Secrets()
+            (if (file.exists()) json.decodeFromString<Secrets>(file.readText()) else Secrets())
+                .also { guard.read(succeeded = true) }
         } catch (e: IOException) {
+            guard.read(succeeded = false)
             logger.error("Could not read ${file.name}; treating it as empty", e)
             Secrets()
         } catch (e: SerializationException) {
+            guard.read(succeeded = false)
             logger.error("${file.name} is not readable JSON; treating it as empty", e)
             Secrets()
         }
 
-    private fun write(secrets: Secrets): Boolean =
-        try {
+    /** False when nothing was written, including when [guard] refuses because the last read failed. */
+    private fun write(secrets: Secrets): Boolean {
+        guard.refusal()?.let { why ->
+            logger.error(why)
+            return false
+        }
+        return try {
             file.parentFile?.mkdirs()
             file.writeText(json.encodeToString(secrets))
             true
@@ -63,6 +75,7 @@ class ProfileSecrets(
             logger.error("Could not serialise ${file.name}", e)
             false
         }
+    }
 
     /** Puts each profile's password back on it, for the app to use as it always has. */
     fun applyTo(profiles: List<FixConnectionProfile>): List<FixConnectionProfile> {
@@ -88,6 +101,10 @@ class ProfileSecrets(
      * Only the profiles given are touched. A password for an id that is not in the list is left
      * alone, because saving one profile must not forget another's — and `saveProfile` reaches here
      * through a full list, while a caller in the future might not.
+     *
+     * Throws when the passwords could not be recorded, so the profiles are not written without them and a
+     * new password is not lost. That includes a secrets file the read above could not make sense of: what it
+     * answered is empty, and writing that back would forget every password in the file.
      */
     fun extractFrom(profiles: List<FixConnectionProfile>): List<FixConnectionProfile> {
         val existing = read().passwords
@@ -100,8 +117,8 @@ class ProfileSecrets(
                 updated[profile.id] = password
             }
         }
-        if (updated != existing) {
-            write(Secrets(updated))
+        if (updated != existing && !write(Secrets(updated))) {
+            throw IOException(guard.refusal() ?: "could not write ${file.name}")
         }
         return profiles.map { it.copy(config = it.config.copy(password = "")) }
     }

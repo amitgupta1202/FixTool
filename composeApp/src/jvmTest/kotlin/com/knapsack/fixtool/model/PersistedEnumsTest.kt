@@ -7,8 +7,9 @@ import kotlin.test.assertEquals
  * **The enums a profile carries on disk, pinned value for value.**
  *
  * Adding a value to one of these is not a local change. An older FixTool reading a profile that uses the new
- * value fails to decode it, `ConnectionProfileService.loadProfiles()` returns an empty list, and that build's
- * next save writes a single profile over the whole file. So a failure here is not "update the list": it is
+ * value fails to decode it, and `ConnectionProfileService.loadProfiles()` returns an empty list. A build from before
+ * `UnreadableFileGuard` then wrote a single profile over the whole file on its next save, and a later one refuses to
+ * save any profile until the file reads again. So a failure here is not "update the list": it is
  * "carry the new word as a string instead", the way `StepAddress`, `SenderRole` and `RfqConstraint` are.
  * See `docs/rfq-relay-impl-plan.md`, fact 2.
  */

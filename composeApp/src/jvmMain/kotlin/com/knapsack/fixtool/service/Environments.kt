@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.util.UnreadableFileGuard
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
@@ -23,6 +24,9 @@ class Environments(
 ) {
     private val logger = LoggerFactory.getLogger(Environments::class.java)
 
+    /** An environments file that could not be read is not saved over. See [UnreadableFileGuard]. */
+    private val guard = UnreadableFileGuard(file)
+
     private val json =
         Json {
             prettyPrint = true
@@ -36,17 +40,25 @@ class Environments(
 
     fun load(): List<Environment> =
         try {
-            if (file.exists()) json.decodeFromString<Container>(file.readText()).environments else emptyList()
+            (if (file.exists()) json.decodeFromString<Container>(file.readText()).environments else emptyList())
+                .also { guard.read(succeeded = true) }
         } catch (e: IOException) {
+            guard.read(succeeded = false)
             logger.error("Could not read ${file.name}", e)
             emptyList()
         } catch (e: SerializationException) {
+            guard.read(succeeded = false)
             logger.error("${file.name} is not readable JSON", e)
             emptyList()
         }
 
-    fun save(environments: List<Environment>): Boolean =
-        try {
+    /** False when nothing was written, including while the last [load] could not read the file. */
+    fun save(environments: List<Environment>): Boolean {
+        guard.refusal()?.let { why ->
+            logger.error(why)
+            return false
+        }
+        return try {
             file.parentFile?.mkdirs()
             val ordered = environments.sortedBy { it.name.lowercase() }
             file.writeText(json.encodeToString(Container(ordered)))
@@ -58,6 +70,7 @@ class Environments(
             logger.error("Could not serialise ${file.name}", e)
             false
         }
+    }
 
     companion object {
         /**

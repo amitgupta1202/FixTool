@@ -2757,10 +2757,7 @@ class ControlServer(
         val outcome =
             onEdt {
                 when (action) {
-                    "stop" -> {
-                        viewModel.closeWorkspace()
-                        Result.success(viewModel.openWorkspace)
-                    }
+                    "stop" -> viewModel.closeWorkspace()
                     else -> viewModel.openExample(ExampleWorkspaces.FX_VENUE)
                 }
             }
@@ -2789,7 +2786,8 @@ class ControlServer(
             // MCP calls arrive as POST even for the documented no-argument read.
             // Closing the workspace requires an explicitly supplied empty path.
             if (requested.isBlank()) {
-                onEdt { viewModel.closeWorkspace() }
+                val closed = onEdt { viewModel.closeWorkspace() }
+                closed.exceptionOrNull()?.let { return errorObject("could not close the workspace: ${it.message}") }
             } else {
                 val opened = onEdt { viewModel.openWorkspace(File(requested)) }
                 opened.exceptionOrNull()?.let { return errorObject("could not open '$requested': ${it.message}") }

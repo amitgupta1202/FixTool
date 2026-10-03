@@ -1674,6 +1674,11 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     <p>What does <em>not</em> move with a workspace is anything belonging to the person at the keyboard:
     the window layout, the rail's sort order and everything in Settings. Opening a
     second workspace gives you other profiles and other scenarios, not a fresh install.</p>
+    <p><strong>A workspace cannot change while a run holds sessions.</strong> Opening, closing or resetting
+    one takes every session down and points every store at another folder, so a run set halfway through
+    would load the rest of its scenarios from the new workspace and write its records there. FixTool
+    refuses instead and names the run (<em>A run set is running. Stop it first.</em>). Stop it, then
+    switch.</p>
     <p><strong>The data dictionary moves only when a workspace names one.</strong> A dictionary decides
     where each repeating group starts, so it decides the order a venue's fields arrive in, and a
     scenario's rows are written in that order. Read in a different dictionary, the same scenario fails on

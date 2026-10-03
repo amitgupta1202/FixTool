@@ -3207,7 +3207,9 @@ class FixMessageViewModel(
         val touched: RunSessions.Touched,
         val label: String,
         /** The run set this claim is for, so `/stop` can aim at one of several runs. */
-        val setId: String? = null,
+        val setId: String?,
+        /** What is holding the sessions, as a refusal names it: "A scenario run", "A run set", "A load run". */
+        val kind: String,
         val stop: java.util.concurrent.atomic.AtomicBoolean =
             java.util.concurrent.atomic
                 .AtomicBoolean(false),
@@ -3254,13 +3256,18 @@ class FixMessageViewModel(
      * silently agreeing they are disjoint while driving the same session.
      */
     @Synchronized
-    private fun claimSessions(touched: RunSessions.Touched, label: String, setId: String? = null): RunClaim? {
+    private fun claimSessions(
+        touched: RunSessions.Touched,
+        label: String,
+        setId: String? = null,
+        kind: String = if (setId == null) "A scenario run" else "A run set",
+    ): RunClaim? {
         val blocker = claims.firstOrNull { held -> RunSessions.conflict(held.touched, touched, ::claimKey) }
         if (blocker != null) {
             busyReason = describeClash(blocker, touched)
             return null
         }
-        val claim = RunClaim(touched, label, setId)
+        val claim = RunClaim(touched, label, setId, kind)
         claims += claim
         refreshClaims()
         return claim
@@ -4382,7 +4389,7 @@ class FixMessageViewModel(
         val touched = RunSessions.Touched(sessions = pre.titles)
         val reserved = plan.copy(id = loadRecordStore.reserve(plan.id))
         val claim =
-            claimSessions(touched, reserved.label, reserved.id) ?: run {
+            claimSessions(touched, reserved.label, reserved.id, kind = "A load run") ?: run {
                 showNotification(runBusyReason(), NotificationType.ERROR)
                 return null
             }
@@ -4655,7 +4662,7 @@ class FixMessageViewModel(
         pre.shortfalls.forEach { showNotification(it, NotificationType.WARNING) }
         val reserved = planned.copy(id = loadRecordStore.reserve(planned.id))
         val claim =
-            claimSessions(RunSessions.Touched(sessions = pre.titles), reserved.label, reserved.id) ?: run {
+            claimSessions(RunSessions.Touched(pre.titles), reserved.label, reserved.id, kind = "A load set") ?: run {
                 showNotification(runBusyReason(), NotificationType.ERROR)
                 return null
             }
@@ -5431,15 +5438,16 @@ class FixMessageViewModel(
         creatingWorkspace = false
     }
 
-    /** Creates an empty workspace and opens it. */
+    /** Creates an empty workspace and opens it. Refused before anything is made, while a switch would be. */
     fun createWorkspace(
         name: String,
         location: File,
     ): Result<File> =
-        ExampleWorkspaces
-            .createEmpty(name, location)
-            .onFailure { showNotification("Could not create the workspace: ${it.message}", NotificationType.ERROR) }
-            .mapCatching { created -> openWorkspace(created).getOrThrow() }
+        refuseWorkspaceSwitch()
+            ?: ExampleWorkspaces
+                .createEmpty(name, location)
+                .onFailure { showNotification("Could not create the workspace: ${it.message}", NotificationType.ERROR) }
+                .mapCatching { created -> openWorkspace(created).getOrThrow() }
 
     /**
      * What a session in this workspace will actually speak, and where that is decided.
@@ -5515,18 +5523,19 @@ class FixMessageViewModel(
      *
      * Sessions come down first and are not brought back up. They were logged on against the previous
      * workspace's profiles, and a pane whose profile no longer exists is one nothing can explain.
+     *
+     * Refused while a run holds sessions: see [workspaceSwitchRefusal].
      */
+    @Suppress("ReturnCount") // One guard per reason the folder cannot be opened, each with its own answer.
     fun openWorkspace(directory: File): Result<File> {
         if (!directory.isDirectory) {
             return Result.failure(IllegalArgumentException("'${directory.absolutePath}' is not a directory"))
         }
+        refuseWorkspaceSwitch()?.let { return it }
         // Browsing to the installation's own directory is not opening a workspace called `.fixtool`,
         // it is asking for Default — which is what Close means. Recorded nowhere, because Default is
         // never something that needs offering back to you.
-        if (isHome(directory)) {
-            closeWorkspace()
-            return Result.success(WorkspacePaths.home.root)
-        }
+        if (isHome(directory)) return closeWorkspace()
         logger.info("Opening workspace {}", directory.absolutePath)
         closeAllSessions()
         WorkspacePaths.open(directory.absolutePath)
@@ -5557,9 +5566,14 @@ class FixMessageViewModel(
         runCatching { directory.canonicalFile == WorkspacePaths.home.root.canonicalFile }
             .getOrElse { directory.absoluteFile == WorkspacePaths.home.root.absoluteFile }
 
-    /** Goes back to keeping project data in the installation's own directory. */
-    fun closeWorkspace() {
-        if (openWorkspaceIsHome) return
+    /**
+     * Goes back to keeping project data in the installation's own directory, and answers with it.
+     *
+     * Refused while a run holds sessions, as opening one is: see [workspaceSwitchRefusal].
+     */
+    fun closeWorkspace(): Result<File> {
+        if (openWorkspaceIsHome) return Result.success(WorkspacePaths.home.root)
+        refuseWorkspaceSwitch()?.let { return it }
         logger.info("Closing workspace, back to {}", WorkspacePaths.home.root.absolutePath)
         closeAllSessions()
         WorkspacePaths.open(null)
@@ -5567,6 +5581,24 @@ class FixMessageViewModel(
         rereadWorkspace()
         updateLayout { it.copy(openWorkspace = "") }
         showNotification("Workspace closed", NotificationType.INFO)
+        return Result.success(WorkspacePaths.home.root)
+    }
+
+    /**
+     * Why the open workspace cannot change now, or null when it can.
+     *
+     * A run holds its sessions, reads its scenarios and profiles from the workspace it started in, and writes
+     * its records there. A switch under it tore those sessions down and pointed every store at the new
+     * folder, so the rest of a run set ran the new workspace's scenarios and filed its records beside them.
+     * Worded as Close all words a live load run, so a menu and `POST /workspace` give the same answer.
+     */
+    private fun workspaceSwitchRefusal(): String? = claims.firstOrNull()?.let { "${it.kind} is running. Stop it first." }
+
+    /** The refusal, said and returned as the failure, or null when the switch may go ahead. */
+    private fun refuseWorkspaceSwitch(): Result<File>? {
+        val reason = workspaceSwitchRefusal() ?: return null
+        showNotification(reason, NotificationType.ERROR)
+        return Result.failure(IllegalStateException(reason))
     }
 
     /**
@@ -5584,6 +5616,8 @@ class FixMessageViewModel(
         val example =
             ExampleWorkspaces.byId(exampleId)
                 ?: return Result.failure(IllegalArgumentException("no bundled example '$exampleId'"))
+        // Before the copy, so a refused open leaves nothing behind on disk.
+        refuseWorkspaceSwitch()?.let { return it }
         val location = ExampleWorkspaces.defaultLocation()
         val copied = ExampleWorkspaces.open(exampleId, example.defaultWorkspaceName, location)
         copied.exceptionOrNull()?.let {
@@ -5603,13 +5637,15 @@ class FixMessageViewModel(
      * [ExampleWorkspaces.resetTo]. The notification names where it went, because a reset that does not
      * say what it did to your work is not a reset anyone should trust.
      */
+    @Suppress("ReturnCount") // One guard per reason the reset cannot go ahead, each with its own answer.
     fun resetOpenExample(): Result<File> {
         val example =
             openWorkspaceExample()
                 ?: return Result.failure(IllegalStateException("the open workspace is not a copy of a bundled example"))
         // Taken before closing, because closing changes what the open workspace is.
         val target = openWorkspace
-        closeWorkspace()
+        // A refused close comes before the copy is put aside, so a refused reset leaves it where it was.
+        closeWorkspace().onFailure { return Result.failure(it) }
         val reset = ExampleReset.run(example.id, target)
         reset.exceptionOrNull()?.let {
             showNotification("Could not reset ${example.displayName}: ${it.message}", NotificationType.ERROR)

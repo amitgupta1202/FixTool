@@ -315,6 +315,39 @@ class AcceptorRulesEditorActionsTest {
     }
 
     /**
+     * The open cards are kept by position, so a preset inserted above an open card used to leave its slot open
+     * with the preset in it, and the rule that had been open moved down a slot, closed.
+     */
+    @Test
+    fun `a preset inserted above an open card does not open the preset in its place`() {
+        val start =
+            listOf("D", "F", "G").map { AcceptorResponseRule(whenMsgType = it, steps = listOf(ResponseStep("35=8"))) }
+        var latest = start
+        composeTestRule.setContent {
+            var rules by remember { mutableStateOf(start) }
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(
+                    rules = rules,
+                    onRulesChange = {
+                        rules = it
+                        latest = it
+                    },
+                )
+            }
+        }
+
+        openRule(1)
+        composeTestRule.onNodeWithTag("rule-digest-1").assertDoesNotExist()
+        // Conditioned on the book, so it has to go above the unconditioned 35=F rule to ever fire: into slot 1.
+        composeTestRule.onNodeWithText("+ preset").performClick()
+        composeTestRule.onNodeWithText("Cancel rejected — unknown order").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(OrderConstraint.UNKNOWN, latest[1].whenOrder, "the preset went into the open slot")
+        composeTestRule.onNodeWithTag("rule-digest-1").assertExists()
+    }
+
+    /**
      * On the **closed** card, which is the point: nothing is opened here first. A rule that can never
      * fire looks perfectly configured and produces nothing at run time, so the one place that says so
      * cannot be behind a fold — a reader scrolling twenty-one closed cards has to be able to see it.

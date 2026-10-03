@@ -176,10 +176,10 @@ private fun AcceptorRulesEditorContent(
             onRulesChange(updated)
         }
 
-        // A move or a delete renumbers every rule below it, and these are positions — so the honest
-        // thing is to drop them all rather than leave a card that was open showing its neighbour's
-        // fields. Only these two: routing an ordinary edit through here would close the card being
-        // typed into on every keystroke.
+        // A move, a delete or a preset inserted above renumbers every rule below it, and these are
+        // positions, so the honest thing is to drop them all rather than leave a card that was open
+        // showing its neighbour's fields. Only these three: routing an ordinary edit through here would
+        // close the card being typed into on every keystroke.
         fun structuralEdit(updated: List<AcceptorResponseRule>) {
             expanded = emptySet()
             edit(updated)
@@ -187,7 +187,7 @@ private fun AcceptorRulesEditorContent(
 
         fun add(preset: AcceptorPreset) {
             val insertion = AcceptorPresets.insert(rules, preset)
-            onRulesChange(insertion.rules)
+            structuralEdit(insertion.rules)
             placement = insertion.note?.let { insertion.index to it }
         }
 

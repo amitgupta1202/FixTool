@@ -562,13 +562,16 @@ class QuickFixService(
      * announcement — because the Logon that caused it is already on its way to [fromAdmin] and pane
      * creation has a UI thread to reach first. A channel that does not exist yet buffers; a channel
      * that is created late loses the Logon, which is the one message a reader most often wants.
+     *
+     * A channel is also created for a client whose pane was closed while it stayed logged on, at its next
+     * message. That channel starts logged on, because nothing will log the session on a second time.
      */
     private fun channelFor(sessionId: SessionID): ClientChannel {
         var arrived = false
         val channel =
             channels.computeIfAbsent(sessionId) {
                 arrived = true
-                ClientChannel()
+                ClientChannel(if (Session.lookupSession(it)?.isLoggedOn == true) LOGGED_ON else CONNECTING)
             }
         if (arrived) {
             logger.info("Client session on venue {}: {}", config.senderCompID, sessionId)
@@ -1380,8 +1383,14 @@ class QuickFixService(
      * existing, while creating the pane has a UI thread to get to first. The lock is held only long
      * enough to decide *where* a message goes, never while delivering it, so a slow pane cannot stall
      * the engine's callback thread.
+     *
+     * A state is the exception, and is delivered under the lock. A pane's state sink only sets a value,
+     * and states mean something only in order. Delivered outside the lock, a Logged on that landed while
+     * [attach] was passing on the state it had read was overwritten by that older one.
      */
-    private class ClientChannel {
+    private class ClientChannel(
+        initialState: FixConnectionState = CONNECTING,
+    ) {
         private val lock = Any()
         private var messages: ((FixMessage) -> Unit)? = null
         private var states: ((FixConnectionState) -> Unit)? = null
@@ -1390,7 +1399,7 @@ class QuickFixService(
         @Volatile
         private var stamps: ((SocketStamp) -> Unit)? = null
         private val buffered = ArrayDeque<FixMessage>()
-        private var lastState: FixConnectionState = CONNECTING
+        private var lastState: FixConnectionState = initialState
 
         fun deliver(message: FixMessage) {
             val sink =
@@ -1408,12 +1417,10 @@ class QuickFixService(
         }
 
         fun state(newState: FixConnectionState) {
-            val sink =
-                synchronized(lock) {
-                    lastState = newState
-                    states
-                }
-            sink?.invoke(newState)
+            synchronized(lock) {
+                lastState = newState
+                states?.invoke(newState)
+            }
         }
 
         fun isLoggedOn(): Boolean = synchronized(lock) { lastState == LOGGED_ON }
@@ -1424,16 +1431,17 @@ class QuickFixService(
 
         fun attach(onMessage: (FixMessage) -> Unit, onState: (FixConnectionState) -> Unit, onStamp: (SocketStamp) -> Unit) {
             stamps = onStamp
-            val (drained, state) =
+            val drained =
                 synchronized(lock) {
                     messages = onMessage
                     states = onState
                     val pending = buffered.toList()
                     buffered.clear()
-                    pending to lastState
+                    pending
                 }
             drained.forEach(onMessage)
-            onState(state)
+            // The state as it is now, not as it was when the buffer was taken. See the class's note.
+            synchronized(lock) { onState(lastState) }
         }
 
         private companion object {

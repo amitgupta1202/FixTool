@@ -142,6 +142,31 @@ class MultiClientAcceptorIntegrationTest {
         assertTrue(alphaPane.messages.value.isNotEmpty(), "alpha's history outlives its session")
     }
 
+    /**
+     * Closing a client's pane is not a logout, so the pane that opens when that client next speaks is a pane on
+     * a logged-on session. It used to read Connecting for as long as the session lasted, because nothing logs
+     * on twice, and the venue stopped counting the client as connected.
+     */
+    @Test
+    fun `a client's pane reopened after a close reads logged on, and the venue still counts the client`() {
+        connectVenue()
+        val alpha = connectClient("ALPHA")
+        viewModel.closeSession(awaitPane("ALPHA"))
+        assertTrue(viewModel.sessions.none { it.title == "VENUE ← ALPHA$runId" }, "the client's pane is closed")
+
+        alpha.sendFixMessage("35=D|11=ORDER-AFTER-CLOSE|55=VOD.L|54=1|38=100|40=1", viewModel.dictionary)
+
+        assertTrue(
+            awaitCondition(15_000) {
+                viewModel.sessions.any { it.title == "VENUE ← ALPHA$runId" && "ORDER-AFTER-CLOSE" in clOrdIds(it) }
+            },
+            "the client's next message should open a fresh pane",
+        )
+        val reopened = viewModel.sessions.first { it.title == "VENUE ← ALPHA$runId" }
+        assertEquals(FixConnectionState.LOGGED_ON, reopened.connectionState.value, "the client never logged out")
+        assertEquals(1, venuePane().acceptorStatus()?.clientsConnected, "the venue still has the client logged on")
+    }
+
     @Test
     fun `a logon addressed to the wrong venue is refused and reported`() {
         connectVenue()

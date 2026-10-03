@@ -37,6 +37,7 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.IssueReport
@@ -63,7 +64,8 @@ data class FixField(
     val excluded: Boolean = false,
 ) {
     companion object {
-        fun List<FixField>.toRawMessage(): String = this.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+        /** Through [FixMessageHelper.joinFields], so a value carrying a literal `|` reaches the wire whole. */
+        fun List<FixField>.toRawMessage(): String = FixMessageHelper.joinFields(map { it.tag to it.value })
 
         /**
          * Evaluates template expressions in field values and returns new fields with resolved values.

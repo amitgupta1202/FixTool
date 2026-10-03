@@ -710,6 +710,48 @@ class ControlServerIntegrationTest {
         }
     }
 
+    /**
+     * A resolved send, and a template send, used to pipe-join the fields on the way out, so a value
+     * carrying a literal `|` was cut at it and the tail became a field of its own.
+     */
+    @Test
+    fun `a resolved send and a template send keep a value that carries a pipe whole`() {
+        val fixServer = TestFixServer()
+        fixServer.start()
+        try {
+            val profile = liveProfile(fixServer.port)
+            viewModel.saveConnectionProfile(profile)
+            viewModel.connectProfile(profile.id, profile)
+            assertTrue(
+                awaitCondition(15_000) { viewModel.sessions.any { it.connectionState.value == FixConnectionState.LOGGED_ON } },
+                "session should log on to the test server",
+            )
+            // Kotlin raw strings keep `\u0001` as text, which the JSON body then reads as SOH.
+            val order = """35=D\u000155=IBM\u000154=1\u000138=100\u000140=1\u000158=see ticket|44=0\u0001"""
+
+            val sent = post("/send", """{"raw":"11=PIPE-1\u0001$order","session":"LIVE","resolve":true}""")
+            assertTrue(status(sent) in listOf("sent", "warning"), "resolved send failed: ${sent.body()}")
+            val pid = viewModel.connectionProfiles.first { it.name == "LIVE" }.id
+            val tpl = post("/templates", """{"profile":"$pid","name":"PIPE","raw":"11=PIPE-2\u0001$order"}""")
+            val tid = obj(tpl)["id"]!!.jsonPrimitive.content
+            val viaTemplate = post("/templates/send", """{"id":"$tid","session":"LIVE"}""")
+            assertTrue(status(viaTemplate) in listOf("sent", "warning"), "template send failed: ${viaTemplate.body()}")
+
+            for (id in listOf("PIPE-1", "PIPE-2")) {
+                assertTrue(
+                    awaitCondition(5_000) { fixServer.applicationMessages.any { it.contains("11=$id\u0001") } },
+                    "test server should receive $id",
+                )
+                val wire = fixServer.applicationMessages.first { it.contains("11=$id\u0001") }
+                val shown = wire.replace('\u0001', '^')
+                assertTrue("\u000158=see ticket|44=0\u0001" in wire, "58 must reach the wire whole: $shown")
+                assertFalse("\u000144=0\u0001" in wire, "and no 44 the author never wrote: $shown")
+            }
+        } finally {
+            fixServer.stop()
+        }
+    }
+
     // ------------------------------------------------- authoring a profile without losing it
 
     /**

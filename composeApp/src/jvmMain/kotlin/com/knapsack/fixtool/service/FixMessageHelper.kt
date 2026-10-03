@@ -240,9 +240,11 @@ object FixMessageHelper {
      * dropped — the write side of the very misread `WirePaste` refuses on the read side. Such a
      * message is joined with SOH instead, which [delimiterOf] gives precedence, so the round-trip
      * is exact. Everything that turns a field list back into a raw (capture's Send steps, the
-     * editor's write-back) must come through here rather than `joinToString("|")` its own answer.
+     * editor's write-back, the editor's and automation's sends) must come through here rather than
+     * `joinToString("|")` its own answer. A tag is written as it reads, so the editor's string tags
+     * pass through unchanged.
      */
-    fun joinFields(fields: List<Pair<Int, String>>): String {
+    fun joinFields(fields: List<Pair<Any, String>>): String {
         val delimiter = if (fields.any { it.second.contains('|') }) SOH else '|'
         return fields.joinToString("") { (tag, value) -> "$tag=$value$delimiter" }
     }

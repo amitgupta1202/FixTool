@@ -3036,7 +3036,7 @@ class ControlServer(
                 }
             if (index < 0) return@onEdt errorObject("no active session")
             val rawTemplate =
-                template.fields.filterNot { it.excluded }.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+                FixMessageHelper.joinFields(template.fields.filterNot { it.excluded }.map { it.tag to it.value })
             val result = viewModel.sendResolvedToSession(rawTemplate, index)
             buildJsonObject {
                 put("status", if (result == null) "failed" else sendResultStatus(result))

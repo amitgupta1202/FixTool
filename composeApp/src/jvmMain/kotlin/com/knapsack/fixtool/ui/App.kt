@@ -8,6 +8,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
@@ -46,8 +47,11 @@ fun App(
     onQuit: () -> Unit = {},
 ) {
     val arming = rememberWindowArming()
-    CompositionLocalProvider(LocalWindowArming provides arming) {
-        AppContent(modifier, onViewModelCreated, menus, menuBar, onQuit)
+    // Heard after the window's own focus target (the one `main` hands in), so `hasFocus` is whether anything
+    // inside the window holds focus: what a pane that opens asks before it takes it. See [WindowFocus].
+    val focus = remember { WindowFocus() }
+    CompositionLocalProvider(LocalWindowArming provides arming, LocalWindowFocus provides focus) {
+        AppContent(modifier.onFocusChanged { focus.held = it.hasFocus }, onViewModelCreated, menus, menuBar, onQuit)
     }
 }
 

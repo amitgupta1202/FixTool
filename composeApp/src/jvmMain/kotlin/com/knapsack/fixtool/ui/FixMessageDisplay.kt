@@ -401,6 +401,24 @@ fun FixMessageDisplay(
     }
 }
 
+/**
+ * **Whether anything in the window holds keyboard focus**, so a pane that opens can leave it where it is.
+ *
+ * A pane took focus the moment it was created, and panes are opened by more than the user: a venue client
+ * logging on opens one, and so does each lane of a load run. Typing in the message editor or the filter, the
+ * next keys went into the new grid. Nothing in a pane can tell who opened it, and the question that matters
+ * is the same either way: is the reader typing somewhere? So a pane takes focus only when nothing does.
+ *
+ * Set by the window's content (see `App`), which hears the focus of everything inside it. Absent where a pane
+ * is drawn on its own, and then a pane takes focus as it always has.
+ */
+@Stable
+internal class WindowFocus {
+    var held: Boolean by mutableStateOf(false)
+}
+
+internal val LocalWindowFocus = staticCompositionLocalOf<WindowFocus?> { null }
+
 @Composable
 private fun MessageDisplayContent(
     viewMode: ViewMode,
@@ -458,10 +476,12 @@ private fun MessageDisplayContent(
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
+    val windowFocus = LocalWindowFocus.current
 
-    // Request focus when the component is first displayed
+    // Request focus when the component is first displayed, unless something else in the window holds it.
+    // See [WindowFocus].
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        if (windowFocus?.held != true) focusRequester.requestFocus()
     }
     when (viewMode) {
         ViewMode.PARSED -> {

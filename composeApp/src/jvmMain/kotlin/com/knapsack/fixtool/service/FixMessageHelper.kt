@@ -263,6 +263,10 @@ object FixMessageHelper {
     /**
      * Recursively processes fields and groups, returning the index of the next unprocessed field
      *
+     * A group gets every entry present, even past a count that claims fewer, so nothing is dropped or
+     * set flat on its parent. The parsed message keeps the count as claimed, but a deliberately low
+     * count cannot reach the wire: QuickFIX/J writes a group's count as the entries it holds.
+     *
      * @param fields List of tag-value pairs to process
      * @param startIndex Starting index in the fields list
      * @param fieldMap The message or group to populate
@@ -352,17 +356,25 @@ object FixMessageHelper {
                         val groupDD = groupInfo.dataDictionary
                         val groupDelimiterTag = groupInfo.delimiterField
 
-                        // Process each group instance
-                        for (i in 1..groupCount) {
-                            val group = Group(tag, groupDelimiterTag)
+                        // Build the set of ancestor delimiters for nested groups to respect
+                        val newAncestorDelimiters =
+                            if (delimiterTag != null) {
+                                ancestorDelimiters + delimiterTag
+                            } else {
+                                ancestorDelimiters
+                            }
 
-                            // Build the set of ancestor delimiters for nested groups to respect
-                            val newAncestorDelimiters =
-                                if (delimiterTag != null) {
-                                    ancestorDelimiters + delimiterTag
-                                } else {
-                                    ancestorDelimiters
-                                }
+                        // Process each group instance: as many as the count claims, and then every
+                        // further entry that is present. A count lower than the entries sent used to
+                        // stop at the count, and the entries past it were set flat on the parent, each
+                        // one overwriting the last: on a send, an entry vanished and another left as
+                        // top-level fields.
+                        var built = 0
+                        var group: Group? = null
+                        while (built < groupCount ||
+                            startsNextEntry(fields, index, groupDelimiterTag, group, newAncestorDelimiters)
+                        ) {
+                            group = Group(tag, groupDelimiterTag)
 
                             // Recursively process this group's fields
                             index =
@@ -379,7 +391,14 @@ object FixMessageHelper {
 
                             // Add the populated group to the parent field map
                             fieldMap.addGroup(group)
+                            built++
                         }
+                        // addGroup normalised the count to the entries built. The parsed message keeps
+                        // the count it claimed, as an overstated one does through its empty entries,
+                        // so a received message renders what the venue sent. A send cannot carry the
+                        // claim: QuickFIX/J writes a group's count as the entries it holds, so the
+                        // wire carries the true count.
+                        if (built > groupCount) fieldMap.setString(tag, value)
                     } catch (e: Exception) {
                         // If we can't process the group, skip it silently
                     }
@@ -407,6 +426,23 @@ object FixMessageHelper {
         }
 
         return index
+    }
+
+    /**
+     * Whether the field at [index] opens another entry of the group whose last entry is [last]: it is the
+     * group's [delimiter], or a field that entry already holds. That is the rule [processFields] ends an
+     * entry by, so an entry past the count is found whether or not it opens with its delimiter. A
+     * delimiter of an enclosing group never opens one, because it belongs to that group's next entry.
+     */
+    private fun startsNextEntry(
+        fields: List<Pair<Int, String>>,
+        index: Int,
+        delimiter: Int,
+        last: Group?,
+        ancestorDelimiters: Set<Int>,
+    ): Boolean {
+        val tag = fields.getOrNull(index)?.first ?: return false
+        return tag !in ancestorDelimiters && (tag == delimiter || last?.isSetField(tag) == true)
     }
 
     /**

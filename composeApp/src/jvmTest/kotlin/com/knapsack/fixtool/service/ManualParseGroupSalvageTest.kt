@@ -117,6 +117,45 @@ class ManualParseGroupSalvageTest {
     }
 
     /**
+     * A count lower than the entries sent keeps every entry inside the group.
+     *
+     * The parse built exactly as many entries as the count claimed and set the rest flat on the body, and
+     * the send path builds its outgoing message through this parser: `453=1` over three parties sent FIRMA
+     * in the group, lost FIRMB, and sent FIRMC's fields as top-level fields. QuickFIX/J writes a group's
+     * count as the entries it holds, so the wire carries the true count of three.
+     */
+    @Test
+    fun `an understated group count keeps every entry in the group`() {
+        val raw =
+            "35=D|11=ORD-1|453=1|448=FIRMA|447=D|452=1|448=FIRMB|447=D|452=3|448=FIRMC|447=D|452=4|" +
+                "55=IBM|54=1|60=20260928-10:00:00|38=100|40=1|"
+
+        val msg = raw.toQuickFixMessageManual(FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))
+
+        assertEquals(listOf("FIRMA", "FIRMB", "FIRMC"), msg.getGroups(453).map { it.getString(448) })
+        assertEquals(listOf("1", "3", "4"), msg.getGroups(453).map { it.getString(452) })
+        assertFalse(msg.isSetField(448), "no entry is set flat on the body")
+        assertEquals("1", msg.getString(453), "the parsed message still renders the count it claimed")
+        val wire = msg.toString().replace('\u0001', '|')
+        assertTrue(
+            wire.contains("|453=3|448=FIRMA|447=D|452=1|448=FIRMB|447=D|452=3|448=FIRMC|447=D|452=4|"),
+            "the wire carries all three entries under the true count: $wire",
+        )
+    }
+
+    /** An entry past the count that does not open with its delimiter is still an entry of the group. */
+    @Test
+    fun `an understated group count keeps an entry that does not open with its delimiter`() {
+        val raw = "35=D|11=ORD-1|453=1|447=D|448=FIRMA|452=1|447=D|448=FIRMB|452=3|55=IBM|54=1|38=100|40=1|"
+
+        val msg = raw.toQuickFixMessageManual(FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))
+
+        assertEquals(listOf("FIRMA", "FIRMB"), msg.getGroups(453).map { it.getString(448) })
+        assertFalse(msg.isSetField(447), "FIRMB's fields are not set flat on the body")
+        assertEquals("IBM", msg.getString(55))
+    }
+
+    /**
      * A nested group the dictionary defines stays inside its parent entry, even when its entries do not
      * open with their delimiter.
      *

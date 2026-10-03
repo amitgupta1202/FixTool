@@ -79,9 +79,15 @@ sealed interface StepAddress {
     companion object {
         const val COMP_ID_PREFIX = "compId:"
 
-        private val FIXED = listOf(Sender, Requester, Quotes, Quoter, Cover, Others, Quoted, Asked, Responders)
+        // Lazy, both of them. Touching one of the words first initialises this companion while that word's
+        // instance is still null, and a list taken then would hold the null for the life of the JVM.
+        private val FIXED by lazy {
+            listOf(Sender, Requester, Quotes, Quoter, Cover, Others, Quoted, Asked, Responders)
+        }
 
-        private val RFQ_PARTIES: Set<StepAddress> = setOf(Requester, Quotes, Quoter, Cover, Others, Quoted, Asked)
+        private val RFQ_PARTIES: Set<StepAddress> by lazy {
+            setOf(Requester, Quotes, Quoter, Cover, Others, Quoted, Asked)
+        }
 
         /** The vocabulary, as an author would type it, for saying what an unrecognised word could have been. */
         val words: List<String> get() = FIXED.map { it.word } + "${COMP_ID_PREFIX}<CompID>"

@@ -8,6 +8,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Test
+import java.io.File
+import java.net.URLClassLoader
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -66,6 +68,40 @@ class RelayModelTest {
         assertTrue(StepAddress.Asked.needsAnRfq)
         assertFalse(StepAddress.Responders.needsAnRfq, "responders is who the venue declares, RFQ or no RFQ")
     }
+
+    /**
+     * **The vocabulary is whole whichever address the JVM meets first.** Touching one of the words before
+     * [StepAddress] itself initialises the interface while that word's instance is still being built, and a
+     * list taken at that moment holds a null for the life of the JVM. Every later parse then throws, in tests
+     * that never mention addresses. A fresh class loader per word, because within one JVM the order runs once.
+     */
+    @Test
+    fun `every address parses whichever one is touched first`() {
+        listOf("Sender", "Requester", "Quotes", "Quoter", "Cover", "Others", "Quoted", "Asked", "Responders").forEach { touchedFirst ->
+            freshLoader().use { loader ->
+                Class.forName("com.knapsack.fixtool.model.StepAddress\$$touchedFirst", true, loader)
+
+                val addresses = Class.forName("com.knapsack.fixtool.model.StepAddress", true, loader)
+                val companion = addresses.getField("Companion").get(null)
+                val parse = companion.javaClass.getMethod("parse", String::class.java)
+                val parsed = runCatching { parse.invoke(companion, "responders") }
+
+                assertTrue(parsed.isSuccess, "touching $touchedFirst first broke parse: ${parsed.exceptionOrNull()?.cause}")
+                assertEquals("Responders", parsed.getOrNull()?.javaClass?.simpleName, "touching $touchedFirst first")
+            }
+        }
+    }
+
+    /** A loader with no parent but the platform's, so the classes under test genuinely initialise afresh. */
+    private fun freshLoader(): URLClassLoader =
+        URLClassLoader(
+            System
+                .getProperty("java.class.path")
+                .split(File.pathSeparator)
+                .map { File(it).toURI().toURL() }
+                .toTypedArray(),
+            ClassLoader.getPlatformClassLoader(),
+        )
 
     // ------------------------------------------------------------------ roles
 

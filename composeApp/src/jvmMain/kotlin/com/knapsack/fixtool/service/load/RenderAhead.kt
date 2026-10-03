@@ -62,12 +62,15 @@ class RenderAhead(
                 index += stride
                 made++
             }
+        } catch (e: InterruptedException) {
+            // First, because an InterruptedException is an Exception too. close() interrupts a producer that
+            // is waiting, and that is the lane ending, not failing: rethrown, it reached the app's global
+            // handler as one error dialog per lane every time a run was stopped.
+            Thread.currentThread().interrupt()
         } catch (e: Exception) {
             // Rendering throws on the pacer thread instead, where it always did and where the run reports it.
             failed = true
             throw e
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
         }
     }
 

@@ -5,10 +5,15 @@ import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.model.scenario.Lane
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * **Each lane renders ahead of its own sends**, so a lane's message is not queued behind every other
@@ -60,6 +65,40 @@ class RenderAheadTest {
         ahead.close()
 
         assertNull(ahead.next(1))
+    }
+
+    /**
+     * **Closing a producer is not a failure.** [RenderAhead.close] interrupts a producer that is waiting,
+     * and the interrupt used to be caught as any other exception and thrown out of the thread. In the app
+     * that was one modal error dialog per lane every time a run was stopped. The test above passed all the
+     * same, because JUnit never sees what a background thread throws, so this one watches the thread.
+     *
+     * The producer is held inside a render by a lookup that waits forever, which puts the interrupt
+     * exactly where a full queue would put it: on a thread blocked in something interruptible.
+     */
+    @Test
+    fun `closing a producer while it waits ends its thread quietly`() {
+        val rendering = CountDownLatch(1)
+        val never = CountDownLatch(1)
+        val compiled = CompiledTemplate.compile(LoadTemplate("hit", listOf(35 to "AJ", 117 to "\${quoteId}")))
+        val waits: (Int) -> String? = {
+            rendering.countDown()
+            never.await()
+            "Q-$it"
+        }
+        val prototype =
+            compiled.prepare(Lane(1, "LOADGEN [1]", "LG01", ""), emptyMap(), FixDictionaryAdapter.createDefault(), mapOf("quoteId" to waits)) { it }
+        val escaped = AtomicReference<Throwable?>()
+
+        val ahead = RenderAhead(prototype, firstIndex = 1, stride = 1, count = 10, name = "test-lane-interrupted")
+        val thread = Thread.getAllStackTraces().keys.single { it.name == "test-lane-interrupted" }
+        thread.setUncaughtExceptionHandler { _, e -> escaped.set(e) }
+        assertTrue(rendering.await(5, TimeUnit.SECONDS), "the producer is inside its first render")
+        ahead.close()
+        thread.join(5_000)
+
+        assertFalse(thread.isAlive, "the producer ended")
+        assertNull(escaped.get(), "and nothing escaped it")
     }
 
     @Test

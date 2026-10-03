@@ -468,128 +468,14 @@ private fun AppContent(
 
                                         // Center panel - Tabs and Message display
                                         Column(modifier = Modifier.weight(1f)) {
-                                            var isAtBottom by remember { mutableStateOf(true) }
-                                            var scrollToBottomTrigger by remember { mutableStateOf(0) }
-
-                                            TabBar(
-                                                sessions = viewModel.sessions,
-                                                activeSession = viewModel.activeSession,
-                                                viewMode = globalViewMode,
-                                                onTabClick = { session -> viewModel.setActiveSessionByObject(session) },
-                                                onCloseTab = { session -> viewModel.closeSession(session) },
-                                                onToggleWrapText = { session -> session.toggleWrapText() },
-                                                onConnect = { session -> session.reconnect() },
-                                                onDisconnect = { session -> session.disconnect() },
-                                                onMinimize = { session, on -> viewModel.setSessionMinimized(session, on) },
-                                                onEditVenueRules = { session -> viewModel.openVenueRules(session) },
-                                                isAtBottom = isAtBottom,
-                                                onScrollToBottom = { scrollToBottomTrigger++ },
-                                            )
-
-                                            // The centre is always the sessions now — the scenario editor is a
-                                            // bottom dock (see BottomDock), not a pane that replaces the grid.
-                                            viewModel.activeSession?.let { session ->
-                                                // Minimizing does not move the editor's target — silently
-                                                // pointing a loaded order at a different counterparty is how a
-                                                // tester sends to the wrong venue. So the active session can be
-                                                // one that is in the strip, and the centre says so instead of
-                                                // drawing a pane that is not there.
-                                                val activeMinimized by session.minimized.collectAsState()
-                                                if (activeMinimized) {
-                                                    Box(
-                                                        modifier = Modifier.weight(1f).fillMaxSize(),
-                                                        contentAlignment = Alignment.Center,
-                                                    ) {
-                                                        Text(
-                                                            text = "${session.title} is minimized. Click its chip above to bring it back.",
-                                                            color = AppTheme.Colors.textDisabled,
-                                                            fontSize = 12.sp,
-                                                        )
-                                                    }
-                                                    return@let
-                                                }
-
-                                                val messages by session.messages.collectAsState()
-                                                val wrapText by session.wrapText.collectAsState()
-                                                val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
-                                                val latencyTrackingEnabled by session.latencyTrackingEnabled.collectAsState()
-
-                                                if (session.isVenue) {
-                                                    // Nothing to grid: a venue's traffic all belongs to its
-                                                    // clients, and each of them has a tab.
-                                                    AcceptorOverviewPane(
-                                                        venue = session,
-                                                        clients = viewModel.sessions.filter { it.isClientOf(session) },
-                                                        onFocusClient = { client -> viewModel.setActiveSessionByObject(client) },
-                                                        onEditRules = { viewModel.openVenueRules(session) },
-                                                        modifier = Modifier.weight(1f),
-                                                    )
-                                                    return@let
-                                                }
-
-                                                // The TABS layout filters now. Its filter button toggled this
-                                                // panel and the grid below never applied it, so a pane filtered
-                                                // in split view and not in tabs — one function decides both now
-                                                // (see MessageFilters and SessionFilterBar).
-                                                val filterVisible by session.filterVisible.collectAsState()
-                                                if (filterVisible) SessionFilterBar(session)
-                                                val paneFilters =
-                                                    MessageFilters.Pane(
-                                                        regex = session.filterRegex.collectAsState().value,
-                                                        showIncoming = session.filterShowIncoming.collectAsState().value,
-                                                        showOutgoing = session.filterShowOutgoing.collectAsState().value,
-                                                        showSeparator = session.filterShowSeparator.collectAsState().value,
-                                                        messageTypes = session.filterMessageTypes.collectAsState().value,
-                                                    )
-                                                val filteredMessages =
-                                                    remember(messages, paneFilters, globalFilter, followedUids) {
-                                                        MessageFilters.apply(messages, paneFilters, globalFilter, followedUids)
-                                                    }
-
-                                                FixMessageDisplay(
-                                                    messages = filteredMessages,
-                                                    viewMode = globalViewMode,
-                                                    dictionary = viewModel.dictionary,
-                                                    wrapText = wrapText,
-                                                    selectedMessage = selectedMessage,
-                                                    recentlySentMessageTimestamp = recentlySentMessageTimestamp,
-                                                    assertionResults = viewModel.assertionResults,
-                                                    onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
-                                                    onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },
-                                                    showDetailPanel = false,
-                                                    // The tab strip's Search in pane toggles this, and the tabs
-                                                    // layout used to be the one place nothing read it.
-                                                    searchVisible = session.searchVisible.collectAsState().value,
-                                                    onToggleSearch = { session.toggleSearch() },
-                                                    hideProtocolTags = viewModel.appSettings.hideProtocolTags,
-                                                    gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                                    appSettings = viewModel.appSettings,
-                                                    showLatencyColumn = latencyTrackingEnabled && viewModel.appSettings.showLatencyColumn,
-                                                    getLatencyForMessage =
-                                                        if (latencyTrackingEnabled) {
-                                                            { rawMessage ->
-                                                                session.getLatencyForMessage(rawMessage)
-                                                            }
-                                                        } else {
-                                                            null
-                                                        },
-                                                    latencyWarningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
-                                                    latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
-                                                    onAtBottomChanged = { isAtBottom = it },
-                                                    scrollToBottomTrigger = scrollToBottomTrigger,
-                                                    groupByConversation = session.groupByConversation.collectAsState().value,
-                                                    collapsedConversations = session.collapsedConversations.collectAsState().value,
-                                                    onToggleConversation = { key -> session.toggleConversationCollapsed(key) },
-                                                    followedTraceIds = followedTraceIds,
-                                                    onFollowTrace = { id -> viewModel.follow(id) },
-                                                    onUnfollowTrace = { viewModel.unfollow() },
-                                                    modifier = Modifier.weight(1f),
-                                                )
-                                            } ?: NoSessionsPlaceholder(
-                                                hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
+                                            TabsCentre(
+                                                viewModel = viewModel,
+                                                globalViewMode = globalViewMode,
+                                                selectedMessage = selectedMessage,
+                                                globalFilter = globalFilter,
+                                                followedUids = followedUids,
+                                                followedTraceIds = followedTraceIds,
                                                 onOpenWorkspace = browseForWorkspace,
-                                                onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
-                                                modifier = Modifier.weight(1f).fillMaxSize(),
                                             )
                                         }
 
@@ -889,6 +775,155 @@ private fun ScenariosRailDock(
         ScenariosRail(viewModel, modifier = Modifier.fillMaxSize())
     }
     WidthResizeHandle(onDeltaPx = onDeltaPx, onDragEnd = onDragEnd)
+}
+
+/**
+ * **The TABS layout's centre**: the tab strip, and under it the active session's pane.
+ *
+ * One pane, drawn for whichever tab is active, so its grid is keyed on that session. The grid remembers what
+ * the reader did to it (rows ticked, a search, column widths, its scroll), and drawn by position all of that
+ * stayed put when the tab changed: the next session's log came up under the last one's "2 messages selected"
+ * with none of its own rows ticked. Keyed, a tab comes up with its own state, and a fresh one when it has not
+ * been drawn since it was last left.
+ */
+@Composable
+@Suppress("LongMethod", "LongParameterList")
+internal fun ColumnScope.TabsCentre(
+    viewModel: FixMessageViewModel,
+    globalViewMode: com.knapsack.fixtool.model.FixMessageSession.ViewMode,
+    selectedMessage: FixMessage?,
+    globalFilter: MessageFilters.Global,
+    followedUids: Set<Long>?,
+    followedTraceIds: Set<String>,
+    onOpenWorkspace: () -> Unit,
+) {
+    var isAtBottom by remember { mutableStateOf(true) }
+    var scrollToBottomTrigger by remember { mutableStateOf(0) }
+    val connectionPanelOpen by viewModel.showConnectionPanel.collectAsState()
+
+    TabBar(
+        sessions = viewModel.sessions,
+        activeSession = viewModel.activeSession,
+        viewMode = globalViewMode,
+        onTabClick = { session -> viewModel.setActiveSessionByObject(session) },
+        onCloseTab = { session -> viewModel.closeSession(session) },
+        onToggleWrapText = { session -> session.toggleWrapText() },
+        onConnect = { session -> session.reconnect() },
+        onDisconnect = { session -> session.disconnect() },
+        onMinimize = { session, on -> viewModel.setSessionMinimized(session, on) },
+        onEditVenueRules = { session -> viewModel.openVenueRules(session) },
+        isAtBottom = isAtBottom,
+        onScrollToBottom = { scrollToBottomTrigger++ },
+    )
+
+    // The centre is always the sessions now — the scenario editor is a
+    // bottom dock (see BottomDock), not a pane that replaces the grid.
+    viewModel.activeSession?.let { session ->
+        // Minimizing does not move the editor's target — silently
+        // pointing a loaded order at a different counterparty is how a
+        // tester sends to the wrong venue. So the active session can be
+        // one that is in the strip, and the centre says so instead of
+        // drawing a pane that is not there.
+        val activeMinimized by session.minimized.collectAsState()
+        if (activeMinimized) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "${session.title} is minimized. Click its chip above to bring it back.",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 12.sp,
+                )
+            }
+            return@let
+        }
+
+        val messages by session.messages.collectAsState()
+        val wrapText by session.wrapText.collectAsState()
+        val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
+        val latencyTrackingEnabled by session.latencyTrackingEnabled.collectAsState()
+
+        if (session.isVenue) {
+            // Nothing to grid: a venue's traffic all belongs to its
+            // clients, and each of them has a tab.
+            AcceptorOverviewPane(
+                venue = session,
+                clients = viewModel.sessions.filter { it.isClientOf(session) },
+                onFocusClient = { client -> viewModel.setActiveSessionByObject(client) },
+                onEditRules = { viewModel.openVenueRules(session) },
+                modifier = Modifier.weight(1f),
+            )
+            return@let
+        }
+
+        // Keyed on the session: see this function's comment.
+        key(session.id) {
+            // The TABS layout filters now. Its filter button toggled this
+            // panel and the grid below never applied it, so a pane filtered
+            // in split view and not in tabs — one function decides both now
+            // (see MessageFilters and SessionFilterBar).
+            val filterVisible by session.filterVisible.collectAsState()
+            if (filterVisible) SessionFilterBar(session)
+            val paneFilters =
+                MessageFilters.Pane(
+                    regex = session.filterRegex.collectAsState().value,
+                    showIncoming = session.filterShowIncoming.collectAsState().value,
+                    showOutgoing = session.filterShowOutgoing.collectAsState().value,
+                    showSeparator = session.filterShowSeparator.collectAsState().value,
+                    messageTypes = session.filterMessageTypes.collectAsState().value,
+                )
+            val filteredMessages =
+                remember(messages, paneFilters, globalFilter, followedUids) {
+                    MessageFilters.apply(messages, paneFilters, globalFilter, followedUids)
+                }
+
+            FixMessageDisplay(
+                messages = filteredMessages,
+                viewMode = globalViewMode,
+                dictionary = viewModel.dictionary,
+                wrapText = wrapText,
+                selectedMessage = selectedMessage,
+                recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                assertionResults = viewModel.assertionResults,
+                onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
+                onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },
+                showDetailPanel = false,
+                // The tab strip's Search in pane toggles this, and the tabs
+                // layout used to be the one place nothing read it.
+                searchVisible = session.searchVisible.collectAsState().value,
+                onToggleSearch = { session.toggleSearch() },
+                hideProtocolTags = viewModel.appSettings.hideProtocolTags,
+                gridViewColumns = viewModel.appSettings.gridViewColumns,
+                appSettings = viewModel.appSettings,
+                showLatencyColumn = latencyTrackingEnabled && viewModel.appSettings.showLatencyColumn,
+                getLatencyForMessage =
+                    if (latencyTrackingEnabled) {
+                        { rawMessage ->
+                            session.getLatencyForMessage(rawMessage)
+                        }
+                    } else {
+                        null
+                    },
+                latencyWarningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+                latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+                onAtBottomChanged = { isAtBottom = it },
+                scrollToBottomTrigger = scrollToBottomTrigger,
+                groupByConversation = session.groupByConversation.collectAsState().value,
+                collapsedConversations = session.collapsedConversations.collectAsState().value,
+                onToggleConversation = { key -> session.toggleConversationCollapsed(key) },
+                followedTraceIds = followedTraceIds,
+                onFollowTrace = { id -> viewModel.follow(id) },
+                onUnfollowTrace = { viewModel.unfollow() },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    } ?: NoSessionsPlaceholder(
+        hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
+        onOpenWorkspace = onOpenWorkspace,
+        onOpenConnectionPanel = { if (!connectionPanelOpen) viewModel.toggleConnectionPanel() },
+        modifier = Modifier.weight(1f).fillMaxSize(),
+    )
 }
 
 /**

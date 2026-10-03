@@ -276,16 +276,20 @@ private fun SplitGrid(
                             .fillMaxWidth()
                             .height(with(density) { (totalHeightPx * rowWeights[row]).toDp() }),
                 ) {
-                    for (col in 0 until columns) {
+                    // Only the slots this row fills, so each pane's key is one of the row's own children. Keyed on
+                    // the session, what a pane remembers (rows ticked, its search, column widths, its scroll)
+                    // moves with it along the row, and a pane that lands in a slot never inherits what the last
+                    // one left there. Across rows Compose cannot move it, so a pane that changes rows starts afresh.
+                    for (col in 0 until minOf(columns, sessions.size - row * columns)) {
                         val index = row * columns + col
-                        if (index < sessions.size) {
+                        val pane = sessions[index]
+                        key(pane.id) {
                             Box(
                                 modifier =
                                     Modifier
                                         .width(with(density) { (totalWidthPx * columnWeights[col]).toDp() })
                                         .fillMaxHeight(),
                             ) {
-                                val pane = sessions[index]
                                 SessionPanel(
                                     session = pane,
                                     // From every pane, not the visible ones: a venue owns its clients
@@ -329,23 +333,24 @@ private fun SplitGrid(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
+                        }
 
-                            // Add vertical draggable divider between columns (except last column)
-                            if (col < columns - 1 && index + 1 < sessions.size) {
-                                VerticalDivider(
-                                    onDrag = { dragAmount ->
-                                        val deltaRatio = dragAmount / totalWidthPx
-                                        val newLeftWeight = (columnWeights[col] + deltaRatio).coerceIn(0.1f, 0.9f)
-                                        val newRightWeight = (columnWeights[col + 1] - deltaRatio).coerceIn(0.1f, 0.9f)
+                        // Add vertical draggable divider between columns (except last column). Outside the key: a
+                        // divider belongs to its column, not to the pane beside it.
+                        if (col < columns - 1 && index + 1 < sessions.size) {
+                            VerticalDivider(
+                                onDrag = { dragAmount ->
+                                    val deltaRatio = dragAmount / totalWidthPx
+                                    val newLeftWeight = (columnWeights[col] + deltaRatio).coerceIn(0.1f, 0.9f)
+                                    val newRightWeight = (columnWeights[col + 1] - deltaRatio).coerceIn(0.1f, 0.9f)
 
-                                        // Only update if both weights are valid
-                                        if (newLeftWeight > 0.1f && newRightWeight > 0.1f) {
-                                            columnWeights[col] = newLeftWeight
-                                            columnWeights[col + 1] = newRightWeight
-                                        }
-                                    },
-                                )
-                            }
+                                    // Only update if both weights are valid
+                                    if (newLeftWeight > 0.1f && newRightWeight > 0.1f) {
+                                        columnWeights[col] = newLeftWeight
+                                        columnWeights[col + 1] = newRightWeight
+                                    }
+                                },
+                            )
                         }
                     }
                 }

@@ -5727,6 +5727,12 @@ class FixMessageViewModel(
         // Without this the chip kept naming the previous workspace's set, or the empty state a fresh
         // install came up in, until a run started under it.
         refreshRunConfigurations()
+        // The template in the editor, and the profile it was chosen for, were the workspace being left's. Kept,
+        // Save > Update filed the template here under a profile this workspace does not have, where no reload
+        // would ever list it. The fields stay, because they are the author's message and not a file.
+        _editorState.value = MessageEditorState.New
+        stashedEditorState = MessageEditorState.New
+        _selectedEditorProfile.value = null
         _savedMessages.clear()
         loadSavedMessagesForActiveSession()
         _workspaceEpoch.value += 1

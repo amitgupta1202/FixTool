@@ -3,6 +3,7 @@ package com.knapsack.fixtool.viewmodel
 import com.knapsack.fixtool.integration.settled
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.MessageEditorState
 import com.knapsack.fixtool.model.load.LoadMatch
 import com.knapsack.fixtool.model.load.LoadPlan
 import com.knapsack.fixtool.model.load.LoadShape
@@ -15,6 +16,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.WorkspacePaths
+import com.knapsack.fixtool.ui.FixField
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -256,6 +258,32 @@ class WorkspaceSwitchTest {
 
         assertEquals("'mine now' has unsaved edits. Save or discard them first.", reset.exceptionOrNull()?.message)
         assertEquals(example, viewModel.openWorkspace)
+    }
+
+    /**
+     * A template loaded in one workspace stayed loaded in the next, tagged with the old workspace's profile.
+     * Save > Update existing then upserted it into the new workspace's file under that profile's id, and the
+     * next reload dropped it, because no profile there lists it.
+     */
+    @Test
+    fun `a switch leaves the editor on a new unsaved message, with no profile chosen`() {
+        viewModel.openWorkspace(workspace("alpha")).getOrThrow()
+        val alphaVenue =
+            FixConnectionProfile(
+                id = "alpha-venue",
+                name = "ALPHA",
+                config = FixConnectionConfig(senderCompID = "A", targetCompID = "V"),
+            )
+        viewModel.saveConnectionProfile(alphaVenue)
+        viewModel.saveEditorMessage("NOS", listOf(FixField("35", "D")), alphaVenue.id)
+        viewModel.loadEditorMessage(viewModel.savedMessages.single())
+        viewModel.setSelectedEditorProfile(alphaVenue)
+        assertTrue(viewModel.editorState.value is MessageEditorState.Clean, "the fixture must start from a loaded template")
+
+        viewModel.openWorkspace(workspace("beta")).getOrThrow()
+
+        assertEquals(MessageEditorState.New, viewModel.editorState.value, "the template was alpha's, so no Update")
+        assertNull(viewModel.selectedEditorProfile.value, "and alpha's profile is not one beta has")
     }
 
     /** Polled against a snapshot, because the sessions list is written on the view model's own dispatcher. */

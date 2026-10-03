@@ -370,7 +370,9 @@ class FixDictionaryAdapter private constructor(
                 doc.documentElement.normalize()
 
                 val root = doc.documentElement
-                val type = root.getAttribute("type")
+                // QuickFIX/J reads a root with no type as FIX, and every bundled FIX40.xml to FIX50SP2.xml has
+                // none. A missing attribute comes back as "", so a blank one is the same absence.
+                val type = root.getAttribute("type").ifBlank { "FIX" }
                 val major = root.getAttribute("major")
                 val minor = root.getAttribute("minor")
                 val servicepack = root.getAttribute("servicepack")

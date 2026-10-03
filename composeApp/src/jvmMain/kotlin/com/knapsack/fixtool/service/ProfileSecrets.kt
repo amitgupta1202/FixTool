@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.util.AtomicFiles
 import com.knapsack.fixtool.util.UnreadableFileGuard
@@ -25,6 +26,10 @@ import java.io.IOException
  * permissions, and anything that can read one can read the other. What it buys is that the file you
  * would copy, commit or send is not the file with the password in it — a separation of what is shared
  * from what is secret, which is the actual failure mode.
+ *
+ * The keystore and truststore passwords an SSL profile carries move with the logon password, for the
+ * same reason. The control surface already treated all three as secrets, and a committed workspace
+ * still carried two of them in clear text.
  */
 class ProfileSecrets(
     private val file: File,
@@ -40,10 +45,45 @@ class ProfileSecrets(
             ignoreUnknownKeys = true
         }
 
+    /** The secrets a profile carries, each read off its config and put back on it the same way. */
+    private enum class Kind(
+        val of: (FixConnectionConfig) -> String,
+        val put: (FixConnectionConfig, String) -> FixConnectionConfig,
+    ) {
+        LOGON({ it.password }, { config, value -> config.copy(password = value) }),
+        KEY_STORE({ it.keyStorePassword }, { config, value -> config.copy(keyStorePassword = value) }),
+        TRUST_STORE({ it.trustStorePassword }, { config, value -> config.copy(trustStorePassword = value) }),
+    }
+
+    /**
+     * One map per [Kind], each by profile id.
+     *
+     * A file written before the store passwords moved here has `passwords` alone, and reads with the other two
+     * empty. Empty maps are not written, so a workspace without SSL keeps a secrets file of the old shape.
+     */
     @Serializable
     private data class Secrets(
         val passwords: Map<String, String> = emptyMap(),
-    )
+        val keyStorePasswords: Map<String, String> = emptyMap(),
+        val trustStorePasswords: Map<String, String> = emptyMap(),
+    ) {
+        fun of(kind: Kind): Map<String, String> =
+            when (kind) {
+                Kind.LOGON -> passwords
+                Kind.KEY_STORE -> keyStorePasswords
+                Kind.TRUST_STORE -> trustStorePasswords
+            }
+
+        fun with(
+            kind: Kind,
+            values: Map<String, String>,
+        ): Secrets =
+            when (kind) {
+                Kind.LOGON -> copy(passwords = values)
+                Kind.KEY_STORE -> copy(keyStorePasswords = values)
+                Kind.TRUST_STORE -> copy(trustStorePasswords = values)
+            }
+    }
 
     private fun read(): Secrets =
         try {
@@ -78,21 +118,18 @@ class ProfileSecrets(
         }
     }
 
-    /** Puts each profile's password back on it, for the app to use as it always has. */
+    /** Puts each profile's passwords back on it, for the app to use as it always has. */
     fun applyTo(profiles: List<FixConnectionProfile>): List<FixConnectionProfile> {
-        val passwords = read().passwords
-        if (passwords.isEmpty()) {
-            return profiles
-        }
+        val secrets = read()
         return profiles.map { profile ->
-            val password = passwords[profile.id]
-            // A password already on the profile wins: that is either an unmigrated file being read for
-            // the first time, or a caller that has just set one, and both are the newer truth.
-            if (password.isNullOrEmpty() || profile.config.password.isNotEmpty()) {
-                profile
-            } else {
-                profile.copy(config = profile.config.copy(password = password))
-            }
+            val config =
+                Kind.entries.fold(profile.config) { config, kind ->
+                    val stored = secrets.of(kind)[profile.id]
+                    // A password already on the profile wins: that is either an unmigrated file being read for
+                    // the first time, or a caller that has just set one, and both are the newer truth.
+                    if (stored.isNullOrEmpty() || kind.of(config).isNotEmpty()) config else kind.put(config, stored)
+                }
+            if (config == profile.config) profile else profile.copy(config = config)
         }
     }
 
@@ -108,30 +145,38 @@ class ProfileSecrets(
      * answered is empty, and writing that back would forget every password in the file.
      */
     fun extractFrom(profiles: List<FixConnectionProfile>): List<FixConnectionProfile> {
-        val existing = read().passwords
-        val updated = existing.toMutableMap()
-        profiles.forEach { profile ->
-            val password = profile.config.password
-            if (password.isEmpty()) {
-                updated.remove(profile.id)
-            } else {
-                updated[profile.id] = password
+        val existing = read()
+        val updated =
+            Kind.entries.fold(existing) { secrets, kind ->
+                val values = secrets.of(kind).toMutableMap()
+                profiles.forEach { profile ->
+                    val password = kind.of(profile.config)
+                    if (password.isEmpty()) {
+                        values.remove(profile.id)
+                    } else {
+                        values[profile.id] = password
+                    }
+                }
+                secrets.with(kind, values)
             }
-        }
-        if (updated != existing && !write(Secrets(updated))) {
+        if (updated != existing && !write(updated)) {
             throw IOException(guard.refusal() ?: "could not write ${file.name}")
         }
-        return profiles.map { it.copy(config = it.config.copy(password = "")) }
+        return profiles.map { profile ->
+            profile.copy(config = Kind.entries.fold(profile.config) { config, kind -> kind.put(config, "") })
+        }
     }
 
-    /** Forgets one profile's password, for a profile that has been deleted. */
+    /** Forgets one profile's passwords, for a profile that has been deleted. */
     fun forget(profileId: String) {
         val secrets = read()
-        if (secrets.passwords.containsKey(profileId)) {
-            write(secrets.copy(passwords = secrets.passwords - profileId))
+        val forgotten = Kind.entries.fold(secrets) { left, kind -> left.with(kind, left.of(kind) - profileId) }
+        if (forgotten != secrets) {
+            write(forgotten)
         }
     }
 
     /** True when [profiles] still carry passwords inline, so the file wants rewriting once. */
-    fun needsMigration(profiles: List<FixConnectionProfile>): Boolean = profiles.any { it.config.password.isNotEmpty() }
+    fun needsMigration(profiles: List<FixConnectionProfile>): Boolean =
+        profiles.any { profile -> Kind.entries.any { kind -> kind.of(profile.config).isNotEmpty() } }
 }

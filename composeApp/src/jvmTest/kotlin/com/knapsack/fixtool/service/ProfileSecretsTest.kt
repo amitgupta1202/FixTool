@@ -115,4 +115,103 @@ class ProfileSecretsTest {
         val withoutSecrets = service().loadProfiles().single()
         assertEquals("", withoutSecrets.config.password)
     }
+
+    // ---------------------------------------------------------------- keystore and truststore passwords
+
+    private fun sslProfile(
+        id: String,
+        keyStorePassword: String,
+        trustStorePassword: String,
+    ) = profile(id, "logon-pw").let {
+        it.copy(
+            config =
+                it.config.copy(
+                    useSSL = true,
+                    keyStorePath = "/certs/client.jks",
+                    keyStorePassword = keyStorePassword,
+                    trustStorePath = "/certs/trust.jks",
+                    trustStorePassword = trustStorePassword,
+                ),
+        )
+    }
+
+    @Test
+    fun `keystore and truststore passwords are not in the profiles file, and are in the secrets file`() {
+        service().saveProfiles(listOf(sslProfile("a", keyStorePassword = "ks-secret", trustStorePassword = "ts-secret")))
+
+        val shared = profilesFile.readText()
+        assertFalse(shared.contains("ks-secret"), "the keystore password is still in the shareable file")
+        assertFalse(shared.contains("ts-secret"), "the truststore password is still in the shareable file")
+        assertTrue(shared.contains("/certs/client.jks"), "the keystore path is not a secret and belongs in the profile")
+        assertTrue(secretsFile.readText().contains("ks-secret"), "the keystore password did not reach secrets.json")
+        assertTrue(secretsFile.readText().contains("ts-secret"), "the truststore password did not reach secrets.json")
+    }
+
+    @Test
+    fun `a loaded profile has its keystore and truststore passwords back`() {
+        service().saveProfiles(listOf(sslProfile("a", keyStorePassword = "ks-secret", trustStorePassword = "ts-secret")))
+
+        val loaded = service().loadProfiles().single().config
+        assertEquals("logon-pw", loaded.password)
+        assertEquals("ks-secret", loaded.keyStorePassword)
+        assertEquals("ts-secret", loaded.trustStorePassword)
+    }
+
+    @Test
+    fun `a file with keystore and truststore passwords inline is migrated the first time it is read`() {
+        profilesFile.writeText(
+            """
+            {
+                "profiles": [
+                    {
+                        "id": "legacy",
+                        "name": "Legacy",
+                        "config": {
+                            "senderCompID": "S", "targetCompID": "T", "useSSL": true,
+                            "keyStorePassword": "inline-ks", "trustStorePassword": "inline-ts"
+                        }
+                    }
+                ]
+            }
+            """.trimIndent(),
+        )
+
+        val loaded = service().loadProfiles().single().config
+
+        assertEquals("inline-ks", loaded.keyStorePassword, "the migration must not lose the keystore password")
+        assertEquals("inline-ts", loaded.trustStorePassword, "the migration must not lose the truststore password")
+        assertFalse(profilesFile.readText().contains("inline-ks"), "the inline keystore password survived migration")
+        assertFalse(profilesFile.readText().contains("inline-ts"), "the inline truststore password survived migration")
+        assertTrue(secretsFile.readText().contains("inline-ks"), "the migrated keystore password is not in secrets.json")
+    }
+
+    /** What every workspace saved before keystore and truststore passwords moved here has on disk. */
+    @Test
+    fun `a secrets file holding only logon passwords still reads`() {
+        profilesFile.writeText("""{ "profiles": [ { "id": "a", "name": "A", "config": { "useSSL": true } } ] }""")
+        secretsFile.writeText("""{ "passwords": { "a": "hunter2" } }""")
+
+        val loaded = service().loadProfiles().single().config
+
+        assertEquals("hunter2", loaded.password)
+        assertEquals("", loaded.keyStorePassword)
+    }
+
+    @Test
+    fun `deleting a profile forgets its keystore and truststore passwords too`() {
+        val service = service()
+        service.saveProfiles(
+            listOf(
+                sslProfile("a", keyStorePassword = "ks-a", trustStorePassword = "ts-a"),
+                sslProfile("b", keyStorePassword = "ks-b", trustStorePassword = "ts-b"),
+            ),
+        )
+
+        service.deleteProfile("a")
+
+        val left = secretsFile.readText()
+        assertFalse(left.contains("ks-a") || left.contains("ts-a"), "a deleted profile left a store password behind")
+        val survivor = service.loadProfiles().single()
+        assertEquals("ks-b", survivor.config.keyStorePassword)
+    }
 }

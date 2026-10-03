@@ -247,7 +247,7 @@ object ExampleWorkspaces {
     /**
      * A workspace is meant to be committable, so it arrives knowing what must not be.
      *
-     * `secrets.json` holds the logon passwords, and the rest is machine output: QuickFIX/J's sequence
+     * `secrets.json` holds the passwords, and the rest is machine output: QuickFIX/J's sequence
      * store and message log, and the run records. Written once, at copy time, and never touched
      * again — a user who wants to track their store has only to delete a line.
      */
@@ -258,7 +258,8 @@ object ExampleWorkspaces {
         }
         file.writeText(
             """
-            # Logon passwords. The rest of this workspace is meant to be shared; this file is not.
+            # Logon, keystore and truststore passwords.
+            # The rest of this workspace is meant to be shared, and this file is not.
             secrets.json
 
             # QuickFIX/J's sequence-number store and message log, and this machine's run records.

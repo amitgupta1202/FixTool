@@ -31,7 +31,7 @@ class WorkspacePaths(
     /** Where a counterparty is, as distinct from who it is. See [com.knapsack.fixtool.model.Environment]. */
     val environments: File get() = File(root, "environments.json")
 
-    /** Logon passwords, kept out of the file a workspace is shared as. */
+    /** Logon, keystore and truststore passwords, kept out of the file a workspace is shared as. */
     val secrets: File get() = File(root, "secrets.json")
     val scenarioViewState: File get() = File(root, "scenario_view.json")
     val layout: File get() = File(root, "layout.json")

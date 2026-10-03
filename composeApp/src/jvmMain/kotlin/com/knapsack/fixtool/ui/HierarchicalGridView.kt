@@ -129,6 +129,60 @@ private fun expandedGridDefaultWidth(key: String): androidx.compose.ui.unit.Dp =
     }
 
 /**
+ * **The grid's multi-selection**: which rows are ticked, and where a shift-click's range starts.
+ *
+ * Both by message id, never by position, for the reason the grid's expansion is: the log is a ring buffer
+ * under a filter, so a position names a different message every time one drops off the front or the filter
+ * changes. An anchor kept as a position started the next range that many rows below the row clicked.
+ */
+@Stable
+internal class GridSelection {
+    /** The ticked rows, by [AppMessage.uidKey]. */
+    val ids = mutableStateSetOf<String>()
+
+    /** The message a shift-click's range runs from: the one clicked last. */
+    private var anchor: String? = null
+
+    /** Cmd- or Ctrl-click, or a click on a row's checkbox: tick or untick the row at [index]. */
+    fun toggle(
+        messages: List<AppMessage>,
+        index: Int,
+    ) {
+        val id = messages[index].uidKey
+        if (!ids.remove(id)) ids.add(id)
+        anchor = id
+    }
+
+    /** Shift-click: tick every row from the anchor to [index], or only [index] once the anchor has gone. */
+    fun extendTo(
+        messages: List<AppMessage>,
+        index: Int,
+    ) {
+        val from = anchor?.let { id -> messages.indexOfFirst { it.uidKey == id } }?.takeIf { it >= 0 } ?: index
+        val range = if (from <= index) from..index else index..from
+        messages.forEachIndexed { i, message ->
+            if (message is FixMessage && i in range) ids.add(message.uidKey)
+        }
+        anchor = messages[index].uidKey
+    }
+
+    fun clear() {
+        ids.clear()
+        anchor = null
+    }
+
+    /**
+     * Untick whatever [messages] no longer holds: cleared, dropped off the front of the buffer, or filtered
+     * out. Otherwise the bar counted rows that were not there, "2 messages selected" over an empty grid.
+     */
+    fun retainPresent(messages: List<AppMessage>) {
+        if (ids.isEmpty()) return
+        val present = messages.mapTo(HashSet()) { it.uidKey }
+        ids.retainAll(present)
+    }
+}
+
+/**
  * Hierarchical grid view showing one row per FIX message
  *
  * Click behavior:
@@ -184,9 +238,10 @@ fun HierarchicalGridView(
     // Track which groups are expanded (key: "messageId_groupKey")
     val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
 
-    // Multi-selection state
-    val selectedMessageIds = remember { mutableStateSetOf<String>() }
-    var lastClickedIndex by remember { mutableStateOf<Int?>(null) }
+    // Multi-selection state. See [GridSelection].
+    val selection = remember { GridSelection() }
+    val selectedMessageIds = selection.ids
+    LaunchedEffect(messages) { selection.retainPresent(messages) }
 
     // Helper function to get message ID.
     // Keyed on the message's own identity, never its list position: the session list is a ring
@@ -201,34 +256,7 @@ fun HierarchicalGridView(
         }
 
     // Clear multi-selection
-    fun clearSelection() {
-        selectedMessageIds.clear()
-        lastClickedIndex = null
-    }
-
-    // Toggle single message selection (Ctrl/Cmd+Click)
-    fun toggleMessageSelection(messageId: String, messageIndex: Int) {
-        if (selectedMessageIds.contains(messageId)) {
-            selectedMessageIds.remove(messageId)
-        } else {
-            selectedMessageIds.add(messageId)
-        }
-        lastClickedIndex = messageIndex
-    }
-
-    // Range selection (Shift+Click)
-    fun selectRange(toIndex: Int) {
-        val fromIndex = lastClickedIndex ?: toIndex
-        val range = if (fromIndex <= toIndex) fromIndex..toIndex else toIndex..fromIndex
-
-        messages.forEachIndexed { index, message ->
-            if (message is FixMessage && index in range) {
-                val messageId = getMessageId(message)
-                selectedMessageIds.add(messageId)
-            }
-        }
-        lastClickedIndex = toIndex
-    }
+    fun clearSelection() = selection.clear()
 
     // Copy selected messages to clipboard
     fun copySelectedToClipboard() {
@@ -804,9 +832,9 @@ fun HierarchicalGridView(
                                             onSelectMessage = onSelectMessage,
                                             onMultiSelectClick = { isCtrlOrCmd, isShift ->
                                                 if (isShift) {
-                                                    selectRange(index)
+                                                    selection.extendTo(messages, index)
                                                 } else if (isCtrlOrCmd) {
-                                                    toggleMessageSelection(messageId, index)
+                                                    selection.toggle(messages, index)
                                                 }
                                             },
                                             appSettings = appSettings,

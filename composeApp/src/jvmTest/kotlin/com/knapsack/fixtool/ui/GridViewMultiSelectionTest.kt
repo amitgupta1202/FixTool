@@ -279,6 +279,51 @@ class GridViewMultiSelectionTest {
     }
 
     // ========================================
+    // The selection follows the rows it names
+    // ========================================
+
+    /** A list replaced rather than edited, the way a session publishes its log. */
+    private var shown by mutableStateOf<List<AppMessage>>(emptyList())
+
+    @Test
+    fun `clearing the messages takes their ticks with them`() {
+        shown = addTestMessages(3)
+        composeTestRule.setContent {
+            HierarchicalGridView(messages = shown, dictionary = dictionary, hideProtocolTags = true)
+        }
+
+        composeTestRule.onAllNodesWithContentDescription("Not selected")[0].performClick()
+        composeTestRule.onAllNodesWithContentDescription("Not selected")[0].performClick()
+        composeTestRule.onAllNodesWithText("2 messages selected").assertCountEquals(1)
+
+        composeTestRule.runOnIdle { shown = emptyList() }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onAllNodesWithText("2 messages selected").assertCountEquals(0)
+    }
+
+    /**
+     * Against the selection itself rather than through a click, because a shift-click cannot be made in a test:
+     * the grid reads Shift off the click's AWT event, and a test's click has none.
+     */
+    @Test
+    fun `a shift-click range runs from the message last clicked, wherever the buffer has moved it since`() {
+        val ten = addTestMessages(10)
+        val selection = GridSelection()
+
+        selection.toggle(ten, 2)
+        // Two messages drop off the front of a full buffer, so the one clicked is first in the list now.
+        val later = ten.drop(2)
+        selection.extendTo(later, 3)
+
+        assertEquals(
+            later.take(4).map { it.uidKey }.toSet(),
+            selection.ids.toSet(),
+            "the range is ORD003 to ORD006, not the two rows now sitting where ORD003 was clicked",
+        )
+    }
+
+    // ========================================
     // Raw Message Format Tests
     // ========================================
 

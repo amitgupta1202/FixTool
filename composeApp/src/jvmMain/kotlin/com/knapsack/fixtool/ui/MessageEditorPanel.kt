@@ -43,9 +43,11 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.IssueReport
 import com.knapsack.fixtool.service.MessageIssue
 import com.knapsack.fixtool.service.MessageIssues
+import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.service.compare.GroupOverlay
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.launch
+import quickfix.SessionID
 import java.awt.Cursor
 import java.awt.Toolkit
 
@@ -66,6 +68,13 @@ data class FixField(
     companion object {
         /** Through [FixMessageHelper.joinFields], so a value carrying a literal `|` reaches the wire whole. */
         fun List<FixField>.toRawMessage(): String = FixMessageHelper.joinFields(map { it.tag to it.value })
+
+        /**
+         * The tags the editor leaves to QuickFIX/J on [session], as the grid spells a tag. Null, a profile with
+         * no session yet, holds back only what the engine writes on every send. See [SessionTags.writtenOnSend].
+         */
+        internal fun managedTagsOn(session: SessionID?): Set<String> =
+            SessionTags.writtenOnSend(session).mapTo(mutableSetOf()) { it.toString() }
 
         /**
          * Evaluates template expressions in field values and returns new fields with resolved values.
@@ -886,11 +895,6 @@ fun MessageEditorPanel(
             NotifyingLogger(object {}.javaClass.enclosingClass, onError)
         }
 
-    // QuickFIX/J managed tags - these are always auto-managed by QuickFIX/J
-    // 8=BeginString, 9=BodyLength, 10=CheckSum, 34=MsgSeqNum, 49=SenderCompID, 50=SenderSubID,
-    // 52=SendingTime, 56=TargetCompID, 57=TargetSubID, 142=SenderLocationID, 143=TargetLocationID
-    val managedTags = remember { setOf("8", "9", "10", "34", "49", "50", "52", "56", "57", "142", "143") }
-
     // Use selectedSession directly - no local state needed
     var previewPanelRatio by remember { mutableStateOf(0.2f) }
     var previewText by remember { mutableStateOf("") }
@@ -909,6 +913,14 @@ fun MessageEditorPanel(
         )
     }
     val canSend = connectionState == FixConnectionState.LOGGED_ON
+
+    // What QuickFIX/J writes on a send through this session: greyed in the grid, and left out of the preview,
+    // the send and the check. The frame, the sequence number, the moment and the CompIDs on every session, and
+    // a sub or location ID only where the session's own SessionID names one. Anywhere else the engine sends the
+    // author's value as it is, and holding it back here meant it was never sent. Keyed on the connection state
+    // too, because a pane's SessionID arrives only once the engine has created its session.
+    val managedTags =
+        remember(selectedSession, connectionState) { FixField.managedTagsOn(selectedSession?.sessionId()) }
 
     // Check if data dictionary is configured (has fields loaded)
     val hasDataDictionary = dictionary.isLoaded()
@@ -940,7 +952,7 @@ fun MessageEditorPanel(
 
     // Sync fields to preview text - create a key that changes when field contents change
     val fieldsKey = fields.map { "${it.tag}:${it.value}" }.joinToString("|")
-    LaunchedEffect(fieldsKey) {
+    LaunchedEffect(fieldsKey, managedTags) {
         isUpdatingFromFields = true
         previewText = buildPreviewMessage(fields, managedTags)
         isUpdatingFromFields = false
@@ -1925,7 +1937,7 @@ private fun FieldEditorRow(
     } // Close Column
 }
 
-private fun buildPreviewMessage(
+internal fun buildPreviewMessage(
     fields: List<FixField>,
     managedTags: Set<String>,
 ): String {
@@ -1953,10 +1965,9 @@ internal fun parseRawMessageToFields(rawMessage: String): List<FixField>? {
         }
     }
 
-    // Managed tags that QuickFIX/J handles automatically
-    // 8=BeginString, 9=BodyLength, 10=CheckSum, 34=MsgSeqNum, 49=SenderCompID, 50=SenderSubID,
-    // 52=SendingTime, 56=TargetCompID, 57=TargetSubID, 142=SenderLocationID, 143=TargetLocationID
-    val managedTags = setOf("8", "9", "10", "34", "49", "50", "52", "56", "57", "142", "143")
+    // A paste has no session to ask, so it drops only what QuickFIX/J writes on every send. A sub or location ID
+    // lands in the grid, and the grid greys it if the session it is sent on names its own.
+    val managedTags = FixField.managedTagsOn(null)
 
     return try {
         // Normalize message format (handles both traditional and line-based formats)

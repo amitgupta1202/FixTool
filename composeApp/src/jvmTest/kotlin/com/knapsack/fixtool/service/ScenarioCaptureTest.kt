@@ -88,6 +88,46 @@ class ScenarioCaptureTest {
     }
 
     /**
+     * A captured order keeps the desk it was sent from and the client it was sent for. Capture stripped the SubIDs
+     * and the on-behalf-of IDs as if the engine wrote them on every send: it writes the SubIDs only on a session
+     * whose SessionID names them, and the on-behalf-of IDs never, so the replayed order reached the venue with
+     * none of its routing. What the engine does write, and a resend marker, are still stripped.
+     */
+    @Test
+    fun `a captured send keeps its routing tags and drops what the engine writes`() {
+        val order =
+            ScenarioCapture.CapturedSession(
+                "TRADE",
+                listOf(
+                    msg(
+                        "8=FIX.4.4|35=D|34=2|43=Y|49=CLI|50=DESK1|52=20260630-10:00:02|56=TV|115=CLIENTA|11=ORD-1|" +
+                            "55=EUR/USD|54=1|38=1000000|40=1|10=003|",
+                        FixMessage.Direction.OUTGOING,
+                        2,
+                    ),
+                ),
+            )
+        val scenario = ScenarioCapture.capture("sc-route", "order", profile = null, listOf(order), dictionary)
+        val raw =
+            scenario.steps
+                .filterIsInstance<ScenarioStep.Send>()
+                .single()
+                .raw
+        val sent =
+            raw
+                .split("|")
+                .filter { it.isNotBlank() }
+                .associate { it.substringBefore('=').toInt() to it.substringAfter('=') }
+
+        assertEquals("DESK1", sent[50], "the SenderSubID is the author's to send: $raw")
+        assertEquals("CLIENTA", sent[115], "the OnBehalfOfCompID is the author's to send: $raw")
+        assertTrue(
+            listOf(34, 43, 49, 52, 56).none { it in sent },
+            "the engine's tags and the resend marker are stripped: $raw",
+        )
+    }
+
+    /**
      * A scenario is captured on one environment, committed, and replayed on another. Session identity
      * belongs to the connection, not to the behaviour under test, so it must not be asserted: seeding
      * SenderCompID(49)/TargetCompID(56)/BeginString(8) as Exact sent every step red on a teammate's

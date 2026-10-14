@@ -44,8 +44,11 @@ object ScenarioCapture {
         "A" to "Logon",
     )
 
-    /** Transport/session header+trailer tags the framework re-stamps on send; dropped from Send raw. */
-    internal val TRANSPORT_TAGS = SessionTags.REWRITTEN_ON_SEND
+    /**
+     * Transport/session header and trailer tags, which FixTool answers for itself. Not what a Send step
+     * drops: that is [SessionTags.NEVER_REPLAYED], which keeps the routing tags this set also holds.
+     */
+    internal val TRANSPORT_TAGS = SessionTags.TRANSPORT_ENVELOPE
 
     /**
      * Client-originated correlation id tags: parameterized on send (a fresh id per run, because venues
@@ -574,7 +577,8 @@ object ScenarioCapture {
      * Reported by tag, because the author can act on a tag: load the venue's dictionary, or accept that
      * these particular fields are literals. The hardcoded tags are excluded — [ID_TAGS], [LIFETIME_TAGS],
      * TransactTime and MsgType are treated correctly with no dictionary at all — as are the transport tags,
-     * which a Send strips and an Expect never asserts. What is left is exactly the set at risk.
+     * whose treatment on a Send and on an Expect asks nothing of the dictionary either. What is left is exactly
+     * the set at risk.
      */
     fun unclassifiedTags(selection: List<Candidate>, dictionary: FixDictionaryAdapter?): List<Int> {
         if (dictionary == null) return emptyList() // a different sentence; see [captureRisk]
@@ -639,7 +643,7 @@ object ScenarioCapture {
         captures: Map<String, TheirId>,
         side: MintingSide,
     ): ScenarioStep.Send {
-        val fields = entry.fields.filter { (tag, _) -> tag !in TRANSPORT_TAGS }.map { (tag, value) ->
+        val fields = entry.fields.filter { (tag, _) -> tag !in SessionTags.NEVER_REPLAYED }.map { (tag, value) ->
             // A value THIS RUN's reply supplied — but only where quoting it back is what this field means.
             // Both guards are the map's key being the value alone: a capture is only an echo if it lands in
             // a correlation id (else an ordinary `54=1` colliding with an id would be rewritten to a

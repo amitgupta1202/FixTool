@@ -37,4 +37,22 @@ class EditorPasteTest {
     fun `a pipe-delimited paste still reads as it always did`() {
         assertEquals(listOf("35" to "D", "11" to "ORD-1"), parseRawMessageToFields("35=D|11=ORD-1|")?.map { it.tag to it.value })
     }
+
+    /**
+     * A paste dropped SenderSubID and TargetSubID as if QuickFIX/J wrote them on every send. It writes them only
+     * when the session's own SessionID names them, and no profile gives a session one, so the order went out with
+     * no desk on it. A paste has no session to ask, so it drops only what the engine writes on every send.
+     */
+    @Test
+    fun `a pasted SenderSubID and TargetSubID stay in the editor`() {
+        val line = "8=FIX.4.4|9=70|35=D|34=7|49=CLI|50=DESK1|52=20261014-09:30:00|56=SRV|57=VDESK|11=ORD-1|10=000|"
+
+        val fields = parseRawMessageToFields(line)
+
+        assertEquals(
+            listOf("35" to "D", "50" to "DESK1", "57" to "VDESK", "11" to "ORD-1"),
+            fields?.map { it.tag to it.value },
+            "the SubIDs are the author's to send, and 8, 9, 10, 34, 49, 52 and 56 are still the engine's",
+        )
+    }
 }

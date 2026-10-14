@@ -106,8 +106,10 @@ object VenueTagScan {
      * Two things are left out, and only two. A **bundled standard dictionary** returns nothing: it is
      * extracted to a temp file, so a sidecar written beside it would not survive a restart, and the tags
      * an author would be declaring are the ones FixTool ships answers for. And the **transport envelope**
-     * ([SessionTags.REWRITTEN_ON_SEND]) is absent because the engine rewrites those fields on every send
-     * whatever anyone declares — offering a control that cannot take effect is worse than not offering it.
+     * ([SessionTags.TRANSPORT_ENVELOPE]) is absent because FixTool answers for those fields itself: the
+     * engine writes the frame, the sequence numbers and the CompIDs whatever anyone declares, and the rest
+     * are resend markers and addressing, not ids anyone mints. Offering a choice that is not the author's
+     * to make is worse than not offering it.
      * A declaration already in the sidecar is listed regardless: an answer the author cannot see is an
      * answer they cannot revise.
      */
@@ -124,7 +126,7 @@ object VenueTagScan {
         tags += declared
         return tags
             .asSequence()
-            .filter { it in declared || it !in SessionTags.REWRITTEN_ON_SEND }
+            .filter { it in declared || it !in SessionTags.TRANSPORT_ENVELOPE }
             .map { tag ->
                 val name = dictionary.getFieldName(tag)
                 val builtIn = builtInRolesOf(tag)

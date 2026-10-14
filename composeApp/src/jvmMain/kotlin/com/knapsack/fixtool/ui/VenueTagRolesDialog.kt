@@ -129,8 +129,8 @@ fun VenueTagRolesDialog(
 
                 if (candidates.isEmpty()) {
                     Text(
-                        "This dictionary defines nothing that could carry a role — only the transport " +
-                            "envelope, which the engine rewrites on every send whatever is declared here.",
+                        "This dictionary defines nothing that could carry a role, only the transport " +
+                            "envelope, which FixTool answers for itself whatever is declared here.",
                         color = AppTheme.Colors.textSecondary,
                         fontSize = 11.sp,
                     )

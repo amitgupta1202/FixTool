@@ -548,7 +548,7 @@ private fun SendPreview(
             modifier = Modifier.padding(bottom = 6.dp),
         )
     }
-    // The Send raw is the captured fields, in order, minus the transport headers the framework re-stamps.
+    // The Send raw is the captured fields, in order, minus the session headers a fresh send writes for itself.
     // So walking the two with one cursor pairs each captured field with what will actually be sent for it —
     // and a field the cursor does not advance past is one that was dropped. A Map keyed by tag could not
     // express either fact: it answers for the *last* occurrence of a repeated tag, whichever row is asking.
@@ -581,8 +581,8 @@ private fun SendPreview(
     }
     if (dropped.isNotEmpty()) {
         Text(
-            "${dropped.size} session/transport header${if (dropped.size == 1) "" else "s"} dropped — " +
-                "re-stamped by the engine on send (${dropped.joinToString(", ")})",
+            "${dropped.size} session/transport header${if (dropped.size == 1) "" else "s"} dropped: " +
+                "a replay is a fresh send, and the engine writes its own (${dropped.joinToString(", ")})",
             color = AppTheme.Colors.textDisabled,
             fontSize = 10.sp,
             modifier = Modifier.padding(top = 4.dp).testTag("send-preview-dropped"),

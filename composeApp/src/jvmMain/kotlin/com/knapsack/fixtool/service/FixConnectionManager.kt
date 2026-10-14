@@ -23,6 +23,20 @@ class FixConnectionManager(
 
         /** What FileStore appends to a session's file name, one file for each. */
         private val STORE_FILE_SUFFIXES = listOf("body", "header", "senderseqnums", "targetseqnums", "session")
+
+        /**
+         * The settings that make up a QuickFIX/J session schedule. TimeZone is not one of them: it only
+         * says which clock the times are read on, so on its own it schedules nothing.
+         */
+        private val SCHEDULE_KEYS =
+            setOf(
+                Session.SETTING_START_TIME,
+                Session.SETTING_END_TIME,
+                Session.SETTING_START_DAY,
+                Session.SETTING_END_DAY,
+                Session.SETTING_WEEKDAYS,
+                Session.SETTING_NON_STOP_SESSION,
+            )
     }
 
     private var initiator: SocketInitiator? = null
@@ -84,9 +98,18 @@ class FixConnectionManager(
     }
 
     /**
+     * True when the profile schedules its session nowhere: no start or end time, and no schedule key
+     * among its custom parameters.
+     */
+    private fun hasNoSchedule(): Boolean =
+        config.startTime.isBlank() &&
+            config.endTime.isBlank() &&
+            config.customParameters.keys.none { it.trim() in SCHEDULE_KEYS }
+
+    /**
      * Creates QuickFIX SessionSettings from our configuration
      */
-    private fun createSessionSettings(): SessionSettings {
+    internal fun createSessionSettings(): SessionSettings {
         // Create a temporary config file
         val configFile = File.createTempFile("quickfix", ".cfg")
         configFile.deleteOnExit()
@@ -102,8 +125,18 @@ class FixConnectionManager(
                 appendLine("ConnectionType=${config.connectionType.name.lowercase()}")
                 appendLine("FileStorePath=${config.fileStorePath}")
                 appendLine("FileLogPath=${config.fileLogPath}")
-                appendLine("StartTime=${config.startTime.ifBlank { "00:00:00" }}")
-                appendLine("EndTime=${config.endTime.ifBlank { "00:00:00" }}")
+                // A profile with no schedule is one session for as long as it is connected. 00:00:00 to
+                // 00:00:00 does not say that to QuickFIX/J: equal times are a daily window that closes and
+                // reopens at midnight UTC, and a session logged on across it was logged out ("Session
+                // reset") with both sequence numbers set back to 1. A schedule the profile does give is
+                // written as it always was, including one given only as custom parameters: those land in
+                // [SESSION] and override these, and a NonStopSession here would quietly cancel them.
+                if (hasNoSchedule()) {
+                    appendLine("NonStopSession=Y")
+                } else {
+                    appendLine("StartTime=${config.startTime.ifBlank { "00:00:00" }}")
+                    appendLine("EndTime=${config.endTime.ifBlank { "00:00:00" }}")
+                }
                 appendLine("SocketConnectTimeout=${config.socketConnectTimeout.ifBlank { "10" }}")
                 appendLine("ReconnectInterval=${config.reconnectInterval.ifBlank { "30" }}")
 

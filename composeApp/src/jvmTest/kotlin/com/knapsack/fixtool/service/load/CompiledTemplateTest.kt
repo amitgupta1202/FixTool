@@ -118,6 +118,102 @@ class CompiledTemplateTest {
         assertEquals("1", message.getString(11))
     }
 
+    /**
+     * **A per-message field inside a repeating group is written into its group entry, not added to the body.**
+     *
+     * The prototype is parsed against the dictionary, so its groups come out whole, but every render wrote a
+     * per-message tag with `setString` on the message itself. A `523` templated inside a party's sub-IDs
+     * went out twice: the right copy in the group, and a stray one at the top level, which a venue that
+     * refuses unknown fields rejects with `35=3`. A BrokerTec QuoteRequest load set did exactly that.
+     */
+    @Test
+    fun `a per-message field inside a repeating group lands in its group entry and nowhere else`() {
+        val compiled =
+            CompiledTemplate.compile(
+                template(
+                    11 to "ORD-\${messageIndex}",
+                    453 to "2",
+                    448 to "LTBO1",
+                    447 to "D",
+                    452 to "13",
+                    802 to "2",
+                    523 to "LTBO1TE1_LEI",
+                    803 to "30",
+                    523 to "user_\${sessionIndex}@load.test",
+                    803 to "2",
+                    448 to "LTSO1",
+                    447 to "D",
+                    452 to "1",
+                    55 to "EUR/USD",
+                ),
+            )
+        val message = compiled.prepare(lane(4), emptyMap(), dictionary) { error("no engine") }.render(1)
+
+        assertFalse(message.isSetField(523), "a top-level 523 is an unknown field to a strict venue")
+        val subIds = message.getGroup(1, 453).getGroups(802).map { it.getString(523) }
+        assertEquals(listOf("LTBO1TE1_LEI", "user_4@load.test"), subIds)
+        val wire = message.toString()
+        assertEquals(2, wire.split('\u0001').count { it.startsWith("523=") }, wire)
+    }
+
+    /**
+     * Written to the top level, a group field kept the value the prototype was built with for every message
+     * of the lane, and two templated fields of one tag overwrote each other in the one top-level field.
+     */
+    @Test
+    fun `a group field renders afresh per message, and two group fields of one tag keep their own values`() {
+        val compiled =
+            CompiledTemplate.compile(
+                template(
+                    11 to "ORD-\${messageIndex}",
+                    453 to "1",
+                    448 to "DESK",
+                    447 to "D",
+                    452 to "13",
+                    802 to "2",
+                    523 to "sub-\${messageIndex}",
+                    803 to "30",
+                    523 to "lane-\${sessionIndex}",
+                    803 to "2",
+                    55 to "EUR/USD",
+                ),
+            )
+        val proto = compiled.prepare(lane(3), emptyMap(), dictionary) { error("no engine") }
+
+        val first = proto.render(1)
+        val second = proto.render(2)
+
+        assertEquals(listOf("sub-1", "lane-3"), first.getGroup(1, 453).getGroups(802).map { it.getString(523) })
+        assertEquals(listOf("sub-2", "lane-3"), second.getGroup(1, 453).getGroups(802).map { it.getString(523) })
+        assertFalse(second.isSetField(523))
+    }
+
+    /** A group's count is read by the parse to build the group, so a seeded one still builds it, nested or not. */
+    @Test
+    fun `a seeded group count still builds its group, and a nested one is not copied to the top level`() {
+        val compiled =
+            CompiledTemplate.compile(
+                template(
+                    453 to "\${parties}",
+                    448 to "DESK",
+                    447 to "D",
+                    452 to "13",
+                    802 to "\${subs}",
+                    523 to "S1",
+                    803 to "2",
+                    55 to "EUR/USD",
+                ),
+            )
+        val seed = mapOf("parties" to "1", "subs" to "1")
+        val message = compiled.prepare(lane(1), seed, dictionary) { error("no engine") }.render(1)
+
+        val party = message.getGroup(1, 453)
+        assertEquals("DESK", party.getString(448))
+        assertEquals("S1", party.getGroup(1, 802).getString(523))
+        assertFalse(message.isSetField(448))
+        assertFalse(message.isSetField(802), "a nested count belongs to its party, not the body")
+    }
+
     /** The prototype was pipe-joined and parsed back, so `58=filled|in full` went out as `58=filled`. */
     @Test
     fun `a value that carries a pipe reaches the prototype whole`() {

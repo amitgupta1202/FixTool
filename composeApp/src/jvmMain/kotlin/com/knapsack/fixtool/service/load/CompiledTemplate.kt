@@ -8,6 +8,8 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.ShorthandTemplateExpander
 import com.knapsack.fixtool.service.ShorthandTemplateExpander.Generator
+import quickfix.FieldMap
+import quickfix.FieldType
 import quickfix.Message
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -204,40 +206,97 @@ class CompiledTemplate private constructor(
     ): LanePrototype {
         val laneScope = seed + lane.seed()
         val placeholderScope = HashMap(laneScope).also { it[MESSAGE_INDEX] = "0" }
+        val dataDictionary = dictionary.getDataDictionary()
         // A captured name has no value to bake in, so the prototype carries a placeholder for its tag and
         // every render replaces it. Anything else is exactly what it was.
         val captured = lookups.keys
+        val perMessage = mutableListOf<Slot.PerMessage>()
+        val placeholders = mutableListOf<String>()
         val resolved =
             slots.map { slot ->
                 slot.tag to
                     when (slot) {
                         is Slot.Literal -> slot.value
                         is Slot.Once -> resolveOnce(slot.template)
-                        is Slot.PerMessage -> renderParts(slot.parts.map { asCaptured(it, captured) }, placeholderScope)
+                        is Slot.PerMessage -> {
+                            val read = slot.copy(parts = slot.parts.map { asCaptured(it, captured) })
+                            perMessage += read
+                            placeholders += renderParts(read.parts, placeholderScope)
+                            // A group's count goes in as itself, because the parse reads it to build the group.
+                            if (dataDictionary?.getFieldType(slot.tag) == FieldType.NUMINGROUP) {
+                                placeholders.last()
+                            } else {
+                                marker(perMessage.lastIndex)
+                            }
+                        }
                     }
             }
         // Through joinFields, so a value carrying a literal `|` is parsed back as one field.
         val raw = FixMessageHelper.joinFields(resolved)
-        val prototype = if (dictionary.getDataDictionary() != null) raw.toQuickFixMessageManual(dictionary) else raw.toQuickFixMessage()
-        val perMessage =
-            slots
-                .filterIsInstance<Slot.PerMessage>()
-                .map { slot -> slot.copy(parts = slot.parts.map { asCaptured(it, captured) }) }
-        val headerTags = perMessage.map { it.tag }.filter { prototype.header.isSetField(it) }.toSet()
+        val prototype = if (dataDictionary != null) raw.toQuickFixMessageManual(dictionary) else raw.toQuickFixMessage()
+        val found = HashMap<String, Place>()
+        locateMarkers(prototype.header, Place.HEADER, found)
+        locateMarkers(prototype, Place.BODY, found)
+        locateMarkers(prototype.trailer, Place.TRAILER, found)
+        // Not found when the field is a group's count, which the parse read to build the group, or when a
+        // later field of the same tag took its place. Either way a render has nothing to write there.
+        val places =
+            perMessage.mapIndexed { i, slot ->
+                found[marker(i)]?.also { it.of(prototype).setString(slot.tag, placeholders[i]) }
+            }
         val names = linkedSetOf<String>()
         perMessage.forEach { slot -> slot.parts.forEach { collectCaptured(it, names) } }
-        return LanePrototype(prototype, perMessage, laneScope, headerTags, lookups, names.toList())
+        return LanePrototype(prototype, perMessage, laneScope, places, lookups, names.toList())
+    }
+
+    /**
+     * **Where a per-message field sits in the prototype**: the header, the body or the trailer, then one
+     * group entry per level, as (count tag, entry index).
+     *
+     * Rendering used to know only "header or not", and wrote everything else with `setString` on the
+     * message itself. For a field inside a repeating group that added a second, top-level copy, which a
+     * venue refusing unknown fields rejects with `35=3`, and left the group holding the prototype's value.
+     */
+    internal class Place(
+        private val section: (Message) -> FieldMap,
+        private val path: List<Pair<Int, Int>> = emptyList(),
+    ) {
+        fun of(message: Message): FieldMap =
+            path.fold(section(message)) { map, (countTag, entry) -> map.getGroups(countTag)[entry] }
+
+        fun into(countTag: Int, entry: Int) = Place(section, path + (countTag to entry))
+
+        companion object {
+            val HEADER = Place(Message::getHeader)
+            val BODY = Place(section = { it })
+            val TRAILER = Place(Message::getTrailer)
+        }
+    }
+
+    /** Every marker in [map] and its groups, to the [Place] it was found at. */
+    private fun locateMarkers(map: FieldMap, place: Place, into: MutableMap<String, Place>) {
+        for (field in map) {
+            val value = map.getString(field.tag)
+            if (value.startsWith(MARKER_OPENER)) into[value] = place
+        }
+        val counts = map.groupKeyIterator()
+        while (counts.hasNext()) {
+            val countTag = counts.next()
+            map.getGroups(countTag).forEachIndexed { entry, group ->
+                locateMarkers(group, place.into(countTag, entry), into)
+            }
+        }
     }
 
     /**
      * A lane's message, ready to clone. Rendering one message is a clone, one `setString` per per-message
-     * tag, and nothing else: no parse, no validation, no engine.
+     * tag at the [Place] the parse put it, and nothing else: no parse, no validation, no engine.
      */
     class LanePrototype internal constructor(
         private val prototype: Message,
         private val perMessage: List<Slot.PerMessage>,
         private val laneScope: Map<String, String>,
-        private val headerTags: Set<Int>,
+        private val places: List<Place?>,
         private val lookups: Map<String, (Int) -> String?> = emptyMap(),
         /**
          * Every captured name this message reads, in reading order, whether bare or behind a `${'$'}{id = …}`.
@@ -273,9 +332,11 @@ class CompiledTemplate private constructor(
             val message = prototype.clone() as Message
             val scope = HashMap(laneScope)
             scope[MESSAGE_INDEX] = messageIndex.toString()
-            for (slot in perMessage) {
+            // A clone copies every group entry, so writing into one leaves the prototype as it was.
+            // Every slot renders, placed or not, because an assignment in one feeds a later one.
+            for ((i, slot) in perMessage.withIndex()) {
                 val value = renderParts(slot.parts, scope, captured)
-                if (slot.tag in headerTags) message.header.setString(slot.tag, value) else message.setString(slot.tag, value)
+                places[i]?.of(message)?.setString(slot.tag, value)
             }
             return Rendered.Message(messageIndex, message)
         }
@@ -286,6 +347,7 @@ class CompiledTemplate private constructor(
         const val MESSAGE_INDEX = "messageIndex"
 
         private const val EXPRESSION_OPENER = "\${"
+        private const val MARKER_OPENER = "\${#"
 
         private val EXPRESSION = """\$\{([^}]+)}""".toRegex()
         private val VARIABLE = """^[a-zA-Z_][a-zA-Z0-9_]*$""".toRegex()
@@ -347,6 +409,13 @@ class CompiledTemplate private constructor(
                 is Part.Assign -> isClocked(part.value)
                 else -> false
             }
+
+        /**
+         * What a per-message field is parsed as, so the parse itself says where the field went.
+         *
+         * Cannot be mistaken for a template value: a literal holds no `${'$'}{`, or it would not be one.
+         */
+        private fun marker(index: Int) = "\${#$index}"
 
         /** A [Part.Variable] whose name a later phase reads from a capture is a [Part.Captured]. */
         private fun asCaptured(part: Part, captured: Set<String>): Part =

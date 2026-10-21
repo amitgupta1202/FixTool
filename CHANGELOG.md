@@ -5,7 +5,7 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.22.1] - 2026-10-21
+## [1.22.2] - 2026-10-21
 
 The release that fixes what five weeks of use found, and closes two holes. A page open in a browser on
 the same machine could drive the control port, and a counterparty's ClOrdID could be run as Kotlin on
@@ -13,7 +13,9 @@ the tester's machine or forge fields into the venue's reply; both are shut. Unde
 schedule is no longer logged out and reset at midnight UTC, SubIDs typed into the editor are actually
 sent, the venue's book reports the CumQty, AvgPx and OrderID a real venue would on a cancel, and the
 load engine, the control surface and the panes each lose a handful of ways to quietly be wrong.
-Nothing new to learn: every change here makes something already documented do what it says.
+Nothing new to learn: every change here makes something already documented do what it says. This is
+also the installable 1.22.1: v1.22.1 was tagged and built nothing, on a run-set test that left to the
+scheduler whether a passing lane could start two more before the failing one raised the stop.
 
 ### 🔒 Security
 
@@ -50,6 +52,7 @@ Nothing new to learn: every change here makes something already documented do wh
 - A temporal row parses the FIX spec's TZ timestamps at minute precision and with any offset form.
 - A capture of two orders on one session numbers each order's replies on their own.
 - A run set reads and writes through the stores it started with, and pruning the runs directory never deletes a set still being run.
+- Under stop-on-first-failure, a parallel set raises the stop before it reports the failure, so no lane starts after it.
 
 **Load testing**
 - A template that reads the clock is rendered as each message is sent, not 64 messages ahead.

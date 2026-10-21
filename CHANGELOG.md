@@ -5,6 +5,92 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.1] - 2026-10-21
+
+The release that fixes what five weeks of use found, and closes two holes. A page open in a browser on
+the same machine could drive the control port, and a counterparty's ClOrdID could be run as Kotlin on
+the tester's machine or forge fields into the venue's reply; both are shut. Underneath, a session with no
+schedule is no longer logged out and reset at midnight UTC, SubIDs typed into the editor are actually
+sent, the venue's book reports the CumQty, AvgPx and OrderID a real venue would on a cancel, and the
+load engine, the control surface and the panes each lose a handful of ways to quietly be wrong.
+Nothing new to learn: every change here makes something already documented do what it says.
+
+### 🔒 Security
+
+- **The control port refuses requests from web pages.** Binding to loopback kept other machines out but not a browser on this one: a page could POST a text/plain body to `/send` without a preflight. Every route now answers 403 to a non-loopback Origin, a cross-site fetch, or a Host other than localhost, 127.0.0.1 or [::1]. curl, the MCP bridge and agent clients are unaffected.
+- **What a counterparty sends is echoed as data, never run as Kotlin or split into fields.** A ClOrdID of `${...}` was evaluated, and `11=X|39=2` turned an ack into a fill. Every value spliced into a reply from the request or a book is sealed until the reply's fields are known; a value carrying a `|` makes the reply SOH-delimited.
+- **Keystore and truststore passwords move into `secrets.json`** with the logon password, so committing a workspace with an SSL profile no longer commits them in clear text. Existing profiles migrate on load.
+
+### 🐛 Fixed
+
+**Connections**
+- **A profile with no schedule stays logged on across midnight UTC.** It used to be written as a 00:00–00:00 daily window, so every session logged on at midnight was reset and both sequence numbers went back to 1. It is now a non-stop session.
+- Reset on Logon clears only the store files QuickFIX/J names for this profile's sessions, not another profile's whose CompIDs happen to contain these.
+- A workspace switch starts the Connection panel's form fresh.
+
+**Editor, send and parse**
+- **SubIDs and location IDs typed into the editor are sent**, and a captured Send step keeps its routing tags (115, 128, 144, 145 and the rest); only what the engine itself writes for that session is held back.
+- A value carrying a pipe stays one field when sent from the editor or automation, in the editor's lint, and in a load template.
+- A group whose count is lower than its entries keeps every entry inside it; a nested group the dictionary defines is no longer pulled out of its parent entry.
+- A SOH-delimited line pasted from a log reads as its fields.
+- A workspace switch leaves the editor on a new unsaved message with no profile chosen.
+
+**Venue (acceptor) and RFQ**
+- A cancel of a working order keeps its OrderID and reports the CumQty the book holds and the AvgPx of what traded, not 0.
+- A fill still queued when the venue accepts a cancel or replace is withdrawn, not sent.
+- A replaced order is done once its replacement is reported, whatever OrdStatus the report carries; a partial fill of half of what is left is exact for a decimal quantity and never a fill of nothing.
+- A message resent for a ResendRequest is shown but booked into no book; a client's pane reopened while it is logged on reads logged on.
+- A preset inserted above an open rule card no longer opens in its place; an armed rule Delete no longer stays on its slot when a different rule moves into it.
+- Lifting a quote whose dealer has logged off books the trade, so the RFQ is done and cannot fill twice; a step to the responders skips a counterparty carved out of a responder family; every step address parses regardless of class-load order.
+
+**Scenarios and runs**
+- A wait for a message waits for an incoming one unless its match says out.
+- Two runs naming one session by title and by index or id can no longer hold it at once; a headless run connects the slot of a multi-session profile that a step names.
+- The post-mortem of a failed step never re-labels a message an earlier step bound.
+- A temporal row parses the FIX spec's TZ timestamps at minute precision and with any offset form.
+- A capture of two orders on one session numbers each order's replies on their own.
+- A run set reads and writes through the stores it started with, and pruning the runs directory never deletes a set still being run.
+
+**Load testing**
+- A template that reads the clock is rendered as each message is sent, not 64 messages ahead.
+- A per-message field inside a repeating group is written into its group entry, not the top level.
+- Requests that reuse an id still pending fail completeness instead of vanishing.
+- Throughput is measured over the microsecond span of the sends; a progress tick no longer holds the lock the I/O threads need; stopping a run ends each lane quietly; pruning the loads directory never deletes a running load.
+
+**Latency**
+- Stamps go back to counting microseconds after the machine sleeps, instead of whole milliseconds until restart.
+- The latency panel's percentiles use the nearest rank a load report uses.
+
+**Dictionaries**
+- An edited dictionary file is read again and replaces the cached version, and a failed load is not remembered.
+- On FIX 5.0 the lint and the builder read session fields from the transport dictionary.
+- A dictionary with no type attribute is read as the FIX version its major and minor name.
+- A placeholder id such as `37=NONE` no longer joins unrelated orders in Conversations.
+
+**Workspaces and settings**
+- Opening, closing or resetting a workspace is refused while a run holds sessions; a switch closes clean scenario tabs and is refused over unsaved ones.
+- A workspace's files are replaced whole, never rewritten in place, and a store whose file could not be read refuses to save over it.
+- Opening an example never claims a folder that is not a copy of it.
+- Saving Settings moves a store whose path override changed, without a restart.
+
+**Panes and grids**
+- A pane's ticked rows, search, widths and scroll stay with its session when panes move or tabs change.
+- Opening or closing a tool window no longer rebuilds the split panes or scrolls the clicked pane away.
+- The grid's ticked rows follow the messages it shows, and a shift-click ranges from the row last clicked.
+- A pane that opens leaves keyboard focus where it is.
+- Holding an armed shortcut asks once; only a fresh press answers.
+- The capture review and the tag roles dialog no longer claim the engine rewrites tags it does not.
+
+**Control surface and MCP**
+- Reading the workspace over MCP no longer closes it and its panes; closing takes an explicit empty path.
+- A search answers with the matches for its own query; send and send-template take a session by index, as described.
+- A failing tool answers its MCP call with the reason, a malformed request or unknown demo action is a 400, an unknown path under `/sessions` is a 404, and a GET of `/demo` reports the example instead of opening it.
+- A wait with a timeout of 0 checks once; stopping the control server ends its threads.
+
+### 📖 Documentation
+
+- The README links the published FixTool video demos.
+
 ## [1.22.0] - 2026-09-14
 
 The release where a trace can be read at any width, and a workspace brings its own dictionary. Every

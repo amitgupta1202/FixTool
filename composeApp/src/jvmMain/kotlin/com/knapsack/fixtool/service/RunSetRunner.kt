@@ -120,12 +120,13 @@ class RunSetRunner(
                             onProgress(current)
                         }
                         val finished = executeEntry(start, index)
+                        // Raised before the failure is written, so once anything has seen it no lane can start.
+                        if (finished.state == RunState.FAILED && start.policy.stopOnFirstFailure) stop.set(true)
                         synchronized(lock) {
                             current = current.withEntry(index) { finished }
                             host.writeSet(current)
                             onProgress(current)
                         }
-                        if (finished.state == RunState.FAILED && start.policy.stopOnFirstFailure) stop.set(true)
                     }
                 }
             running.forEach { future ->

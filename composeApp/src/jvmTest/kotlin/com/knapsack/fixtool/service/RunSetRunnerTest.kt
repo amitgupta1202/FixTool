@@ -354,10 +354,28 @@ class RunSetRunnerTest {
                 RunSets.fanOut(scenario, "p", lanes, "Q", 0L, RunPolicy(concurrency = 1, stopOnFirstFailure = true)),
             )
 
-        val done = RunSetRunner(host).run(plan.set.copy(policy = plan.set.policy.copy(concurrency = 2)))
+        // Two lanes in flight, and the passing one lands only after the failure is reported. Left to the
+        // scheduler, it could finish and start lanes 3 and 4 before the failing lane got that far: a slow CI
+        // runner did exactly that.
+        val bothInFlight = java.util.concurrent.CountDownLatch(1)
+        val failureSeen = java.util.concurrent.CountDownLatch(1)
+        host.hold = { n ->
+            if (n == 1) {
+                bothInFlight.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            } else {
+                bothInFlight.countDown()
+                failureSeen.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
+        }
+
+        val done =
+            RunSetRunner(host).run(plan.set.copy(policy = plan.set.policy.copy(concurrency = 2))) { set ->
+                if (set.entries.any { it.state == RunState.FAILED }) failureSeen.countDown()
+            }
 
         assertEquals(RunSetStatus.FAILED, done.status)
-        assertTrue(done.entries.any { it.state == RunState.SKIPPED }, "${done.entries.map { it.state }}")
+        assertEquals(2, host.ran.size, "only the two lanes in flight ran")
+        assertEquals(2, done.entries.count { it.state == RunState.SKIPPED }, "${done.entries.map { it.state }}")
         assertTrue(
             done.entries.filter { it.state == RunState.SKIPPED }.all { it.note == "an earlier entry failed" },
             "and they say why they did not run",
@@ -523,8 +541,8 @@ class RunSetRunnerTest {
         /** Stop the set after this many entries have run. */
         var stopAfter: Int? = null
 
-        /** Held inside `runOne`, so a test can see how many entries overlap. */
-        var hold: (() -> Unit)? = null
+        /** Held inside `runOne` with this run's number, so a test can see how many entries overlap. */
+        var hold: ((Int) -> Unit)? = null
 
         override fun scenario(id: String): Scenario? = scenarios[id] ?: scenarios.values.firstOrNull { it.id == id }
 
@@ -549,7 +567,7 @@ class RunSetRunnerTest {
                 peakInFlight = maxOf(peakInFlight, inFlight)
                 ran.size
             }
-            hold?.invoke()
+            hold?.invoke(n)
             synchronized(this) { inFlight-- }
             if (n in throwEntries) throw IllegalStateException("boom on run $n")
             val steps =

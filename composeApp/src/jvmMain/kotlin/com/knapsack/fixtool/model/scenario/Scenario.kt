@@ -43,7 +43,44 @@ data class Scenario(
      * Additive and default-omitting on disk, the same bargain as [traffic] and [createdAt].
      */
     val examples: Examples? = null,
+    /**
+     * **What starts a run besides Run itself.** [RunTrigger.LOGON] runs the scenario every time its session
+     * logs on (see [logonSession]). Additive and default-omitting on disk, the same bargain as [binding].
+     */
+    val trigger: RunTrigger = RunTrigger.MANUAL,
 )
+
+/**
+ * **The session whose logon starts this scenario**, when it is set to run on logon: the one session its steps
+ * run on. Null when the steps name none, or more than one, and then [logonTriggerProblem] says which.
+ */
+fun Scenario.logonSession(): String? = sessionsRunOn().singleOrNull()
+
+/**
+ * Why this scenario cannot run on logon as written, or null when it can.
+ *
+ * A logon is one session's event, so a scenario that runs on it has to say which session that is, and it says
+ * so by naming that session on every step. A step that names none runs on whatever session is first in the
+ * window, which can change under it, and a scenario on two sessions has two logons and no rule for which one
+ * starts it. Saving refuses both, and a hand-edited file that has either is skipped at the logon, by name.
+ */
+fun Scenario.logonTriggerProblem(): String? {
+    val sessions = sessionsRunOn()
+    val unnamed = (setup + steps + teardown).count { !it.muted && it.session == null }
+    return when {
+        unnamed > 0 ->
+            "a scenario that runs on logon must name its session on every step, so FixTool knows whose logon " +
+                "starts it, and $unnamed step(s) name none"
+        sessions.isEmpty() -> "a scenario that runs on logon needs a step to run"
+        sessions.size > 1 ->
+            "a scenario that runs on logon must run on one session, the one whose logon starts it, and its " +
+                "steps run on ${sessions.size}: ${sessions.joinToString()}"
+        else -> null
+    }
+}
+
+private fun Scenario.sessionsRunOn(): List<String> =
+    (setup + steps + teardown).filterNot { it.muted }.mapNotNull { it.session }.distinct()
 
 /**
  * The rows a scenario is run once for each of, and the names their cells are seeded under.
@@ -123,6 +160,28 @@ enum class BindScope {
      * has nothing bindable.
      */
     THIS_CONNECTION,
+}
+
+/**
+ * **What starts a scenario's run besides Run itself.**
+ *
+ * Some counterparties start an application-level handshake straight after every Logon, a request with a fresh
+ * id, and disconnect a client that has not answered within about a second. A person pressing Run after Connect
+ * cannot make that window, and neither can anybody after an unattended reconnect.
+ */
+enum class RunTrigger {
+    /** Only Run starts it. The default, and every scenario written before this existed. */
+    MANUAL,
+
+    /**
+     * Every logon of its session starts it too: the first connect, a reconnect and an auto-reconnect alike.
+     *
+     * A run started this way binds as [BindScope.THIS_CONNECTION] whatever [Scenario.binding] says, because a
+     * run started by a logon is about that connection and must never bind the previous one's messages. It ends
+     * as soon as its session drops or logs on again, rather than waiting out its step timeouts. A logon that
+     * finds the session held by another run starts nothing, and says so.
+     */
+    LOGON,
 }
 
 /**

@@ -441,7 +441,13 @@ object McpTools {
                     "with '#' in a send's raw — 35=D|11=ORD|#9303=1 keeps 9303 in the scenario and leaves it off the " +
                     "wire, so \"does the venue still accept this without it?\" is a toggle rather than a retype. An " +
                     "excluded field is wholly inert: it is not sent, not linted, and its \${...} never resolves, so a " +
-                    "mint inside one binds nothing. Call fixtool_syntax for the full " +
+                    "mint inside one binds nothing. trigger:\"logon\" also runs the scenario by itself on " +
+                    "every logon of the one session its steps name (first connect, reconnect, auto-reconnect), " +
+                    "for a counterparty that starts a handshake straight after Logon. Such a run binds only that " +
+                    "connection's messages (this_connection) whatever binding says, ends as soon as the session " +
+                    "drops, is recorded in run history labelled 'on logon of <session>', and is skipped with " +
+                    "'run on logon skipped: <reason>' if another run holds the session. Saving refuses it when " +
+                    "the steps do not all name one session. Default \"manual\". Call fixtool_syntax for the full " +
                     "grammar, or fixtool_capture_scenario to record one that is already correctly templated.",
                 props(
                     "name" to string("scenario name"),
@@ -449,6 +455,7 @@ object McpTools {
                     "profile" to string("connection profile id/name this scenario targets"),
                     "userTags" to arraySchema(string(), "organising tags (also used for per-profile filtering)"),
                     "traffic" to enumStr("open", "strict"),
+                    "trigger" to enumStr("manual", "logon"),
                     "setup" to arraySchema(objectSchema("ScenarioStep run before steps"), "setup steps"),
                     "steps" to arraySchema(objectSchema("ScenarioStep"), "the ordered steps"),
                     "teardown" to arraySchema(objectSchema("ScenarioStep run after steps, even on failure"), "teardown steps"),

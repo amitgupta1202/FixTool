@@ -38,6 +38,7 @@ import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -45,6 +46,7 @@ import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSource
+import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -53,6 +55,7 @@ import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.VariableSource
+import com.knapsack.fixtool.model.scenario.logonTriggerProblem
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
 import com.knapsack.fixtool.service.AcceptorResponder
@@ -163,6 +166,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import quickfix.SessionID
 import java.io.File
+import java.time.Instant
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -1699,6 +1704,10 @@ class FixMessageViewModel(
     fun saveScenarioDocument(edited: Scenario): Boolean {
         updateScenarioDraft(edited.id) { it.copy(draft = edited) }
         val toSave = _openScenarios.value[edited.id]?.draft ?: edited
+        refusedTrigger(toSave)?.let { problem ->
+            showNotification("Not saved: $problem", NotificationType.ERROR)
+            return false
+        }
         if (!scenarioService.save(toSave)) return false
         val onDisk = ScenarioDraft.of(scenarioService.load(toSave.id) ?: toSave)
         if (_openScenarios.value.containsKey(toSave.id)) {
@@ -2911,6 +2920,7 @@ class FixMessageViewModel(
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
                 onWarning = { warning -> showNotification(warning, NotificationType.WARNING) },
             )
+        session.onLoggedOn = { stamp -> onSessionLoggedOn(session, stamp) }
         _sessions.add(session)
         // Do NOT auto-select session on connect - let user or template loading do it
         return session
@@ -3210,6 +3220,8 @@ class FixMessageViewModel(
         val setId: String?,
         /** What is holding the sessions, as a refusal names it: "A scenario run", "A run set", "A load run". */
         val kind: String,
+        /** The session whose logon started this run, when one did. See [runOnLogon]. */
+        val logonOf: FixMessageSession? = null,
         val stop: java.util.concurrent.atomic.AtomicBoolean =
             java.util.concurrent.atomic
                 .AtomicBoolean(false),
@@ -3261,13 +3273,14 @@ class FixMessageViewModel(
         label: String,
         setId: String? = null,
         kind: String = if (setId == null) "A scenario run" else "A run set",
+        logonOf: FixMessageSession? = null,
     ): RunClaim? {
         val blocker = claims.firstOrNull { held -> RunSessions.conflict(held.touched, touched, ::claimKey) }
         if (blocker != null) {
             busyReason = describeClash(blocker, touched)
             return null
         }
-        val claim = RunClaim(touched, label, setId, kind)
+        val claim = RunClaim(touched, label, setId, kind, logonOf)
         claims += claim
         refreshClaims()
         return claim
@@ -3573,7 +3586,8 @@ class FixMessageViewModel(
      * the runner keeps nothing between polls, and a busy session evicts inside a single run. One final
      * direct sample closes the race between the last message and the collector being cancelled.
      */
-    @Suppress("TooGenericExceptionCaught")
+    // Each is an independent input of one run, and a holder for them would only add ceremony.
+    @Suppress("TooGenericExceptionCaught", "LongParameterList")
     private fun runOne(
         scenario: Scenario,
         sessionMap: Map<String, String>,
@@ -3581,6 +3595,8 @@ class FixMessageViewModel(
         entry: RunEntry? = null,
         /** The owning claim's stop flag — a stop must reach the run it was aimed at, and no other. */
         cancelled: () -> Boolean = { false },
+        /** Why the run can no longer mean anything, for a run started by a logon. See [ScenarioRunner]. */
+        interruption: () -> String? = { null },
     ): EntryOutcome {
         // **Fifty lanes have no single run to tint the grid for**, and the tint map is Compose state: fifty
         // threads writing it would be a race over a surface that could not mean anything anyway. A lane
@@ -3641,6 +3657,7 @@ class FixMessageViewModel(
                         if (tinting) _assertionResults.value = matched.toMap()
                     },
                     cancelled = cancelled,
+                    interruption = interruption,
                 ).run(
                     scenario,
                     sessionMap,
@@ -3720,17 +3737,29 @@ class FixMessageViewModel(
     }
 
     /** The set itself, with the slot already held by whoever called. */
+    @Suppress("LongParameterList") // each is an independent input of one set, a holder would only add ceremony
     private fun runSetHeld(
         set: RunSet,
         pinned: Map<String, Scenario> = emptyMap(),
         cancelled: () -> Boolean = { false },
+        interruption: () -> String? = { null },
+        /** A run-level row every entry's report opens with, saying what started it. */
+        startedBy: StepResult? = null,
         onProgress: (RunSet) -> Unit,
     ): RunSet {
         // Taken once, so the set writes every record where it began. See [ViewModelRunSetHost].
         val records = runRecordStore
         records.begin(set)
+        val host =
+            ViewModelRunSetHost(
+                pinned,
+                cancelled,
+                records = records,
+                interruption = interruption,
+                startedBy = startedBy,
+            )
         val done =
-            RunSetRunner(ViewModelRunSetHost(pinned, cancelled, records = records)).run(set) { progress ->
+            RunSetRunner(host).run(set) { progress ->
                 // Only the run the rail is showing may repaint it. Two concurrent sets both assigning
                 // here made the one visible report alternate between two different runs' progress.
                 if (_activeRunSet.value?.id == progress.id) _activeRunSet.value = progress
@@ -4803,6 +4832,13 @@ class FixMessageViewModel(
     }
 
     private companion object Loopback {
+        /** How long a logon's run waits for the previous logon's run of the same session to let go. */
+        private const val STALE_LOGON_RUN_WAIT_MS = 1_000L
+        private const val STALE_LOGON_RUN_POLL_MS = 10L
+
+        /** When a logon's run says its logon happened. */
+        private val LOGON_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+
         val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1", "0.0.0.0")
 
         /**
@@ -4984,11 +5020,24 @@ class FixMessageViewModel(
         private val cancelled: () -> Boolean = { false },
         private val scenarios: ScenarioService = scenarioService,
         private val records: RunRecordStore = runRecordStore,
+        private val interruption: () -> String? = { null },
+        private val startedBy: StepResult? = null,
     ) : RunSetHost {
         override fun scenario(id: String): Scenario? = pinned[id] ?: scenarios.load(id)
 
-        override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? =
-            runOne(scenario, entry.sessionMap, publish = false, entry = entry, cancelled = cancelled)
+        override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? {
+            val outcome =
+                runOne(
+                    scenario,
+                    entry.sessionMap,
+                    publish = false,
+                    entry = entry,
+                    cancelled = cancelled,
+                    interruption = interruption,
+                )
+            val row = startedBy ?: return outcome
+            return outcome.copy(result = outcome.result.copy(steps = listOf(row) + outcome.result.steps))
+        }
 
         override fun write(record: RunRecord): String? = records.write(record)
 
@@ -5002,6 +5051,124 @@ class FixMessageViewModel(
 
         override fun cancelled(): Boolean = cancelled.invoke()
     }
+
+    // ------------------------------------------------------------------ run on logon
+
+    /**
+     * **A logon starts every scenario set to run on it.** See [RunTrigger.LOGON].
+     *
+     * Called on the engine's thread as [session] moves to LOGGED_ON, once per logon, so it only picks the
+     * scenarios and hands the run to a worker. The list is the rail's, which every save and delete refreshes,
+     * so nothing is read from disk between the logon and the first step: the counterparty this exists for
+     * hangs up after about a second.
+     */
+    private fun onSessionLoggedOn(session: FixMessageSession, stamp: Long) {
+        val due = _scenarios.value.filter { it.trigger == RunTrigger.LOGON && it.runsOn(session) }
+        if (due.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) { runOnLogon(session, stamp, due) }
+    }
+
+    /** Whether a step of this scenario runs on [session], by any name the run's host resolves it by. */
+    private fun Scenario.runsOn(session: FixMessageSession): Boolean =
+        (setup + steps + teardown).any { step ->
+            !step.muted && step.session?.let { name -> ViewModelScenarioHost.named(_sessions, name) } === session
+        }
+
+    /**
+     * **One logon's run**: every scenario due on it, as the entries of one set, recorded in run history as
+     * any set is, and labelled with the logon that started it.
+     *
+     * Each entry runs a copy bound as THIS_CONNECTION, whatever its file says, so it never binds a message
+     * from the connection before. It ends as soon as the session drops or logs on again. A logon that finds
+     * the session held by another run starts nothing and says so: by the time that run let go, the moment
+     * this one exists for would be gone, and a run started late on a connection it was not started for is
+     * worse than none.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun runOnLogon(session: FixMessageSession, stamp: Long, due: List<Scenario>) {
+        val (runnable, refused) = due.partition { it.logonTriggerProblem() == null }
+        refused.forEach { skipLogonRun(session, "'${it.name}' ${it.logonTriggerProblem()}") }
+        if (runnable.isEmpty()) return
+        val pinned = runnable.associate { it.id to it.copy(binding = BindScope.THIS_CONNECTION) }
+        val label = (runnable.singleOrNull()?.name ?: "${runnable.size} scenarios") + " on logon of ${session.title}"
+        val now = System.currentTimeMillis()
+        val reserved =
+            RunSet(
+                id = runRecordStore.reserve(RunSets.id(now, label)),
+                label = label,
+                source = RunSource.Logon(session.title, runnable.map { it.id }),
+                entries = runnable.map { RunEntry(it.id, it.name) },
+                policy = RunPolicy(isolateIterations = false),
+            )
+        val touched = RunSessions.ofAll(pinned.values.map { touchedBy(it, emptyMap()) })
+        val claim = claimForLogon(touched, reserved, session) ?: return skipLogonRun(session, runBusyReason())
+        try {
+            val starting = reserved.copy(startedAt = now)
+            runRecordStore.begin(starting)
+            _activeRunSet.value = starting
+            // Recent hears of it off the run's path. Re-reading every record on disk is not worth a
+            // millisecond of the counterparty's window.
+            viewModelScope.launch(Dispatchers.IO) { refreshRunConfigurations() }
+            logger.info("Run on logon of '{}': {}", session.title, label)
+            runSetHeld(
+                starting,
+                pinned,
+                cancelled = { claim.stop.get() },
+                interruption = { logonRunInterruption(session, stamp) },
+                startedBy = startedByLogon(session, stamp),
+            ) { }
+        } catch (e: Exception) {
+            logger.error("Run on logon of '${session.title}' failed: ${e.message}", e, notifyUser = true)
+        } finally {
+            release(claim)
+        }
+    }
+
+    /**
+     * The run slot for one logon's run. A claim held by the previous logon's run of this same session is
+     * waited out, briefly: that connection is gone, so that run is ending already, within one poll. Any other
+     * holder is a run somebody wanted, and is not waited for.
+     */
+    private fun claimForLogon(touched: RunSessions.Touched, set: RunSet, session: FixMessageSession): RunClaim? {
+        val deadline = System.currentTimeMillis() + STALE_LOGON_RUN_WAIT_MS
+        while (true) {
+            claimSessions(touched, set.label, set.id, kind = "A run on logon", logonOf = session)?.let { return it }
+            val stale = claims.any { it.logonOf === session }
+            if (!stale || System.currentTimeMillis() >= deadline) return null
+            Thread.sleep(STALE_LOGON_RUN_POLL_MS)
+        }
+    }
+
+    /** Why a run started by [session]'s logon at [stamp] can no longer mean anything, or null while it can. */
+    private fun logonRunInterruption(session: FixMessageSession, stamp: Long): String? {
+        val state = session.connectionState.value
+        return when {
+            session !in _sessions -> "session '${session.title}' was closed"
+            session.loggedOnAtMicros != stamp -> "session '${session.title}' logged on again"
+            state != FixConnectionState.LOGGED_ON -> "session '${session.title}' disconnected (state=$state)"
+            else -> null
+        }
+    }
+
+    /** The row a logon's run opens its report with, so the report says what started it. */
+    private fun startedByLogon(session: FixMessageSession, stamp: Long): StepResult {
+        val at = LocalTime.ofInstant(Instant.ofEpochMilli(stamp / 1_000), ZoneId.systemDefault()).format(LOGON_TIME)
+        val detail =
+            "started by the logon of session '${session.title}' at $at, binding this_connection: only what " +
+                "this connection received can be bound"
+        return StepResult(-1, "trigger", "setup", passed = true, detail = detail)
+    }
+
+    /** Nothing is skipped silently: the reason is shown and logged. */
+    private fun skipLogonRun(session: FixMessageSession, reason: String) {
+        val message = "run on logon skipped: $reason"
+        logger.warn(message = "$message (session '${session.title}')", notifyUser = false)
+        showNotification(message, NotificationType.WARNING)
+    }
+
+    /** Why [scenario] may not be saved as it stands, or null: see [logonTriggerProblem]. */
+    private fun refusedTrigger(scenario: Scenario): String? =
+        if (scenario.trigger == RunTrigger.LOGON) scenario.logonTriggerProblem() else null
 
     @Suppress("TooGenericExceptionCaught")
     fun runScenario(scenario: Scenario) {
@@ -5189,6 +5356,7 @@ class FixMessageViewModel(
                     )
                 }
             val scenario = ScenarioCodec.fromJson(withId)
+            refusedTrigger(scenario)?.let { throw IllegalArgumentException(it) }
             if (scenarioService.save(scenario)) scenario.id else null
         } catch (e: Exception) {
             showNotification("Invalid scenario JSON: ${e.message}", NotificationType.ERROR)

@@ -3440,6 +3440,20 @@ ${incoming["D"].valueOfTag(38)}
     <strong>OPEN</strong> ignores them, <strong>STRICT</strong> fails the run on them (session
     administration exempt).</p>
 
+    <p><strong>RUN ON LOGON</strong> (the chip beside BINDING, <code>"trigger": "logon"</code> in the file)
+    runs the scenario by itself every time its session logs on: the first connect, a reconnect and an
+    auto-reconnect, as well as when Run is pressed. It is for a counterparty that starts a handshake straight
+    after its Logon reply, a request with a fresh id, and disconnects a client that has not answered within
+    about a second, which nobody pressing Run can make. The session is the one the scenario's steps run on, so
+    every step must name that one session, and Save refuses it otherwise. A run started by a logon binds as
+    THIS CONNECTION whatever BINDING says, so it never answers with the previous connection's id. It ends as
+    soon as the session drops or logs on again, with the reason in its report, instead of waiting out its step
+    timeouts. If another run holds the session at the logon, it does not start, and a notification and the
+    log say <em>run on logon skipped:</em> and why. Disconnecting starts nothing. Each run is in
+    <strong>Recent runs</strong> as <em>&lt;name&gt; on logon of &lt;session&gt;</em>, and its report opens
+    with the logon that started it. <strong>RUN BY HAND</strong>, the default, writes nothing to the
+    file.</p>
+
     <p>Four tools manage them: <code>fixtool_save_scenario</code>, <code>fixtool_list_scenarios</code>,
     <code>fixtool_run_scenario</code>, and <code>fixtool_delete_scenario</code>. A run returns a
     per-step, per-tag pass/fail report; pass <code>format:"junit"</code> to get JUnit XML for CI.</p>

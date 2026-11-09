@@ -9,6 +9,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -620,5 +621,45 @@ class ScenarioCodecTest {
         val typo = Json.parseToJsonElement("""{"id":"sc-b","name":"n","binding":"thisrunn"}""").jsonObject
         val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(typo) }
         assertTrue("thisrunn" in why.message!!, "the refusal must name what it could not read: ${why.message}")
+    }
+
+    // ----- trigger -----------------------------------------------------------------------------------
+
+    @Test
+    fun `a run on logon trigger round-trips through json`() {
+        val scenario =
+            Scenario(
+                id = "sc-t",
+                name = "n",
+                steps = listOf(ScenarioStep.Send("35=D|", session = "s")),
+                trigger = RunTrigger.LOGON,
+            )
+        val json = ScenarioCodec.toJson(scenario)
+        assertEquals("logon", json["trigger"]?.jsonPrimitive?.content, "the trigger must be written: $json")
+        assertEquals(RunTrigger.LOGON, ScenarioCodec.fromJson(json).trigger)
+    }
+
+    /** The additive bargain once more: a scenario that never asked to run on logon never grows the key. */
+    @Test
+    fun `a scenario without a trigger reads as run by hand and writes no key`() {
+        val noKey = Json.parseToJsonElement("""{"id":"sc-t","name":"n"}""").jsonObject
+        val scenario = ScenarioCodec.fromJson(noKey)
+        assertEquals(RunTrigger.MANUAL, scenario.trigger)
+        assertNull(ScenarioCodec.toJson(scenario)["trigger"], "the wire format is frozen except additively")
+        val manual = Json.parseToJsonElement("""{"id":"sc-t","name":"n","trigger":"manual"}""").jsonObject
+        assertEquals(RunTrigger.MANUAL, ScenarioCodec.fromJson(manual).trigger)
+    }
+
+    /**
+     * Reading an unknown trigger as manual would quietly stop a scenario that was meant to answer a
+     * counterparty's handshake from running at all, and the counterparty would disconnect with nothing in
+     * FixTool saying why.
+     */
+    @Test
+    fun `a trigger the build does not know fails the load, by name`() {
+        val typo = Json.parseToJsonElement("""{"id":"sc-t","name":"n","trigger":"on_logon_please"}""").jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(typo) }
+        assertTrue("on_logon_please" in why.message!!, "the refusal must name what it could not read: ${why.message}")
+        assertTrue("manual, logon" in why.message!!, "the refusal must list the known triggers: ${why.message}")
     }
 }

@@ -48,6 +48,8 @@ import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
+import com.knapsack.fixtool.model.scenario.RunTrigger
+import com.knapsack.fixtool.model.scenario.logonTriggerProblem
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.validationError
@@ -1213,6 +1215,9 @@ class ControlServer(
             } catch (e: IllegalArgumentException) {
                 return errorObject("invalid scenario: ${e.message}")
             }
+        if (scenario.trigger == RunTrigger.LOGON) {
+            scenario.logonTriggerProblem()?.let { return errorObject("invalid scenario: $it") }
+        }
         val existed = viewModel.scenarioService.load(id) != null
         val ok = viewModel.scenarioService.save(scenario)
         return buildJsonObject {

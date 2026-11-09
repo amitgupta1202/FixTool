@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
+import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepOrigin
@@ -51,6 +52,7 @@ object ScenarioCodec {
             // strict never grows the key, and every pre-traffic file keeps loading (and re-saving) unchanged.
             scenario.traffic.takeIf { it != TrafficMode.OPEN }?.let { put("traffic", it.name.lowercase()) }
             scenario.binding.takeIf { it != BindScope.ANY }?.let { put("binding", it.name.lowercase()) }
+            scenario.trigger.takeIf { it != RunTrigger.MANUAL }?.let { put("trigger", it.name.lowercase()) }
             // Additive and default-omitting: a file authored before createdAt existed grows no key by being
             // read and re-saved, so it stays byte-identical (and old FixTools keep loading new files — the
             // key is unknown to them, and an unknown key is ignored, never refused). Version stays 1.
@@ -98,6 +100,7 @@ object ScenarioCodec {
             version = version,
             traffic = trafficFrom(obj["traffic"]?.jsonPrimitive?.contentOrNull),
             binding = bindingFrom(obj["binding"]?.jsonPrimitive?.contentOrNull),
+            trigger = triggerFrom(obj["trigger"]?.jsonPrimitive?.contentOrNull),
             // Absent = unknown (a file older than the field): read as null, and the rail sorts it by mtime.
             createdAt = obj["createdAt"]?.jsonPrimitive?.longOrNull,
             examples = obj["examples"]?.jsonObject?.let { examplesFromJson(it) },
@@ -383,6 +386,22 @@ object ScenarioCodec {
                 "unknown binding scope '$raw' — this scenario was written by something that knows a binding " +
                     "rule this build does not, and guessing at it would silently change which messages its " +
                     "steps may bind. Known binding scopes: any, this_run, this_connection.",
+            )
+        }
+
+    /**
+     * [bindingFrom]'s stance again: reading an unknown trigger as manual would quietly stop a scenario that
+     * was meant to answer a counterparty's handshake from running at all, and the counterparty would hang up
+     * with nothing in FixTool saying why.
+     */
+    private fun triggerFrom(raw: String?): RunTrigger =
+        when (raw?.lowercase()) {
+            null, "manual" -> RunTrigger.MANUAL
+            "logon" -> RunTrigger.LOGON
+            else -> throw IllegalArgumentException(
+                "unknown trigger '$raw'. This scenario was written by something that knows a way to start a " +
+                    "run this build does not, and guessing at it would silently change when it runs. Known " +
+                    "triggers: manual, logon.",
             )
         }
 

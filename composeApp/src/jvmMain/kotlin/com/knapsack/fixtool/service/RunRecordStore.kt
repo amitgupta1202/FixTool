@@ -467,6 +467,13 @@ object RunSetCodec {
                     put("scenarioId", source.scenarioId)
                     put("profileId", source.profileId)
                 }
+                is RunSource.Logon -> {
+                    put("type", "logon")
+                    put("session", source.session)
+                    // Under "ids" as Selected writes them, so a build that does not know this type still reads
+                    // which scenarios ran, through the Selected fallback below.
+                    put("ids", buildJsonArray { source.scenarioIds.forEach { add(it) } })
+                }
             }
         }
 
@@ -495,6 +502,11 @@ object RunSetCodec {
                 RunSource.FanOut(
                     obj["scenarioId"]?.jsonPrimitive?.content.orEmpty(),
                     obj["profileId"]?.jsonPrimitive?.content.orEmpty(),
+                )
+            "logon" ->
+                RunSource.Logon(
+                    obj["session"]?.jsonPrimitive?.content.orEmpty(),
+                    obj["ids"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content },
                 )
             // Selected is the fallback: an unknown source still lists the scenarios it ran, which is the
             // part a reader of an old record needs. The provenance of the click is not worth a refusal.

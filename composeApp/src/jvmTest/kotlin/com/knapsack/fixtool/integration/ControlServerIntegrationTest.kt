@@ -291,6 +291,37 @@ class ControlServerIntegrationTest {
         }
     }
 
+    /**
+     * Run on logon is set over the control API like any other scenario field: `trigger` round-trips through
+     * POST and GET, and fixtool_save_scenario takes it too. A scenario on two sessions has no one logon to
+     * start it, so it is refused with the reason, and so is a trigger this build does not know.
+     */
+    @Test
+    fun `a run on logon trigger is set over the control API, and refused where no one logon starts it`() {
+        val one = """{"name":"HANDSHAKE","trigger":"logon","steps":[{"type":"send","session":"LIVE","raw":"35=0|"}]}"""
+        val saved = obj(post("/scenarios", one))
+        assertEquals("created", saved["status"]!!.jsonPrimitive.content, saved.toString())
+        val back = obj(get("/scenarios?id=${saved["id"]!!.jsonPrimitive.content}"))
+        assertEquals("logon", back["trigger"]?.jsonPrimitive?.content, back.toString())
+
+        val two =
+            """{"name":"TWO","trigger":"logon","steps":[{"type":"send","session":"A","raw":"35=0|"},""" +
+                """{"type":"send","session":"B","raw":"35=0|"}]}"""
+        val refused = obj(post("/scenarios", two))
+        assertEquals("error", refused["status"]!!.jsonPrimitive.content, refused.toString())
+        assertTrue("must run on one session" in refused["error"]!!.jsonPrimitive.content, refused.toString())
+
+        val unknown = obj(post("/scenarios", """{"name":"X","trigger":"sometimes","steps":[]}"""))
+        assertTrue("unknown trigger 'sometimes'" in unknown["error"]!!.jsonPrimitive.content, unknown.toString())
+
+        val viaMcp =
+            mcpCall(
+                "fixtool_save_scenario",
+                """{"name":"MCP","trigger":"logon","steps":[{"type":"send","session":"LIVE","raw":"35=0|"}]}""",
+            )
+        assertTrue("created" in viaMcp, viaMcp)
+    }
+
     // ----------------------------------------------------- read / view / filter
 
     @Test

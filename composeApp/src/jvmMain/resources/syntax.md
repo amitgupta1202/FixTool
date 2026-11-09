@@ -243,7 +243,7 @@ a real field with no value.
 
 ## 5. Scenario shape
 
-`{name, profile?, userTags?, setup?: [step], steps: [step], teardown?: [step], examples?}` — `setup`
+`{name, profile?, userTags?, trigger?, setup?: [step], steps: [step], teardown?: [step], examples?}`: `setup`
 runs first, `teardown` always runs, even on failure. A step is `{type, ...}`:
 
 | `type` | Fields |
@@ -254,6 +254,15 @@ runs first, `teardown` always runs, even on failure. A step is `{type, ...}`:
 | `clearMessages` | `session?` |
 | `clearOrderBook` | `session?`. Empties **both** books FixTool keeps as the venue on that session, orders and quotes (what its rules read, as opposed to what the grid shows). Only valid on a session FixTool hosts as an acceptor; anywhere else the run is refused in preflight, by name. |
 | `resetSeqNum` | `session?`, `sender?`, `target?` |
+
+### `trigger`: running on every logon
+
+`"trigger": "logon"` runs the scenario by itself every time its session logs on (the first connect, a
+reconnect, an auto-reconnect), as well as on request. Every step must name the same session, the one whose
+logon starts it, and saving refuses it otherwise. Such a run binds as `this_connection` whatever `binding`
+says, ends as soon as the session drops, and is skipped with `run on logon skipped: <reason>` when another
+run holds the session. Run history records it as `<name> on logon of <session>`. Absent, or `"manual"`, it
+runs only on request. Any other value fails the load, by name.
 
 ### The examples table — a scenario run once per row
 

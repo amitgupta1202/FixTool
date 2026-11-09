@@ -8,8 +8,11 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.io.OutputStream
 import java.util.Collections
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -22,7 +25,8 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * Behavior per connection: answers Logon (35=A) with a Logon ack, answers TestRequest (35=1)
  * with a Heartbeat, answers Logout (35=5) with a Logout, ignores Heartbeats, and records
- * every other message in [applicationMessages].
+ * every other message in [applicationMessages]. With [afterLogon] set, it also starts a handshake
+ * straight after every Logon reply.
  */
 class TestFixServer {
     private lateinit var serverSocket: ServerSocket
@@ -61,13 +65,76 @@ class TestFixServer {
         val toClient: String? = null,
     )
 
+    /**
+     * **A handshake the venue starts straight after every Logon reply**, the way some counterparties do.
+     *
+     * Its request is a News (35=B) whose Headline(148) is a fresh id, `REQ-<uuid>`, sent in the same breath
+     * as the Logon reply. The answer is a News from the client whose Headline is that same id. An answer that
+     * has not arrived within [Handshake.windowMs] gets the client disconnected. Null by default, so every test
+     * written before this existed is unchanged.
+     */
+    @Volatile
+    var afterLogon: Handshake? = null
+
+    class Handshake(
+        val windowMs: Long = 1_000,
+        /** What the venue does once a connection's answer is in, by the connection's 1-based number. */
+        val afterAnswer: (connection: Int) -> AfterAnswer = { AfterAnswer.NOTHING },
+    ) {
+        /** One per logon, in order. */
+        val challenges: MutableList<Challenge> = CopyOnWriteArrayList()
+    }
+
+    enum class AfterAnswer {
+        NOTHING,
+
+        /** Close the socket without a Logout, as a counterparty that drops the line does. */
+        DROP,
+
+        /** Send a second News, `148=FOLLOWUP-<connection>`, which a scenario can wait for. */
+        FOLLOW_UP,
+    }
+
+    /** One connection's handshake: the id the venue sent, and every Headline the client answered with. */
+    class Challenge(
+        val connection: Int,
+        val requestId: String,
+        val windowMs: Long,
+    ) {
+        private val sentAtNanos = System.nanoTime()
+
+        /** Each answer's Headline(148) and how long after the request it arrived, in arrival order. */
+        val answers: MutableList<Pair<String, Long>> = CopyOnWriteArrayList()
+
+        @Volatile
+        var disconnectedForSilence = false
+
+        /** The first answer carried this connection's own id, within the window. */
+        val answeredInTime: Boolean
+            get() = answers.firstOrNull()?.let { (id, ms) -> id == requestId && ms <= windowMs } == true
+
+        fun answer(id: String) {
+            answers += id to TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sentAtNanos)
+        }
+    }
+
+    private val timers =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable).apply { isDaemon = true }
+        }
+
     /** One client's connection, so a reply can be routed to it and its sequence numbers kept straight. */
     private class Connection(
+        val socket: Socket,
         val output: OutputStream,
         var senderCompId: String,
         var targetCompId: String,
     ) {
         var seqNum = 1
+
+        /** This connection's handshake, once its Logon has been answered. */
+        @Volatile
+        var challenge: Challenge? = null
 
         @Synchronized
         fun write(msgType: String, fields: List<String>) {
@@ -101,6 +168,45 @@ class TestFixServer {
         running = false
         serverSocket.close()
         executor.shutdownNow()
+        timers.shutdownNow()
+    }
+
+    /** Sends the handshake's request on [connection] and starts its window. */
+    private fun challenge(connection: Connection, handshake: Handshake) {
+        val challenge =
+            synchronized(handshake.challenges) {
+                Challenge(handshake.challenges.size + 1, "REQ-${UUID.randomUUID()}", handshake.windowMs)
+                    .also { handshake.challenges += it }
+            }
+        connection.challenge = challenge
+        connection.write("B", listOf("148=${challenge.requestId}", "33=1", "58=handshake"))
+        timers.schedule(
+            {
+                if (challenge.answers.isEmpty()) {
+                    challenge.disconnectedForSilence = true
+                    runCatching { connection.socket.close() }
+                }
+            },
+            handshake.windowMs,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    /** A News from the client answers its connection's handshake, if there is one. */
+    private fun answered(connection: Connection, message: String, handshake: Handshake?): Boolean {
+        val challenge = connection.challenge ?: return false
+        if (handshake == null || fieldValue(message, 35) != "B") return false
+        val first = challenge.answers.isEmpty()
+        challenge.answer(fieldValue(message, 148) ?: "")
+        if (first) {
+            when (handshake.afterAnswer(challenge.connection)) {
+                AfterAnswer.NOTHING -> Unit
+                AfterAnswer.DROP -> runCatching { connection.socket.close() }
+                AfterAnswer.FOLLOW_UP ->
+                    connection.write("B", listOf("148=FOLLOWUP-${challenge.connection}", "33=1", "58=followup"))
+            }
+        }
+        return true
     }
 
     private fun handleConnection(socket: Socket) {
@@ -108,7 +214,7 @@ class TestFixServer {
         try {
             socket.use {
                 val input = it.getInputStream()
-                val connection = Connection(it.getOutputStream(), senderCompId = "SERVER", targetCompId = "CLIENT")
+                val connection = Connection(it, it.getOutputStream(), senderCompId = "SERVER", targetCompId = "CLIENT")
                 val buffer = StringBuilder()
                 val bytes = ByteArray(8192)
 
@@ -133,6 +239,7 @@ class TestFixServer {
                                     ackFields.add("141=Y")
                                 }
                                 connection.write("A", ackFields)
+                                afterLogon?.let { handshake -> challenge(connection, handshake) }
                             }
                             "0" -> {
                                 // Heartbeat - nothing to do
@@ -144,6 +251,7 @@ class TestFixServer {
                             "5" -> connection.write("5", emptyList())
                             else -> {
                                 applicationMessages.add(message)
+                                if (answered(connection, message, afterLogon)) continue
                                 for (reply in answer(message)) {
                                     val target = reply.toClient?.let { client -> connections[client] } ?: connection
                                     target.write(reply.msgType, reply.fields)

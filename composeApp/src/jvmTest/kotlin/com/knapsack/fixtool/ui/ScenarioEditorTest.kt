@@ -15,9 +15,11 @@ import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.withSession
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
@@ -113,6 +115,20 @@ class ScenarioEditorTest {
         composeTestRule.onNodeWithTag("editor-save").performClick()
         composeTestRule.waitForIdle()
         assertEquals(com.knapsack.fixtool.model.scenario.TrafficMode.STRICT, saved!!.traffic)
+    }
+
+    /** The run-on-logon chip toggles the trigger, and the save carries it. */
+    @Test
+    fun `the run on logon chip toggles the trigger and the save carries it`() {
+        var saved: Scenario? = null
+        val oneSession = scenario.copy(steps = scenario.steps.map { it.withSession("QUOTE") })
+        render(initial = oneSession) { saved = it }
+        composeTestRule.onNodeWithTag("run-trigger-chip").assertTextEquals("RUN BY HAND")
+        composeTestRule.onNodeWithTag("run-trigger-chip").performClick()
+        composeTestRule.onNodeWithTag("run-trigger-chip").assertTextEquals("RUN ON LOGON")
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(RunTrigger.LOGON, saved!!.trigger)
     }
 
     @Test

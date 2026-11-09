@@ -90,6 +90,12 @@ sealed interface RunSource {
         val scenarioId: String,
         val profileId: String,
     ) : RunSource
+
+    /** The scenarios set to run on logon of [session], started by one of its logons rather than by a click. */
+    data class Logon(
+        val session: String,
+        val scenarioIds: List<String>,
+    ) : RunSource
 }
 
 /**

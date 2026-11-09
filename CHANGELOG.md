@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ✨ Added
+
+- **A scenario can run by itself on every logon of its session.** `"trigger": "logon"`, or RUN ON LOGON on the editor's new chip, starts it each time its session logs on: the first connect, a reconnect and an auto-reconnect. It answers a counterparty that sends a request with a fresh id straight after its Logon reply and disconnects a client that has not answered within about a second. A run started this way binds only that connection's messages whatever the scenario's binding says, ends at once with the reason when the session drops, and is in Recent runs as "<name> on logon of <session>". If another run holds the session at the logon it is skipped, and a notification and the log say "run on logon skipped:" and why. Every step must name the one session whose logon starts it, and saving refuses it otherwise. `POST /scenarios` and `fixtool_save_scenario` take `trigger`.
+
 ### 🐛 Fixed
 
 **Editor, send and parse**

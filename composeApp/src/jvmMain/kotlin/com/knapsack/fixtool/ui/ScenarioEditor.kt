@@ -79,7 +79,10 @@ import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.BindScope
+import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.TrafficMode
+import com.knapsack.fixtool.model.scenario.logonSession
+import com.knapsack.fixtool.model.scenario.logonTriggerProblem
 import com.knapsack.fixtool.service.MessageIssue
 import com.knapsack.fixtool.service.MessageIssues
 import com.knapsack.fixtool.service.ScenarioAnnotations
@@ -287,6 +290,7 @@ fun ScenarioEditor(
     var name by remember { mutableStateOf(initial.name) }
     var traffic by remember { mutableStateOf(initial.traffic) }
     var binding by remember { mutableStateOf(initial.binding) }
+    var trigger by remember { mutableStateOf(initial.trigger) }
     // One list, three phases, contiguous and in run order: setup, then the flow, then teardown. A setup
     // step is a step, and while it lived only in the header's summary the one way to stop a captured
     // scenario wiping the session log on every run was to edit the file by hand.
@@ -342,6 +346,7 @@ fun ScenarioEditor(
             traffic = traffic,
             binding = binding,
             examples = table,
+            trigger = trigger,
         )
     // By value, not by every recomposition: an untouched editor emits its seed once and then stays quiet.
     LaunchedEffect(built) { onChange(built) }
@@ -471,14 +476,23 @@ fun ScenarioEditor(
                 binding,
                 onToggle = { binding = binding.next() },
             )
-            Row(modifier = Modifier.weight(1f)) {}
+            TriggerChip(
+                trigger,
+                session = built.logonSession(),
+                problem = built.logonTriggerProblem(),
+                onToggle = { trigger = if (trigger == RunTrigger.MANUAL) RunTrigger.LOGON else RunTrigger.MANUAL },
+            )
             // Setup used to stand on its own row below the header, spending a whole line on one quiet
             // sentence. It rides in the header's empty span now — a reclaimed line — beside Save, where
             // the wipe warning sits next to the button that launches the run it warns about.
             // Read off the rows rather than off `initial`, because setup is edited in the list below now:
             // a warning about a wipe the author has just muted away would be worse than no warning.
+            // It takes the span itself and gives way when the header is short of room, so Save is never the
+            // one squeezed out of the row.
             if (built.setup.isNotEmpty()) {
-                SetupSummary(built.setup, dictionary, modifier = Modifier.padding(end = 12.dp))
+                SetupSummary(built.setup, dictionary, modifier = Modifier.weight(1f).padding(start = 8.dp, end = 12.dp))
+            } else {
+                Row(modifier = Modifier.weight(1f)) {}
             }
             SaveScenarioButton(name = name, flowCount = flowCount, onSave = { onSave(built) })
         }
@@ -730,13 +744,15 @@ private fun columnRole(column: String, referencedAt: List<Int>, steps: List<Scen
 @Composable
 private fun SetupSummary(setup: List<ScenarioStep>, dictionary: FixDictionary?, modifier: Modifier = Modifier) {
     val clears = setup.any { it is ScenarioStep.ClearMessages && !it.muted }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End, modifier = modifier) {
         Text(
             "setup: ${setup.size} ${if (setup.size == 1) "step" else "steps"} before the flow" +
                 (if (clears) " · wipes the session log each run" else ""),
             color = AppTheme.Colors.textDisabled,
             fontSize = 9.5.sp,
-            modifier = Modifier.testTag("setup-summary"),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).testTag("setup-summary"),
         )
         val enumerated =
             setup.joinToString("; ") { step ->
@@ -1169,6 +1185,53 @@ private fun BindingChip(scope: BindScope, onToggle: () -> Unit) {
                     .clickable(onClick = onToggle)
                     .padding(horizontal = 6.dp, vertical = 1.dp)
                     .testTag("binding-scope-chip"),
+        )
+    }
+}
+
+/**
+ * **What starts this scenario besides Run**, the third header chip. RUN ON LOGON runs it by itself on every
+ * logon of the one session its steps name, for a counterparty that starts a handshake straight after Logon
+ * and hangs up on a client that has not answered within a second. It wears the error colour, and says why,
+ * while the steps do not name that one session, because Save refuses it then.
+ */
+@Composable
+private fun TriggerChip(trigger: RunTrigger, session: String?, problem: String?, onToggle: () -> Unit) {
+    val onLogon = trigger == RunTrigger.LOGON
+    val colour =
+        when {
+            !onLogon -> AppTheme.Colors.info
+            problem != null -> AppTheme.Colors.error
+            else -> AppTheme.Colors.warning
+        }
+    AppTooltip(
+        when {
+            !onLogon ->
+                "Runs when Run is pressed. Click for RUN ON LOGON: it then also runs by itself every time its " +
+                    "session logs on, for a counterparty that starts a handshake straight after Logon and " +
+                    "disconnects a client that is slow to answer."
+            problem != null -> "RUN ON LOGON cannot be saved like this: $problem. Click to run it by hand only."
+            else ->
+                "Runs by itself on every logon of '$session': the first connect, a reconnect and an " +
+                    "auto-reconnect, as well as when Run is pressed. A run started by a logon binds only that " +
+                    "connection's messages (THIS CONNECTION) whatever BINDING says, ends as soon as the session " +
+                    "drops, and is in Recent runs as 'on logon of $session'. If another run holds the session " +
+                    "at the logon, it is skipped and says so. Click to run it by hand only."
+        },
+    ) {
+        Text(
+            if (onLogon) "RUN ON LOGON" else "RUN BY HAND",
+            color = colour,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            modifier =
+                Modifier
+                    .padding(start = 8.dp)
+                    .border(1.dp, colour.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("run-trigger-chip"),
         )
     }
 }

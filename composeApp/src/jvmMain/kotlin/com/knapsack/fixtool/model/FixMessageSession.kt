@@ -229,12 +229,34 @@ class FixMessageSession(
     var loggedOnAtMicros: Long? = null
         private set
 
+    /**
+     * **Called once for every logon**, with that logon's [loggedOnAtMicros], straight after the state reads
+     * LOGGED_ON. What starts a scenario set to run on logon.
+     *
+     * A callback rather than a collector of [connectionState]: a StateFlow conflates, so a reconnect that
+     * went LOGGED_ON, DISCONNECTED and LOGGED_ON again faster than a collector ran would read as no change,
+     * and that logon would start nothing. It runs on the engine's thread, so it must only hand the work on.
+     */
+    @Volatile
+    var onLoggedOn: ((stampMicros: Long) -> Unit)? = null
+
     /** Every state change goes through here, so the logon moment is taken wherever LOGGED_ON comes from. */
+    @Suppress("TooGenericExceptionCaught")
     private fun setConnectionState(state: FixConnectionState) {
-        if (state == FixConnectionState.LOGGED_ON && _connectionState.value != FixConnectionState.LOGGED_ON) {
-            loggedOnAtMicros = CaptureClock.micros()
-        }
+        val loggedOn = state == FixConnectionState.LOGGED_ON && _connectionState.value != FixConnectionState.LOGGED_ON
+        val stamp = if (loggedOn) CaptureClock.micros().also { loggedOnAtMicros = it } else null
         _connectionState.value = state
+        if (stamp != null) {
+            try {
+                onLoggedOn?.invoke(stamp)
+            } catch (e: Exception) {
+                logger.warn(
+                    "Session '$title' logged on, and what runs on its logon failed to start: ${e.message}",
+                    e,
+                    notifyUser = false,
+                )
+            }
+        }
     }
 
     private val _connectionConfig = MutableStateFlow<FixConnectionConfig?>(null)

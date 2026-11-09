@@ -2731,7 +2731,10 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     format (<code>38=1,000</code> is not a quantity), a field the message type requires and the message does not
     carry, and a tag the message type does not define. A value still written by an expression is left to Send,
     which judges what it resolves to. The rules are QuickFIX/J's own, applied to the dictionary you loaded, so they
-    are only as close to the counterparty's as that dictionary is.</p>
+    are only as close to the counterparty's as that dictionary is. On a FIXT.1.1 session, the session-level
+    messages (Heartbeat, TestRequest, ResendRequest, Reject, SequenceReset, Logout and Logon) are checked against
+    the transport dictionary and every other message against the application dictionary, as the engine does with
+    what it receives.</p>
 
     <h4>Where problems are shown</h4>
     <p>The count is beside Send (<em>3 errors</em>, or <em>Valid</em>), and the problems are in <strong>one row
@@ -2937,7 +2940,8 @@ ${incoming["D"].valueOfTag(38)}
     <h3>Data dictionary <span style="font-weight:normal">&mdash; Protocol</span></h3>
     <p>Either use a <strong>bundled</strong> dictionary (complete standard definitions for FIX 4.0 through
     5.0 SP2, chosen by FIX version) or <strong>Browse</strong> to your venue's own XML. FIX 5.0+ additionally
-    takes a transport dictionary (FIXT.1.1) for the session-level messages.</p>
+    takes a transport dictionary (FIXT.1.1) for the session-level messages, and Validate and Send check those
+    messages against it.</p>
     <p>The dictionary provides human-readable names for tags and values &mdash; and rather more than that
     once you start capturing scenarios. Whether a field is a timestamp (so a replay stamps it fresh instead
     of sending a stale one), a price, or an enumerated code is a question put to the dictionary, so a tag it

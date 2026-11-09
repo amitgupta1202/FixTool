@@ -395,7 +395,7 @@ JSON, or a field of the wrong shape (an array sent as a string, say), answers **
 | `POST /messages/clear` | `{"session"}`                        | clear a session's message log                        |
 | `POST /wait`         | `{"session", "state"?, "match"?, "timeoutMs"?}` | block until state/message-match or timeout; returns the match. It always checks once, so `"timeoutMs": 0` asks whether it is already so |
 | `POST /admin`        | `{"session", "action", …}`             | session/admin control (see below)                    |
-| `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary    |
+| `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary. On FIXT.1.1, admin messages (35=0,1,2,3,4,5,A) are checked against the transport dictionary |
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |
 | `POST /dictionary`   | `{"version"}` or `{"path", "transportPath"?}` | switch the data dictionary                    |
 | `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its `index`, its ANDed `trigger`, its played `sequence`, any `validationError` and `shadowedBy` when an earlier rule already answers everything it would, plus the profile's simulated `latency` |

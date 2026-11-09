@@ -5,6 +5,13 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+**Editor, send and parse**
+- **A Heartbeat, Logon or other admin message on a FIXT.1.1 session no longer warns "Invalid MsgType, field=35".** Validate, Send, `POST /validate` and `fixtool_validate` judged every message against the FIX 5.0 application dictionary, which does not define the admin messages, so every Heartbeat sent carried that warning. Admin messages are now checked against the FIXT.1.1 transport dictionary and application messages against the application dictionary. A FIX 4.x session is unchanged.
+
 ## [1.23.0] - 2026-11-09
 
 The release that makes a disconnect and a scenario's send do what they say. With auto-reconnect off, a

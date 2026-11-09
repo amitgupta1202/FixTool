@@ -2,8 +2,12 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
+import com.knapsack.fixtool.service.FixMessageHelper.toWireFixMessage
 import com.knapsack.fixtool.service.compare.WireArithmetic
 import org.slf4j.LoggerFactory
+import quickfix.Message
+import quickfix.MessageUtils
+import quickfix.field.MsgType
 
 /**
  * Service for validating FIX messages using QuickFIX/J DataDictionary via FixDictionary adapter.
@@ -24,6 +28,9 @@ import org.slf4j.LoggerFactory
  * discard as garbled is well-formed. The arithmetic cannot tell stale framing (an edited frame whose
  * 9/10 FixTool will recompute at send) from corruption, which is exactly why it is a warning that says
  * both, and not a failure.
+ *
+ * On a FIXT.1.1 session, admin messages are judged against the transport dictionary and application
+ * messages against the application dictionary. A FIX 4.x session has one dictionary, which judges both.
  */
 object FixMessageValidator {
     fun validate(rawMessage: String, dictionary: FixDictionary?): ValidationResult {
@@ -39,14 +46,37 @@ object FixMessageValidator {
 
             // Parse without frame validation, then check the body: bodyOnly skips the header/trailer
             // rules the draft cannot satisfy yet.
-            val quickFixMessage = rawMessage.toQuickFixMessage(dataDictionary, validate = false)
-            dataDictionary.validate(quickFixMessage, true)
+            val transport = dictionary.getTransportDictionary()
+            if (transport == null) {
+                val quickFixMessage = rawMessage.toQuickFixMessage(dataDictionary, validate = false)
+                dataDictionary.validate(quickFixMessage, true)
+            } else {
+                // A FIXT.1.1 session has two dictionaries. The header is parsed with the transport one,
+                // where the session fields are, and the body is judged by whichever defines its type.
+                val bodyDictionary = if (isAdmin(rawMessage)) transport else dataDictionary
+                val quickFixMessage = Message(rawMessage.toWireFixMessage(), transport, bodyDictionary, false)
+                bodyDictionary.validate(quickFixMessage, true)
+            }
             ValidationResult(isValid = true, errors = emptyList(), warnings = warnings)
         } catch (e: Exception) {
             logger.debug("Message failed validation: {}", e.message)
             ValidationResult(isValid = false, errors = listOf("Validation error: ${e.message}"), warnings = warnings)
         }
     }
+
+    /**
+     * Whether the message is session administration: Heartbeat, TestRequest, ResendRequest, Reject,
+     * SequenceReset, Logout or Logon. On a FIXT.1.1 session those are defined in the transport dictionary,
+     * and the FIX 5.0 application dictionary does not know their MsgType at all, so judging a Heartbeat
+     * against it said "Invalid MsgType, field=35" on every one sent. QuickFIX/J's own session makes the
+     * same choice when it validates what it receives.
+     */
+    private fun isAdmin(rawMessage: String): Boolean =
+        FixMessageHelper
+            .parseFixMessage(rawMessage)
+            .firstOrNull { it.first == MsgType.FIELD }
+            ?.second
+            ?.let(MessageUtils::isAdminMessage) == true
 
     /**
      * What the message's own frame says about the bytes as read — empty for a draft, which carries no

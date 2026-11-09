@@ -710,7 +710,9 @@ object McpTools {
             ),
             tool(
                 "fixtool_validate",
-                "Validate a raw FIX message against the loaded data dictionary; returns {isValid, errors}.",
+                "Validate a raw FIX message against the loaded data dictionary; returns {isValid, errors}. On a " +
+                    "FIXT.1.1 session, admin messages (35=0,1,2,3,4,5,A) are checked against the transport " +
+                    "dictionary and application messages against the application dictionary.",
                 props("raw" to string("raw FIX message")),
                 required = listOf("raw"),
             ),

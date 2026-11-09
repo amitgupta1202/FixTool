@@ -6,10 +6,13 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -349,6 +352,100 @@ class FixMessageValidatorTest {
         assertFalse(result.isValid)
         assertTrue(result.errors.single().contains("54"), "should name Side(54): ${result.errors}")
     }
+
+    /**
+     * On a FIXT.1.1 session the admin messages (0, 1, 2, 3, 4, 5, A) are defined in the transport
+     * dictionary, not the FIX 5.0 application dictionary. Judging a Heartbeat against the application
+     * dictionary alone said "Invalid MsgType, field=35", and since every raw message is validated,
+     * every Heartbeat sent on such a session carried that warning.
+     */
+    @Test
+    fun `admin messages on a FIXT session validate against the transport dictionary`() {
+        for (dictionary in fixtDictionaries()) {
+            for (admin in listOf("35=0|112=abc|", "35=1|112=TR-1|", "35=A|98=0|108=30|1137=9|")) {
+                val result = FixMessageValidator.validate(admin, dictionary)
+
+                assertTrue(result.isValid, "$admin should validate on FIXT. Errors: ${result.errors}")
+                assertEquals(emptyList(), result.errors, admin)
+                assertEquals(emptyList(), result.warnings, admin)
+            }
+        }
+    }
+
+    @Test
+    fun `an admin message on a FIXT session is still held to the transport dictionary`() {
+        for (dictionary in fixtDictionaries()) {
+            // TestReqID(112) is required on a TestRequest.
+            val result = FixMessageValidator.validate("35=1|", dictionary)
+
+            assertFalse(result.isValid)
+            assertTrue(result.errors.single().contains("field=112"), "should name TestReqID(112): ${result.errors}")
+        }
+    }
+
+    @Test
+    fun `an application message on a FIXT session is still checked against the application dictionary`() {
+        for (dictionary in fixtDictionaries()) {
+            val wellFormed = "35=D|11=ORD-1|55=EUR/USD|54=1|38=100|40=2|44=1.05|60=20250101-12:00:00|"
+            val missingClOrdId = "35=D|55=EUR/USD|54=1|38=100|40=2|44=1.05|60=20250101-12:00:00|"
+
+            val good = FixMessageValidator.validate(wellFormed, dictionary)
+            val bad = FixMessageValidator.validate(missingClOrdId, dictionary)
+
+            assertTrue(good.isValid, "a well-formed NewOrderSingle should validate. Errors: ${good.errors}")
+            assertFalse(bad.isValid, "a NewOrderSingle missing ClOrdID(11) should not validate")
+            assertTrue(bad.errors.single().contains("field=11"), "should name ClOrdID(11): ${bad.errors}")
+        }
+    }
+
+    @Test
+    fun `an unknown MsgType on a FIXT session still warns`() {
+        for (dictionary in fixtDictionaries()) {
+            val result = FixMessageValidator.validate("35=ZZ|112=abc|", dictionary)
+
+            assertFalse(result.isValid)
+            assertTrue(result.errors.single().contains("Invalid MsgType"), "unexpected: ${result.errors}")
+        }
+    }
+
+    @Test
+    fun `a FIX 4 4 session with a single dictionary is unchanged`() {
+        val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
+
+        val heartbeat = FixMessageValidator.validate("35=0|112=abc|", dictionary)
+        val testRequestWithoutId = FixMessageValidator.validate("35=1|", dictionary)
+        val unknownType = FixMessageValidator.validate("35=ZZ|112=abc|", dictionary)
+
+        assertTrue(heartbeat.isValid, "a FIX 4.4 Heartbeat should validate. Errors: ${heartbeat.errors}")
+        assertEquals(listOf("Validation error: Required tag missing, field=112"), testRequestWithoutId.errors)
+        assertEquals(listOf("Validation error: Invalid MsgType, field=35"), unknownType.errors)
+    }
+
+    /**
+     * The two ways a FIXT session gets its dictionaries: the bundled FIX 5.0 SP2 version, and a
+     * custom application dictionary paired with a FIXT11.xml file, which is how a venue's own
+     * dictionaries are configured.
+     */
+    private fun fixtDictionaries(): List<FixDictionaryAdapter> {
+        fun copyOf(resource: String): File {
+            val file = temp.newFile(resource.substringAfterLast('/'))
+            FixMessageValidatorTest::class.java.getResourceAsStream(resource)!!.use { input ->
+                file.outputStream().use { input.copyTo(it) }
+            }
+            return file
+        }
+        val bundled = FixDictionaryAdapter.forVersion(FixVersion.FIX_5_0_SP2)
+        val fromFiles =
+            FixDictionaryAdapter.fromFiles(copyOf("/dictionaries/FIX50SP2.xml"), copyOf("/dictionaries/FIXT11.xml"))
+        listOf(bundled, fromFiles).forEach {
+            assertTrue(it.isLoaded(), "the FIXT dictionaries should load")
+            assertNotNull(it.getTransportDictionary(), "the FIXT transport dictionary should load")
+        }
+        return listOf(bundled, fromFiles)
+    }
+
+    @get:Rule
+    val temp = TemporaryFolder()
 
     @Test
     fun testManualConstructionStillWorksForInvalidMessages() {

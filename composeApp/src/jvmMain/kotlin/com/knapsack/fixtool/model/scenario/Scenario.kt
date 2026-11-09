@@ -113,6 +113,16 @@ enum class BindScope {
      * seen its reply yet.
      */
     THIS_RUN,
+
+    /**
+     * Only messages the session received or sent since it last logged on may be bound, whenever the run
+     * started. This is the rule for a counterparty that sends something after every Logon, a status message
+     * with a fresh id say. The log keeps the previous connection's copy, so [ANY] can bind that one, and
+     * [THIS_RUN] refuses the current one whenever the run starts after the logon. The Logon exchange itself
+     * comes before the session reads logged on, so it is not part of it. A session that has not logged on
+     * has nothing bindable.
+     */
+    THIS_CONNECTION,
 }
 
 /**

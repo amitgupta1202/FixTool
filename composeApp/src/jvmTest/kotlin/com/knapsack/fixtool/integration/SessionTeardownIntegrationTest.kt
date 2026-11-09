@@ -18,6 +18,7 @@ import org.junit.Test
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -160,6 +161,42 @@ class SessionTeardownIntegrationTest {
         }
     }
 
+    /**
+     * **The logon stamp is the line between two connections in one log.** A scenario bound with
+     * `this_connection` takes only messages stamped after it, so everything the previous connection wrote,
+     * and the new Logon exchange itself, must sit before it, and what the counterparty sends next after it.
+     */
+    @Test
+    fun `the logon stamp separates the current connection's messages from the previous one's`() {
+        connectVenue()
+        val (profile, client) = connectClient("ALPHA")
+        awaitLoggedOn(client)
+        client.disconnect()
+        viewModel.connectProfile(profile.id, profile)
+        assertTrue(
+            awaitCondition(15_000) { incomingLogons(client) == 2 && client.connectionState.value == LOGGED_ON },
+            "the client should log on a second time (logons=${incomingLogons(client)})",
+        )
+        val stamp = assertNotNull(client.loggedOnAtMicros, "a session that has logged on knows when")
+
+        assertTrue(client.sendTestRequest("after-logon"), "the test request should go out")
+        assertTrue(
+            awaitCondition(10_000) { fixMessages(client).any { it.isAnswer() } },
+            "the venue should answer the test request",
+        )
+
+        val log = fixMessages(client)
+        val secondLogon = log.filter { it.isIncoming() && it.messageType == "A" }[1]
+        val reply = log.first { it.isAnswer() }
+        val before = log.takeWhile { it !== secondLogon } + secondLogon
+        assertTrue(
+            before.all { it.captureTimeMicros < stamp },
+            "the previous connection and the new Logon come before the stamp: " +
+                before.filter { it.captureTimeMicros >= stamp }.map { it.rawMessage },
+        )
+        assertTrue(reply.captureTimeMicros > stamp, "what the counterparty sends after the logon comes after it")
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private fun connectVenue() {
@@ -229,9 +266,15 @@ class SessionTeardownIntegrationTest {
 
     /** Logons the venue sent this client, one per connection. Read off the grid, which trails by one drain. */
     private fun incomingLogons(session: FixMessageSession): Int =
-        session.messages.value
-            .filterIsInstance<FixMessage>()
-            .count { it.direction == FixMessage.Direction.INCOMING && it.messageType == "A" }
+        fixMessages(session).count { it.isIncoming() && it.messageType == "A" }
+
+    private fun fixMessages(session: FixMessageSession): List<FixMessage> =
+        session.messages.value.filterIsInstance<FixMessage>()
+
+    private fun FixMessage.isIncoming(): Boolean = direction == FixMessage.Direction.INCOMING
+
+    /** The venue's Heartbeat answering the test request sent after the second logon. */
+    private fun FixMessage.isAnswer(): Boolean = isIncoming() && "112=after-logon" in rawMessage
 
     private fun awaitCondition(timeoutMs: Long, predicate: () -> Boolean): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs

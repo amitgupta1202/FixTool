@@ -587,6 +587,20 @@ class ScenarioCodecTest {
         assertEquals(BindScope.THIS_RUN, ScenarioCodec.fromJson(json).binding)
     }
 
+    @Test
+    fun `this_connection binding round-trips through json`() {
+        val scenario =
+            Scenario(
+                id = "sc-c",
+                name = "n",
+                steps = listOf(ScenarioStep.Send("35=D|", session = "s")),
+                binding = BindScope.THIS_CONNECTION,
+            )
+        val json = ScenarioCodec.toJson(scenario)
+        assertEquals("this_connection", json["binding"]!!.jsonPrimitive.content)
+        assertEquals(BindScope.THIS_CONNECTION, ScenarioCodec.fromJson(json).binding)
+    }
+
     /** The same additive bargain: a scenario that never asked for fresh-only never grows the key. */
     @Test
     fun `any binding writes no key, and an absent key reads any`() {

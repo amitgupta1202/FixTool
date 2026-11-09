@@ -8,6 +8,7 @@ import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
@@ -85,6 +86,113 @@ class ScenarioRunnerTest {
                 "whose field order we invented",
         )
     }
+
+    /**
+     * After a reconnect, an Expect under `this_connection` binds the message the *current* connection sent.
+     *
+     * The session log keeps the previous connection's traffic, including the status message `X` the venue
+     * sends after every Logon. The run starts right after the new Logon, before the new `X` has reached the
+     * log (the venue sends it a few ms after its Logon reply, and the session drains its ingest queue on a
+     * 100 ms poll). Under ANY the old `X` was bindable, and the match `T = ${in.X.T}`, resolved once at step
+     * start, named it. Now the scope refuses anything stamped before the logon, and the match is resolved on
+     * every poll, so it follows the new `X` once it lands.
+     */
+    @Test
+    fun `after a reconnect an expect binds the current connection's message, not the previous one's`() {
+        val host = FakeHost()
+        val xTag = 9001
+        // The previous connection: Logon, its X, Logout. Then the new connection's Logon, and the moment the
+        // session read logged on.
+        host.inbox += incoming("A", mapOf(35 to "A"), at = 100)
+        host.inbox += statusX(xTag, "status:17", at = 110)
+        host.inbox += incoming("5", mapOf(35 to "5"), at = 120)
+        host.inbox += incoming("A", mapOf(35 to "A"), at = 200)
+        host.loggedOnSince = 210
+        // The current connection's X reaches the log on the runner's first poll.
+        host.arriving += statusX(xTag, "status:18", at = 220)
+        host.resolveRef = newestX(host, xTag)
+
+        val result =
+            run(
+                host,
+                scenario(
+                    ScenarioStep.Wait(session = "s", state = "LOGGED_ON", timeoutMs = 1_000),
+                    expectX(xTag, match = listOf(TagValue(xTag, "\${in.X.$xTag}"))),
+                ).copy(binding = BindScope.THIS_CONNECTION),
+            )
+
+        assertTrue(result.passed, "the run should pass: ${result.steps}")
+        assertEquals("status:18", boundValue(result, xTag), "the step bound the previous connection's X")
+        assertTrue(
+            result.steps.none { it.kind == "binding" },
+            "a bind the scope asked for is not an older-message caveat: ${result.steps}",
+        )
+    }
+
+    /**
+     * The case `this_run` cannot serve: the run starts some time after the logon, so the current connection's
+     * `X` is already in the log. `this_run` refuses it, `this_connection` binds it and still refuses the
+     * previous connection's copy, which comes first in the log.
+     */
+    @Test
+    fun `this_connection binds a message sent since the logon even when the run started later`() {
+        val xTag = 9001
+
+        fun host() =
+            FakeHost().apply {
+                inbox += statusX(xTag, "status:17", at = 110)
+                inbox += incoming("A", mapOf(35 to "A"), at = 200)
+                loggedOnSince = 210
+                inbox += statusX(xTag, "status:18", at = 220)
+            }
+        val steps = scenario(expectX(xTag, timeoutMs = 50))
+
+        val connection = run(host(), steps.copy(binding = BindScope.THIS_CONNECTION))
+        assertTrue(connection.passed, "this_connection should bind the post-logon X: ${connection.steps}")
+        assertEquals("status:18", boundValue(connection, xTag), "this_connection bound the previous connection's X")
+
+        val thisRun = run(host(), steps.copy(binding = BindScope.THIS_RUN))
+        assertFalse(thisRun.passed, "this_run refuses everything already in the log, the current X included")
+    }
+
+    /** A session with no logon has nothing bindable under `this_connection`, and the timeout says why. */
+    @Test
+    fun `this_connection on a session that never logged on times out and says so`() {
+        val xTag = 9001
+        val host = FakeHost().apply { inbox += statusX(xTag, "status:17", at = 110) }
+
+        val result = run(host, scenario(expectX(xTag, timeoutMs = 50)).copy(binding = BindScope.THIS_CONNECTION))
+
+        assertFalse(result.passed)
+        val detail = expectRow(result).detail.orEmpty()
+        assertTrue(detail.contains("has not logged on"), "the timeout should name the missing logon: $detail")
+    }
+
+    private fun expectRow(result: ScenarioResult): StepResult = result.steps.single { it.kind == "expect" }
+
+    private fun boundValue(result: ScenarioResult, tag: Int): String? =
+        expectRow(result).tags.single { it.tag == tag }.actual
+
+    private fun statusX(tag: Int, value: String, at: Long): FixMessage =
+        incoming("X", mapOf(35 to "X", tag to value), bindTags = mapOf(tag to value), at = at)
+
+    private fun expectX(tag: Int, match: List<TagValue> = emptyList(), timeoutMs: Long = 1_000) =
+        ScenarioStep.Expect(
+            session = "s",
+            match = MatchPredicate("X", "in", match),
+            timeoutMs = timeoutMs,
+            expectation = Expectation(fields = listOf(FieldExpectation(tag, Matcher.Presence)), messageType = "X"),
+        )
+
+    /** `${in.X.T}` answers the newest X in the log at the moment it is asked, as the real host does. */
+    private fun newestX(host: FakeHost, tag: Int): (String, Map<String, String>) -> String? =
+        { expr, _ ->
+            if (expr == "\${in.X.$tag}") {
+                host.inbox.lastOrNull { it.messageType == "X" }?.let { viewTags[it]?.get(tag) }
+            } else {
+                null
+            }
+        }
 
     @Test
     fun `persistent scope carries a variable across separate sends`() {
@@ -1739,8 +1847,17 @@ class ScenarioRunnerTest {
 
         override fun connectionState(session: String?): String? = stateOf(session)
 
+        /** How a `${...}` reference resolves. Defaults to the scope alone. A test can answer history references too. */
+        var resolveRef: (String, Map<String, String>) -> String? =
+            { expr, scope -> scope[expr.removePrefix("\${").removeSuffix("}")] }
+
         override fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String? =
-            { expr -> scope[expr.removePrefix("\${").removeSuffix("}")] }
+            { expr -> resolveRef(expr, scope) }
+
+        /** When the session last logged on, on the capture clock. Null: it has not. */
+        var loggedOnSince: Long? = null
+
+        override fun loggedOnSinceMicros(session: String?): Long? = loggedOnSince
 
         /** Messages whose wire order we do not have — the host answers null, and the runner must say so. */
         val noWireOrder = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())

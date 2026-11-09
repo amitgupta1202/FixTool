@@ -68,6 +68,8 @@ class ViewModelScenarioHost(
 
     override fun discarded(session: String?): Long = resolveSession(session)?.discarded?.value ?: 0
 
+    override fun loggedOnSinceMicros(session: String?): Long? = resolveSession(session)?.loggedOnAtMicros
+
     override fun connectionState(session: String?): String? {
         val sess = resolveSession(session) ?: return null
         return sess.connectionState.value.name

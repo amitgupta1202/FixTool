@@ -378,10 +378,11 @@ object ScenarioCodec {
             null -> BindScope.ANY
             "any" -> BindScope.ANY
             "this_run", "thisrun" -> BindScope.THIS_RUN
+            "this_connection", "thisconnection" -> BindScope.THIS_CONNECTION
             else -> throw IllegalArgumentException(
                 "unknown binding scope '$raw' — this scenario was written by something that knows a binding " +
                     "rule this build does not, and guessing at it would silently change which messages its " +
-                    "steps may bind. Known binding scopes: any, this_run.",
+                    "steps may bind. Known binding scopes: any, this_run, this_connection.",
             )
         }
 

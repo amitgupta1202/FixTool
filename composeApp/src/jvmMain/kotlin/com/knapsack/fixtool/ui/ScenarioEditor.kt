@@ -469,7 +469,7 @@ fun ScenarioEditor(
             TrafficChip(traffic, onToggle = { traffic = if (traffic == TrafficMode.OPEN) TrafficMode.STRICT else TrafficMode.OPEN })
             BindingChip(
                 binding,
-                onToggle = { binding = if (binding == BindScope.ANY) BindScope.THIS_RUN else BindScope.ANY },
+                onToggle = { binding = binding.next() },
             )
             Row(modifier = Modifier.weight(1f)) {}
             // Setup used to stand on its own row below the header, spending a whole line on one quiet
@@ -1135,23 +1135,29 @@ private fun TrafficChip(mode: TrafficMode, onToggle: () -> Unit) {
  */
 @Composable
 private fun BindingChip(scope: BindScope, onToggle: () -> Unit) {
-    val fresh = scope == BindScope.THIS_RUN
-    val colour = if (fresh) AppTheme.Colors.warning else AppTheme.Colors.info
+    val colour = if (scope == BindScope.ANY) AppTheme.Colors.info else AppTheme.Colors.warning
     AppTooltip(
-        if (fresh) {
-            "Binding is THIS RUN: an Expect step may only match a message that arrives after Run is " +
-                "pressed. Anything already in the session log is ignored, so a step with no new reply " +
-                "times out instead of passing on an old one. Use it on sessions that are always full of " +
-                "the expected type. It does not clear the log. Click for ANY."
-        } else {
-            "Binding is ANY: an Expect step may match any message in the session log, including one that " +
-                "was already there before Run was pressed. On a session that is always full of the " +
-                "expected type that can pass on a reply to an earlier run. The report flags it when that " +
-                "happens. Click for THIS RUN."
+        when (scope) {
+            BindScope.ANY ->
+                "Binding is ANY: an Expect step may match any message in the session log, including one that " +
+                    "was already there before Run was pressed. On a session that is always full of the " +
+                    "expected type that can pass on a reply to an earlier run. The report flags it when that " +
+                    "happens. Click for THIS RUN."
+            BindScope.THIS_RUN ->
+                "Binding is THIS RUN: an Expect step may only match a message that arrives after Run is " +
+                    "pressed. Anything already in the session log is ignored, so a step with no new reply " +
+                    "times out instead of passing on an old one. Use it on sessions that are always full of " +
+                    "the expected type. It does not clear the log. Click for THIS CONNECTION."
+            BindScope.THIS_CONNECTION ->
+                "Binding is THIS CONNECTION: an Expect step may only match a message the session received " +
+                    "or sent since it last logged on, whenever Run was pressed. Use it for a counterparty " +
+                    "that sends something after every Logon, so a step binds this connection's copy and " +
+                    "never the previous one's. A session that has not logged on has nothing to match. " +
+                    "Click for ANY."
         },
     ) {
         Text(
-            if (fresh) "BINDING THIS RUN" else "BINDING ANY",
+            "BINDING ${scope.name.replace('_', ' ')}",
             color = colour,
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
@@ -1166,6 +1172,14 @@ private fun BindingChip(scope: BindScope, onToggle: () -> Unit) {
         )
     }
 }
+
+/** The chip's click order: ANY, THIS RUN, THIS CONNECTION, then back to ANY. */
+private fun BindScope.next(): BindScope =
+    when (this) {
+        BindScope.ANY -> BindScope.THIS_RUN
+        BindScope.THIS_RUN -> BindScope.THIS_CONNECTION
+        BindScope.THIS_CONNECTION -> BindScope.ANY
+    }
 
 /** The expectation's mode, worn as a chip beside the title — displayed here, edited in the diff. */
 @Composable

@@ -68,6 +68,8 @@ class HeadlessScenarioHost(
 
     override fun discarded(session: String?): Long = resolve(session)?.discarded?.value ?: 0
 
+    override fun loggedOnSinceMicros(session: String?): Long? = resolve(session)?.loggedOnAtMicros
+
     override fun connectionState(session: String?): String? = resolve(session)?.connectionState?.value?.name
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")

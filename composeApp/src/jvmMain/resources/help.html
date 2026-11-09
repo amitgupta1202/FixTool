@@ -3423,7 +3423,15 @@ ${incoming["D"].valueOfTag(38)}
     report flags it when it happens. <strong>THIS RUN</strong> (<code>"binding": "this_run"</code>) lets a
     step match only a message that arrives after Run is pressed, so a step with no new reply times out
     instead of passing on an old one. It does not clear the log, which is what a setup <strong>Clear
-    messages</strong> step is for. Its neighbour <strong>TRAFFIC</strong> is the other stream-level
+    messages</strong> step is for. <strong>THIS CONNECTION</strong> (<code>"binding": "this_connection"</code>)
+    lets a step match only a message the session received or sent since it last logged on, however long ago
+    Run was pressed. Use it for a counterparty that sends something after every Logon, a status message
+    with a fresh id say: the log still holds the previous connection's copy, which ANY can bind, while THIS
+    RUN refuses the current one when the run starts after the logon. The Logon exchange itself is not part
+    of it, and a session that has not logged on has nothing to match. A run set isolates its entries under
+    THIS RUN whatever the scenario says. A <code>${...}</code> history reference in a step's bind predicate,
+    such as <code>${in.X.T}</code>, is resolved again on every poll, so it follows the newest message as
+    it arrives. Its neighbour <strong>TRAFFIC</strong> is the other stream-level
     question, and about the messages no step bound rather than the ones a step may:
     <strong>OPEN</strong> ignores them, <strong>STRICT</strong> fails the run on them (session
     administration exempt).</p>

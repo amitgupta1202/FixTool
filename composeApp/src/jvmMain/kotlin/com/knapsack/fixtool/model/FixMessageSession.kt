@@ -2,6 +2,7 @@ package com.knapsack.fixtool.model
 
 import com.knapsack.fixtool.service.AcceptorStatus
 import com.knapsack.fixtool.service.BookView
+import com.knapsack.fixtool.service.CaptureClock
 import com.knapsack.fixtool.service.FixConnectionManager
 import com.knapsack.fixtool.service.LatencyTrackingService
 import com.knapsack.fixtool.service.Minting
@@ -214,6 +215,28 @@ class FixMessageSession(
     private val _connectionState = MutableStateFlow(FixConnectionState.DISCONNECTED)
     val connectionState: StateFlow<FixConnectionState> = _connectionState.asStateFlow()
 
+    /**
+     * **When this session last logged on**, on [CaptureClock], the clock every message's
+     * [FixMessage.captureTimeMicros] is stamped with. Null until the first logon.
+     *
+     * Stamped on the engine's thread as the state moves to LOGGED_ON, which is after the Logon reply was
+     * captured and before anything the counterparty sends next. So a message stamped later than this is the
+     * current connection's, and that is what a scenario bound with `this_connection` may take. The log keeps
+     * the previous connection's messages, and with nothing to tell them apart a status message sent after every
+     * Logon was bound from the connection before.
+     */
+    @Volatile
+    var loggedOnAtMicros: Long? = null
+        private set
+
+    /** Every state change goes through here, so the logon moment is taken wherever LOGGED_ON comes from. */
+    private fun setConnectionState(state: FixConnectionState) {
+        if (state == FixConnectionState.LOGGED_ON && _connectionState.value != FixConnectionState.LOGGED_ON) {
+            loggedOnAtMicros = CaptureClock.micros()
+        }
+        _connectionState.value = state
+    }
+
     private val _connectionConfig = MutableStateFlow<FixConnectionConfig?>(null)
 
     /** The config this session last connected with (per-session identity already resolved). */
@@ -367,7 +390,7 @@ class FixMessageSession(
         venueService.attachClient(
             sessionId = sessionId,
             onMessage = { message -> addMessage(message) },
-            onState = { state -> _connectionState.value = state },
+            onState = { state -> setConnectionState(state) },
             onStamp = { stamp -> onSocketStamp(stamp) },
         )
         logger.info("Pane '{}' bound to venue client {}", title, sessionId)
@@ -616,7 +639,7 @@ class FixMessageSession(
                     config = config,
                     dictionary = effectiveDictionary,
                     onMessageReceived = { message -> addMessage(message) },
-                    onStateChanged = { state -> ifCurrent(gen) { _connectionState.value = state } },
+                    onStateChanged = { state -> ifCurrent(gen) { setConnectionState(state) } },
                     onError = onError,
                     onWarning = onWarning,
                     onConnectionFailed = { connectionFailed(gen) },

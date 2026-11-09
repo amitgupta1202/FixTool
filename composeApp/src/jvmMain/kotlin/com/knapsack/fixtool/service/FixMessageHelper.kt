@@ -449,8 +449,16 @@ object FixMessageHelper {
      * Display → wire. A string that already carries SOH **is** wire: any `|` in it is a character
      * inside a value, and replacing it would corrupt the one kind of value [joinFields] switches
      * to SOH precisely to protect. Only a pipe-rendered string has pipes to substitute.
+     *
+     * Either way the result ends with a delimiter. QuickFIX/J's parser wants one after every field, the
+     * last one included, while the author's `35=0|112=abc` is a whole message without it. Left off, the
+     * parse threw "SOH not found at end of field" before the dictionary was asked anything, so the linter
+     * failed a valid body on framing and the send without a dictionary failed outright.
      */
-    fun String.toWireFixMessage() = if (this.contains(SOH)) this else this.replace('|', SOH)
+    fun String.toWireFixMessage(): String {
+        val wire = if (this.contains(SOH)) this else this.replace('|', SOH)
+        return if (wire.isBlank() || wire.endsWith(SOH)) wire else wire + SOH
+    }
 
     fun String.toRawFixMessage() = this.replace('\u0001', '|')
 

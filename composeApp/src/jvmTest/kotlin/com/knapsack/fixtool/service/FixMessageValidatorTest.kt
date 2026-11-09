@@ -181,6 +181,41 @@ class FixMessageValidatorTest {
         assertTrue(draft.warnings.isEmpty(), "a draft carries no frame, so there is nothing to hold it to")
     }
 
+    /**
+     * A body without a trailing delimiter is a valid body. The send path's manual builder accepts it and
+     * sends it correctly, so the linter must not fail it on framing either.
+     */
+    @Test
+    fun `a body without a trailing delimiter validates`() {
+        val dictionary = FixDictionaryAdapter.fromFile(testDictionaryFile)
+        if (!dictionary.isLoaded()) return
+
+        val result = FixMessageValidator.validate("35=0|112=abc", dictionary)
+
+        assertTrue(result.isValid, "a valid Heartbeat without a trailing '|' must validate: ${result.errors}")
+    }
+
+    /**
+     * The masking half. Without a trailing delimiter the parse used to throw before the dictionary was
+     * consulted, so the only error ever reported was the framing one, and a real content problem on the
+     * same message was never named.
+     */
+    @Test
+    fun `a body without a trailing delimiter is judged on its content`() {
+        val dictionary = FixDictionaryAdapter.fromFile(testDictionaryFile)
+        if (!dictionary.isLoaded()) return
+
+        // Missing the required ClOrdID(11).
+        val result = FixMessageValidator.validate("35=D|55=EUR/USD|54=1|38=1000000|40=2", dictionary)
+
+        assertFalse(result.isValid)
+        assertTrue(
+            result.errors.none { it.contains("SOH not found") },
+            "the error must be about the content, not the missing final delimiter: ${result.errors}",
+        )
+        assertTrue(result.errors.any { it.contains("11") }, "the missing ClOrdID(11) must be named: ${result.errors}")
+    }
+
     @Test
     fun testValidatorFailsOnMissingRequiredField() {
         // Given: A FIX dictionary loaded from test file

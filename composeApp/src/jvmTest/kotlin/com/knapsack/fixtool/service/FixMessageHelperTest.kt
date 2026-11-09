@@ -2,7 +2,9 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
+import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
+import com.knapsack.fixtool.service.FixMessageHelper.toWireFixMessage
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -77,6 +79,22 @@ class FixMessageHelperTest {
         } finally {
             dictFile.delete()
         }
+    }
+
+    /**
+     * QuickFIX/J's parser wants a delimiter after every field, the last one included. A raw without a
+     * final `|` is still a whole message, and the send path that has no dictionary parses it this way,
+     * so a missing final delimiter used to fail that send outright.
+     */
+    @Test
+    fun `a raw without a trailing delimiter parses`() {
+        val message = "35=0|112=abc".toQuickFixMessage()
+
+        assertEquals("abc", message.getString(112))
+        assertEquals("35=0\u0001112=abc\u0001", "35=0|112=abc".toWireFixMessage())
+        assertEquals("35=0\u0001112=a|b\u0001", "35=0\u0001112=a|b".toWireFixMessage(), "a pipe in a value stays")
+        assertEquals("35=0\u0001112=abc\u0001", "35=0\u0001112=abc\u0001".toWireFixMessage(), "no second final SOH")
+        assertEquals("", "".toWireFixMessage(), "nothing is not made into a delimiter")
     }
 
     @Test

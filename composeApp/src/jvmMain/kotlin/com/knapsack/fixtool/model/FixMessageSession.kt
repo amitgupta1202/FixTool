@@ -10,13 +10,17 @@ import com.knapsack.fixtool.service.SessionEndpoint
 import com.knapsack.fixtool.service.SocketStamp
 import com.knapsack.fixtool.service.VenueEvent
 import com.knapsack.fixtool.util.NotifyingLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import quickfix.SessionID
 import java.time.LocalDateTime
 import java.util.*
@@ -54,6 +58,9 @@ class FixMessageSession(
     companion object {
         const val DEFAULT_BUFFER_SIZE = 1000
         private val POLL_PERIOD_MS = System.getProperty("pollInMs", "100").toLong()
+
+        /** How long a disconnect waits for the counterparty's Logout reply before it stops the connection anyway. */
+        private const val LOGOUT_TIMEOUT_MS = 2_000L
 
         // DRAIN_BATCH_SIZE is gone rather than raised. It existed to bound an O(batch × bufferSize) drain,
         // and with O(1) eviction there is nothing left for it to bound — keeping it at any value would only
@@ -219,7 +226,22 @@ class FixMessageSession(
     private val scope = CoroutineScope(Dispatchers.Default)
 
     private var isActive = true
+
+    /**
+     * **Guards the connection fields and says which connection they belong to.**
+     *
+     * A connection is torn down on a coroutine, after the call that asked for it has returned, and a new
+     * one can be asked for in the meantime. So every teardown names the connection it was started for by
+     * its [generation], and once a newer connection exists it touches nothing: not the fields, not the
+     * state. Before this, two teardowns of one logout raced over the same fields, and the later one could
+     * stop, or orphan, the connection that replaced it.
+     */
+    private val lifecycle = Any()
+
+    @Volatile
     private var quickFixService: QuickFixService? = null
+
+    @Volatile
     private var connectionManager: FixConnectionManager? = null
 
     /**
@@ -229,7 +251,27 @@ class FixMessageSession(
      * is one client of a venue. Every send and every admin action goes through it, so neither this
      * class nor the UI above it has to know which of the two it is looking at.
      */
+    @Volatile
     private var endpoint: SessionEndpoint? = null
+
+    /** Which connection the fields above belong to. Every [connect] starts a new one. Guarded by [lifecycle]. */
+    private var generation = 0L
+
+    /** The connection the user asked to disconnect. Its logout is the user's, not a failure. Guarded by [lifecycle]. */
+    private var closing = -1L
+
+    /** The teardown in flight, if any. A [connect] waits for it. Guarded by [lifecycle]. */
+    private var teardown: Job? = null
+
+    /** A [connect] that arrived during a teardown, and runs once the teardown is done. Guarded by [lifecycle]. */
+    private var queuedConnect: Job? = null
+
+    /**
+     * True while a connection is still logging out or being stopped. The state can still read LOGGED_ON then,
+     * so a caller deciding whether a Connect is needed asks this as well. A [connect] made now is not dropped:
+     * it waits for the teardown and then connects.
+     */
+    val isTearingDown: Boolean get() = synchronized(lifecycle) { teardown?.isActive == true }
 
     /**
      * The venue this pane's counterparty is connected *to*, when this pane is one client of many.
@@ -557,6 +599,7 @@ class FixMessageSession(
             logger.info("Session '{}' is a venue client — nothing to connect", title)
             return
         }
+        val gen = beginConnection(config, appSettings, dictionary) ?: return
         try {
             // Use provided dictionary or create a default empty one
             val effectiveDictionary = dictionary ?: FixDictionaryAdapter.createDefault()
@@ -566,37 +609,30 @@ class FixMessageSession(
             _appSettings = appSettings
             _dictionary = effectiveDictionary
 
-            // Create QuickFIX service
-            quickFixService =
+            // Every callback names this connection. Once a newer one exists, this one no longer speaks for
+            // the session: its late state changes and its failure are not the session's any more.
+            val service =
                 QuickFixService(
                     config = config,
                     dictionary = effectiveDictionary,
                     onMessageReceived = { message -> addMessage(message) },
-                    onStateChanged = { state -> _connectionState.value = state },
+                    onStateChanged = { state -> ifCurrent(gen) { _connectionState.value = state } },
                     onError = onError,
                     onWarning = onWarning,
-                    onConnectionFailed = {
-                        // Stop the connection manager when auto-reconnect is disabled
-                        scope.launch {
-                            logger.info("Stopping connection (auto-reconnect disabled)")
-                            connectionManager?.stop()
-                            connectionManager = null
-                            quickFixService = null
-                            endpoint = null
-                            _connectionState.value = FixConnectionState.ERROR
-                        }
-                    },
+                    onConnectionFailed = { connectionFailed(gen) },
                     onVenueEvent = { event -> handleVenueEvent(event) },
                     orderBookCap = appSettings.orderBookCap,
                     onSocketStamp = { stamp -> onSocketStamp(stamp) },
                 )
-            endpoint = quickFixService?.ownerEndpoint()
-
-            // Create connection manager
-            connectionManager = FixConnectionManager(config, quickFixService!!, appSettings, effectiveDictionary)
+            val manager = FixConnectionManager(config, service, appSettings, effectiveDictionary)
+            synchronized(lifecycle) {
+                quickFixService = service
+                endpoint = service.ownerEndpoint()
+                connectionManager = manager
+            }
 
             // Start the connection
-            connectionManager?.start()
+            manager.start()
 
             // A venue has no session of its own to log on, so nothing would ever move it off
             // CONNECTING and its tab would read as perpetually half-open. What it *has* done is bind
@@ -612,6 +648,46 @@ class FixMessageSession(
         }
     }
 
+    /**
+     * **Starts a new connection's generation**, or returns null when this connect has to wait.
+     *
+     * The previous connection may still be logging out or stopping. Starting now would put two connections
+     * with one SessionID on the engine at once, and the old teardown would get the last word on the state.
+     * So the connect is queued behind that teardown and runs once it is done, rather than being dropped.
+     */
+    private fun beginConnection(
+        config: FixConnectionConfig,
+        appSettings: AppSettings,
+        dictionary: FixDictionary?,
+    ): Long? {
+        val gen: Long
+        val replaced: FixConnectionManager?
+        synchronized(lifecycle) {
+            val pending = teardown?.takeIf { it.isActive }
+            if (pending != null) {
+                if (queuedConnect?.isActive != true) {
+                    logger.info("Session '{}' is still logging out, it connects once that is done", title)
+                    queuedConnect =
+                        scope.launch {
+                            pending.join()
+                            connect(config, appSettings, dictionary)
+                        }
+                }
+                return null
+            }
+            gen = ++generation
+            // A connection no teardown has reached: the engine reported a logout and this connect came in
+            // before the failure teardown started. That teardown will find itself out of date and do nothing,
+            // so the connection it would have stopped is stopped here.
+            replaced = connectionManager
+            connectionManager = null
+            quickFixService = null
+            endpoint = null
+        }
+        replaced?.let(::stopQuietly)
+        return gen
+    }
+
     fun disconnect() {
         if (isVenueClient) {
             // Logs this one counterparty out. The venue keeps listening and every other client stays
@@ -620,44 +696,106 @@ class FixMessageSession(
             endpoint?.logout()
             return
         }
-        scope.launch {
-            try {
-                // Send logout message if currently logged on
-                if (_connectionState.value == FixConnectionState.LOGGED_ON) {
-                    logger.info("Sending logout before disconnect for session: {}", title)
-                    endpoint?.logout()
+        synchronized(lifecycle) {
+            // The user's last word wins over a connect still waiting for an earlier logout.
+            queuedConnect?.cancel()
+            queuedConnect = null
+            val gen = generation
+            closing = gen
+            val earlier = teardown?.takeIf { it.isActive }
+            teardown = scope.launch { logOutAndStop(gen, earlier) }
+        }
+    }
 
-                    // Wait for QuickFIX/J to complete the logout sequence via onLogout callback
-                    // The onLogout callback will set state to DISCONNECTED
-                    val logoutTimeout = 2000L // 2 seconds max wait
-                    val startTime = System.currentTimeMillis()
-
-                    while (_connectionState.value == FixConnectionState.LOGGED_ON &&
-                        System.currentTimeMillis() - startTime < logoutTimeout
-                    ) {
-                        delay(50)
+    /**
+     * **The user's disconnect of connection [gen]**: Logout, wait for the reply, then stop the connection.
+     *
+     * The engine reports this logout through `onConnectionFailed` too, because with auto-reconnect off it
+     * reports every logout that way. [closing] is what makes [connectionFailed] leave it alone, so this is
+     * the only teardown a disconnect runs, and it ends DISCONNECTED rather than in a race with an ERROR.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun logOutAndStop(gen: Long, earlier: Job?) {
+        // A teardown already under way (a failure, or a disconnect clicked twice) finishes first, so the
+        // state it leaves is not written over this one's.
+        earlier?.join()
+        try {
+            if (_connectionState.value == FixConnectionState.LOGGED_ON) {
+                logger.info("Sending logout before disconnect for session: {}", title)
+                endpoint?.logout()
+                // The engine's onLogout moves the state off LOGGED_ON when the Logout reply arrives.
+                val loggedOut =
+                    withTimeoutOrNull(LOGOUT_TIMEOUT_MS) {
+                        connectionState.first { it != FixConnectionState.LOGGED_ON }
                     }
-
-                    if (_connectionState.value == FixConnectionState.LOGGED_ON) {
-                        logger.warn("Logout timeout - forcing disconnect for session: {}", title)
-                    } else {
-                        logger.info("Logout completed successfully for session: {}", title)
-                    }
+                if (loggedOut == null) {
+                    logger.warn("Logout timeout - forcing disconnect for session: {}", title)
+                } else {
+                    logger.info("Logout completed successfully for session: {}", title)
                 }
-
-                // Now safely stop the connection manager after logout is complete
-                connectionManager?.stop()
-                connectionManager = null
-                quickFixService = null
-                endpoint = null
-                _connectionState.value = FixConnectionState.DISCONNECTED
-
-                logger.info("Disconnected session: {}", title)
-            } catch (e: Exception) {
-                _connectionState.value = FixConnectionState.ERROR
-                val errorMsg = "Error disconnecting: ${e.message}"
-                logger.error(errorMsg, e, notifyUser = true)
             }
+            tearDown(gen, FixConnectionState.DISCONNECTED)
+            logger.info("Disconnected session: {}", title)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ifCurrent(gen) { _connectionState.value = FixConnectionState.ERROR }
+            val errorMsg = "Error disconnecting: ${e.message}"
+            logger.error(errorMsg, e, notifyUser = true)
+        }
+    }
+
+    /**
+     * The engine gave up on connection [gen]: with auto-reconnect off, that is every logout.
+     *
+     * A logout the user asked for is not a failure, and [logOutAndStop] is already tearing it down, so it
+     * is left alone. A connection that has been replaced is not this session's any more. Anything else, a
+     * venue logging us out or a dropped socket, is stopped here and ends in ERROR.
+     */
+    private fun connectionFailed(gen: Long) {
+        synchronized(lifecycle) {
+            if (gen != generation || gen == closing) return
+            logger.info("Stopping connection (auto-reconnect disabled)")
+            val earlier = teardown?.takeIf { it.isActive }
+            teardown =
+                scope.launch {
+                    earlier?.join()
+                    tearDown(gen, FixConnectionState.ERROR)
+                }
+        }
+    }
+
+    /**
+     * Stops connection [gen] and leaves the session in [finalState], unless a newer connection exists by now.
+     * The manager is taken off the session before it is stopped, so a send made meanwhile fails cleanly.
+     */
+    private fun tearDown(gen: Long, finalState: FixConnectionState) {
+        val manager =
+            synchronized(lifecycle) {
+                if (gen != generation) return
+                connectionManager.also {
+                    connectionManager = null
+                    quickFixService = null
+                    endpoint = null
+                }
+            }
+        manager?.let(::stopQuietly)
+        ifCurrent(gen) { _connectionState.value = finalState }
+    }
+
+    /** Runs [action] only while [gen] is still the session's connection, atomically with that check. */
+    private inline fun ifCurrent(gen: Long, action: () -> Unit) {
+        synchronized(lifecycle) { if (gen == generation) action() }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private fun stopQuietly(manager: FixConnectionManager) {
+        try {
+            manager.stop()
+        } catch (e: Exception) {
+            // FixConnectionManager.stop has logged it already. A connection that would not stop cleanly is
+            // still not this session's any more.
+            logger.warn("Connection for session '{}' did not stop cleanly: {}", title, e.message)
         }
     }
 

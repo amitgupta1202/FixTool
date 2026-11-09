@@ -6040,10 +6040,13 @@ class FixMessageViewModel(
         existingIndices.forEach { index ->
             val session = _sessions[index]
             val currentState = session.connectionState.value
-            if (currentState == FixConnectionState.CONNECTING ||
-                currentState == FixConnectionState.CONNECTED ||
-                currentState == FixConnectionState.LOGGED_ON
-            ) {
+            val up =
+                currentState == FixConnectionState.CONNECTING ||
+                    currentState == FixConnectionState.CONNECTED ||
+                    currentState == FixConnectionState.LOGGED_ON
+            // A session still logging out reads LOGGED_ON until the Logout reply arrives. It is going down, so
+            // a Connect now is wanted, and the session holds it until the logout is done.
+            if (up && !session.isTearingDown) {
                 logger.info("Session already connecting/connected: {}", session.title)
             } else {
                 logger.info("Reconnecting session: {}", session.title)

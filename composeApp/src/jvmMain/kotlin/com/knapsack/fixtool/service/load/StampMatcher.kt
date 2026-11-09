@@ -261,6 +261,18 @@ class StampMatcher(
     private val issuedIndex = ConcurrentHashMap<String, Int>()
 
     /**
+     * **Replies that reached this matcher before the SEND stamp of the request they answer**, by id.
+     *
+     * A request's SEND stamp and its reply come off different sessions when the reply is routed to a drop
+     * copy, so they arrive on different I/O threads and nothing orders them. The drop copy's thread can get
+     * there first, most often on a lane's first send. Such a reply was counted as a stray, and its request,
+     * once the SEND stamp landed, as unmatched. [issued] runs before the send, so an id in [issuedIndex] is
+     * known to be on its way, and its reply waits here for it. Guarded by itself, together with the moves
+     * between [issuedIndex] and [pending] that decide whether a reply is early.
+     */
+    private val early = HashMap<String, SocketStamp>()
+
+    /**
      * Id to the lane that issued it, kept for the run.
      *
      * A set until per-lane counts wanted it: a duplicate arrives after its request has left [pending], so
@@ -362,8 +374,9 @@ class StampMatcher(
             WireDirection.RECEIVE -> {
                 val id = replyId(type, stamp.wire)
                 // `pending` outlives closeSettle and is never emptied, so a reply to something this phase
-                // issued is still this phase's however long after the phase ended it arrives.
-                id != null && (pending.containsKey(id) || matchedIds.containsKey(id))
+                // issued is still this phase's however long after the phase ended it arrives. An id still in
+                // `issuedIndex` is one whose SEND stamp has not landed yet, and its reply is this phase's too.
+                id != null && (pending.containsKey(id) || matchedIds.containsKey(id) || issuedIndex.containsKey(id))
             }
         }
     }
@@ -396,7 +409,11 @@ class StampMatcher(
      * entry has to be taken back by hand or it stays for the run's life, one per refusal.
      */
     fun refused(id: String) {
-        issuedIndex.remove(id)
+        // A reply held for a send that never happened answers nothing this run issued.
+        synchronized(early) {
+            issuedIndex.remove(id)
+            early.remove(id)
+        }?.let { countStray() }
     }
 
     /** Ids handed over by [issued] that no SEND stamp has claimed yet. `internal` because a test reads it. */
@@ -421,8 +438,14 @@ class StampMatcher(
 
     private fun onSend(sessionId: SessionID, type: String, stamp: SocketStamp): Claim {
         val id = requestId(sessionId, type, stamp.wire) ?: return Claim.NOT_A_REPLY
-        val messageIndex = issuedIndex.remove(id) ?: 0
-        val replaced = pending.put(id, Pending(stamp.micros, laneOf(sessionId), stamp.wire, messageIndex))
+        val messageIndex: Int
+        val replaced: Pending?
+        val heldReply: SocketStamp?
+        synchronized(early) {
+            messageIndex = issuedIndex.remove(id) ?: 0
+            replaced = pending.put(id, Pending(stamp.micros, laneOf(sessionId), stamp.wire, messageIndex))
+            heldReply = early.remove(id)
+        }
         leftSocket.incrementAndGet()
         if (replaced != null) {
             // Keyed by the id, so this request took the place of one still waiting. That one can now be
@@ -440,6 +463,8 @@ class StampMatcher(
             // reads it after this phase has been joined, and never while it is still filling.
             times?.sent(messageIndex, stamp.micros)
         }
+        // Its reply got here first and has been waiting. Offered again now there is a request to match.
+        heldReply?.let(::offer)
         return Claim.MINE
     }
 
@@ -447,24 +472,44 @@ class StampMatcher(
         val id = replyId(type, stamp.wire) ?: return Claim.NOT_A_REPLY
         val request = pending.remove(id)
         return when {
-            request != null -> {
-                outstanding.decrementAndGet()
-                matchedIds[id] = request.laneSlot
-                // Matched or late is decided inside [record]'s lock rather than out here, because that
-                // same lock decides whether this reply releases the phase reacting to us. Read apart,
-                // a reply could count as matched and release nothing, and the phase waiting on it
-                // would report a message its trigger plainly answered as one that was never answered.
-                record(request, stamp)
-                Claim.MINE
-            }
+            request != null -> matched(id, request, stamp)
             matchedIds.containsKey(id) -> {
                 duplicates.incrementAndGet()
                 val lane = matchedIds[id]
                 if (lane != null) synchronized(samples) { laneDuplicates.merge(lane, 1L, Long::plus) }
                 Claim.MINE
             }
-            else -> Claim.UNKNOWN
+            else -> holdIfIssued(id, stamp)
         }
+    }
+
+    private fun matched(id: String, request: Pending, stamp: SocketStamp): Claim {
+        outstanding.decrementAndGet()
+        matchedIds[id] = request.laneSlot
+        // Matched or late is decided inside [record]'s lock rather than out here, because that
+        // same lock decides whether this reply releases the phase reacting to us. Read apart,
+        // a reply could count as matched and release nothing, and the phase waiting on it
+        // would report a message its trigger plainly answered as one that was never answered.
+        record(request, stamp)
+        return Claim.MINE
+    }
+
+    /**
+     * A reply with no request waiting: one whose SEND stamp has not landed yet is held in [early], and
+     * anything else is a reply to nothing this matcher issued. Looked at again under the lock, because the
+     * SEND stamp may have landed since [onReceive] looked.
+     */
+    private fun holdIfIssued(id: String, stamp: SocketStamp): Claim {
+        val request =
+            synchronized(early) {
+                pending.remove(id) ?: run {
+                    if (!issuedIndex.containsKey(id)) return Claim.UNKNOWN
+                    // A second early copy of one reply is a duplicate, as it would be after the match.
+                    if (early.putIfAbsent(id, stamp) != null) duplicates.incrementAndGet()
+                    return Claim.MINE
+                }
+            }
+        return matched(id, request, stamp)
     }
 
     /**

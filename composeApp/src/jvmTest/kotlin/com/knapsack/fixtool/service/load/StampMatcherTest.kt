@@ -70,6 +70,45 @@ class StampMatcherTest {
     }
 
     /**
+     * **A reply that reaches the matcher before its request's SEND stamp is still that request's reply.**
+     *
+     * The two stamps come off different sessions, so they reach the matcher on different I/O threads, and
+     * nothing orders them. A drop copy's thread can hand over the reply while the lane's thread is still on
+     * its way to the SEND stamp, which happens most on a lane's first send. The reply was counted as a stray
+     * and the request, once its SEND stamp landed, as unmatched. The issuing thread hands the id over before
+     * the send, so the matcher knows it is coming and holds the reply until it does.
+     */
+    @Test
+    fun `a reply that arrives before its request's send stamp is matched, not a stray plus an unmatched`() {
+        val m = matcher()
+
+        m.issued("ORD-1", 0)
+        val early = receive(dropCopy, "ORD-1", at = 15_000)
+        assertTrue(m.owns(early), "a set's router must route it to the phase that issued the id")
+        m.onStamp(early)
+        m.onStamp(send(laneA, "ORD-1", at = 1_000))
+
+        val result = m.finish()
+        assertEquals(1, result.counts.matched)
+        assertEquals(0, result.counts.strays)
+        assertEquals(0, result.counts.pendingNow)
+        assertEquals(emptyList(), result.unmatched)
+        assertEquals(14_000L, result.roundTripsSorted.single(), "the round trip is still send to reply")
+    }
+
+    /** An id nobody issued is still a stray, early or not. */
+    @Test
+    fun `a reply to an id never issued is still a stray`() {
+        val m = matcher()
+
+        m.onStamp(receive(dropCopy, "ORD-404", at = 15_000))
+
+        val result = m.finish()
+        assertEquals(1, result.counts.strays)
+        assertEquals(0, result.counts.matched)
+    }
+
+    /**
      * **The measurements the charts need, correct during the run and not only after it.**
      *
      * `perSecond` used to be rebuilt in `buckets()` and reached the report only through a `Result`, which

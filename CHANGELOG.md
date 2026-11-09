@@ -5,6 +5,41 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-11-09
+
+The release that makes a disconnect and a scenario's send do what they say. With auto-reconnect off, a
+clean disconnect no longer ends in ERROR, and a Connect made while a session is logging out connects once
+the logout is done instead of being dropped. A scenario Send whose `${...}` cannot resolve is refused,
+not sent with the expression as its value. A new binding scope, this_connection, lets a scenario bind
+only what the session received since it last logged on, for a counterparty that sends something after
+every Logon.
+
+### ✨ Added
+
+- **A scenario can bind only what the current connection received.** `"binding": "this_connection"`, or THIS CONNECTION on the editor's binding chip, lets a step match only a message the session received or sent since it last logged on, however long ago Run was pressed. After a reconnect, a status message the counterparty sends after every Logon was bound from the connection before. A run set still isolates its entries under this_run.
+
+### 📝 Changed
+
+- **A scenario Send, `fixtool_send` with `resolve` and `fixtool_send_template` refuse a message in which a `${...}` did not resolve**, and send nothing. An unknown name, a script that throws and a script that answers null are each named in the step's report or the error, for example `not sent: ${noSuchVar} is not a known variable`. A starting value from Examples that does not resolve stops the run before it sends anything. The editor's own Send is unchanged.
+- A `${...}` history reference in a bind predicate, such as `${in.X.T}`, is resolved on every poll, so it follows the newest message as it arrives.
+
+### 🐛 Fixed
+
+**Connections**
+- **A clean disconnect with auto-reconnect off ends DISCONNECTED.** The engine reported the user's own logout as a connection failure, and that teardown raced the disconnect's own, so about one disconnect in fifteen ended in ERROR.
+- **A Connect made while a session is logging out connects once the logout is done**, instead of being dropped with "Session already connecting/connected".
+- A Connect made just after a logout is no longer stopped by the previous connection's teardown, or left running with nothing able to send on it, log it out or stop it.
+
+**Editor, send and parse**
+- A raw message without a trailing `|` is judged on its content. `35=0|112=abc` no longer warns "SOH not found at end of field", a real dictionary problem on such a message is reported, and it sends with no dictionary loaded.
+
+**Load testing**
+- A reply routed to another session, such as a drop copy, that is read before its request's send is matched, not counted as a stray with its request left unmatched. It happened most on a lane's first send.
+
+### 📖 Documentation
+
+- Help and the syntax reference describe this_connection, the refusal of an unresolved `${...}` on a send, and the bind predicate resolved on every poll.
+
 ## [1.22.2] - 2026-10-21
 
 The release that fixes what five weeks of use found, and closes two holes. A page open in a browser on

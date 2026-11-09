@@ -752,6 +752,48 @@ class ControlServerIntegrationTest {
         }
     }
 
+    /**
+     * A resolved send, and a template send, used to put an expression that did not resolve on the wire as its
+     * own literal text. Both now refuse, name the expression, and send nothing.
+     */
+    @Test
+    fun `a resolved send and a template send whose expression does not resolve are refused`() {
+        val fixServer = TestFixServer()
+        fixServer.start()
+        try {
+            val profile = liveProfile(fixServer.port)
+            viewModel.saveConnectionProfile(profile)
+            viewModel.connectProfile(profile.id, profile)
+            val loggedOn = { viewModel.sessions.any { it.connectionState.value == FixConnectionState.LOGGED_ON } }
+            assertTrue(awaitCondition(15_000, loggedOn), "session should log on to the test server")
+            val order = "35=D|11=\${noSuchVar}|55=EUR/USD|54=1|38=100|40=1|"
+
+            val sent = post("/send", """{"raw":"$order","session":"LIVE","resolve":true}""")
+            assertEquals("error", status(sent), "an unresolved send must be refused: ${sent.body()}")
+            assertEquals("not sent: \${noSuchVar} is not a known variable", obj(sent)["error"]!!.jsonPrimitive.content)
+
+            val pid = viewModel.connectionProfiles.first { it.name == "LIVE" }.id
+            val tpl = post("/templates", """{"profile":"$pid","name":"BAD","raw":"$order"}""")
+            val tid = obj(tpl)["id"]!!.jsonPrimitive.content
+            val viaTemplate = post("/templates/send", """{"id":"$tid","session":"LIVE"}""")
+            assertEquals("error", status(viaTemplate), "an unresolved template must be refused: ${viaTemplate.body()}")
+            assertTrue(obj(viaTemplate)["error"]!!.jsonPrimitive.content.contains("\${noSuchVar}"))
+
+            // A good send behind them, so "nothing arrived" is not just the venue being slow.
+            post("/send", """{"raw":"35=D|11=GOOD-1|55=EUR/USD|54=1|38=100|40=1|","session":"LIVE","resolve":true}""")
+            assertTrue(
+                awaitCondition(5_000) { fixServer.applicationMessages.any { it.contains("11=GOOD-1") } },
+                "test server should receive the good order",
+            )
+            assertFalse(
+                fixServer.applicationMessages.any { it.contains("noSuchVar") },
+                "no unresolved expression may reach the venue: ${fixServer.applicationMessages}",
+            )
+        } finally {
+            fixServer.stop()
+        }
+    }
+
     // ------------------------------------------------- authoring a profile without losing it
 
     /**

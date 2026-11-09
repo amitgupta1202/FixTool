@@ -91,12 +91,15 @@ data class FixField(
          * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
          * @param seedVariables Pre-defined variables available to expressions (e.g. per-session
          *                      values like sessionIndex/sessionSenderCompID during bulk send)
+         * @param failures When given, every expression that did not resolve is added to it, so a caller about
+         *                 to send can refuse instead of putting the expression's own text on the wire
          */
         fun List<FixField>.resolveTemplates(
             incomingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
             outgoingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
             dictionary: FixDictionaryAdapter? = null,
             seedVariables: Map<String, String> = emptyMap(),
+            failures: MutableList<FixMessageTemplate.Unresolved>? = null,
         ): List<FixField> {
             // Collect all fields that need template evaluation
             val fieldsWithExpressions =
@@ -122,6 +125,7 @@ data class FixField(
                     outgoingMessages,
                     variables,
                     dictionary,
+                    failures,
                 )
 
             // Apply resolved values back to fields

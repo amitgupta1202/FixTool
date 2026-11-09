@@ -3023,6 +3023,9 @@ class ControlServer(
      * With `resolve: true` the `${...}` template expressions in `raw` are resolved against the
      * session first — the same path the editor's Send button uses. Without it `raw` goes on the wire
      * verbatim, so an unresolved `${uuid}` is sent *as that literal text*. See [SyntaxReference].
+     *
+     * A resolved send in which any expression did not resolve is refused, and nothing is sent: the
+     * expression would otherwise go out as its own literal text. The error names each one and why.
      */
     private fun send(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
@@ -3043,7 +3046,11 @@ class ControlServer(
             val result =
                 if (resolve) {
                     if (index < 0) return@onEdt errorObject("no active session")
-                    viewModel.sendResolvedToSession(raw, index)
+                    when (val sent = viewModel.sendResolvedToSession(raw, index)) {
+                        is FixMessageViewModel.ResolvedSend.Refused -> return@onEdt errorObject(sent.refusal)
+                        is FixMessageViewModel.ResolvedSend.Sent -> sent.result
+                        null -> null
+                    }
                 } else {
                     viewModel.sendMessage(raw)
                 }
@@ -3078,7 +3085,10 @@ class ControlServer(
         }
     }
 
-    /** Sends a saved template (expressions resolved) from a session by id/title/index, or the active one. */
+    /**
+     * Sends a saved template (expressions resolved) from a session by id/title/index, or the active one.
+     * Refused, with nothing sent, when any expression in it did not resolve, as a resolved [send] is.
+     */
     private fun sendTemplate(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val id = body["id"]?.jsonPrimitive?.content ?: return errorObject("missing 'id'")
@@ -3097,7 +3107,12 @@ class ControlServer(
             if (index < 0) return@onEdt errorObject("no active session")
             val rawTemplate =
                 FixMessageHelper.joinFields(template.fields.filterNot { it.excluded }.map { it.tag to it.value })
-            val result = viewModel.sendResolvedToSession(rawTemplate, index)
+            val result =
+                when (val sent = viewModel.sendResolvedToSession(rawTemplate, index)) {
+                    is FixMessageViewModel.ResolvedSend.Refused -> return@onEdt errorObject(sent.refusal)
+                    is FixMessageViewModel.ResolvedSend.Sent -> sent.result
+                    null -> null
+                }
             buildJsonObject {
                 put("status", if (result == null) "failed" else sendResultStatus(result))
                 put("template", template.name)

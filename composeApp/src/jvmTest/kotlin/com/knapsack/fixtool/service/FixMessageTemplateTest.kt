@@ -245,6 +245,66 @@ class FixMessageTemplateTest {
         assertEquals("QUOTE456", result)
     }
 
+    /**
+     * **Every expression that did not resolve is named, as the author wrote it, and why.**
+     *
+     * The text is what [FixMessageTemplate.evaluate] has always returned, failures and all, so the callers
+     * that only show it see no change. A caller about to send reads the list and refuses instead.
+     */
+    @Test
+    fun `resolve names every expression that did not resolve, as written`() {
+        val template =
+            "11=\${noSuchVar}|58=\${incoming[\"X\"].valueOfTag(11)}|60=\${D.11}|" +
+                "112=\${outgoing[\"ZZ\"].valueOfTag(112)!!}|55=\${sym = \"EUR\"}|56=\${sym}|"
+
+        val resolution = FixMessageTemplate.resolve(template)
+
+        assertEquals(
+            listOf(
+                "noSuchVar" to "is not a known variable",
+                "incoming[\"X\"].valueOfTag(11)" to "evaluated to null",
+                "D.11" to "evaluated to null",
+                "outgoing[\"ZZ\"].valueOfTag(112)!!" to "failed: java.lang.NullPointerException",
+            ),
+            resolution.failures.map { it.expression to it.reason },
+        )
+        assertFalse(resolution.resolved)
+        assertEquals(FixMessageTemplate.evaluate(template), resolution.text, "the text is evaluate's, unchanged")
+        assertTrue(resolution.text.endsWith("|55=EUR|56=EUR|"), "what did resolve still resolves: ${resolution.text}")
+        assertEquals(
+            "not sent: \${noSuchVar} is not a known variable, " +
+                "\${incoming[\"X\"].valueOfTag(11)} evaluated to null, \${D.11} evaluated to null, " +
+                "\${outgoing[\"ZZ\"].valueOfTag(112)!!} failed: java.lang.NullPointerException",
+            resolution.refusal(),
+        )
+    }
+
+    @Test
+    fun `a template that resolves reports no failures`() {
+        val outgoing = mapOf("D" to createMockFixMessage("D", 11 to "ORD-1"))
+
+        val resolution =
+            FixMessageTemplate.resolve("41=\${out.D.11}|11=\${id = \"ORD-2\"}|", outgoingMessages = outgoing)
+
+        assertTrue(resolution.resolved, "nothing failed: ${resolution.failures}")
+        assertEquals("41=ORD-1|11=ORD-2|", resolution.text)
+    }
+
+    /** The batch the editor and the control server resolve through reports the same failures, values unchanged. */
+    @Test
+    fun `the batch evaluator reports what did not resolve, and its values do not change`() {
+        val fields = listOf(FixField(tag = "11", value = "\${noSuchVar}"), FixField(tag = "58", value = "\${D.11}"))
+        val failures = mutableListOf<FixMessageTemplate.Unresolved>()
+
+        val reported = fields.resolveTemplates(failures = failures)
+
+        assertEquals(
+            listOf("noSuchVar" to "is not a known variable", "D.11" to "evaluated to null"),
+            failures.map { it.expression to it.reason },
+        )
+        assertEquals(fields.resolveTemplates().map { it.value }, reported.map { it.value })
+    }
+
     @Test
     fun testTemplateWithMissingMessageTypeReturnsNull() {
         val template = "\${incoming[\"X\"].valueOfTag(11)}"

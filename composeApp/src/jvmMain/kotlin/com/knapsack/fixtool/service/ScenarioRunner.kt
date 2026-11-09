@@ -22,8 +22,13 @@ import com.knapsack.fixtool.model.scenario.withSessions
  * layer (which owns sessions, sending, and resolution).
  */
 interface ScenarioHost {
-    /** Resolve `${...}` in [raw] against the persistent [scope] and the session's message context. */
-    fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String
+    /**
+     * Resolve `${...}` in [raw] against the persistent [scope] and the session's message context.
+     *
+     * Every expression that did not resolve comes back in [FixMessageTemplate.Resolution.failures], because
+     * the text alone carries such an expression as its own literal and the runner must not send that.
+     */
+    fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): FixMessageTemplate.Resolution
 
     /** Send a fully-resolved raw message to [session]; returns true on success. */
     fun send(raw: String, session: String?): Boolean
@@ -177,7 +182,17 @@ class ScenarioRunner(
             return ScenarioResult(scenario.name, false, results + it, durationMs = now() - startedAt)
         }
 
-        val scope = seed.mapValuesTo(mutableMapOf()) { (_, cell) -> host.resolve(cell, mutableMapOf(), null) }
+        // A cell that did not resolve would carry its own `${...}` into the scope as a value, and every Send
+        // that reads the name would then put that text on the wire without anything left to notice. So the
+        // run is refused here, before a single step has sent anything.
+        val seeded = seed.mapValues { (_, cell) -> host.resolve(cell, mutableMapOf(), null) }
+        seeded.entries.filter { !it.value.resolved }.takeIf { it.isNotEmpty() }?.let { bad ->
+            val which = bad.joinToString(", ") { (name, r) -> "'$name' (${r.failures.joinToString(", ")})" }
+            val refused =
+                preflightFailure("Not run: the starting value of $which did not resolve, so nothing was sent.")
+            return ScenarioResult(scenario.name, false, results + refused, durationMs = now() - startedAt)
+        }
+        val scope = seeded.mapValuesTo(mutableMapOf()) { (_, resolution) -> resolution.text }
         val consumed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
         // Lifetime discard counts before a single step runs, so the check below reports what *this run* lost
         // rather than what the session has lost since it connected.
@@ -449,15 +464,31 @@ class ScenarioRunner(
                 // in an excluded row would still execute and bind a scenario variable that nothing ever
                 // sends — a later `${id}` would then reference a value the venue never saw. Strip first
                 // and an excluded field is inert: it mints nothing, references nothing, sends nothing.
-                val resolved = host.resolve(SendFields.wire(step.raw), scope, step.session)
-                // Both ends off the runner's own clock. This is local work — the cost of handing the
-                // message to the session — not a round trip, and it is measured as such.
-                val handedOver = now()
-                val ok = host.send(resolved, step.session)
-                val detail =
-                    if (ok) resolved
-                    else "send failed on '${label(step.session)}' (state=${host.connectionState(step.session) ?: "session not found"}): $resolved"
-                StepResult(index, "send", phase, ok, detail = detail, latencyMs = now() - handedOver)
+                val before = scope.toMap()
+                val resolution = host.resolve(SendFields.wire(step.raw), scope, step.session)
+                if (!resolution.resolved) {
+                    // Nothing goes on the wire. The text carries each failed expression as its own literal, and
+                    // a venue that validates strictly rejects it, or drops the session over it. The scope goes
+                    // back to what it was, so a value this message minted cannot be referenced by a later step
+                    // or by teardown as if the venue had seen it.
+                    scope.keys.retainAll(before.keys)
+                    scope.putAll(before)
+                    StepResult(index, "send", phase, false, detail = resolution.refusal())
+                } else {
+                    val resolved = resolution.text
+                    // Both ends off the runner's own clock. This is local work — the cost of handing the
+                    // message to the session — not a round trip, and it is measured as such.
+                    val handedOver = now()
+                    val ok = host.send(resolved, step.session)
+                    val detail =
+                        if (ok) {
+                            resolved
+                        } else {
+                            val state = host.connectionState(step.session) ?: "session not found"
+                            "send failed on '${label(step.session)}' (state=$state): $resolved"
+                        }
+                    StepResult(index, "send", phase, ok, detail = detail, latencyMs = now() - handedOver)
+                }
             }
             is ScenarioStep.Wait -> runWait(step, index, phase, scope, pre)
             is ScenarioStep.Expect -> runExpect(step, index, phase, scope, consumed, pre)

@@ -54,9 +54,13 @@ class HeadlessScenarioHost(
     /** Every session this run brought up, for teardown. */
     val opened: Collection<FixMessageSession> get() = sessions.values
 
-    override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String {
+    override fun resolve(
+        raw: String,
+        scope: MutableMap<String, String>,
+        session: String?,
+    ): FixMessageTemplate.Resolution {
         val msgs = fixMessages(session)
-        return FixMessageTemplate.evaluate(raw, byType(msgs, true), byType(msgs, false), scope, dictionary)
+        return FixMessageTemplate.resolve(raw, byType(msgs, true), byType(msgs, false), scope, dictionary)
     }
 
     override fun send(raw: String, session: String?): Boolean {

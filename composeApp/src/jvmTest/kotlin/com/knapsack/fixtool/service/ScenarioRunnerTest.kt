@@ -194,6 +194,84 @@ class ScenarioRunnerTest {
             }
         }
 
+    /**
+     * A Send whose `${...}` cannot resolve must fail and put nothing on the wire.
+     *
+     * [FixMessageTemplate.evaluate] hands such an expression back as its own literal text, for an unknown
+     * name and for a script that throws alike, and a counterparty that validates strictly rejects that
+     * value or drops the session over it.
+     */
+    @Test
+    fun `a send with an unknown variable fails and sends nothing`() {
+        val host = FakeHost()
+        val result = run(host, scenario(ScenarioStep.Send("35=0|112=\${noSuchVar}|", session = "s")))
+
+        assertEquals(emptyList(), host.sent, "an unresolved expression must not go on the wire")
+        val send = result.steps.single { it.kind == "send" }
+        assertFalse(send.passed, "the step must fail: ${send.detail}")
+        assertTrue(send.detail.orEmpty().contains("noSuchVar"), "the report must name the expression: ${send.detail}")
+    }
+
+    /** The script variant: the session has sent no `ZZ`, so `!!` throws inside the script. */
+    @Test
+    fun `a send whose expression throws fails and sends nothing`() {
+        val host = FakeHost()
+        val result =
+            run(host, scenario(ScenarioStep.Send("35=0|112=\${outgoing[\"ZZ\"].valueOfTag(112)!!}|", session = "s")))
+
+        assertEquals(emptyList(), host.sent, "an unresolved expression must not go on the wire")
+        val send = result.steps.single { it.kind == "send" }
+        assertFalse(send.passed, "the step must fail: ${send.detail}")
+        assertTrue(
+            send.detail.orEmpty().contains("NullPointerException"),
+            "the report must name the error: ${send.detail}",
+        )
+    }
+
+    /**
+     * A failed Send mints nothing. Its `${id = ...}` would otherwise leave `id` in the scope, and the
+     * teardown's cancel would then name an order that never went out.
+     */
+    @Test
+    fun `a send that fails to resolve leaves the scope as it was`() {
+        val host = FakeHost()
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "unresolved",
+                steps = listOf(ScenarioStep.Send("35=D|11=\${id = \"ORD-1\"}|58=\${noSuchVar}|", session = "s")),
+                teardown = listOf(ScenarioStep.Send("35=F|41=\${id}|", session = "s")),
+            )
+
+        val result = run(host, scenario)
+
+        assertFalse(result.passed)
+        assertEquals(emptyList(), host.sent, "neither the order nor a cancel for it may be sent")
+        val teardown = result.steps.single { it.phase == "teardown" }
+        assertTrue(teardown.detail.orEmpty().contains("\${id}"), "the cancel is refused on its own: ${teardown.detail}")
+    }
+
+    /**
+     * A starting value that did not resolve would enter the scope as its own `${...}` text, and a Send that
+     * reads the name would put that text on the wire with nothing left to notice. So the run does not start.
+     */
+    @Test
+    fun `a starting value that does not resolve refuses the run before anything is sent`() {
+        val host = FakeHost()
+        val order = scenario(ScenarioStep.Send("35=D|11=\${clOrdId}|", session = "s"))
+        val result =
+            ScenarioRunner(host, pollMs = 10, now = { host.clock }).run(order, seed = mapOf("clOrdId" to "\${nope}"))
+
+        assertFalse(result.passed)
+        assertEquals(emptyList(), host.sent)
+        val refused = result.steps.single()
+        assertEquals("preflight", refused.kind)
+        assertTrue(
+            refused.detail.orEmpty().contains("'clOrdId' (\${nope} is not a known variable)"),
+            "the refusal names the value and the expression: ${refused.detail}",
+        )
+    }
+
     @Test
     fun `persistent scope carries a variable across separate sends`() {
         val host = FakeHost()
@@ -1201,20 +1279,25 @@ class ScenarioRunnerTest {
      * sat in was never sent — and the next step's `${id0}` would then correlate against a value the venue
      * had never seen. Stripping before resolve is what makes an excluded field wholly inert.
      *
-     * The reference is left literal here, which is the engine's deliberate behaviour for an unknown name
-     * and exactly what the authoring-time `unminted()` warning exists to catch first.
+     * The reference then names nothing, so the second Send refuses rather than sending `${id0}` as text. Had
+     * the mint bound, it would have gone out as `41=ABC`. The authoring-time `unminted()` warning exists to
+     * catch this before a run does.
      */
     @Test
-    fun `a mint inside an excluded field never binds, so a later reference stays literal`() {
+    fun `a mint inside an excluded field never binds, so a later reference refuses to send`() {
         val host = FakeHost()
-        run(
-            host,
-            scenario(
-                ScenarioStep.Send("35=D|#11=\${id0 = \"ABC\"}|", session = "s"),
-                ScenarioStep.Send("35=D|41=\${id0}|", session = "s"),
-            ),
-        )
-        assertEquals(listOf("35=D|", "35=D|41=\${id0}|"), host.sent)
+        val result =
+            run(
+                host,
+                scenario(
+                    ScenarioStep.Send("35=D|#11=\${id0 = \"ABC\"}|", session = "s"),
+                    ScenarioStep.Send("35=D|41=\${id0}|", session = "s"),
+                ),
+            )
+        assertEquals(listOf("35=D|"), host.sent)
+        val refused = result.steps.last { it.kind == "send" }
+        assertFalse(refused.passed)
+        assertEquals("not sent: \${id0} is not a known variable", refused.detail)
     }
 
     @Test
@@ -1810,8 +1893,8 @@ class ScenarioRunnerTest {
         var connect: (String?) -> ConnectAttempt = { ConnectAttempt.Failed("no auto-connect in this fake") }
         var onSleep: () -> Unit = {}
 
-        override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String =
-            FixMessageTemplate.evaluate(raw, emptyMap(), emptyMap(), scope, null)
+        override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?) =
+            FixMessageTemplate.resolve(raw, emptyMap(), emptyMap(), scope, null)
 
         override fun send(raw: String, session: String?): Boolean {
             sent += raw

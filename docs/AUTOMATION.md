@@ -629,8 +629,10 @@ authoritative reference; the summary here is the shape of it:
 **always** resolves them, with no flag — but `POST /send` only does so with `"resolve": true`, and
 its default is `false`, so an unresolved `${uuid}` is sent as *that literal text*. The variable scope
 persists across an entire scenario run (setup → steps → teardown, and across sessions), which is what
-lets a value sent on one session be asserted in a response on another. An unknown `${name}` is left
-as literal text rather than raising an error.
+lets a value sent on one session be asserted in a response on another. An expression that does not
+resolve (an unknown `${name}`, a Kotlin expression that throws or evaluates to null) is never sent: a
+scenario `send` step fails without sending and names it, and `POST /send` with `"resolve": true` and
+`POST /templates/send` answer `{"status":"error","error":"not sent: ${name} is not a known variable"}`.
 
 `{n}`/`{nn}` is *not* one of these — it is the profile CompID numbering pattern (a `senderCompID` of
 `LOADGEN{nn}` with `sessionCount: 4`, and `LOADGEN01` at `sessionCount: 1`, because a profile's slots are

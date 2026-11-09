@@ -50,7 +50,13 @@ The two mini-languages an agent needs to author messages and scenarios: **templa
 - `${clOrdId}` — re-reads it later.
 - The scope persists across an entire scenario run (`setup` → `steps` → `teardown`) and across sessions in
   that run, so a value sent on one session can be asserted in a response on another.
-- Gotcha: an unknown `${name}` is left as the literal text `${name}` — it does not raise an error.
+- An expression that does not resolve is never sent. That is an unknown `${name}`, a Kotlin expression
+  that throws, and one that evaluates to null (`${D.11}` before any `D` exists). A scenario `send` step
+  then fails without sending, and its report names each expression and the error, for example
+  `not sent: ${clOrdIdd} is not a known variable`. `fixtool_send` with `resolve` and `fixtool_send_template`
+  refuse the same way. A starting value (an Examples cell) that does not resolve stops the run before
+  any step. The editor's Send, `fixtool_send_all` and a load run's per-lane values still leave such an
+  expression as its literal text.
 
 **Per-session variables** — `${sessionIndex}`, `${sessionQualifier}`, `${sessionTitle}`,
 `${sessionSenderCompID}`. Available on `fixtool_send` (with `resolve`), `fixtool_send_all` and
@@ -290,8 +296,9 @@ Prefix the tag with `#` in the `raw` and the field stays in the scenario but sta
 This is for the question authors actually ask — *does the venue still accept this without tag 9303?* —
 which wants a toggle rather than a delete-and-retype-from-memory. An excluded field is **wholly inert**:
 it is not sent, it raises no unknown-tag lint, and its `${...}` is never resolved, so a mint sitting in
-an excluded field binds nothing and a later `${...}` reference to that name is left literal on the wire
-(the editor warns about exactly this). Un-prefix the tag and the field — and its mint — come back.
+an excluded field binds nothing and a later `${...}` reference to that name does not resolve, so that
+Send fails without sending (the editor warns about exactly this). Un-prefix the tag and the field comes
+back, and its mint with it.
 
 `match` is `{messageType?, direction?, fields: [{tag, value}]}` — all conditions AND together, and its
 values may themselves be `${...}` expressions. An `expect` **consumes** the message it matches, so a

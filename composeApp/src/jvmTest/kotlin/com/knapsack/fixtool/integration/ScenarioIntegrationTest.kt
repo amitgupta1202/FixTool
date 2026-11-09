@@ -32,6 +32,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -283,11 +284,11 @@ class ScenarioIntegrationTest {
     /**
      * The subtle half: `resolve` is a whole-string regex that never parses fields, so a mint sitting in
      * an excluded row would evaluate and bind a variable nothing sends — and the next step would
-     * correlate against a value the venue never saw. Here the second order must carry the reference
-     * LITERALLY, which is the engine's deliberate behaviour for a name nothing minted.
+     * correlate against a value the venue never saw. Here the second order names `note`, which nothing
+     * bound, so its Send fails without sending. Had the mint bound, it would have gone out with 58=HELLO.
      */
     @Test
-    fun `a mint inside an excluded field binds nothing, so a later reference stays literal`() {
+    fun `a mint inside an excluded field binds nothing, so a later reference refuses to send`() {
         val scenario =
             """{
               "name": "excluded-mint-$runId",
@@ -297,14 +298,17 @@ class ScenarioIntegrationTest {
                 {"type":"send","session":"CLI","raw":"35=D|11=M2-$runId|55=EUR/USD|54=1|38=100|40=1|58=${'$'}{note}|"}
               ]
             }"""
-        assertTrue(obj(post("/scenarios/run", """{"scenario": $scenario}"""))["passed"]!!.jsonPrimitive.boolean)
+        val ran = obj(post("/scenarios/run", """{"scenario": $scenario}"""))
+        assertFalse(ran["passed"]!!.jsonPrimitive.boolean, "the second Send must fail: $ran")
 
         // The first order carried no 58 at all — the row it lived on was excluded.
         assertFalse(58 in wireTagsOf(awaitOrder("M1-$runId")), "the excluded row must not be sent")
 
-        // And the second's 58 is the unresolved reference, proving nothing ever bound `note`.
-        val second = FixMessageHelper.wireFields(awaitOrder("M2-$runId"))!!
-        assertEquals("${'$'}{note}", second.single { it.first == 58 }.second)
+        // And the second was refused for the unresolved reference, proving nothing ever bound `note`.
+        val sends =
+            ran["steps"]!!.jsonArray.map { it.jsonObject }.filter { it["kind"]!!.jsonPrimitive.content == "send" }
+        assertEquals("not sent: ${'$'}{note} is not a known variable", sends.last()["detail"]!!.jsonPrimitive.content)
+        assertNull(findOrder("M2-$runId"), "the refused order must not reach the venue")
     }
 
     /**

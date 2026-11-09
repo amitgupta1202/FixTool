@@ -4403,7 +4403,7 @@ class FixMessageViewModel(
                 listenersByProfile = pre.listenersByProfile,
                 awaitLanes = ::awaitLoadLanes,
                 awaitListeners = ::awaitLoadListeners,
-                resolve = { template, scope, sessionTitle -> ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle) },
+                resolve = { template, scope, sessionTitle -> loadResolve(template, scope, sessionTitle) },
                 dictionaryProvider = { _dictionary.value },
                 settingsProvider = { _appSettings.value },
             )
@@ -4438,7 +4438,7 @@ class FixMessageViewModel(
 
     /** One field's once-per-lane expression, through the evaluator a scenario step uses. */
     private fun loadResolve(template: String, scope: Map<String, String>, sessionTitle: String): String =
-        ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle)
+        ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle).text
 
     /**
      * **Which sessions a saved set runs on, and which of them Run will have to bring up.**
@@ -5941,22 +5941,44 @@ class FixMessageViewModel(
             .parseFixMessage(raw)
             .map { (tag, value) -> FixField(tag = tag.toString(), value = value) }
 
+    /** What [sendResolvedToSession] did: sent the resolved message, or refused because part of it did not resolve. */
+    sealed interface ResolvedSend {
+        data class Sent(
+            val result: com.knapsack.fixtool.service.SendResult,
+        ) : ResolvedSend
+
+        /** Nothing was sent. [refusal] names every expression that did not resolve, and why. */
+        data class Refused(
+            val unresolved: List<FixMessageTemplate.Unresolved>,
+        ) : ResolvedSend {
+            val refusal: String get() = FixMessageTemplate.Resolution("", unresolved).refusal()
+        }
+    }
+
     /**
      * Resolves template expressions in [raw] against the session at [sessionIndex] (per-session
-     * variables, latest in/out messages) and sends the resolved message — the same path the editor
-     * "Send" button uses, exposed for automation. Returns null if the session index is invalid.
+     * variables, latest in/out messages) and sends the resolved message, the way the editor "Send"
+     * button resolves it, exposed for automation. Returns null if the session index is invalid.
+     *
+     * Unlike the editor, it refuses a message in which any expression did not resolve. Such an expression
+     * stays in the message as its own literal text, a venue that validates strictly rejects it, and one that
+     * treats a malformed field as fatal drops the session over it. Nobody is watching an automated send to
+     * notice, so nothing is sent and the refusal names each expression.
      */
-    fun sendResolvedToSession(raw: String, sessionIndex: Int): com.knapsack.fixtool.service.SendResult? {
+    fun sendResolvedToSession(raw: String, sessionIndex: Int): ResolvedSend? {
         val session = _sessions.getOrNull(sessionIndex) ?: return null
         updateMessageMaps(session)
+        val failures = mutableListOf<FixMessageTemplate.Unresolved>()
         val resolved =
             rawToFields(raw).resolveTemplates(
                 incomingMessages = incomingMessagesByType,
                 outgoingMessages = outgoingMessagesByType,
                 dictionary = getDictionaryAdapter(),
                 seedVariables = sessionTemplateVariables(session, sessionIndex + 1),
+                failures = failures,
             )
-        return session.sendFixMessage(resolved.toRawMessage(), _dictionary.value)
+        if (failures.isNotEmpty()) return ResolvedSend.Refused(failures)
+        return ResolvedSend.Sent(session.sendFixMessage(resolved.toRawMessage(), _dictionary.value))
     }
 
     /** Raw-string overload of [sendMessageToAllConnectedSessions]; resolves per session. */

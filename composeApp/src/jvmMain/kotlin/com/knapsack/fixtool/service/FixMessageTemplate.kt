@@ -367,17 +367,97 @@ object FixMessageTemplate {
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
         variables: MutableMap<String, String>? = null,
         dictionary: FixDictionaryAdapter? = null,
-    ): String {
-        // Use provided variables map or create a new one
+    ): String = resolve(value, incomingMessages, outgoingMessages, variables, dictionary).text
+
+    /**
+     * One `${...}` that did not resolve: the expression as the author wrote it, without its braces, and why.
+     *
+     * Reads as the sentence a refusal is made of, `${noSuchVar} is not a known variable`.
+     */
+    data class Unresolved(
+        val expression: String,
+        val reason: String,
+    ) {
+        override fun toString(): String = "\${$expression} $reason"
+    }
+
+    /**
+     * **What resolving a template produced, and what it could not.**
+     *
+     * [text] is what [evaluate] has always returned. An expression that failed is left in it as its own
+     * literal `${...}`, and a script that answered null is written as `null`. That text is fine to show and
+     * wrong to send: a venue that validates strictly rejects the value, and one that treats a malformed field
+     * as fatal drops the session over it. So every such expression is also listed in [failures], and a caller
+     * about to put [text] on the wire refuses when the list is not empty.
+     */
+    data class Resolution(
+        val text: String,
+        val failures: List<Unresolved> = emptyList(),
+    ) {
+        val resolved: Boolean get() = failures.isEmpty()
+
+        /** Why nothing was sent, naming every expression: `not sent: ${noSuchVar} is not a known variable`. */
+        fun refusal(): String = "not sent: " + failures.joinToString(", ")
+    }
+
+    /**
+     * [evaluate], reporting every expression that did not resolve alongside the text.
+     *
+     * A failure is named as written, before shorthand expansion, so `${D.NoSuchTag}` is reported as itself
+     * rather than as the Kotlin it expands to. Three things count as a failure: a bare name the scope does
+     * not hold, a script that throws, and a script that evaluates to null.
+     */
+    fun resolve(
+        value: String,
+        incomingMessages: Map<String, FixMessage> = emptyMap(),
+        outgoingMessages: Map<String, FixMessage> = emptyMap(),
+        variables: MutableMap<String, String>? = null,
+        dictionary: FixDictionaryAdapter? = null,
+    ): Resolution {
         val vars = variables ?: mutableMapOf()
+        val failures = mutableListOf<Unresolved>()
+        // Expanded one expression at a time rather than the whole string at once, which is the same text
+        // (an expansion never adds or removes a `${...}`) and keeps hold of what the author wrote.
+        val text =
+            EXPRESSION_REGEX.replace(value) { matchResult ->
+                val written = matchResult.groupValues[1].trim()
+                val expression = expandOne(matchResult.value, dictionary)
+                evaluateExpression(expression, incomingMessages, outgoingMessages, vars) { reason ->
+                    failures += Unresolved(written, reason)
+                }
+            }
+        return Resolution(text, failures)
+    }
 
-        // Expand shorthand syntax before evaluation (fast string processing)
-        val expandedValue = ShorthandTemplateExpander.expand(value, dictionary)
+    /** The inside of one `${...}` after shorthand expansion: `${D.11}` becomes the Kotlin that reads it. */
+    private fun expandOne(token: String, dictionary: FixDictionaryAdapter?): String =
+        ShorthandTemplateExpander
+            .expand(token, dictionary)
+            .removePrefix("\${")
+            .removeSuffix("}")
+            .trim()
 
-        return EXPRESSION_REGEX.replace(expandedValue) { matchResult ->
-            val expression = matchResult.groupValues[1].trim()
-            evaluateExpression(expression, incomingMessages, outgoingMessages, vars)
-        }
+    private const val UNKNOWN_VARIABLE = "is not a known variable"
+    private const val EVALUATED_TO_NULL = "evaluated to null"
+
+    /**
+     * Why a script failed, in a line: the root cause's class and message, so `outgoing["ZZ"].valueOfTag(112)!!`
+     * reports `failed: java.lang.NullPointerException` rather than the wrapper the engine threw.
+     */
+    private fun reasonOf(e: Throwable): String {
+        val root = generateSequence(e) { it.cause?.takeIf { cause -> cause !== it } }.last()
+        val line =
+            root.message
+                ?.lines()
+                ?.firstOrNull { it.isNotBlank() }
+                ?.trim()
+        val what =
+            when {
+                root is ScriptException -> line ?: "script evaluation failed"
+                line != null -> "${root.javaClass.name}: $line"
+                else -> root.javaClass.name
+            }
+        return "failed: $what"
     }
 
     // Regex to detect variable assignments (e.g., "varName = expression")
@@ -412,13 +492,14 @@ object FixMessageTemplate {
 
     /**
      * Evaluates a single Kotlin expression and returns its string value.
-     * Supports variable assignments and references.
+     * Supports variable assignments and references. Whatever did not resolve is reported to [fail].
      */
     private fun evaluateExpression(
         expression: String,
         incomingMessages: Map<String, FixMessage>,
         outgoingMessages: Map<String, FixMessage>,
         variables: MutableMap<String, String>,
+        fail: (String) -> Unit,
     ): String {
         // Check if this is a variable assignment (e.g., "orderId = UUID.randomUUID()")
         val assignmentMatch = ASSIGNMENT_REGEX.matchEntire(expression)
@@ -427,19 +508,19 @@ object FixMessageTemplate {
             val varExpression = assignmentMatch.groupValues[2]
 
             // Evaluate the expression and store it
-            val result = evaluateKotlinExpression(varExpression, incomingMessages, outgoingMessages, variables)
+            val result = evaluateKotlinExpression(varExpression, incomingMessages, outgoingMessages, variables, fail)
             variables[varName] = result
             return result
         }
 
         // Check if this is a simple variable reference (e.g., "orderId")
         if (VARIABLE_REGEX.matches(expression)) {
-            // Look up the variable
-            return variables[expression] ?: "\${$expression}" // Return as-is if not found
+            // Look up the variable. Left as written when it is not there, and said.
+            return variables[expression] ?: "\${$expression}".also { fail(UNKNOWN_VARIABLE) }
         }
 
         // Otherwise, evaluate as a Kotlin expression
-        return evaluateKotlinExpression(expression, incomingMessages, outgoingMessages, variables)
+        return evaluateKotlinExpression(expression, incomingMessages, outgoingMessages, variables, fail)
     }
 
     /**
@@ -452,6 +533,7 @@ object FixMessageTemplate {
         incomingMessages: Map<String, FixMessage>,
         outgoingMessages: Map<String, FixMessage>,
         variables: MutableMap<String, String>,
+        fail: (String) -> Unit,
     ): String =
         try {
             // Performance optimization: Check if expression references messages
@@ -474,14 +556,16 @@ object FixMessageTemplate {
                 }
 
             val result = evalExpressionWithContext(expression, variables, incomingData, outgoingData)
-            result?.toString() ?: "null"
+            result?.toString() ?: "null".also { fail(EVALUATED_TO_NULL) }
         } catch (e: ScriptException) {
             // If evaluation fails, return the original expression
             logger.warn("ScriptException evaluating '{}': {}", expression, e.message)
+            fail(reasonOf(e))
             "\${$expression}"
         } catch (e: Exception) {
             // Any other error, return original
             logger.error("Exception evaluating '{}': {}", expression, e.message, e)
+            fail(reasonOf(e))
             "\${$expression}"
         }
 
@@ -499,14 +583,18 @@ object FixMessageTemplate {
      * @param outgoingMessages Map of latest outgoing messages by type
      * @param variables Shared mutable map for variables across all evaluations
      * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
+     * @param failures When given, every expression that did not resolve is added to it, as [resolve] reports
+     *   them. The returned values are the same either way.
      * @return Map of fieldIndex to resolved value
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "LongParameterList")
     fun evaluateBatch(
         fieldsWithExpressions: List<Pair<Int, String>>,
         incomingMessages: Map<String, FixMessage> = emptyMap(),
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
         variables: MutableMap<String, String> = mutableMapOf(),
         dictionary: FixDictionaryAdapter? = null,
+        failures: MutableList<Unresolved>? = null,
     ): Map<Int, String> {
         if (fieldsWithExpressions.isEmpty()) return emptyMap()
 
@@ -548,12 +636,15 @@ object FixMessageTemplate {
                 emptyMap()
             }
 
-        // Now evaluate each field - we can process sequentially to support variable assignments
-        for ((fieldIndex, fieldValue) in expandedFields) {
+        // Now evaluate each field - we can process sequentially to support variable assignments. Each
+        // expression is expanded on its own, the same text as the expanded field, so a failure can be
+        // named as the author wrote it.
+        for ((fieldIndex, fieldValue) in fieldsWithExpressions) {
             try {
                 val resolvedValue =
                     EXPRESSION_REGEX.replace(fieldValue) { matchResult ->
-                        val expression = matchResult.groupValues[1].trim()
+                        val written = matchResult.groupValues[1].trim()
+                        val expression = expandOne(matchResult.value, dictionary)
 
                         // Check for variable reference first (fast path)
                         if (VARIABLE_REGEX.matches(expression) && expression in variables) {
@@ -576,7 +667,7 @@ object FixMessageTemplate {
                                     variables,
                                     incomingData,
                                     outgoingData,
-                                )?.toString() ?: "null"
+                                )?.toString() ?: "null".also { failures?.add(Unresolved(written, EVALUATED_TO_NULL)) }
                             // Store variable if this was an assignment
                             if (varName != null) {
                                 variables[varName] = result
@@ -584,12 +675,17 @@ object FixMessageTemplate {
                             result
                         } catch (e: Exception) {
                             logger.warn("Failed to evaluate expression '$expression': ${e.message}")
+                            // A bare name that reached the script is one the scope did not hold, and the
+                            // compiler's "unresolved reference" says less than this does.
+                            val reason = if (VARIABLE_REGEX.matches(expression)) UNKNOWN_VARIABLE else reasonOf(e)
+                            failures?.add(Unresolved(written, reason))
                             "\${$expression}"
                         }
                     }
                 results[fieldIndex] = resolvedValue
             } catch (e: Exception) {
                 logger.warn("Failed to resolve field $fieldIndex: ${e.message}")
+                failures?.add(Unresolved(fieldValue, reasonOf(e)))
                 results[fieldIndex] = fieldValue // Return original on error
             }
         }

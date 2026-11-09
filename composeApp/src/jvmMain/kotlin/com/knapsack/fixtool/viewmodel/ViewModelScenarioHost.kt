@@ -40,10 +40,14 @@ class ViewModelScenarioHost(
      */
     private val defaultSession: String? = null,
 ) : ScenarioHost {
-    override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String {
+    override fun resolve(
+        raw: String,
+        scope: MutableMap<String, String>,
+        session: String?,
+    ): FixMessageTemplate.Resolution {
         val sess = resolveSession(session)
         val msgs = if (sess == null) emptyList() else sess.fixMessages()
-        return FixMessageTemplate.evaluate(
+        return FixMessageTemplate.resolve(
             raw,
             byType(msgs, incoming = true),
             byType(msgs, incoming = false),

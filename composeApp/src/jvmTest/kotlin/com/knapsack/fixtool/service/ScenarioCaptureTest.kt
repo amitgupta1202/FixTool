@@ -415,8 +415,8 @@ class ScenarioCaptureTest {
         private val replies = ArrayDeque(listOf(listOf("E-1" to "0", "E-2" to "F"), listOf("E-3" to "0")))
         private var seq = 10
 
-        override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String =
-            FixMessageTemplate.evaluate(raw, emptyMap(), emptyMap(), scope, null)
+        override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?) =
+            FixMessageTemplate.resolve(raw, emptyMap(), emptyMap(), scope, null)
 
         override fun send(raw: String, session: String?): Boolean {
             val fields = FixMessageHelper.parseFixMessage(raw).toMap()

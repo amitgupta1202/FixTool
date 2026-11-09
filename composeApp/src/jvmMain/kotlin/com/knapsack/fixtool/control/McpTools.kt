@@ -229,7 +229,9 @@ object McpTools {
                     "\${...} template expressions in raw are resolved against the session first (\${uuid}, \${now}, " +
                     "\${out.D.11}, and the per-session \${sessionIndex}/\${sessionQualifier}/\${sessionTitle}/" +
                     "\${sessionSenderCompID}); see fixtool_syntax. Without resolve, raw is sent verbatim — an " +
-                    "unresolved \${uuid} goes on the wire as that literal text.",
+                    "unresolved \${uuid} goes on the wire as that literal text. With resolve, a message in which " +
+                    "an expression does not resolve (an unknown name, a script that throws or evaluates to null) " +
+                    "is refused with an error naming it, and nothing is sent.",
                 props(
                     "raw" to string("raw FIX, pipe- or SOH-delimited"),
                     "session" to string("session id/title/index"),
@@ -245,7 +247,8 @@ object McpTools {
             ),
             tool(
                 "fixtool_send_template",
-                "Send a saved template (expressions resolved) from a session by id/title/index, or the active one.",
+                "Send a saved template (expressions resolved) from a session by id/title/index, or the active one. " +
+                    "Refused, with nothing sent, when an expression in it does not resolve.",
                 props("id" to string("template id"), "session" to string("session id/title/index")),
                 required = listOf("id"),
             ),

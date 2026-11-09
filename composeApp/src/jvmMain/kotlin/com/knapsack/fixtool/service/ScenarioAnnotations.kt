@@ -92,11 +92,11 @@ object ScenarioAnnotations {
     /**
      * Bare-name references (`${x}`) no step ever mints — in mint-order of appearance.
      *
-     * The engine deliberately leaves an unknown `${name}` **literal** on the wire (an error would make
-     * every non-variable `${...}` a gamble), which turns a typo into a silent one: the send carries the
-     * ten characters `${idO}` and the venue rejects — or worse, accepts — a message nobody meant. This is
-     * the authoring-time warning for that. Engine expressions never appear here: `${LocalDateTime.now()}`
-     * is not a bare name, and a bare name that IS minted somewhere is a working reference, not a warning.
+     * A Send whose `${name}` names nothing fails without sending, and says which name, so a typo such as
+     * `${idO}` no longer reaches the venue as those ten characters. It is still found only when the run
+     * gets to that step. This is the authoring-time warning that finds it first. Engine expressions never
+     * appear here: `${LocalDateTime.now()}` is not a bare name, and a bare name that IS minted somewhere is a
+     * working reference, not a warning.
      */
     fun unminted(steps: List<ScenarioStep>, columns: List<String> = emptyList()): List<String> {
         // A column IS a mint — the row writes it before the first step runs. Without this, every outline

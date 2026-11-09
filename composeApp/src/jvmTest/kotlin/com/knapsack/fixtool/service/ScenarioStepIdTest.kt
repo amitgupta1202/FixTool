@@ -289,7 +289,8 @@ class ScenarioStepIdTest {
 
     /** A host with no venue behind it: sends succeed, nothing ever arrives, so the Expect times out. */
     private class SilentHost : ScenarioHost {
-        override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?) = raw
+        override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?) =
+            FixMessageTemplate.Resolution(raw)
 
         override fun send(raw: String, session: String?) = true
 

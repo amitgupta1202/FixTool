@@ -52,7 +52,7 @@ class HeadlessLoadHost(
         }
 
     override fun resolveOnce(template: String, scope: Map<String, String>, lane: LoadLane): String =
-        inner.resolve(template, scope.toMutableMap(), lane.lane.sessionTitle)
+        inner.resolve(template, scope.toMutableMap(), lane.lane.sessionTitle).text
 
     override fun dictionary(): FixDictionaryAdapter = dictionary
 

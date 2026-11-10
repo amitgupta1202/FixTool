@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Editor, send and parse**
 - **A Heartbeat, Logon or other admin message on a FIXT.1.1 session no longer warns "Invalid MsgType, field=35".** Validate, Send, `POST /validate` and `fixtool_validate` judged every message against the FIX 5.0 application dictionary, which does not define the admin messages, so every Heartbeat sent carried that warning. Admin messages are now checked against the FIXT.1.1 transport dictionary and application messages against the application dictionary. A FIX 4.x session is unchanged.
+- **A venue's repeating group keeps its entries whole when an entry carries a tag the loaded dictionary does not define there.** Three allocations in a side, each carrying a field the dictionary defines only for the side, parsed as a phantom second side, two empty allocations and five fields set flat on the message, on receive and on send. The grid, the detail pane, the editor's indentation and the scenario diff now read group structure from one walk, so they also agree when a venue leaves out a group's optional first field, an underlying that opens with its security id rather than its symbol.
 
 ## [1.23.0] - 2026-11-09
 

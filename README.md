@@ -61,7 +61,7 @@ Technical walkthroughs of the running app, with narration, English captions, and
 
 ### Latest Release
 
-**v1.23.1** is the current release. Download it from the [Releases page](https://github.com/amitgupta1202/FixTool/releases/latest), and see [what is in it](CHANGELOG.md#1231---2026-11-10).
+**v1.23.2** is the current release. Download it from the [Releases page](https://github.com/amitgupta1202/FixTool/releases/latest), and see [what is in it](CHANGELOG.md#1232---2026-11-10).
 
 **Installation:**
 

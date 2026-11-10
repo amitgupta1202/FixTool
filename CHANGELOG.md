@@ -5,7 +5,12 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.23.2] - 2026-11-10
+
+Runs that do what the scenario says. A row run keeps a `this_connection` binding, a run connects a
+session that is down even when the scenario waits for its logon itself, and a logon scenario with an
+examples table runs the row it names. Expressions read the fields inside every repeating group, and a
+script that does not compile is named by its error in a run's report and in the editor.
 
 ### 🐛 Fixed
 

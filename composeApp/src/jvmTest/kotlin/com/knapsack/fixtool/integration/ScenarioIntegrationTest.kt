@@ -609,6 +609,69 @@ class ScenarioIntegrationTest {
         assertNotEquals(boundClOrdId(first), boundClOrdId(second), "each run must judge its own ExecutionReport")
     }
 
+    /**
+     * **A run connects a session that is down, even when the scenario waits for its logon itself.** The CLI
+     * session was connected and then disconnected, and the scenario opens with a Wait for LOGGED_ON on it.
+     * Preflight used to leave such a session alone, so nothing connected it and the run timed out in its own
+     * wait with `state=DISCONNECTED`. Now preflight starts the connect from the saved profile, and the
+     * scenario's wait sees the logon. A row run, the case the defect was reported against, goes the same way.
+     */
+    @Test
+    fun `a scenario that waits for its own logon connects a session that is down, run plainly or by row`() {
+        val plain = obj(post("/scenarios", ownWaitJson("own-wait-$runId", rows = false)))["id"]!!.jsonPrimitive.content
+        val outline = obj(post("/scenarios", ownWaitJson("own-wait-rows-$runId", rows = true)))["id"]!!.jsonPrimitive.content
+
+        disconnectClient()
+        val ran = obj(post("/scenarios/run", """{"id":"$plain"}"""))
+        assertTrue(ran["passed"]!!.jsonPrimitive.boolean, "the run should connect CLI and pass: $ran")
+        val connect = ran["steps"]!!.jsonArray.map { it.jsonObject }.first { it["kind"]!!.jsonPrimitive.content == "connect" }
+        assertTrue(
+            "waits for the logon itself" in connect["detail"]!!.jsonPrimitive.content,
+            "the report says the scenario waits for the logon: $connect",
+        )
+        assertEquals(FixConnectionState.LOGGED_ON, client().connectionState.value, "the run ends logged on")
+
+        disconnectClient()
+        val started = post("/scenarios/run", """{"id":"$outline","rows":true}""")
+        assertEquals(202, started.statusCode(), started.body())
+        val status = obj(get("/scenarios/runs/${obj(started)["runSet"]!!.jsonPrimitive.content}?wait=10000"))
+        assertEquals("passed", status["status"]!!.jsonPrimitive.content, "the row should connect CLI and pass: $status")
+        assertEquals(FixConnectionState.LOGGED_ON, client().connectionState.value, "the row run ends logged on")
+    }
+
+    /** Opens with a Wait for CLI's logon, then books an order and asserts its ExecutionReport. */
+    private fun ownWaitJson(name: String, rows: Boolean): String {
+        val examples = """"examples":{"columns":["symbol"],"rows":[{"name":"one row","values":{"symbol":"EUR/USD"}}]},"""
+        val symbol = if (rows) "${'$'}{symbol}" else "EUR/USD"
+        return """{
+          "name": "$name",
+          ${if (rows) examples else ""}
+          "steps": [
+            {"type":"wait","session":"CLI","state":"LOGGED_ON","timeoutMs":8000},
+            {"type":"send","session":"CLI","raw":"35=D|11=OWN-${'$'}{uuid}|55=$symbol|54=1|38=100|40=1|"},
+            {"type":"expect","session":"CLI","direction":"in","timeoutMs":8000,"expectation":{
+              "messageType":"8","mode":"open","fields":[
+                {"tag":35,"matcher":{"type":"exact","value":"8"}},
+                {"tag":11,"matcher":{"type":"reference","expression":"${'$'}{out.D.11}"}}
+              ]}}
+          ]
+        }"""
+    }
+
+    private fun client() = viewModel.sessions.single { it.title == "CLI" }
+
+    /** Disconnects CLI and waits until both ends have seen it go, so the next run finds it down. */
+    private fun disconnectClient() {
+        client().disconnect()
+        assertTrue(
+            awaitCondition(10_000) {
+                client().connectionState.value.canConnect() &&
+                    viewModel.sessions.none { it.title == "ACC" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "CLI should be down and ACC should have seen it go (CLI=${client().connectionState.value})",
+        )
+    }
+
     /** The strict stream verdict from a run report — the run-level row, which wears no stepId. */
     private fun trafficRow(report: kotlinx.serialization.json.JsonObject) =
         report["steps"]!!.jsonArray.map { it.jsonObject }.single { it["kind"]!!.jsonPrimitive.content == "traffic" }

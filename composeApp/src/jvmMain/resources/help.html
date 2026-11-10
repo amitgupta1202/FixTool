@@ -3763,7 +3763,10 @@ ${incoming["D"].valueOfTag(38)}
         cannot dial out &mdash; only the counterparty can start that logon &mdash; so a scenario whose first
         step is a Send or an Expect fails preflight whenever nobody happens to be connected. Put a
         <strong>Wait</strong> for state <code>LOGGED_ON</code> on that session first: preflight then leaves
-        the logon to the scenario, and the run blocks until the counterparty arrives.
+        the logon to the scenario, and the run blocks until the counterparty arrives. If that session is down
+        (disconnected, or in error) preflight still starts it from its saved profile, so an acceptor is
+        listening again, but it does not wait: the Wait does, with its own timeout. A session already
+        connecting or logged on is left as it is.
     </div>
 
     <p>One place the side cannot be worked out is the <a href="#diff-viewer">plain diff viewer</a>: it
@@ -3778,7 +3781,9 @@ ${incoming["D"].valueOfTag(38)}
     re-aim (targets come from your saved <strong>profiles</strong> &mdash; the other environment is usually not
     connected yet &mdash; and from open sessions), and it saves a <strong>copy</strong> of the scenario with the
     sessions swapped. A target that isn't connected is fine: the run's <strong>preflight auto-connect</strong>
-    brings its profile up first.</p>
+    brings its profile up first. A run connects every session it needs that is down, from its saved
+    profile, and waits for it to log on, except where the scenario has its own Wait for
+    <code>LOGGED_ON</code> on that session, where it only starts the connect.</p>
     <p>A copy, deliberately &mdash; <em>not</em> a shared mapping. Environments diverge in their data, so each
     environment's scenario has to evolve and reconcile on its own: a QA <em>Accept actual</em> lands in the QA
     copy, and the original's expectations never hear about it. The copies sit side by side in the rail,

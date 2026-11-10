@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.ExampleRow
 import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
@@ -356,23 +357,63 @@ class RunOnLogonIntegrationTest {
         assertEquals(1, logonRuns().size, "the skipped logon must not have recorded a run")
     }
 
+    /**
+     * A scenario set to run on logon, started by hand while its session is down. It opens with a Wait for the
+     * logon, so the run starts the connect itself and waits in that step. The logon then fires the trigger,
+     * which finds the session held by the run by hand and skips, saying so. The run by hand goes on and answers
+     * the handshake, and nothing runs twice.
+     */
+    @Test
+    fun `a logon scenario run by hand while its session is down connects it, and the trigger skips`() {
+        val handshake = server.handshake(windowMs = 5_000)
+        val scenario = handshakeScenario(RunTrigger.LOGON, waitForLogon = true).copy(binding = BindScope.THIS_CONNECTION)
+        save(scenario)
+        val (_, session) = connect()
+        assertTrue(awaitCondition(5_000) { awaitChallenge(handshake, 1).answeredInTime }, "the first logon runs it")
+        awaitLogonRuns(1)
+        session.disconnect()
+        assertTrue(
+            awaitCondition(5_000) { session.connectionState.value.canConnect() },
+            "the session should be down (state=${session.connectionState.value})",
+        )
+
+        val result = assertNotNull(viewModel.runScenarioBlocking(scenario), "the run slot should be free")
+
+        assertTrue(result.passed, "the run by hand should connect the session and answer it: ${result.steps}")
+        assertTrue(result.steps.any { it.kind == "connect" && it.passed }, "the run started the connect: ${result.steps}")
+        val second = awaitChallenge(handshake, 2)
+        assertEquals(listOf(second.requestId), second.answers.map { it.first }, "the second logon is answered once, with its own id")
+        val skipped = viewModel.notifications.map { it.message }.filter { it.startsWith("run on logon skipped:") }
+        assertTrue(skipped.any { "Handshake" in it }, "the trigger should skip and name the run holding the session: $skipped")
+        Thread.sleep(1_000)
+        assertEquals(1, logonRuns().size, "only the first logon recorded a run: ${logonRuns().map { it.label }}")
+        assertEquals(1, second.answers.size, "nothing answered the second logon twice: ${second.answers}")
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private fun TestFixServer.handshake(
+        windowMs: Long = 1_000,
         afterAnswer: (Int) -> TestFixServer.AfterAnswer = { TestFixServer.AfterAnswer.NOTHING },
     ): TestFixServer.Handshake =
-        TestFixServer.Handshake(windowMs = 1_000, afterAnswer = afterAnswer).also { afterLogon = it }
+        TestFixServer.Handshake(windowMs = windowMs, afterAnswer = afterAnswer).also { afterLogon = it }
 
     /**
      * Answers the venue's handshake: binds this connection's request, captures its id and echoes it back.
-     * With [followUpTimeoutMs] it then waits that long for the venue's follow-up News.
+     * With [followUpTimeoutMs] it then waits that long for the venue's follow-up News. With [waitForLogon] it
+     * first waits for its session to log on.
      */
-    private fun handshakeScenario(trigger: RunTrigger, followUpTimeoutMs: Long? = null): Scenario =
+    private fun handshakeScenario(
+        trigger: RunTrigger,
+        followUpTimeoutMs: Long? = null,
+        waitForLogon: Boolean = false,
+    ): Scenario =
         Scenario(
             id = "handshake-$runId",
             name = "Handshake",
             steps =
                 listOfNotNull(
+                    if (waitForLogon) ScenarioStep.Wait(session = client, state = "LOGGED_ON", timeoutMs = 10_000) else null,
                     ScenarioStep.Expect(
                         session = client,
                         match = MatchPredicate(messageType = "B", fields = listOf(TagValue(58, "handshake"))),

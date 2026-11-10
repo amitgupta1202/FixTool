@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.MatchOp
@@ -88,7 +89,8 @@ interface ScenarioHost {
     /**
      * Try to bring [session] up — reconnect it if it exists, else connect the saved profile that
      * carries its name. [ConnectAttempt.Started] means the attempt is under way, not that logon
-     * succeeded: the runner owns the bounded wait for LOGGED_ON. The default can connect nothing,
+     * succeeded: the runner owns the bounded wait for LOGGED_ON, or leaves it to the scenario's own Wait
+     * for LOGGED_ON on that session where there is one. The default can connect nothing,
      * so a host without connectivity (a test fake, a read-only surface) keeps the fail-fast preflight.
      */
     fun connectSession(session: String?): ConnectAttempt = ConnectAttempt.Failed("this host cannot connect sessions")
@@ -350,12 +352,19 @@ class ScenarioRunner(
         val traffic = all.filter { it is ScenarioStep.Send || it is ScenarioStep.Expect }
         // A session that would once have failed the run right here gets one recovery attempt first: the
         // host reconnects it (or connects the saved profile carrying its name), and preflight waits —
-        // bounded — for it to come up. ONLY sessions that would have failed are touched: an existing
-        // session whose logon the scenario itself waits for is the scenario's business, not preflight's.
+        // bounded — for it to come up. Only sessions that would have failed are waited for. An existing
+        // session whose logon the scenario itself waits for is the scenario's business: preflight starts
+        // its connect when it is down, and leaves the waiting to the scenario.
         val pending = mutableListOf<PendingConnect>()
         for (session in all.map { it.session }.distinct()) {
             val label = session ?: "(active session)"
             val state = host.connectionState(session)
+            // Its logon is the scenario's to wait for, but nothing else would ever start it. Started here, with
+            // the rest, and not waited for: the scenario's own Wait owns the logon, with its own timeout.
+            if (session in waitCovered && state != null) {
+                if (isDown(state)) results += connectForOwnWait(session, label, state)
+                continue
+            }
             val needsLogon = traffic.any { it.session == session } && session !in waitCovered
             if (sessionReady(state, needsLogon)) continue
             when (val attempt = host.connectSession(session)) {
@@ -420,6 +429,32 @@ class ScenarioRunner(
 
     private fun sessionReady(state: String?, needsLogon: Boolean): Boolean =
         state != null && (!needsLogon || state.equals("LOGGED_ON", ignoreCase = true))
+
+    /** Down means a Connect is allowed from where it is: [FixConnectionState.canConnect], read off the host's name. */
+    private fun isDown(state: String): Boolean =
+        FixConnectionState.entries.firstOrNull { it.name.equals(state, ignoreCase = true) }?.canConnect() == true
+
+    /**
+     * **Starts the connect of a down session whose logon the scenario waits for itself**, and says so in a
+     * passing run-level row. Nothing waits here: the scenario's own Wait for LOGGED_ON does.
+     *
+     * A connect that cannot be started does not fail preflight either. A person may be connecting that
+     * session by hand, so the Wait decides, as it did before preflight started connects for it. The row then
+     * carries the reason and still passes, so a Wait that times out next to it is not left unexplained.
+     */
+    private fun connectForOwnWait(session: String?, label: String, state: String): StepResult {
+        val detail =
+            when (val attempt = host.connectSession(session)) {
+                is ConnectAttempt.Started ->
+                    "session '$label' was $state, so a connect was started via profile '${attempt.profileName}'. " +
+                        "The scenario waits for the logon itself, so the run goes straight on to that wait."
+                is ConnectAttempt.Failed ->
+                    "session '$label' was $state, and no connect could be started (${attempt.reason}). " +
+                        "The scenario waits for the logon itself, so the run goes on and that wait decides."
+            }
+        // Index -1, no stepId: a run-level row, like the other connect rows, which no step produced.
+        return StepResult(-1, "connect", "setup", passed = true, detail = detail)
+    }
 
     /** A not-ready session whose connect the host has initiated; preflight still owes it a bounded wait. */
     private data class PendingConnect(

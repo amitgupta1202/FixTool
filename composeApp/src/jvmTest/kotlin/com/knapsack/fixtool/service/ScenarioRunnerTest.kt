@@ -412,9 +412,12 @@ class ScenarioRunnerTest {
             ScenarioStep.Send("35=D|", session = "s"),
         )
         val result = run(host, scenario)
-        // It fails later at the wait timeout — but preflight let it try, as the scenario owns logon.
-        assertEquals("wait", result.steps.first().kind)
-        assertFalse(result.steps.first().passed)
+        // It fails later at the wait timeout, but preflight let it try, as the scenario owns logon. The row
+        // before the wait is the connect preflight could not start, and it passes.
+        assertTrue(result.steps.none { it.kind == "preflight" }, "${result.steps}")
+        assertEquals(listOf("connect", "wait"), result.steps.map { it.kind })
+        assertTrue(result.steps.first().passed)
+        assertFalse(result.steps.single { it.kind == "wait" }.passed)
     }
 
     /**
@@ -549,6 +552,121 @@ class ScenarioRunnerTest {
         val result = run(host, scenario)
         assertTrue(result.passed, "${result.steps}")
         assertEquals(listOf("connect", "wait", "send"), result.steps.map { it.kind })
+    }
+
+    /**
+     * **A session that exists and is down is connected even when the scenario waits for its logon itself.**
+     * Preflight used to leave it alone, so nothing ever connected it and the run sat in its own wait until it
+     * timed out with `state=DISCONNECTED`. Preflight now starts the connect and does not wait: the scenario's
+     * Wait owns the logon, with its own timeout. The connect timeout here is shorter than the logon takes, so
+     * a preflight that held the session to LOGGED_ON would fail the run instead.
+     */
+    @Test
+    fun `a down session the scenario waits to log on is connected, and its own wait owns the logon`() {
+        for (down in listOf("DISCONNECTED", "ERROR")) {
+            val host = FakeHost()
+            var state = down
+            var connects = 0
+            var sleeps = 0
+            host.stateOf = { state }
+            host.connect = {
+                connects++
+                ConnectAttempt.Started("prof-s")
+            }
+            // The logon lands well after the connect timeout, during the scenario's own wait.
+            host.onSleep = { if (connects > 0 && ++sleeps >= 20) state = "LOGGED_ON" }
+
+            val result = runWithConnectTimeout(host, waitsForLogon(timeoutMs = 1_000), connectTimeoutMs = 50)
+
+            assertTrue(result.passed, "from $down: ${result.steps}")
+            assertEquals(1, connects, "from $down, the connect is started once")
+            assertEquals(listOf("connect", "wait", "send"), result.steps.map { it.kind }, "from $down")
+            val connect = result.steps.first()
+            assertTrue(connect.passed, "the connect row passes: $connect")
+            val detail = connect.detail.orEmpty()
+            assertTrue(
+                "'s'" in detail && "prof-s" in detail && "was $down" in detail && "waits for the logon itself" in detail,
+                "the row says which session, which profile, what state it was in, and who waits for the logon: $detail",
+            )
+            assertEquals(listOf("35=D|"), host.sent)
+        }
+    }
+
+    /** A session already on its way up, or up, is the scenario's to wait for: nothing is started for it. */
+    @Test
+    fun `a session the scenario waits to log on is left alone while it is connecting or logged on`() {
+        for (up in listOf("CONNECTING", "CONNECTED", "LOGGED_ON")) {
+            val host = FakeHost()
+            var state = up
+            var connects = 0
+            host.stateOf = { state }
+            host.connect = {
+                connects++
+                ConnectAttempt.Started("prof-s")
+            }
+            host.onSleep = { state = "LOGGED_ON" }
+
+            val result = run(host, waitsForLogon(timeoutMs = 1_000))
+
+            assertTrue(result.passed, "from $up: ${result.steps}")
+            assertEquals(0, connects, "from $up, nothing is connected")
+            assertEquals(listOf("wait", "send"), result.steps.map { it.kind }, "from $up")
+        }
+    }
+
+    /**
+     * A down session that no connect can be started for does not fail preflight: a person may be connecting
+     * it by hand, so the scenario's own wait decides, as it always has. The reason is in the report, on a row
+     * that does not change the verdict, so a wait that then times out is not left unexplained.
+     */
+    @Test
+    fun `a down session no connect can be started for is left to the scenario's wait, with the reason`() {
+        val host = FakeHost()
+        host.stateOf = { "DISCONNECTED" }
+
+        val result = run(host, waitsForLogon(timeoutMs = 30))
+
+        assertFalse(result.passed)
+        assertTrue(result.steps.none { it.kind == "preflight" }, "preflight must not fail the run: ${result.steps}")
+        val wait = result.steps.single { it.kind == "wait" }
+        assertFalse(wait.passed)
+        assertTrue("timeout" in wait.detail.orEmpty() && "state=DISCONNECTED" in wait.detail.orEmpty(), "${wait.detail}")
+        val connect = result.steps.single { it.kind == "connect" }
+        assertTrue(connect.passed, "the row that names the reason does not decide the verdict: $connect")
+        assertTrue("no auto-connect in this fake" in connect.detail.orEmpty(), "the host's reason reaches the report: $connect")
+        assertTrue(host.sent.isEmpty(), "nothing after the failed wait is sent")
+    }
+
+    /**
+     * Every connect is started before preflight waits for any of them, so slow logons overlap. That holds for
+     * a connect started for the scenario's own wait too: it is not queued behind another session's logon.
+     */
+    @Test
+    fun `a connect for the scenario's own wait starts before preflight waits for another session`() {
+        val host = FakeHost()
+        val states = mutableMapOf<String?, String?>("a" to null, "b" to "DISCONNECTED")
+        var sleeps = 0
+        val connectedAfterSleeps = mutableMapOf<String?, Int>()
+        host.stateOf = { states[it] }
+        host.connect = { session ->
+            connectedAfterSleeps[session] = sleeps
+            if (session == "a") states["a"] = "CONNECTING"
+            ConnectAttempt.Started("prof-$session")
+        }
+        host.onSleep = {
+            if (++sleeps >= 3) states.keys.forEach { states[it] = "LOGGED_ON" }
+        }
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|", session = "a"),
+                ScenarioStep.Wait(session = "b", state = "LOGGED_ON", timeoutMs = 1_000),
+                ScenarioStep.Send("35=D|", session = "b"),
+            )
+
+        val result = run(host, scenario)
+
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals(mapOf<String?, Int>("a" to 0, "b" to 0), connectedAfterSleeps, "both connects start before any wait")
     }
 
     @Test
@@ -1799,6 +1917,17 @@ class ScenarioRunnerTest {
 
     private fun run(host: FakeHost, scenario: Scenario, sessionMap: Map<String, String> = emptyMap()) =
         ScenarioRunner(host, pollMs = 10, now = { host.clock }).run(scenario, sessionMap)
+
+    /** [run], with preflight's bounded wait for an auto-connected session set to [connectTimeoutMs]. */
+    private fun runWithConnectTimeout(host: FakeHost, scenario: Scenario, connectTimeoutMs: Long) =
+        ScenarioRunner(host, pollMs = 10, now = { host.clock }, connectTimeoutMs = connectTimeoutMs).run(scenario)
+
+    /** A scenario that opens by waiting for its session to log on, then sends on it. */
+    private fun waitsForLogon(timeoutMs: Long) =
+        scenario(
+            ScenarioStep.Wait(session = "s", state = "LOGGED_ON", timeoutMs = timeoutMs),
+            ScenarioStep.Send("35=D|", session = "s"),
+        )
 
     /** [run], but recording every (message, verdict) the runner reports — what tints the message grid. */
     private fun runRecordingVerdicts(

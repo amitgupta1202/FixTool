@@ -99,11 +99,12 @@ fixtool run --all [options]
   --home <dir>        read profiles, settings and saved scenarios from <dir> instead of ~/.fixtool
 ```
 
-**Sessions connect themselves.** A scenario names its sessions; each is dialled from the saved
-profile of the same name, and the runner waits for logon before any step runs — so an unattended run
-tells the same story a hand-connected one would. A session named `"Name [2]"`, as the app titles slot 2
-of a multi-session profile, dials that slot of profile `"Name"`. A session named `"Name"` alone dials
-the profile's first slot.
+**Sessions connect themselves.** A scenario names its sessions. Each one that is down is dialled from
+the saved profile of the same name, and the runner waits for its logon before any step runs, so an
+unattended run tells the same story a hand-connected one would. Where the scenario has its own wait for
+`LOGGED_ON` on a session, the runner only starts the dial and leaves the logon to that wait. A session
+named `"Name [2]"`, as the app titles slot 2 of a multi-session profile, dials that slot of profile
+`"Name"`. A session named `"Name"` alone dials the profile's first slot.
 
 **`--home` is what makes this work on a build box**, which has no `~/.fixtool` and should not be made
 to grow one. Point it at a directory holding `connection_profiles.json`, `app_settings.json` and
@@ -438,7 +439,7 @@ acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill Q
 | `POST /run`          | `{}`, `{"loadSet"\|"runSet": "<name>", "start"?}` or `{"stop": true}` | **run what ▶ names.** `{}` runs the selection through `POST /load {"set"}` or `POST /scenarios/run {"set"}` and answers with that door's code and body — 202 and the job id, 409 while another run holds the sessions, a set's own `{error, problems}` — plus `configuration`. `loadSet`/`runSet` aims the widget first, as choosing a row in its menu does, and the choice is remembered; `"start": false` aims without running. `{"stop": true}` stops the selection's own live run → 202, or 409 when it is not running. 404 when nothing is saved or the name is not a saved set. MCP: `fixtool_run_selection` with `action` `status` (default), `aim`, `run` or `stop` |
 | `GET /load-sets`     | —                                      | the saved load sets: `{count, sets:[{name, label, phases, muted?, profiles}]}`. `muted` is how many of the phases are parked, present only when any is |
 | `GET /load-sets/<name>` | —                                   | one set whole, the same JSON `load-sets/<name>.json` holds; 404 when nothing answers to the name |
-| `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`?, `sessions`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`). `sessions` is a throwaway `{from: to}` session remap for this run only — nothing persisted; sessions the run needs are auto-connected from saved profiles. To keep an environment durably, save a remapped copy of the scenario (the rail's ▾ beside Run). **409** while a run or a set holds the slot |
+| `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`?, `sessions`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`). `sessions` is a throwaway `{from: to}` session remap for this run only — nothing persisted; a run connects every session it needs that is down, from its saved profile, and waits for it to log on, except where the scenario has its own wait for `LOGGED_ON` on that session, where it only starts the connect and leaves the logon to that wait. Each connect is a passing `connect` row in the report. To keep an environment durably, save a remapped copy of the scenario (the rail's ▾ beside Run). **409** while a run or a set holds the slot |
 | `POST /scenarios/run` (a **set**) | `{"set":"nightly"}`, `{"ids":[…],"repeat"?}` or `{"id","repeat":20}`, and `{"id","rows":true}` / `{"id","rows":["row name"]}` for the Examples table or named rows, or `{"id","fanOut":{"profile","session"?}}` to run it once per session of a multi-session profile, concurrently, plus `stopOnFailure`?, `pauseMs`? | **starts a job** and answers `202 {runSet, status, entries, unresolved?}` — a twelve-scenario suite is minutes and this route runs on one of four HTTP threads. Each entry runs isolated (a scenario on the default binding runs as `this_run`, one that names its binding runs as written) and writes its record as it lands |
 | `GET /scenarios/runs` | — | the recent sets, newest first: `{count, sets:[{id,label,status,total,done,passed,failed,startedAt}]}` |
 | `GET /scenarios/runs/<id>` | `?wait=<ms>` (≤10000) | where a set has got to: `{status: running\|passed\|failed\|stopped, summary:{total,done,passed,failed,elapsedMs}, entries:[{n,scenario,iteration,state,durationMs,record,note}]}`. Read **from disk**, so it survives a restart; `wait` long-polls until the set finishes |

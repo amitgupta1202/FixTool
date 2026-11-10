@@ -32,7 +32,9 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
  * Duplicate [scenario] with its sessions re-aimed — the "same flow, other environment" door. The left
  * column is what the original was recorded against; the right column is what the copy should target,
  * picked from every name the app can resolve: saved profiles and open sessions. A target that is not
- * connected is fine — the copy's runs auto-connect its profile.
+ * connected is fine. A run connects every session it needs that is down, from its saved profile, and
+ * waits for it to log on, except where the scenario has its own Wait for LOGGED_ON on that session, where
+ * it only starts the connect.
  *
  * The result is a **new scenario**, on purpose. Environments diverge in data — QA's fills are not
  * dev's — so each environment's scenario must evolve and reconcile independently: a QA failure's

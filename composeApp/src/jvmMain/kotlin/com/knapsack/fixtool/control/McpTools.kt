@@ -529,7 +529,9 @@ object McpTools {
                     "ids=[...] for an explicit list, or id=<scenario> with repeat=N for a flake hunt. Returns " +
                     "{runSet, status, entries} immediately — a twelve-scenario suite is minutes, so poll it with " +
                     "fixtool_run_status and read a failed entry with fixtool_run_entry. Each entry runs isolated " +
-                    "(binding=this_run, so iteration 2 cannot bind iteration 1's reply) and writes its report AND " +
+                    "(a scenario on the default binding runs as binding=this_run, so iteration 2 cannot bind " +
+                    "iteration 1's reply, and one that names its binding, this_run or this_connection, runs as " +
+                    "written) and writes its report AND " +
                     "its messages to ~/.fixtool/runs/<runSet>/ as it lands, so the evidence outlives the grid. " +
                     "stopOnFailure=true ends the set at the first red (CI); the default runs everything, because " +
                     "\"3 of 20 failed\" is what a flake hunt needs.",

@@ -149,10 +149,17 @@ local hand-over work and is not a sample. **Point it at the server under test**:
 tool's ceiling, since one thread answers every session — the response carries a `notice` saying so. See
 the Help window's *Fanning a scenario out over those sessions* for the full list of limits.
 
-**Each entry runs isolated** (`binding=this_run`), so iteration 2 cannot bind iteration 1's reply and
-report that the venue answered when it has not. Isolation is not a reset of everything: the
-scenario's own `clearMessages` and `clearOrderBook` setup steps are what clear a session's log and a
-venue's order book.
+**Each entry runs isolated** (a scenario on the default binding, `any`, runs as `binding=this_run`), so
+iteration 2 cannot bind iteration 1's reply and report that the venue answered when it has not.
+Isolation is not a reset of everything: the scenario's own `clearMessages` and `clearOrderBook` setup
+steps are what clear a session's log and a venue's order book.
+
+A scenario that names its binding runs as written, and the entry's record
+(`scenario.definition.binding`) shows the binding it ran under. `this_run` is
+already isolated. `this_connection` is kept, so a scenario that binds what the counterparty sent
+straight after Logon finds it on every row. The consequence is the author's choice: entries that run on
+the same connection can bind each other's messages. For per-entry isolation, use `this_run` or leave
+the default.
 
 During development the same entrypoint is `./gradlew :composeApp:run --args="run smoke-nos"`; from an
 installed build it is the packaged binary (`FixTool.app/Contents/MacOS/FixTool run smoke-nos` on
@@ -432,7 +439,7 @@ acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill Q
 | `GET /load-sets`     | —                                      | the saved load sets: `{count, sets:[{name, label, phases, muted?, profiles}]}`. `muted` is how many of the phases are parked, present only when any is |
 | `GET /load-sets/<name>` | —                                   | one set whole, the same JSON `load-sets/<name>.json` holds; 404 when nothing answers to the name |
 | `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`?, `sessions`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`). `sessions` is a throwaway `{from: to}` session remap for this run only — nothing persisted; sessions the run needs are auto-connected from saved profiles. To keep an environment durably, save a remapped copy of the scenario (the rail's ▾ beside Run). **409** while a run or a set holds the slot |
-| `POST /scenarios/run` (a **set**) | `{"set":"nightly"}`, `{"ids":[…],"repeat"?}` or `{"id","repeat":20}`, and `{"id","rows":true}` / `{"id","rows":["row name"]}` for the Examples table or named rows, or `{"id","fanOut":{"profile","session"?}}` to run it once per session of a multi-session profile, concurrently, plus `stopOnFailure`?, `pauseMs`? | **starts a job** and answers `202 {runSet, status, entries, unresolved?}` — a twelve-scenario suite is minutes and this route runs on one of four HTTP threads. Each entry runs isolated and writes its record as it lands |
+| `POST /scenarios/run` (a **set**) | `{"set":"nightly"}`, `{"ids":[…],"repeat"?}` or `{"id","repeat":20}`, and `{"id","rows":true}` / `{"id","rows":["row name"]}` for the Examples table or named rows, or `{"id","fanOut":{"profile","session"?}}` to run it once per session of a multi-session profile, concurrently, plus `stopOnFailure`?, `pauseMs`? | **starts a job** and answers `202 {runSet, status, entries, unresolved?}` — a twelve-scenario suite is minutes and this route runs on one of four HTTP threads. Each entry runs isolated (a scenario on the default binding runs as `this_run`, one that names its binding runs as written) and writes its record as it lands |
 | `GET /scenarios/runs` | — | the recent sets, newest first: `{count, sets:[{id,label,status,total,done,passed,failed,startedAt}]}` |
 | `GET /scenarios/runs/<id>` | `?wait=<ms>` (≤10000) | where a set has got to: `{status: running\|passed\|failed\|stopped, summary:{total,done,passed,failed,elapsedMs}, entries:[{n,scenario,iteration,state,durationMs,record,note}]}`. Read **from disk**, so it survives a restart; `wait` long-polls until the set finishes |
 | `GET /scenarios/runs/<id>/entries/<n>` | — | that entry's whole **record**: the report, every message it saw with its wire bytes, and `bound` (which message each step judged) |

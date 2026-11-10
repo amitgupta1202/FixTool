@@ -356,6 +356,61 @@ class ControlServerIntegrationTest {
         assertEquals("second", back["triggerRow"]?.jsonPrimitive?.content, back.toString())
     }
 
+    /**
+     * **A row run keeps a binding the scenario names**, over the real door. The counterparty sends a News
+     * straight after Logon, before any run begins. A scenario bound to this connection exists to bind that
+     * message, and its examples row, started with `rows` and the default isolation, used to run as this run
+     * and time out on it, while the same row passed with `"isolate": false`.
+     */
+    @Test
+    fun `a this_connection scenario run by row binds what the counterparty sent after logon`() {
+        val fixServer = TestFixServer().apply { afterLogon = TestFixServer.Handshake(windowMs = 60_000) }
+        fixServer.start()
+        try {
+            val profile = liveProfile(fixServer.port)
+            viewModel.saveConnectionProfile(profile)
+            viewModel.connectProfile(profile.id, profile)
+            assertTrue(
+                awaitCondition(15_000) { liveNews().isNotEmpty() },
+                "the session should log on and receive the counterparty's News before any run starts",
+            )
+            val scenario =
+                """
+                {"name":"AFTER-LOGON","binding":"this_connection",
+                 "examples":{"columns":["note"],"rows":[{"name":"only row","values":{"note":"handshake"}}]},
+                 "steps":[
+                  {"type":"expect","session":"LIVE","direction":"in","timeoutMs":3000,
+                   "match":{"messageType":"B"},
+                   "expectation":{"messageType":"B","mode":"open",
+                     "fields":[{"tag":58,"matcher":{"type":"reference","expression":"${'$'}{note}"}}]}}
+                ]}
+                """.trimIndent()
+            val saved = obj(post("/scenarios", scenario))
+            assertEquals("created", saved["status"]!!.jsonPrimitive.content, saved.toString())
+
+            val started = post("/scenarios/run", """{"id":"${saved["id"]!!.jsonPrimitive.content}","rows":true}""")
+            assertEquals(202, started.statusCode(), started.body())
+            val runSet = obj(started)["runSet"]!!.jsonPrimitive.content
+
+            val status = obj(get("/scenarios/runs/$runSet?wait=8000"))
+            assertEquals("passed", status["status"]!!.jsonPrimitive.content, "the row should bind the News from after logon: $status")
+            val definition = obj(get("/scenarios/runs/$runSet/entries/1"))["scenario"]!!.jsonObject["definition"]!!.jsonObject
+            assertEquals("this_connection", definition["binding"]?.jsonPrimitive?.content, "the record shows the binding it ran under")
+        } finally {
+            fixServer.stop()
+        }
+    }
+
+    /** The News messages the LIVE session has received. */
+    private fun liveNews(): List<FixMessage> =
+        viewModel.sessions
+            .firstOrNull { it.title == "LIVE" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            ?.messages
+            ?.value
+            ?.filterIsInstance<FixMessage>()
+            ?.filter { it.direction == FixMessage.Direction.INCOMING && it.messageType == "B" }
+            .orEmpty()
+
     // ----------------------------------------------------- read / view / filter
 
     @Test

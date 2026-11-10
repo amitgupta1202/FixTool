@@ -248,9 +248,16 @@ class RunSetRunner(
      * Under the default binding an expect may bind a message that arrived before the run started, so
      * iteration 2 can bind iteration 1's reply and report that the venue answered when it has not — a
      * false green *by construction* in the one feature whose purpose is catching flakiness.
+     *
+     * Only that default is narrowed. A binding the scenario names is the author's and runs as written:
+     * [BindScope.THIS_RUN] is already isolated, and [BindScope.THIS_CONNECTION] exists to bind what the
+     * counterparty sent straight after Logon, before any run began. Narrowing it made every row of such a
+     * scenario time out on its first expect. The price is stated rather than hidden: under this connection,
+     * entries that run on the same connection can bind each other's messages. An author who wants each
+     * entry to see only its own traffic uses this run, or the default.
      */
     private fun isolate(scenario: Scenario, policy: RunPolicy): Scenario =
-        if (policy.isolateIterations && scenario.binding != BindScope.THIS_RUN) {
+        if (policy.isolateIterations && scenario.binding == BindScope.ANY) {
             scenario.copy(binding = BindScope.THIS_RUN)
         } else {
             scenario

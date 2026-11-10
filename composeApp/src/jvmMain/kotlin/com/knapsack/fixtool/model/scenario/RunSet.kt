@@ -218,7 +218,8 @@ data class RunPolicy(
     val stopOnFirstFailure: Boolean = false,
     val pauseBetweenMs: Long = 0,
     /**
-     * **Each entry runs under `BindScope.THIS_RUN`** — an in-memory copy, never a file write.
+     * **Each entry of a scenario left at the default binding runs under `BindScope.THIS_RUN`**, as an
+     * in-memory copy, never a file write.
      *
      * Under the default `ANY` an expect may bind a message that arrived before the run started, so
      * iteration 2 can bind iteration 1's ExecutionReport and report that the venue answered when it has
@@ -229,6 +230,11 @@ data class RunPolicy(
      * It is not a reset of everything: it does not clear a session's messages, and it does not clear a
      * venue's order book. Those are the scenario's own setup steps — `ClearMessages` and
      * `ClearOrderBook` — and a capture writes both.
+     *
+     * It narrows only the default. A scenario that names its binding runs as written, and the run record
+     * shows the binding each entry ran under. With `BindScope.THIS_CONNECTION`, entries that run on the
+     * same connection can bind each other's messages, which is what the author chose. Per-entry isolation
+     * is `BindScope.THIS_RUN`, or the default.
      */
     val isolateIterations: Boolean = true,
     /**

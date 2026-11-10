@@ -3432,8 +3432,11 @@ ${incoming["D"].valueOfTag(38)}
     Run was pressed. Use it for a counterparty that sends something after every Logon, a status message
     with a fresh id say: the log still holds the previous connection's copy, which ANY can bind, while THIS
     RUN refuses the current one when the run starts after the logon. The Logon exchange itself is not part
-    of it, and a session that has not logged on has nothing to match. A run set isolates its entries under
-    THIS RUN whatever the scenario says. A <code>${...}</code> history reference in a step's bind predicate,
+    of it, and a session that has not logged on has nothing to match. A run set runs each entry of a
+    scenario left at ANY as THIS RUN, so one entry cannot bind another's reply. A scenario that names its
+    binding runs as written: under THIS CONNECTION, entries that run on the same connection can bind each
+    other's messages, which is what that choice means. Where each entry must see only its own traffic, use
+    THIS RUN or leave the default. A <code>${...}</code> history reference in a step's bind predicate,
     such as <code>${in.X.T}</code>, is resolved again on every poll, so it follows the newest message as
     it arrives. Its neighbour <strong>TRAFFIC</strong> is the other stream-level
     question, and about the messages no step bound rather than the ones a step may:
@@ -3874,10 +3877,17 @@ ${incoming["D"].valueOfTag(38)}
 
     <h4>Isolation, and the run slot</h4>
 
-    <p>Entries isolate by default: each runs under <code>THIS_RUN</code> binding scope so iteration 2 cannot
+    <p>Entries isolate by default: each entry of a scenario left at the default binding, <code>ANY</code>,
+    runs under <code>THIS_RUN</code> binding scope so iteration 2 cannot
     bind iteration 1's reply and report that the venue answered when it has not &mdash; which on a
     twenty-times repeat would be a false green by construction, in the one feature whose whole purpose is
     catching flakiness. Isolation is an in-memory copy; the saved scenario is never rewritten.</p>
+
+    <p>A scenario that names its own binding runs as written, and the entry's record shows the binding it
+    ran under. <code>THIS_RUN</code> is already isolated. <code>THIS_CONNECTION</code> is kept too, so a
+    scenario that binds what the counterparty sent straight after Logon still finds it on every row. The
+    consequence is the author's choice: entries that run on the same connection can bind each other's
+    messages. For per-entry isolation, use <code>THIS_RUN</code> or leave the default.</p>
 
     <p>The <strong>run slot</strong> is claimed once per set, not once per entry, because two runners would
     race each other's consumed-message cursors. A single run started during a set is told the slot is taken
@@ -3962,7 +3972,7 @@ ${incoming["D"].valueOfTag(38)}
         <tr><th>Flag</th><th>What it does</th></tr>
         <tr><td><code>--all</code></td><td>Every scenario in the store, in name order.</td></tr>
         <tr><td><code>--set &lt;name&gt;</code></td><td>A saved set from <code>~/.fixtool/sets/</code>. An entry naming a scenario nothing answers to is reported beside the plan and the rest still run &mdash; a nightly suite should not stop existing the day somebody renames a file.</td></tr>
-        <tr><td><code>--repeat N</code></td><td>The same scenario N times, isolated.</td></tr>
+        <tr><td><code>--repeat N</code></td><td>The same scenario N times, isolated as every run set's entries are.</td></tr>
         <tr><td><code>--rows</code> / <code>--row &lt;name&gt;</code></td><td>Once per examples row, or one named row.</td></tr>
         <tr><td><code>--fan-out &lt;profile&gt;</code></td><td>One lane per session the profile declares.</td></tr>
         <tr><td><code>--pause 500ms</code></td><td>Between entries. Takes <code>500ms</code>, <code>2s</code> or a bare number; one it cannot parse is refused rather than read as zero.</td></tr>

@@ -1188,6 +1188,7 @@ private fun BindingChip(scope: BindScope, onToggle: () -> Unit) {
                     "or sent since it last logged on, whenever Run was pressed. Use it for a counterparty " +
                     "that sends something after every Logon, so a step binds this connection's copy and " +
                     "never the previous one's. A session that has not logged on has nothing to match. " +
+                    "A run set keeps it, so its entries on one connection can bind each other's messages. " +
                     "Click for ANY."
         },
     ) {

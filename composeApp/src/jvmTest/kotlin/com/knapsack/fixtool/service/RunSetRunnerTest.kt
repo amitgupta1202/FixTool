@@ -14,7 +14,11 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
+import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -62,6 +66,70 @@ class RunSetRunnerTest {
 
         assertTrue(host.ran.all { it.binding == BindScope.THIS_RUN }, "each entry runs isolated")
         assertEquals(BindScope.ANY, host.scenarios.getValue(saved.id).binding, "and the saved scenario is untouched")
+    }
+
+    /**
+     * **Isolation narrows the default, and nothing the author chose.** A scenario bound to this connection
+     * exists to bind what the counterparty sent straight after Logon, before any run began. Narrowed to
+     * this run, every row of it timed out on its first expect, while the same row passed with isolation off.
+     */
+    @Test
+    fun `a binding the scenario names runs as written under isolation`() {
+        for (explicit in listOf(BindScope.THIS_CONNECTION, BindScope.THIS_RUN)) {
+            val host = FakeSetHost(green = true)
+            val outline =
+                scenario("after-logon").copy(
+                    binding = explicit,
+                    examples = Examples(listOf("symbol"), listOf(ExampleRow("EUR/USD"), ExampleRow("GBP/USD"))),
+                )
+            host.scenarios[outline.id] = outline
+            val set = assertNotNull(RunSets.examples(outline, now = 0L))
+            assertTrue(set.policy.isolateIterations, "the default policy isolates")
+
+            RunSetRunner(host).run(set)
+
+            assertEquals(listOf(explicit, explicit), host.ran.map { it.binding }, "every row runs as $explicit")
+        }
+    }
+
+    /**
+     * **The record says which binding the entry ran under**, because what was bindable is half of what a
+     * verdict means. Written through the real store and read back off disk, for both rules: a default
+     * scenario was narrowed, and the record says this_run, while an explicit this_connection was kept.
+     */
+    @Test
+    fun `the record on disk carries the binding each entry actually ran under`() {
+        val dir =
+            File.createTempFile("fixtool-runs", "").apply {
+                delete()
+                mkdirs()
+            }
+        try {
+            val cases = mapOf(BindScope.ANY to BindScope.THIS_RUN, BindScope.THIS_CONNECTION to BindScope.THIS_CONNECTION)
+            for ((saved, ranUnder) in cases) {
+                val recorded = ranUnder.name.lowercase()
+                val store = RunRecordStore(customDir = dir.absolutePath)
+                val host = FakeSetHost(green = true).apply { this.store = store }
+                val sc = scenario("bound-${saved.name.lowercase()}").copy(binding = saved)
+                host.scenarios[sc.id] = sc
+
+                val done = RunSetRunner(host).run(RunSets.repeat(sc, times = 1, now = 0L))
+
+                val file = File(store.directoryFor(done.id), assertNotNull(done.entries.single().record))
+                val definition =
+                    Json
+                        .parseToJsonElement(file.readText())
+                        .jsonObject["scenario"]!!
+                        .jsonObject["definition"]!!
+                        .jsonObject
+                assertEquals(recorded, definition["binding"]?.jsonPrimitive?.content, "a $saved scenario's record: $definition")
+                val back = assertNotNull(store.readEntry(done.id, 1)?.scenario, "the record reads back")
+                assertEquals(ranUnder, back.binding, "and reads back as it was written")
+                assertEquals(saved, host.scenarios.getValue(sc.id).binding, "the saved scenario is untouched")
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     /** A suite exists to produce the whole morning's picture, so a failure does not end it by default. */
@@ -580,14 +648,19 @@ class RunSetRunnerTest {
             return EntryOutcome(result, RunRecorder.Evidence(emptyList(), emptyMap(), 0))
         }
 
+        /** When set, records and `set.json` go through the real store as well, as the app's host writes them. */
+        var store: RunRecordStore? = null
+
         override fun write(record: RunRecord): String? {
             written += record
+            store?.let { return it.write(record) }
             return "%02d-%s.json".format(record.entry, record.scenarioName)
         }
 
         override fun writeSet(set: RunSet) {
             setWrites++
             lastSet = set
+            store?.writeSet(set)
         }
 
         override fun sleep(ms: Long) {

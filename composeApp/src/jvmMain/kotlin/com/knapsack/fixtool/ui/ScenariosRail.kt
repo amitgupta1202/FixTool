@@ -78,6 +78,7 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.load.LoadRecord
 import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
@@ -1461,8 +1462,16 @@ private fun RepeatScenarioDialog(scenarios: List<Scenario>, onDismiss: () -> Uni
             }
             // Isolation is on and stated rather than offered: a repeat that could bind the previous
             // iteration's reply is a false green, which is the one thing a flake hunt must not produce.
+            // It narrows only the default binding, so a scenario bound to this connection is told what it keeps.
+            val ownTraffic =
+                if (chosen?.binding == BindScope.THIS_CONNECTION) {
+                    "This scenario binds THIS CONNECTION and runs as written, so iterations on the same " +
+                        "connection can bind each other's messages. Set it to THIS RUN for each to see only its own."
+                } else {
+                    "Each iteration binds only its own traffic."
+                }
             Text(
-                "Each iteration binds only its own traffic. It does not clear a session's messages or a " +
+                "$ownTraffic It does not clear a session's messages or a " +
                     "venue's order book — those are the scenario's own setup steps.",
                 color = AppTheme.Colors.textDisabled,
                 fontSize = 10.sp,

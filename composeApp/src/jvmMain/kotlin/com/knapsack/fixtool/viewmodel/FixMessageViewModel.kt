@@ -3714,19 +3714,30 @@ class FixMessageViewModel(
         // The id is reserved before the claim, because it identifies the claim: two sets started in the
         // same second from the same menu item used to be handed the same id, share a records directory,
         // and answer to one another's stop.
-        val reserved = set.copy(id = runRecordStore.reserve(set.id))
+        // The stores are taken here, on the caller's thread, and handed to the set. Taken on its own thread
+        // instead, a Settings save that landed before that thread started moved them under it, and every
+        // entry was skipped as "no longer on disk".
+        val scenarios = scenarioService
+        val records = runRecordStore
+        val reserved = set.copy(id = records.reserve(set.id))
         val claim = claimSessions(touchedBy(reserved), reserved.label, reserved.id) ?: return null
         // Written here, on the caller's thread, and not left to the scheduler: a 202 that hands back an id
         // has promised that the id can be fetched, and a caller polling on the next line must not race the
         // background thread to the first `set.json`.
         val starting = reserved.copy(startedAt = System.currentTimeMillis())
-        runRecordStore.begin(starting)
+        records.begin(starting)
         _activeRunSet.value = starting
         // The set's record is on disk from here, so Recent lists it rather than waiting for it to finish.
         refreshRunConfigurations()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                runSetHeld(starting, pinned, cancelled = { claim.stop.get() }) { }
+                runSetHeld(
+                    starting,
+                    pinned,
+                    cancelled = { claim.stop.get() },
+                    scenarios = scenarios,
+                    records = records,
+                ) { }
             } catch (e: Exception) {
                 logger.error("Run set failed: ${e.message}", e, notifyUser = false)
             } finally {
@@ -3745,15 +3756,21 @@ class FixMessageViewModel(
         interruption: () -> String? = { null },
         /** A run-level row every entry's report opens with, saying what started it. */
         startedBy: StepResult? = null,
+        /**
+         * The stores the set reads its scenarios from and writes its records to, for the whole set. A caller
+         * that hands the set to another thread takes them first, see [startRunSet].
+         */
+        scenarios: ScenarioService = scenarioService,
+        records: RunRecordStore = runRecordStore,
         onProgress: (RunSet) -> Unit,
     ): RunSet {
         // Taken once, so the set writes every record where it began. See [ViewModelRunSetHost].
-        val records = runRecordStore
         records.begin(set)
         val host =
             ViewModelRunSetHost(
                 pinned,
                 cancelled,
+                scenarios = scenarios,
                 records = records,
                 interruption = interruption,
                 startedBy = startedBy,

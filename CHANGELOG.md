@@ -5,6 +5,13 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+**Scenarios and runs**
+- **A run set started just before a Settings save that moves the scenarios folder runs the scenarios it was started with.** The set took its scenario and record stores on its own thread, so a save that landed before that thread started sent it to the new folder, and every entry was skipped with "scenario '…' is no longer on disk". The stores are now taken when Run is pressed.
+
 ## [1.23.1] - 2026-11-10
 
 Run on logon, the piece that missed 1.23.0, and repeating groups kept whole. A scenario can now run by

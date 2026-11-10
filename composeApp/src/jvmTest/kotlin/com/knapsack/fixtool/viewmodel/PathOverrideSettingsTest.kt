@@ -9,11 +9,18 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.ui.FixField
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -46,6 +53,11 @@ class PathOverrideSettingsTest {
     }
 
     private fun viewModel() = FixMessageViewModel(testSettingsDir = home.absolutePath)
+
+    private companion object {
+        /** `Dispatchers.IO`'s default limit, so holding this many leaves it no thread to start the set on. */
+        const val IO_THREADS = 64
+    }
 
     private fun scenario(id: String) = Scenario(id = id, name = id, steps = listOf(ScenarioStep.Send("35=D|11=$id|")))
 
@@ -131,6 +143,56 @@ class PathOverrideSettingsTest {
                 "both entries ran the scenario the set started with: ${entries.map { it.note }}",
             )
         } finally {
+            viewModel.requestScenarioStop()
+            awaitCondition(10_000) { !viewModel.scenarioRunning.value }
+        }
+    }
+
+    /**
+     * The same promise when the Settings save lands before the set's thread has started.
+     *
+     * The set ran on `Dispatchers.IO` and picked its stores up there, so a save that came between Run and that
+     * thread's first line moved them under it, and every entry was skipped with "no longer on disk". A slow CI
+     * runner found it. Every IO thread is held here until the save is done, which makes that order certain.
+     */
+    @Test
+    fun `a run set keeps the stores of the moment it was started, even before its thread picks them up`() {
+        val viewModel = viewModel()
+        viewModel.createSessionForTest("S")
+        val waits =
+            Scenario(
+                id = "waits",
+                name = "waits",
+                steps = listOf(ScenarioStep.Wait(session = "S", state = "LOGGED_ON", timeoutMs = 300)),
+            )
+        viewModel.scenarioService.save(waits)
+        val release = CountDownLatch(1)
+        val held = CountDownLatch(IO_THREADS)
+        val holders =
+            List(IO_THREADS) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    held.countDown()
+                    release.await(30, TimeUnit.SECONDS)
+                }
+            }
+        try {
+            assertTrue(held.await(10, TimeUnit.SECONDS), "every IO thread should be held")
+            val set =
+                assertNotNull(viewModel.startRunSet(RunSets.repeat(waits, times = 2, now = System.currentTimeMillis())))
+            val elsewhere = File(home, "elsewhere/scenarios").apply { mkdirs() }
+            viewModel.saveAppSettings(viewModel.appSettings.copy(scenariosPath = elsewhere.absolutePath))
+            release.countDown()
+
+            assertTrue(awaitCondition(15_000) { !viewModel.isRunSetRunning(set.id) }, "the set should finish")
+            val entries = assertNotNull(viewModel.activeRunSet.value).entries
+            assertEquals(
+                listOf(RunState.FAILED, RunState.FAILED),
+                entries.map { it.state },
+                "both entries ran the scenario the set started with: ${entries.map { it.note }}",
+            )
+        } finally {
+            release.countDown()
+            runBlocking { holders.joinAll() }
             viewModel.requestScenarioStop()
             awaitCondition(10_000) { !viewModel.scenarioRunning.value }
         }

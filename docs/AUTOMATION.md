@@ -630,7 +630,7 @@ authoritative reference; the summary here is the shape of it:
 its default is `false`, so an unresolved `${uuid}` is sent as *that literal text*. The variable scope
 persists across an entire scenario run (setup → steps → teardown, and across sessions), which is what
 lets a value sent on one session be asserted in a response on another. An expression that does not
-resolve (an unknown `${name}`, a Kotlin expression that throws or evaluates to null) is never sent: a
+resolve (an unknown `${name}`, a Kotlin expression that does not compile, throws or evaluates to null) is never sent: a
 scenario `send` step fails without sending and names it, and `POST /send` with `"resolve": true` and
 `POST /templates/send` answer `{"status":"error","error":"not sent: ${name} is not a known variable"}`.
 

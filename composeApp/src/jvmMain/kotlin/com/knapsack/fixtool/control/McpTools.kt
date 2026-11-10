@@ -230,8 +230,9 @@ object McpTools {
                     "\${out.D.11}, and the per-session \${sessionIndex}/\${sessionQualifier}/\${sessionTitle}/" +
                     "\${sessionSenderCompID}); see fixtool_syntax. Without resolve, raw is sent verbatim — an " +
                     "unresolved \${uuid} goes on the wire as that literal text. With resolve, a message in which " +
-                    "an expression does not resolve (an unknown name, a script that throws or evaluates to null) " +
-                    "is refused with an error naming it, and nothing is sent.",
+                    "an expression does not resolve (an unknown name, a script that does not compile, throws or " +
+                    "evaluates to null) is refused with an error naming it and why (a script that does not compile " +
+                    "by its first compile error), and nothing is sent.",
                 props(
                     "raw" to string("raw FIX, pipe- or SOH-delimited"),
                     "session" to string("session id/title/index"),

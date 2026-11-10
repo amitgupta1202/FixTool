@@ -442,23 +442,41 @@ object FixMessageTemplate {
 
     /**
      * Why a script failed, in a line: the root cause's class and message, so `outgoing["ZZ"].valueOfTag(112)!!`
-     * reports `failed: java.lang.NullPointerException` rather than the wrapper the engine threw.
+     * reports `failed: java.lang.NullPointerException` rather than the wrapper the engine threw. A script that
+     * did not compile is named by its first error, see [compileError].
      */
     private fun reasonOf(e: Throwable): String {
         val root = generateSequence(e) { it.cause?.takeIf { cause -> cause !== it } }.last()
-        val line =
+        val lines =
             root.message
                 ?.lines()
-                ?.firstOrNull { it.isNotBlank() }
-                ?.trim()
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
         val what =
             when {
-                root is ScriptException -> line ?: "script evaluation failed"
-                line != null -> "${root.javaClass.name}: $line"
+                root is ScriptException -> compileError(lines) ?: "script evaluation failed"
+                lines.isNotEmpty() -> "${root.javaClass.name}: ${lines.first()}"
                 else -> root.javaClass.name
             }
         return "failed: $what"
     }
+
+    /**
+     * The line of a script engine's report that says why the script did not run.
+     *
+     * The engine reports every diagnostic of a script that does not compile in one message, warnings
+     * included and in source order, so an unnecessary `!!` ahead of an unknown member put the warning first.
+     * The first ERROR line is the cause. Its severity word and its position are dropped: the position counts
+     * lines of the preamble FixTool wraps the expression in, which the author never wrote.
+     */
+    private fun compileError(lines: List<String>): String? {
+        val line = lines.firstOrNull { it.startsWith("ERROR ") } ?: lines.firstOrNull() ?: return null
+        return line.removePrefix("ERROR ").replace(SCRIPT_POSITION, "").trim()
+    }
+
+    /** ` (ScriptingHost52dc7ac4_Line_0.kts:8:6)`, the position a diagnostic ends with. */
+    private val SCRIPT_POSITION = Regex("""\s*\([^()]*\.kts:\d+:\d+\)$""")
 
     // Regex to detect variable assignments (e.g., "varName = expression")
     private val ASSIGNMENT_REGEX = """^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$""".toRegex()

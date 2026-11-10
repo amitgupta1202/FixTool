@@ -51,10 +51,12 @@ The two mini-languages an agent needs to author messages and scenarios: **templa
 - The scope persists across an entire scenario run (`setup` → `steps` → `teardown`) and across sessions in
   that run, so a value sent on one session can be asserted in a response on another.
 - An expression that does not resolve is never sent. That is an unknown `${name}`, a Kotlin expression
-  that throws, and one that evaluates to null (`${D.11}` before any `D` exists). A scenario `send` step
-  then fails without sending, and its report names each expression and the error, for example
-  `not sent: ${clOrdIdd} is not a known variable`. `fixtool_send` with `resolve` and `fixtool_send_template`
-  refuse the same way. A starting value (an Examples cell) that does not resolve stops the run before
+  that does not compile or throws, and one that evaluates to null (`${D.11}` before any `D` exists). A
+  scenario `send` step then fails without sending, and its report names each expression and the error, for
+  example `not sent: ${clOrdIdd} is not a known variable`. A script that does not compile is named by its
+  first compile error, not by a warning ahead of it, for example
+  `${"EUR"!!.noSuchMember()} failed: Unresolved reference: noSuchMember`. `fixtool_send` with `resolve`
+  and `fixtool_send_template` refuse the same way. A starting value (an Examples cell) that does not resolve stops the run before
   any step. The editor's Send, `fixtool_send_all` and a load run's per-lane values still leave such an
   expression as its literal text.
 

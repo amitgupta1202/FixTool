@@ -279,6 +279,44 @@ class FixMessageTemplateTest {
         )
     }
 
+    /**
+     * The Kotlin engine reports every diagnostic of a script that does not compile in one exception, warnings
+     * included and in source order. The reason was its first line, so an unnecessary `!!` ahead of the real
+     * error had the report blame the warning, and the unknown member the script died of went unnamed.
+     */
+    @Test
+    fun `a script that does not compile is reported by its error, not by a warning ahead of it`() {
+        val resolution = FixMessageTemplate.resolve("58=\${\"EUR\"!!.noSuchMember()}|")
+
+        assertEquals("failed: Unresolved reference: noSuchMember", resolution.failures.single().reason)
+    }
+
+    /** The shape a scenario Send was reported with: a property read through the accessor after a needless `!!`. */
+    @Test
+    fun `an unknown member read through a message accessor is named, not the warning on its needless non-null assertion`() {
+        val incoming = mapOf("BW" to createMockFixMessage("BW", 1346 to "REQ-1"))
+
+        val resolution =
+            FixMessageTemplate.resolve("58=\${incoming[\"BW\"]!!.noSuchMember}|", incomingMessages = incoming)
+
+        assertEquals(
+            listOf("incoming[\"BW\"]!!.noSuchMember" to "failed: Unresolved reference: noSuchMember"),
+            resolution.failures.map { it.expression to it.reason },
+        )
+    }
+
+    /**
+     * A script that compiles, warning and all, and then throws is still named by the exception it threw. The
+     * warning only ever travels with a script that did not compile.
+     */
+    @Test
+    fun `a script that compiles with a warning and throws is reported by its exception class`() {
+        val resolution = FixMessageTemplate.resolve("58=\${\"EUR\"!!.substring(10)}|")
+
+        val reason = resolution.failures.single().reason
+        assertTrue(reason.startsWith("failed: java.lang.StringIndexOutOfBoundsException"), reason)
+    }
+
     @Test
     fun `a template that resolves reports no failures`() {
         val outgoing = mapOf("D" to createMockFixMessage("D", 11 to "ORD-1"))

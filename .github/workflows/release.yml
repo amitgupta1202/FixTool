@@ -54,7 +54,10 @@ jobs:
         # one through the toolbar cannot pass on a runner with no screen, and marking it skipped on CI
         # would mean the release build never checks a path a user clicks. v1.18.0 was tagged and never
         # released for exactly this: two tests, three attempts each, HeadlessException every time.
-        run: xvfb-run --auto-servernum ./gradlew allTests
+        # jvmTest, not allTests. The JVM is the only target, and allTests' aggregate report counts a test's
+        # failed first attempt even when the CI retry passed it, which failed v1.23.1 twice on two
+        # different tests that passed on their retry. jvmTest fails only on a test that fails every attempt.
+        run: xvfb-run --auto-servernum ./gradlew jvmTest
 
       # The log of a failed run names the test and the line and nothing else: the assertion message,
       # which for these tests is the whole of the output being asserted on, lives in the report. Without

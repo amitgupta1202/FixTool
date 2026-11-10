@@ -5,7 +5,14 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.23.1] - 2026-11-10
+
+Run on logon, the piece that missed 1.23.0, and repeating groups kept whole. A scenario can now run by
+itself on every logon of its session, so it answers a counterparty that sends a request straight after
+Logon and disconnects a client that is slow to reply. A venue's repeating group stays whole in the grid,
+the detail pane, the editor and the scenario diff when an entry carries a tag the loaded dictionary does
+not define there, and the warning about such tags says where each one is sent. Admin messages on a
+FIXT.1.1 session no longer warn "Invalid MsgType".
 
 ### ✨ Added
 

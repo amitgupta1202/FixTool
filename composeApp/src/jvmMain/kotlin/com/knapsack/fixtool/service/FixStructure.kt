@@ -4,98 +4,160 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import quickfix.DataDictionary
 
 /**
- * A dictionary-aware walk over a flat tag/value list that answers one question: **is this field at the
- * top level, or inside a repeating group?**
+ * A dictionary-aware walk over a flat tag/value list that answers one question: **where does this field sit,
+ * and does the dictionary define it there?**
  *
- * That is all it answers, and all anything asks it. Its only caller is [DictionaryLint], which flags
- * top-level tags the loaded dictionary does not define for the message type — a *send-time* lint about
- * message construction, with nothing to do with assertions.
+ * Its only caller is [DictionaryLint], which names the tags a message carries where the loaded dictionary
+ * does not define them: a *send-time* lint about message construction, with nothing to do with assertions.
  *
- * It used to do much more: locate each group entry by the value of its delimiter, hand that
- * [com.knapsack.fixtool.model.scenario.FieldExpectation] a path, and report the groups whose entries it
- * could not tell apart. All of that is gone with the assertion model it served. The identity never
- * identified — the same firm appears twice under different PartyRoles, so both entries carry
- * `448=FIRMA` — and the engine that needed it now asserts the *k*-th occurrence of a tag and needs no
- * structure at all. What is left cannot disagree with QuickFIX about what an entry contains, because it
- * no longer has an opinion about entries.
+ * It reads group structure from [GroupWalk], the walk the parse builds the sent message by. It used to walk
+ * the rows with a rule of its own, which ended a group at the first tag the group's dictionary does not
+ * define. The parse keeps such a tag in its entry when the entry goes on after it, so the lint said that
+ * `9110, 79, 80, 15, 37, 11` were "sent as plain top-level fields" while the wire carried every one of them
+ * inside its group. Reading the parse's own walk, the two cannot disagree.
  */
 object FixStructure {
-    /** One field and where it sits: `groupTag == null` → top level, else inside that repeating group. */
-    data class StructuredField(val tag: Int, val value: String, val groupTag: Int?)
+    /**
+     * One field and where it sits.
+     *
+     * [groupTag] is null at the top level, and otherwise the outermost repeating group the field is inside.
+     * [inGroup] is the innermost one, the group whose entry holds the field directly. [defined] is whether
+     * the dictionary defines the tag there: for the message type at the top level, for that group inside one.
+     * [row] is the field's index in the list walked.
+     */
+    data class StructuredField(
+        val tag: Int,
+        val value: String,
+        val groupTag: Int?,
+        val row: Int = 0,
+        val inGroup: Int? = null,
+        val defined: Boolean = true,
+    )
 
+    /**
+     * Every field of [fields], in order, placed as the parse places it.
+     *
+     * [counts] says which counts open a group: [GroupWalk.Counts.POSITIVE], the default, is what a send builds.
+     * The editor passes [GroupWalk.Counts.ANY], the rule its indentation follows, so a count being typed does
+     * not turn the entries under it into top-level fields for a keystroke.
+     */
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    fun walk(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<StructuredField> {
-        val dd = try {
-            dictionary?.getDataDictionary()
-        } catch (e: Exception) {
-            null
-        }
+    internal fun walk(
+        fields: List<Pair<Int, String>>,
+        dictionary: FixDictionaryAdapter?,
+        counts: GroupWalk.Counts = GroupWalk.Counts.POSITIVE,
+    ): List<StructuredField> {
+        val dd =
+            try {
+                dictionary?.getDataDictionary()
+            } catch (e: Exception) {
+                null
+            }
         val msgType = fields.firstOrNull { it.first == 35 }?.second
         if (dd == null || msgType == null) {
-            return fields.map { StructuredField(it.first, it.second, null) }
+            return fields.mapIndexed { row, (tag, value) -> StructuredField(tag, value, null, row) }
         }
 
-        val out = mutableListOf<StructuredField>()
-        var i = 0
-        while (i < fields.size) {
-            val (tag, value) = fields[i]
-            out += StructuredField(tag, value, null) // the entry count itself is a top-level field
-            i = if (isGroup(dd, msgType, tag)) consume(fields, i + 1, dd, msgType, tag, tag, out) else i + 1
+        // The parse walks the body alone, header and trailer set aside, so this does too.
+        val envelope = envelopeOf(dictionary)
+        val bodyRows = fields.indices.filterNot { envelope(fields[it].first) }
+        val body = bodyRows.map { fields[it] }
+        val groups =
+            try {
+                GroupWalk.walk(body, msgType, dd, dictionary, counts)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        val placed = arrayOfNulls<Placement>(body.size)
+        groups.forEach { place(it, it.countTag, dd, msgType, placed) }
+
+        val bodyIndex = IntArray(fields.size) { -1 }
+        bodyRows.forEachIndexed { index, row -> bodyIndex[row] = index }
+        return fields.mapIndexed { row, (tag, value) ->
+            val placement = bodyIndex[row].takeIf { it >= 0 }?.let { placed[it] }
+            when {
+                bodyIndex[row] < 0 -> StructuredField(tag, value, null, row)
+                placement == null ->
+                    StructuredField(tag, value, null, row, defined = definedAtTop(dd, msgType, tag))
+                else ->
+                    StructuredField(
+                        tag,
+                        value,
+                        placement.outer,
+                        row,
+                        inGroup = placement.inner,
+                        defined = owns(placement.dictionary, msgType, tag),
+                    )
+            }
         }
-        return out
     }
 
     /**
-     * Consumes a group's fields, attributing each to [outerGroupTag].
-     *
-     * Descends into deeper groups rather than scanning flat: a group's dictionary is scoped to its own
-     * fields, so a field of a group nested below it (NestedPartySubID(545), defined in
-     * NoNestedPartySubIDs(804), not in NoNestedPartyIDs(539)) does not belong to it. A flat scan would
-     * stop there and leave the rest of the message to be read as top-level fields — which would make
-     * the lint flag half the message as undefined.
+     * Whether a tag is a header or trailer field, wherever this dictionary keeps them: the version's standard
+     * set, the dictionary's own sections, and the FIXT transport dictionary's. A FIX 5.0 application dictionary
+     * has an empty `<header/>` and `<trailer/>`, because the session fields live in the transport dictionary,
+     * and a venue declares its custom header fields there. The parse sets the same tags aside.
      */
-    @Suppress("TooGenericExceptionCaught", "SwallowedException", "LongParameterList")
-    private fun consume(
-        fields: List<Pair<Int, String>>,
-        start: Int,
-        parentDD: DataDictionary,
-        msgType: String,
-        groupTag: Int,
-        outerGroupTag: Int,
-        out: MutableList<StructuredField>,
-    ): Int {
-        val info = try {
-            parentDD.getGroup(msgType, groupTag)
-        } catch (e: Exception) {
-            null
-        } ?: return start
-        val groupDD = info.dataDictionary
-        var i = start
-        while (i < fields.size && belongsTo(groupDD, msgType, fields[i].first)) {
-            val (tag, value) = fields[i]
-            out += StructuredField(tag, value, outerGroupTag)
-            i = if (isGroup(groupDD, msgType, tag)) {
-                consume(fields, i + 1, groupDD, msgType, tag, outerGroupTag, out)
-            } else {
-                i + 1
-            }
+    internal fun envelopeOf(dictionary: FixDictionaryAdapter?): (Int) -> Boolean {
+        val dd = dictionary?.getDataDictionary()
+        val transport = dictionary?.getTransportDictionary()
+        val standard = dictionary?.let { it.getHeaderTags() + it.getTrailerTags() }.orEmpty()
+        return { tag ->
+            tag in standard ||
+                dd?.isHeaderField(tag) == true ||
+                dd?.isTrailerField(tag) == true ||
+                transport?.isHeaderField(tag) == true ||
+                transport?.isTrailerField(tag) == true
         }
-        return i
+    }
+
+    /** The group a body row's entry belongs to: the outermost, the innermost, and the innermost's dictionary. */
+    private class Placement(
+        val outer: Int,
+        val inner: Int,
+        val dictionary: DataDictionary,
+    )
+
+    /**
+     * Every row of [group]'s entries placed in it, then each nested group's rows in that one. A nested group's
+     * count row is a field of the entry that holds it, so it keeps this group's placement.
+     */
+    private fun place(
+        group: WalkedGroup,
+        outer: Int,
+        parent: DataDictionary,
+        msgType: String,
+        into: Array<Placement?>,
+    ) {
+        val info = parent.getGroup(msgType, group.countTag) ?: return
+        val placement = Placement(outer, group.countTag, info.dataDictionary)
+        for (entry in group.entries) {
+            for (row in entry.rows) into[row] = placement
+            entry.groups.forEach { place(it, outer, info.dataDictionary, msgType, into) }
+        }
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    private fun belongsTo(dd: DataDictionary, msgType: String, tag: Int): Boolean =
+    private fun definedAtTop(
+        dd: DataDictionary,
+        msgType: String,
+        tag: Int,
+    ): Boolean =
         try {
-            dd.isField(tag) || dd.isGroup(msgType, tag)
+            dd.isMsgField(msgType, tag) || dd.isGroup(msgType, tag)
         } catch (e: Exception) {
-            false
+            true // benefit of the doubt: never flag on dictionary errors
         }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    private fun isGroup(dd: DataDictionary, msgType: String, tag: Int): Boolean =
+    private fun owns(
+        dd: DataDictionary,
+        msgType: String,
+        tag: Int,
+    ): Boolean =
         try {
-            dd.isGroup(msgType, tag)
+            dd.isField(tag) || dd.isGroup(msgType, tag)
         } catch (e: Exception) {
-            false
+            true
         }
 }

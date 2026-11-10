@@ -140,21 +140,33 @@ object MessageIssues {
         return issues.inReadingOrder()
     }
 
-    /** Top-level tags the dictionary does not define for this message type. A warning: the message still goes. */
+    /**
+     * Tags the dictionary does not define where they sit: for the message type at the top level, for the group
+     * inside one. A warning, once per tag and place, on the first row it happens: the message still goes.
+     *
+     * Groups open as the editor indents them ([GroupWalk.Counts.ANY]), so a count being typed does not turn
+     * its entries into top-level fields for a keystroke.
+     */
     private fun unknownTags(
         fields: List<Field>,
         dictionary: FixDictionaryAdapter,
         typeLabel: String,
     ): List<MessageIssue> =
-        DictionaryLint.unknownTags(fields.map { it.tag to it.value }, dictionary).map { tag ->
-            MessageIssue(
-                MessageIssue.Severity.WARNING,
-                "not defined for $typeLabel in the loaded dictionary, so it is sent as a plain top-level field " +
-                    "the counterparty may reject",
-                tag = tag,
-                row = fields.firstOrNull { it.tag == tag }?.row,
-            )
-        }
+        DictionaryLint
+            .undefined(fields.map { it.tag to it.value }, dictionary, GroupWalk.Counts.ANY)
+            .distinctBy { it.tag to it.group }
+            .map { undefined ->
+                val text =
+                    if (undefined.group == null) {
+                        "not defined for $typeLabel in the loaded dictionary, so it is sent as a plain top-level " +
+                            "field the counterparty may reject"
+                    } else {
+                        "not defined ${DictionaryLint.where(undefined.group, dictionary)} for $typeLabel in the " +
+                            "loaded dictionary, so it is sent inside that group's entry, which the counterparty " +
+                            "may reject"
+                    }
+                MessageIssue(MessageIssue.Severity.WARNING, text, tag = undefined.tag, row = fields[undefined.row].row)
+            }
 
     /** A value the field does not allow, or one without the field's format. Either is an error. */
     private fun valueIssue(

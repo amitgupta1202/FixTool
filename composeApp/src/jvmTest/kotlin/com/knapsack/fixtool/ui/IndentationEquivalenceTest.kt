@@ -3,6 +3,7 @@ package com.knapsack.fixtool.ui
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.service.FixMessageHelper.parseFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
+import com.knapsack.fixtool.service.NestedGroupFixtures
 import com.knapsack.fixtool.service.compare.GroupOverlay
 import com.knapsack.fixtool.service.groupCountSafe
 import quickfix.Field
@@ -100,6 +101,16 @@ class IndentationEquivalenceTest {
     @Test
     fun `a single-instance group followed by body fields indents the same both ways`() {
         assertAgree("8=FIX.4.4|35=D|453=1|448=FIRMA|452=1|55=EURUSD|38=100|10=000|", dictionary())
+    }
+
+    /**
+     * **The wire venues send**, not only the conformant shape. Entries that do not open with their delimiter,
+     * and entries carrying tags the dictionary does not define there, used to be read one way by the parse and
+     * another by the overlay, because each had its own rules for where an entry begins and ends.
+     */
+    @Test
+    fun `a venue's groups indent the same both ways`() {
+        NestedGroupFixtures.all.forEach { assertAgree(it.wire, NestedGroupFixtures.dictionary) }
     }
 
     /** And the shared step arithmetic turns those depths into the edges each surface draws. */

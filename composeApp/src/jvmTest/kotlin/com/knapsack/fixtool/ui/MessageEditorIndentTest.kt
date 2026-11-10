@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.ui
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.service.NestedGroupFixtures
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -148,6 +149,44 @@ class MessageEditorIndentTest {
         // the walk never saw the blank, so the entry is whole.
         assertEquals(listOf(0, 0, 1, 1, 1, 1, 1, 0), indents)
         assertEquals(listOf(null, null, 1, null, null, 2, null, null), instances)
+    }
+
+    /**
+     * An underlying the venue sent without its delimiter, with a group nested inside it, indents like any other
+     * entry. It used to sit flat at the top level, its alt-ids with it.
+     */
+    @Test
+    fun `an entry that does not open with its delimiter indents with its nested group`() {
+        assertIndents(NestedGroupFixtures.entryWithoutItsDelimiter)
+    }
+
+    /**
+     * Parties without their delimiter in two sides. The parties opened no entry without it, so the first side
+     * ended at the first party field, a field the side does not define, and everything after it rendered flat.
+     */
+    @Test
+    fun `parties without their delimiter do not flatten the rest of the message`() {
+        assertIndents(NestedGroupFixtures.cascade)
+    }
+
+    /** Every venue-shaped fixture, at the depth the parse reads it. */
+    @Test
+    fun `a venue's groups indent the way the parse reads them`() {
+        NestedGroupFixtures.all.forEach { assertIndents(it) }
+    }
+
+    private fun assertIndents(fixture: NestedGroupFixtures.Fixture) {
+        val (indents, instances) =
+            calculateIndentLevels(
+                fixture.editorRows.map { (tag, value) -> FixField(tag = tag.toString(), value = value) },
+                NestedGroupFixtures.dictionary,
+            )
+
+        assertEquals(fixture.depths, indents, "${fixture.name}: indents")
+        fixture.instances?.let { opening ->
+            val expected = fixture.editorRows.indices.map { opening[it] }
+            assertEquals(expected, instances, "${fixture.name}: instance numbers")
+        }
     }
 
     /**

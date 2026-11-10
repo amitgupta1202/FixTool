@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.service.NestedGroupFixtures
 import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.wireView
 import org.junit.Test
@@ -18,9 +19,10 @@ import kotlin.test.assertTrue
  * which mostly works.
  *
  * The delimiter field is the first field of every entry by definition of the FIX spec, so the boundaries
- * are not an inference at all: an entry starts at each occurrence of it, and nowhere else. That closes the
- * rotation trap by construction and — the case that actually bites daily — it brackets a group whose
- * entries are *shaped differently*, which period-detection cannot see at all.
+ * are not an inference at all: the first entry starts after the count, and each later one at the delimiter
+ * or at a field the entry already holds, never mid-entry. That closes the rotation trap by construction
+ * and — the case that actually bites daily — it brackets a group whose entries are *shaped differently*,
+ * which period-detection cannot see at all.
  */
 class GroupOverlayTest {
     private val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
@@ -269,6 +271,51 @@ class GroupOverlayTest {
 
         assertNull(overlay.entryAt(0), "MsgType is not in a party")
         assertNull(overlay.entryAt(1), "and neither is the count")
+    }
+
+    // ----- a venue's wire ------------------------------------------------------------------------------
+
+    /**
+     * **An entry is bracketed where the parse reads one**, on the wire venues actually send.
+     *
+     * An entry used to begin at its group's delimiter and nowhere else. A venue's encoder that leaves out an
+     * optional leading field sends entries that never carry the delimiter, so the overlay bracketed nothing
+     * for that group, the entry around it ended at the first field only the unbracketed group defines, and
+     * the rest of the message rendered flat. A tag the venue added ahead of the dictionary ended the entry
+     * and its group the same way. Each fixture's depths are the editor's indents, row for row.
+     */
+    @Test
+    fun `a venue's groups are bracketed the way the parse reads them`() {
+        val fixtures = NestedGroupFixtures.all
+
+        fun overlayOf(fixture: NestedGroupFixtures.Fixture) =
+            GroupOverlay.build(fixture.editorRows, "AE", NestedGroupFixtures.dictionary)
+
+        assertEquals(
+            fixtures.associate { it.name to it.depths },
+            fixtures.associate { f -> f.name to f.editorRows.indices.map { overlayOf(f).depthAt(it) } },
+            "how deep each row sits",
+        )
+        assertEquals(
+            // The parse pads an overstated count with empty entries, the overlay brackets only what is there.
+            fixtures.associate { it.name to NestedGroupFixtures.canonical(it.shape.replace("[]", "")) },
+            fixtures.associate { it.name to NestedGroupFixtures.shapeOf(overlayOf(it), it.editorRows) },
+            "which rows each entry holds",
+        )
+    }
+
+    /** The entry opened by a field of the group is the dictionary's answer, and a move may treat it as one. */
+    @Test
+    fun `an entry that opens without its delimiter is still a dictionary entry`() {
+        val fixture = NestedGroupFixtures.entryWithoutItsDelimiter
+        val overlay = GroupOverlay.build(fixture.editorRows, "AE", NestedGroupFixtures.dictionary)
+
+        val underlyings = overlay.groups.first { it.groupTag == 711 }
+        assertEquals(EntrySource.DICTIONARY, underlyings.source)
+        assertEquals(listOf(3..8), underlyings.entries.map { it.rows }, "309 through 810, its alt-id group inside")
+        val altIds = underlyings.entries.single().children
+        assertEquals(listOf(listOf(6..7)), altIds.map { group -> group.entries.map { it.rows } })
+        assertTrue(overlay.groups.none { it.source == EntrySource.HEURISTIC }, "nothing here is left to the guess")
     }
 
     // ----- the fallback ---------------------------------------------------------------------------------

@@ -29,8 +29,8 @@ object FixMessageHelper {
      * Manually constructs a QuickFIX Message from a raw FIX string using recursive parsing
      * This is useful for complex messages with nested groups that QuickFIX's native parser may struggle with
      *
-     * The implementation uses delimiter tracking and ancestor delimiter awareness to correctly
-     * handle groups within groups (e.g., NoPartySubIDs within NoPartyIDs within NoOrders).
+     * Repeating groups, groups within groups included (NoPartySubIDs within NoPartyIDs within NoOrders),
+     * are where [GroupWalk] finds them, the same walk the editor and the diff bracket by.
      *
      * @param dataDictionary The FIX data dictionary for parsing
      * @param fixVersion The FIX version to use for header/trailer tag detection (defaults to FIX 4.4)
@@ -81,67 +81,59 @@ object FixMessageHelper {
             message.trailer.setString(tag, value)
         }
 
-        // Process body fields recursively. Regions the dictionary reads as a repeating group it has
-        // no definition for are carved out first and built as real Group instances — left to
-        // processFields they set the same tags over and over on one FieldMap, and an N-instance
-        // group collapses to its last instance with no diagnostic.
+        // Process body fields. Regions the dictionary reads as a repeating group it has no definition
+        // for are carved out first and built as real Group instances. Read as ordinary fields they set
+        // the same tags over and over on one FieldMap, and an N-instance group collapses to its last
+        // instance with no diagnostic.
         val bodyFields = fields.filter { !isHeader(it.first) && !isTrailer(it.first) }
-        val salvaged = salvageableGroups(bodyFields, msgTypeValue, adapter)
-        buildBody(bodyFields, salvaged, message, dataDictionary, msgTypeValue)
+        buildBody(bodyFields, message, dataDictionary, msgTypeValue, adapter)
 
         return message
     }
 
     /**
-     * The body, built as runs of ordinary fields with the rescued groups carved out between them.
+     * The body, built as runs of ordinary fields with the rescued groups carved out between them. Each run,
+     * and each rescued entry, is read at message level by [readInto].
      *
-     * [salvaged] is walked with a cursor rather than searched. It used to be a map keyed by count row,
-     * asked `salvaged.keys.filter { it > i }.minOrNull()` on every iteration of the loop: a scan of
-     * every group per row of the message, and an allocation per row even when there were no groups at
+     * The rescued groups are walked with a cursor rather than searched. They used to be a map keyed by
+     * count row, asked `salvaged.keys.filter { it > i }.minOrNull()` on every iteration of the loop: a scan
+     * of every group per row of the message, and an allocation per row even when there were no groups at
      * all, which is the common case.
      */
     private fun buildBody(
         bodyFields: List<Pair<Int, String>>,
-        salvaged: List<Salvaged>,
         message: Message,
         dataDictionary: DataDictionary,
         msgType: String,
+        adapter: FixDictionaryAdapter?,
     ) {
-        val groups = salvaged.sortedBy { it.countRow }
+        val salvaged = salvageableGroups(bodyFields, msgType, adapter).sortedBy { it.countRow }
         var next = 0
         var i = 0
         while (i < bodyFields.size) {
-            while (next < groups.size && groups[next].countRow < i) next++
-            val group = groups.getOrNull(next)?.takeIf { it.countRow == i }
+            while (next < salvaged.size && salvaged[next].countRow < i) next++
+            val group = salvaged.getOrNull(next)?.takeIf { it.countRow == i }
             if (group == null) {
-                val end = groups.getOrNull(next)?.countRow ?: bodyFields.size
-                processFields(bodyFields.subList(i, end), 0, message, dataDictionary, msgType)
+                val end = salvaged.getOrNull(next)?.countRow ?: bodyFields.size
+                readInto(message, bodyFields.subList(i, end), dataDictionary, msgType, adapter)
                 i = end
             } else {
-                i = addSalvagedGroup(group, bodyFields, message, dataDictionary, msgType)
+                // One instance per rescued entry, each read at message level, as a group with no
+                // dictionary of its own has no other context to read it in.
+                val delimiter = bodyFields[group.entries.first().first].first
+                for (entry in group.entries) {
+                    val instance = Group(group.groupTag, delimiter)
+                    val rows = bodyFields.subList(entry.first, entry.last + 1)
+                    readInto(instance, rows, dataDictionary, msgType, adapter)
+                    message.addGroup(instance)
+                }
+                // addGroup normalised the count to the number of entries found. The wire's own claim wins,
+                // mismatch included: rendering a count the venue never sent would hide exactly the defect
+                // this tool exists to show.
+                message.setString(group.groupTag, bodyFields[group.countRow].second)
+                i = group.entries.last().last + 1
             }
         }
-    }
-
-    /** One rescued group's entries onto [message], returning the row after it ends. */
-    private fun addSalvagedGroup(
-        group: Salvaged,
-        bodyFields: List<Pair<Int, String>>,
-        message: Message,
-        dataDictionary: DataDictionary,
-        msgType: String,
-    ): Int {
-        val delimiter = bodyFields[group.entries.first().first].first
-        group.entries.forEach { entry ->
-            val instance = Group(group.groupTag, delimiter)
-            processFields(bodyFields.subList(entry.first, entry.last + 1), 0, instance, dataDictionary, msgType)
-            message.addGroup(instance)
-        }
-        // addGroup normalised the count to the number of entries found; the wire's own claim wins,
-        // mismatch included — rendering a count the venue never sent would hide exactly the defect
-        // this tool exists to show.
-        message.setString(group.groupTag, bodyFields[group.countRow].second)
-        return group.entries.last().last + 1
     }
 
     /**
@@ -156,8 +148,8 @@ object FixMessageHelper {
      * `addGroup` keys the group by its count tag, and without one there is no tag to file the
      * entries under.
      *
-     * Dictionary-defined groups are absent deliberately, nested ones included: `processFields` already
-     * builds those, with delimiter tracking the overlay does not need to duplicate.
+     * Dictionary-defined groups are absent deliberately, nested ones included: [GroupWalk] already finds
+     * those, inside the entry they belong to.
      *
      * Asked through [GroupOverlay.salvageable] rather than by building a whole overlay and filtering it:
      * the answer is the same, and on the messages where it is "none" (which is every conformant one) it
@@ -261,188 +253,79 @@ object FixMessageHelper {
     fun fieldsForDisplay(message: FixMessage): List<Pair<Int, String>> = message.displayFields
 
     /**
-     * Recursively processes fields and groups, returning the index of the next unprocessed field
+     * [fields] onto [target] read at message level, with every repeating group the dictionary defines built
+     * as `Group` instances where [GroupWalk] finds it: the one reading of group structure the editor and the
+     * diff bracket by too, so the tree the detail pane draws and the overlay beside it cannot disagree.
      *
-     * A group gets every entry present, even past a count that claims fewer, so nothing is dropped or
-     * set flat on its parent. The parsed message keeps the count as claimed, but a deliberately low
-     * count cannot reach the wire: QuickFIX/J writes a group's count as the entries it holds.
-     *
-     * @param fields List of tag-value pairs to process
-     * @param startIndex Starting index in the fields list
-     * @param fieldMap The message or group to populate
-     * @param dataDictionary The FIX data dictionary
-     * @param msgType Message type (e.g., "E" for NewOrderList)
-     * @param parentGroupDD Data dictionary for the current group context (null for message level)
-     * @param delimiterTag Delimiter tag for the current group (null for message level)
-     * @param ancestorDelimiters Set of delimiter tags from all ancestor groups
-     * @return Index of the next unprocessed field
+     * Only a count whose value is a positive integer opens a group here. A count of `0`, or one that is not
+     * a number, is set as the field the venue sent, and the rows after it are read where they stand.
      */
-    private fun processFields(
+    private fun readInto(
+        target: FieldMap,
         fields: List<Pair<Int, String>>,
-        startIndex: Int,
-        fieldMap: FieldMap,
         dataDictionary: DataDictionary,
         msgType: String,
-        parentGroupDD: DataDictionary? = null,
-        delimiterTag: Int? = null,
-        ancestorDelimiters: Set<Int> = emptySet(),
-    ): Int {
-        var index = startIndex
-        var seenDelimiter = delimiterTag == null // If no delimiter, consider it seen
+        adapter: FixDictionaryAdapter?,
+    ) {
+        val groups = GroupWalk.walk(fields, msgType, dataDictionary, adapter, GroupWalk.Counts.POSITIVE)
+        setRows(fields, 0, fields.size, groups, target)
+    }
 
-        while (index < fields.size) {
-            val (tag, value) = fields[index]
-
-            // Use the appropriate DataDictionary based on context
-            val currentDD = parentGroupDD ?: dataDictionary
-
-            // If we encounter any ancestor delimiter, we've moved to a new instance of an outer group
-            if (tag in ancestorDelimiters) {
-                return index
-            }
-
-            // If we're in a group and we see the delimiter again after already seeing it once,
-            // it means we've reached the next instance of the parent group
-            if (delimiterTag != null && tag == delimiterTag && seenDelimiter) {
-                return index
-            }
-
-            // IMPORTANT: If we encounter a non-delimiter field that's already set in the current group,
-            // this means we've moved to the next group instance. This handles cases where the template
-            // doesn't follow FIX protocol order (fields appearing before the delimiter).
-            if (delimiterTag != null && tag != delimiterTag && fieldMap.isSetField(tag)) {
-                return index
-            }
-
-            // Mark that we've seen the delimiter
-            if (delimiterTag != null && tag == delimiterTag) {
-                seenDelimiter = true
-            }
-
-            // Check if this field belongs to the current context (message or group)
-            val isFieldInContext =
-                if (parentGroupDD != null) {
-                    try {
-                        currentDD.isField(tag) || currentDD.isGroup(msgType, tag)
-                    } catch (e: Exception) {
-                        false
-                    }
-                } else {
-                    true // At message level, all fields are valid
-                }
-
-            // If field doesn't belong to current group context, return to parent
-            if (!isFieldInContext) {
-                return index
-            }
-
-            // Check if this is a group count field using the CURRENT context's DataDictionary
-            // This is crucial for nested groups (e.g., NoPartyIDs within NoOrders)
-            val isGroup =
-                try {
-                    currentDD.isGroup(msgType, tag)
-                } catch (e: Exception) {
-                    false
-                }
-
-            if (isGroup) {
-                val groupCount = value.toIntOrNull() ?: 0
-                index++ // Move past the group count field
-
-                if (groupCount > 0) {
-                    try {
-                        // Get the group info from the CURRENT context's data dictionary
-                        val groupInfo = currentDD.getGroup(msgType, tag)
-                        val groupDD = groupInfo.dataDictionary
-                        val groupDelimiterTag = groupInfo.delimiterField
-
-                        // Build the set of ancestor delimiters for nested groups to respect
-                        val newAncestorDelimiters =
-                            if (delimiterTag != null) {
-                                ancestorDelimiters + delimiterTag
-                            } else {
-                                ancestorDelimiters
-                            }
-
-                        // Process each group instance: as many as the count claims, and then every
-                        // further entry that is present. A count lower than the entries sent used to
-                        // stop at the count, and the entries past it were set flat on the parent, each
-                        // one overwriting the last: on a send, an entry vanished and another left as
-                        // top-level fields.
-                        var built = 0
-                        var group: Group? = null
-                        while (built < groupCount ||
-                            startsNextEntry(fields, index, groupDelimiterTag, group, newAncestorDelimiters)
-                        ) {
-                            group = Group(tag, groupDelimiterTag)
-
-                            // Recursively process this group's fields
-                            index =
-                                processFields(
-                                    fields,
-                                    index,
-                                    group,
-                                    dataDictionary,
-                                    msgType,
-                                    groupDD,
-                                    groupDelimiterTag,
-                                    newAncestorDelimiters,
-                                )
-
-                            // Add the populated group to the parent field map
-                            fieldMap.addGroup(group)
-                            built++
-                        }
-                        // addGroup normalised the count to the entries built. The parsed message keeps
-                        // the count it claimed, as an overstated one does through its empty entries,
-                        // so a received message renders what the venue sent. A send cannot carry the
-                        // claim: QuickFIX/J writes a group's count as the entries it holds, so the
-                        // wire carries the true count.
-                        if (built > groupCount) fieldMap.setString(tag, value)
-                    } catch (e: Exception) {
-                        // If we can't process the group, skip it silently
-                    }
-                } else {
-                    // **A count that builds no group is still a field the venue sent.**
-                    //
-                    // Only `addGroup` writes the count back, so a count this branch does not build
-                    // from was stepped over by the `index++` above and never set — it vanished from
-                    // the parsed message, and therefore from the pane that exists to show what
-                    // arrived, and from anything rebuilt out of it. Both shapes that land here are
-                    // ones an author needs to see: `453=0` is a venue saying "no parties", and
-                    // `453=X` is a venue's defect, which a tool for finding venue defects must not
-                    // be the one to erase.
-                    fieldMap.setString(tag, value)
-                }
+    /** The rows from [from] up to [until] onto [target], each of [groups] as its entries. */
+    private fun setRows(
+        fields: List<Pair<Int, String>>,
+        from: Int,
+        until: Int,
+        groups: List<WalkedGroup>,
+        target: FieldMap,
+    ) {
+        var next = 0
+        var row = from
+        while (row < until) {
+            val group = groups.getOrNull(next)
+            if (group != null && group.countRow == row) {
+                addEntries(fields, group, target)
+                row = group.end
+                next++
             } else {
-                // Regular field - just set it
+                val (tag, value) = fields[row]
                 try {
-                    fieldMap.setString(tag, value)
+                    target.setString(tag, value)
                 } catch (e: Exception) {
                     // Skip fields that can't be set (e.g., unknown fields)
                 }
-                index++
+                row++
             }
         }
-
-        return index
     }
 
     /**
-     * Whether the field at [index] opens another entry of the group whose last entry is [last]: it is the
-     * group's [delimiter], or a field that entry already holds. That is the rule [processFields] ends an
-     * entry by, so an entry past the count is found whether or not it opens with its delimiter. A
-     * delimiter of an enclosing group never opens one, because it belongs to that group's next entry.
+     * One group onto [target]: an instance per entry the walk found, then empty ones up to the count.
+     *
+     * A count the venue overstates is kept visible by those empty entries, and a positive count with no
+     * entry under it at all by nothing but them. A group gets every entry present, even past a count that
+     * claims fewer, so nothing is dropped or set flat on its parent. The parsed message keeps the count as
+     * claimed, but a deliberately low count cannot reach the wire: QuickFIX/J writes a group's count as the
+     * entries it holds.
      */
-    private fun startsNextEntry(
+    private fun addEntries(
         fields: List<Pair<Int, String>>,
-        index: Int,
-        delimiter: Int,
-        last: Group?,
-        ancestorDelimiters: Set<Int>,
-    ): Boolean {
-        val tag = fields.getOrNull(index)?.first ?: return false
-        return tag !in ancestorDelimiters && (tag == delimiter || last?.isSetField(tag) == true)
+        group: WalkedGroup,
+        target: FieldMap,
+    ) {
+        for (index in group.entries.indices) {
+            val entry = group.entries[index]
+            val instance = Group(group.countTag, group.delimiter)
+            setRows(fields, entry.first, entry.last + 1, entry.groups, instance)
+            target.addGroup(instance)
+        }
+        val claim = fields[group.countRow].second
+        val claimed = claim.toIntOrNull() ?: 0
+        repeat(claimed - group.entries.size) { target.addGroup(Group(group.countTag, group.delimiter)) }
+        // addGroup normalised the count to the entries built. The parsed message keeps the count it claimed,
+        // as an overstated one does through its empty entries, so a received message renders what the venue
+        // sent.
+        if (group.entries.size > claimed) target.setString(group.countTag, claim)
     }
 
     /**

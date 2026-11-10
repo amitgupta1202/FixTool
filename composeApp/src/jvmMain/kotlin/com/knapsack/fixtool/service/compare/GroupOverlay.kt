@@ -3,8 +3,10 @@ package com.knapsack.fixtool.service.compare
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.service.GroupWalk
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
+import com.knapsack.fixtool.service.WalkedGroup
 import quickfix.DataDictionary
 
 /**
@@ -18,18 +20,21 @@ import quickfix.DataDictionary
  * re-derives the boundaries by period-detection over the row order: correct after three rounds of review,
  * and still a guess at structure the dictionary already knows.
  *
- * The dictionary knows it exactly. A group's *delimiter field* is the first field of every entry, by
- * definition of the FIX spec, so an entry starts at each occurrence of it and nowhere else. **The rotation
- * trap closes by construction**: the window `447,452,448` in a three-party group has an identically-shaped
- * neighbour and is not a party — a dictionary entry cannot start mid-entry, because the entry starts where
- * the delimiter is.
+ * The dictionary knows it, and [GroupWalk] reads it: the one walk the parse behind the detail pane builds
+ * its tree from too, so the two cannot bracket a message differently. The first entry opens at the row
+ * after the count, and each later one at the group's delimiter once the entry has seen it, or at a field
+ * the entry already holds. The delimiter is the first field of every entry by the FIX spec, but a venue's
+ * encoder that omits an optional leading field sends entries without it, and those are entries all the same.
+ * **The rotation trap closes by construction**: the window `447,452,448` in a three-party group has an
+ * identically-shaped neighbour and is not a party, because an entry starts only where the walk opens one,
+ * never one row late.
  *
- * Entry *starts* are exact; entry *ends* are **greedy**. The last entry runs to the first field its
- * group's dictionary does not own — so a tag legal both inside the group and after it at message level
- * is read into the entry, not out of it. That wire is genuinely ambiguous (which is why the spec tells
- * dictionary authors not to write it), and greedy is how QuickFIX's parser and `FixMessageHelper` both
- * resolve it: an overlay that ended the entry early would bracket the same message differently from the
- * detail pane sitting next to it.
+ * Entry *ends* are **greedy**. An entry runs on through every field its group's dictionary owns, so a tag
+ * legal both inside the group and after it at message level is read into the entry, not out of it. That
+ * wire is genuinely ambiguous (which is why the spec tells dictionary authors not to write it), and greedy
+ * is how QuickFIX's parser resolves it too. A tag the group's dictionary does not own ends the entry unless
+ * the wire ahead shows the entry going on, which is how a venue running ahead of the loaded dictionary
+ * keeps its groups whole. [GroupWalk] holds those rules.
  *
  * Two rules ride along, and both are load-bearing:
  *
@@ -140,16 +145,15 @@ data class GroupOverlay(
          *   with no count row is dropped by the caller anyway, because `addGroup` files a group under its
          *   count tag and there is no other tag to file it under.
          * - A region is offered as a guess only if **no dictionary-defined group already covers it**. So a
-         *   count row whose group the dictionary defines, and whose very next row is that group's
-         *   delimiter, cannot start a guess: [known] is certain to build an entry there and put the row in
-         *   `covered`.
+         *   count row whose group the dictionary defines, and whose very next row is a field of that group,
+         *   cannot start a guess: [known] is certain to build an entry there and put the row in `covered`.
          * - A guess whose count tag the dictionary defines as a group of this message type, **at any
-         *   depth**, is never returned. `processFields` builds those inside their parent entry, and filing
-         *   a nested one on the message took it out of the entry it belongs to.
+         *   depth**, is never returned. The parse builds those inside their parent entry, and filing a
+         *   nested one on the message took it out of the entry it belongs to.
          *
          * When every count row on the message is one of those, there is provably nothing to rescue and
          * neither walk is made. When any row fails the test (a venue's own `9005`, or a defined group whose
-         * delimiter did not follow its count), the full walk runs exactly as it always did. The gate only
+         * next row is not one of its fields), the full walk runs exactly as it always did. The gate only
          * ever skips work it has proved empty, which is why `ManualParseGroupSalvageTest` is untouched by
          * it.
          *
@@ -177,7 +181,7 @@ data class Salvaged(
 
 /** Which of the two answers this group's boundaries came from. The UI badges the guess. */
 enum class EntrySource {
-    /** The dictionary named the group and its delimiter. An entry cannot start anywhere else. */
+    /** The dictionary named the group, and [GroupWalk] found where its entries begin and end. */
     DICTIONARY,
 
     /** The dictionary had never heard of this group, so its shape was inferred from the row order. */
@@ -214,7 +218,8 @@ data class GroupNode(
 }
 
 /**
- * One entry of a repeating group: the delimiter row and everything under it, up to the next delimiter.
+ * One entry of a repeating group: the row that opens it and everything under it, up to the next entry or the
+ * end of the group.
  *
  * [rows] is the range a move carries, whole. It is the only thing permitted to say what one drag may
  * rewrite — see `ScenarioReconcile.moveEntry`.
@@ -224,16 +229,16 @@ data class EntryNode(
     /** 0-based, within its group. */
     val entryIndex: Int,
     val rows: IntRange,
-    /** `FIRMA · 1 EXECUTING_FIRM` — the delimiter's value, and the best identity the dictionary can add. */
+    /** `FIRMA · 1 EXECUTING_FIRM`: the opening row's value, and the best identity the dictionary can add. */
     val label: String,
     val children: List<GroupNode>,
     val source: EntrySource,
 )
 
 /**
- * The walk. Descends into nested groups rather than scanning flat, because a group's dictionary is scoped
- * to its own fields: `NestedPartySubID(545)` is defined in `NoNestedPartySubIDs(804)`, not in the group
- * above it, and a flat scan would stop at it and read the rest of the message as top-level fields.
+ * The overlay's two answers: the dictionary's, from [GroupWalk], which descends into nested groups rather
+ * than scanning flat because a group's dictionary is scoped to its own fields, and the guess where the
+ * dictionary is silent.
  */
 private class Builder(
     private val fields: List<Pair<Int, String?>>,
@@ -270,11 +275,11 @@ private class Builder(
 
     /**
      * True when the dictionary defines [countTag] as a group of this message type at any depth, which makes
-     * it `processFields`' to build, inside its parent entry, delimiter tracking and all.
+     * it the parse's to build, inside its parent entry, from the same [GroupWalk] as [known].
      *
-     * A guess cannot tell that its count row sits inside a parent entry: `NoPartySubIDs(802)` whose entries
-     * open with 803 rather than their delimiter 523 is not covered by [known], so the guess bracketed it,
-     * and the parse filed it as a group of the message, taking it out of the party it belongs to.
+     * A guess cannot tell that its count row sits inside a parent entry. A nested `NoPartySubIDs(802)` that
+     * [known] left uncovered was bracketed by the guess, and the parse filed it as a group of the message,
+     * taking it out of the party it belongs to.
      */
     private fun definedAnywhere(countTag: Int): Boolean =
         messageType != null && dictionary?.definesGroup(messageType, countTag) == true
@@ -302,88 +307,42 @@ private class Builder(
      * True when [known] is **certain** to build an entry beginning at [row] + 1, which is what puts that
      * row in `covered` and so out of reach of a guess.
      *
-     * The condition is `entriesOf`'s own loop condition for its first iteration, and it is checked here
-     * rather than trusted: a count row whose delimiter did not follow it builds no entries, leaves its
-     * rows uncovered, and is exactly the malformed wire a guess is still allowed to bracket.
+     * The condition is [GroupWalk]'s own for opening a group's first entry, at the top level of the message
+     * where no group encloses the count: the group owns the next row's tag. It is checked here rather than
+     * trusted: a count row followed by a field its group does not own may build no entries, leave its rows
+     * uncovered, and be exactly the malformed wire a guess is still allowed to bracket.
      */
     private fun startsDefinedGroup(row: Int): Boolean {
         val tag = fields[row].first
         val info = dd?.takeIf { isGroup(it, tag) }?.let { group(it, tag) }
-        return info != null &&
-            fields[row + 1].first == info.delimiterField &&
-            belongsTo(info.dataDictionary, info.delimiterField)
-    }
-
-    /** The groups the dictionary defines, at the top level of the message. */
-    private fun known(): List<GroupNode> {
-        val dd = dd ?: return emptyList()
-        if (messageType == null) return emptyList()
-        val groups = mutableListOf<GroupNode>()
-        var i = 0
-        while (i < fields.size) {
-            val found = groupAt(dd, i)
-            if (found == null) {
-                i++
-            } else {
-                groups += found.first
-                i = found.second
-            }
-        }
-        return groups
-    }
-
-    /** The group whose count row is [at], and the row after it ends — or null when [at] starts no group. */
-    private fun groupAt(parent: DataDictionary, at: Int): Pair<GroupNode, Int>? {
-        val tag = fields[at].first
-        if (!isGroup(parent, tag)) return null
-        val (entries, next) = entriesOf(parent, tag, at + 1)
-        if (entries.isEmpty()) return null
-        return GroupNode(tag, name(tag), at, entries, EntrySource.DICTIONARY) to next
+        return info != null && belongsTo(info.dataDictionary, fields[row + 1].first)
     }
 
     /**
-     * The entries of [groupTag], starting at [start] — one per occurrence of the group's delimiter field.
+     * The groups the dictionary defines, at the top level of the message, as [GroupWalk] finds them.
      *
-     * The delimiter is the whole answer, and the reason this cannot be fooled the way period-detection
-     * could: an entry begins where the delimiter is, so a window that begins one row late is not an entry
-     * and is never offered as one.
+     * Every count the dictionary defines opens its group whatever its value, so the editor keeps indenting
+     * while the count cell is being typed and an expectation row with no value brackets like the message.
+     * A group the walk found no entry under brackets nothing, and its count row is an ordinary row.
      */
-    private fun entriesOf(parent: DataDictionary, groupTag: Int, start: Int): Pair<List<EntryNode>, Int> {
-        val info = group(parent, groupTag) ?: return emptyList<EntryNode>() to start
-        val groupDD = info.dataDictionary
-        val delimiter = info.delimiterField
-        val entries = mutableListOf<EntryNode>()
-        var i = start
-        while (i < fields.size && fields[i].first == delimiter && belongsTo(groupDD, delimiter)) {
-            val (entry, next) = entryOf(groupDD, groupTag, delimiter, i, entries.size)
-            entries += entry
-            i = next
-        }
-        return entries to i
+    private fun known(): List<GroupNode> {
+        val dd = dd ?: return emptyList()
+        if (messageType == null) return emptyList()
+        return GroupWalk
+            .walk(fields, messageType, dd, dictionary, GroupWalk.Counts.ANY)
+            .mapNotNull { node(it) }
     }
 
-    /** One entry: the delimiter row, everything under it, and any group nested inside it. */
-    private fun entryOf(
-        groupDD: DataDictionary,
-        groupTag: Int,
-        delimiter: Int,
-        from: Int,
-        index: Int,
-    ): Pair<EntryNode, Int> {
-        val children = mutableListOf<GroupNode>()
-        var i = from + 1
-        while (i < fields.size && belongsTo(groupDD, fields[i].first) && fields[i].first != delimiter) {
-            val nested = groupAt(groupDD, i)
-            if (nested == null) {
-                i++
-            } else {
-                children += nested.first
-                i = nested.second
+    /** The overlay's node for a walked group, or null when it has no entry to bracket. */
+    private fun node(group: WalkedGroup): GroupNode? {
+        if (group.entries.isEmpty()) return null
+        val entries =
+            group.entries.mapIndexed { index, entry ->
+                covered += entry.rows
+                val children = entry.groups.mapNotNull { node(it) }
+                EntryNode(group.countTag, index, entry.rows, label(entry.rows), children, EntrySource.DICTIONARY)
             }
-        }
-        val rows = from..(i - 1)
-        covered += rows
-        return EntryNode(groupTag, index, rows, label(rows), children, EntrySource.DICTIONARY) to i
+        return GroupNode(group.countTag, name(group.countTag), group.countRow, entries, EntrySource.DICTIONARY)
     }
 
     /**
@@ -422,7 +381,8 @@ private class Builder(
      * `FIRMA · 1 EXECUTING_FIRM` — computed here, not in the UI, so the two sides of a diff cannot label the
      * same entry differently.
      *
-     * The delimiter's value identifies the entry, and one described field says what the entry is *for* —
+     * The opening row's value identifies the entry (the delimiter's, on a wire that sends it first), and one
+     * described field says what the entry is *for* —
      * which is what an author is actually looking for when all four party entries read `448=FIRMA` and only
      * their roles differ.
      *

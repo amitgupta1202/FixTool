@@ -2477,7 +2477,7 @@ echo $?    # 0 every phase passed · 1 a phase did not pass, or the set was stop
     </div>
 
     <h3>Accessing Repeating Groups</h3>
-    <p>Many FIX messages contain repeating groups - fields that can appear multiple times. For example, a QuoteRequest with multiple legs, or a message with multiple parties. FixTool provides special syntax to access specific occurrences of fields in repeating groups.</p>
+    <p>Many FIX messages contain repeating groups - fields that can appear multiple times. For example, a QuoteRequest with multiple legs, or a message with multiple parties. FixTool provides special syntax to access specific occurrences of fields in repeating groups. Every repeating group in the message body is read, nested groups included, and an index counts a tag's occurrences top level first, then entry by entry in order.</p>
 
     <div class="example">
         <h4>Repeating Group Syntax</h4>

@@ -1241,6 +1241,119 @@ class FixMessageTemplateTest {
         assertEquals("2", result5)
     }
 
+    /**
+     * A `BW` carrying NoApplIDs(1351), one entry per (RefApplID(1355), ApplBegSeqNum(1182)), each entry holding
+     * the NestedParties(539) given for it as (NestedPartyID(524), NestedPartyRole(538)).
+     */
+    private fun applIdRequest(vararg entries: Triple<String, String, List<Pair<String, String>>>): Map<String, FixMessage> {
+        val message = Message()
+        message.header.setString(MsgType.FIELD, "BW")
+        message.setString(1346, "REQ-1")
+        entries.forEach { (refApplId, begSeqNum, parties) ->
+            val entry = quickfix.Group(1351, 1355)
+            entry.setString(1355, refApplId)
+            entry.setString(1182, begSeqNum)
+            parties.forEach { (id, role) ->
+                val party = quickfix.Group(539, 524)
+                party.setString(524, id)
+                party.setString(538, role)
+                entry.addGroup(party)
+            }
+            message.addGroup(entry)
+        }
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = message.toString().replace('\u0001', '|'),
+                messageType = "BW",
+                quickfixMessage = message,
+            )
+        return mapOf("BW" to fixMessage)
+    }
+
+    private fun Map<String, FixMessage>.eval(expression: String) =
+        FixMessageTemplate.evaluate("\${$expression}", incomingMessages = this)
+
+    /**
+     * Fields were read inside a group only when its count tag was on a hand-kept list, and NoApplIDs(1351) was
+     * not on it, so `1351=1|1355=S|1182=7` read 1355 and 1182 as null.
+     */
+    @Test
+    fun `a field inside a group whose count tag was never listed is read`() {
+        val incoming = applIdRequest(Triple("S", "7", emptyList()))
+
+        assertEquals("S", incoming.eval("incoming[\"BW\"].valueOfTag(1355)"))
+        assertEquals("7", incoming.eval("incoming[\"BW\"].valueOfTag(1182)"))
+        assertEquals("S", incoming.eval("incoming[\"BW\"][1355]"))
+    }
+
+    @Test
+    fun `each entry of such a group is read by its index, and the count tag reads the count`() {
+        val incoming = applIdRequest(Triple("S", "7", emptyList()), Triple("T", "12", emptyList()))
+
+        assertEquals("S", incoming.eval("incoming[\"BW\"].valueOfTag(1355, 0)"))
+        assertEquals("T", incoming.eval("incoming[\"BW\"].valueOfTag(1355, 1)"))
+        assertEquals("12", incoming.eval("incoming[\"BW\"].valueOfTag(1182, 1)"))
+        assertEquals("null", incoming.eval("incoming[\"BW\"].valueOfTag(1355, 2)"))
+        assertEquals("[S, T]", incoming.eval("incoming[\"BW\"].allValuesOfTag(1355)"))
+        assertEquals("[7, 12]", incoming.eval("incoming[\"BW\"].allValuesOfTag(1182)"))
+        assertEquals("2", incoming.eval("incoming[\"BW\"].valueOfTag(1351)"))
+        assertEquals("REQ-1", incoming.eval("incoming[\"BW\"].valueOfTag(1346)"))
+    }
+
+    /** A group nested in an entry is read in place: each entry's own fields, then its nested entries, in order. */
+    @Test
+    fun `a group nested inside such a group is read entry by entry`() {
+        val incoming =
+            applIdRequest(
+                Triple("S", "7", listOf("PARTY-A" to "1", "PARTY-B" to "3")),
+                Triple("T", "12", listOf("PARTY-C" to "1")),
+            )
+
+        assertEquals("[PARTY-A, PARTY-B, PARTY-C]", incoming.eval("incoming[\"BW\"].allValuesOfTag(524)"))
+        assertEquals("PARTY-C", incoming.eval("incoming[\"BW\"].valueOfTag(524, 2)"))
+        assertEquals("[1, 3, 1]", incoming.eval("incoming[\"BW\"].allValuesOfTag(538)"))
+        assertEquals("[2, 1]", incoming.eval("incoming[\"BW\"].allValuesOfTag(539)"))
+        assertEquals("T", incoming.eval("incoming[\"BW\"].valueOfTag(1355, 1)"))
+    }
+
+    /** The entries read are the ones the message holds, and the count tag still reads the count it states. */
+    @Test
+    fun `every entry the message holds is read even where its stated count is short of them`() {
+        val incoming = applIdRequest(Triple("S", "7", emptyList()), Triple("T", "12", emptyList()))
+        incoming.getValue("BW").quickfixMessage.setInt(1351, 1)
+
+        assertEquals("1", incoming.eval("incoming[\"BW\"].valueOfTag(1351)"))
+        assertEquals("[S, T]", incoming.eval("incoming[\"BW\"].allValuesOfTag(1355)"))
+    }
+
+    /** A tag at the top level and inside entries reads the top level first, then each entry in order. */
+    @Test
+    fun `a tag at the top level and inside a group reads the top level first`() {
+        val message = Message()
+        message.header.setString(MsgType.FIELD, "R")
+        message.setString(20001, "top")
+        listOf("leg1", "leg2").forEach { id ->
+            val leg = quickfix.fix44.QuoteRequest.NoRelatedSym()
+            leg.setString(20001, id)
+            message.addGroup(leg)
+        }
+        val incoming =
+            mapOf(
+                "R" to
+                    FixMessage(
+                        timestamp = LocalDateTime.now(),
+                        direction = FixMessage.Direction.INCOMING,
+                        rawMessage = message.toString().replace('\u0001', '|'),
+                        messageType = "R",
+                        quickfixMessage = message,
+                    ),
+            )
+
+        assertEquals("[top, leg1, leg2]", incoming.eval("incoming[\"R\"].allValuesOfTag(20001)"))
+    }
+
     // ========================================
     // Template Expression Validation Tests
     // ========================================

@@ -136,135 +136,40 @@ object FixMessageTemplate {
      */
     private const val EXTRACTED_CACHE_CEILING = 256
 
-    // Known FIX repeating group tags - only these tags can contain groups
-    // This avoids expensive hasGroup() checks on every field
-    // Source: FIX 4.2/4.4/5.0 specifications - common group count tags
-    private val KNOWN_GROUP_TAGS =
-        setOf(
-            // Standard group tags
-            73,
-            78,
-            79,
-            124,
-            136,
-            146,
-            199,
-            215,
-            232,
-            267,
-            296,
-            382,
-            384,
-            386,
-            388,
-            420,
-            421,
-            453,
-            454,
-            457,
-            461,
-            478,
-            518,
-            539,
-            552,
-            555,
-            576,
-            602,
-            604,
-            627,
-            670,
-            683,
-            702,
-            711,
-            735,
-            753,
-            768,
-            782,
-            802,
-            804,
-            832,
-            862,
-            864,
-            868,
-            870,
-            872,
-            876,
-            878,
-            887,
-            897,
-            936,
-            957,
-            1014,
-            1016,
-            1018,
-            1069,
-            1070,
-            1073,
-            1074,
-            1078,
-            1109,
-            1116,
-            1117,
-            1130,
-            1132,
-            1133,
-            1134,
-            1135,
-            1137,
-            1140,
-            1158,
-            1166,
-            // NoMDEntries, NoQuoteEntries, NoRelatedSym, etc.
-            268,
-            295,
-            386,
-            420,
-            421,
-            454,
-            555,
-            711,
-            735,
-            768,
-            802,
-        )
-
-    // Extract all fields including repeating groups, memoized by caller when needed
+    /**
+     * Every value in [fieldMap] by tag, as `valueOfTag` and `allValuesOfTag` read them: the map's own fields
+     * first, then each repeating group's entries in order, nested groups included. A group's count tag reads
+     * as the count the message states, which QuickFIX/J keeps as a field of the map that holds the group.
+     *
+     * The groups are the ones the parsed message holds, so every group is read. Only a group whose count tag
+     * was on a hand-kept list used to be, and a field of any other group, `1355` in `1351=1|1355=S|1182=7` for
+     * one, read as null.
+     */
     private fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
         val tags = mutableMapOf<Int, MutableList<String>>()
+        collectFields(fieldMap, tags)
+        return tags.mapValues { it.value.toList() }
+    }
 
-        // First pass: collect all field values and identify potential group tags
-        val potentialGroupTags = mutableSetOf<Int>()
-        fieldMap.iterator().forEach { field ->
-            tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
-            // Only mark as potential group if tag is in KNOWN_GROUP_TAGS
-            if (field.tag in KNOWN_GROUP_TAGS) {
-                potentialGroupTags.add(field.tag)
-            }
+    /**
+     * Adds [fieldMap]'s fields to [into], then each of its groups' entries, depth first.
+     *
+     * The groups go in the order their count fields come in the map, the order the list-based walk read them
+     * in, then any group the map holds without a count field. Every entry the map holds is read, even where
+     * the count the message states is short of them. Nothing is caught: the old walk could throw reading a
+     * count that was not a number or asking for an entry past the last one, and walking the entries the map
+     * holds does neither.
+     */
+    private fun collectFields(fieldMap: quickfix.FieldMap, into: MutableMap<Int, MutableList<String>>) {
+        val countTags = LinkedHashSet<Int>()
+        for (field in fieldMap) {
+            into.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
+            if (fieldMap.hasGroup(field.tag)) countTags += field.tag
         }
-
-        // Second pass: only call hasGroup() for identified potential group tags
-        for (groupTag in potentialGroupTags) {
-            try {
-                if (fieldMap.hasGroup(groupTag)) {
-                    val groupCount = fieldMap.getInt(groupTag)
-                    for (i in 1..groupCount) {
-                        try {
-                            val group = fieldMap.getGroup(i, groupTag)
-                            val groupTags = extractAllFields(group)
-                            groupTags.forEach { (tag, values) ->
-                                tags.getOrPut(tag) { mutableListOf() }.addAll(values)
-                            }
-                        } catch (_: Exception) {
-                            // ignore extraction errors for individual groups
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                // not a group count field
-            }
+        fieldMap.groupKeyIterator().forEach { countTags += it }
+        for (countTag in countTags) {
+            fieldMap.getGroups(countTag).forEach { entry -> collectFields(entry, into) }
         }
-
-        return tags.mapValues { it.value.toList() }.toMap()
     }
 
     private fun createScriptContext(

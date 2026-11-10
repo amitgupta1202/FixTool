@@ -44,6 +44,9 @@ The two mini-languages an agent needs to author messages and scenarios: **templa
 | `${out.D.ClOrdID}` | field names work anywhere a tag number does |
 | `${out.D.11.0}` | the 0-based occurrence, for a tag inside a repeating group |
 
+Every repeating group in the message body is read, nested groups included, and an occurrence counts top
+level first, then entry by entry in order.
+
 **Variables**
 
 - `${clOrdId = uuid}` — assigns *and* expands to the value inline, so it is both the definition and the first use.

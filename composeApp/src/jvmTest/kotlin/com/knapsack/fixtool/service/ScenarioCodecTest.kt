@@ -18,6 +18,8 @@ import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.TrafficMode
+import com.knapsack.fixtool.model.scenario.logonRow
+import com.knapsack.fixtool.model.scenario.logonTriggerProblem
 import com.knapsack.fixtool.model.scenario.validationError
 import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Test
@@ -648,6 +650,96 @@ class ScenarioCodecTest {
         assertNull(ScenarioCodec.toJson(scenario)["trigger"], "the wire format is frozen except additively")
         val manual = Json.parseToJsonElement("""{"id":"sc-t","name":"n","trigger":"manual"}""").jsonObject
         assertEquals(RunTrigger.MANUAL, ScenarioCodec.fromJson(manual).trigger)
+    }
+
+    /** The row a logon runs is kept whatever the trigger says, so turning it off and on again loses nothing. */
+    @Test
+    fun `the examples row a logon runs round-trips through json, with the trigger on or off`() {
+        for (trigger in RunTrigger.entries) {
+            val json = ScenarioCodec.toJson(outline(ExampleRow("first"), ExampleRow("second"), triggerRow = "second").copy(trigger = trigger))
+            assertEquals("second", json["triggerRow"]?.jsonPrimitive?.content, "the row must be written with $trigger: $json")
+            assertEquals("second", ScenarioCodec.fromJson(json).triggerRow, "and read back with $trigger")
+        }
+    }
+
+    /** The additive bargain: a file that never named a row writes no key, and re-saves byte-identical. */
+    @Test
+    fun `a scenario without a logon row writes no key, and re-saves byte-identical`() {
+        val file = """{"id":"sc-t","name":"n","trigger":"logon","setup":[],"steps":[],"teardown":[],"userTags":[],"version":1}"""
+        val scenario = ScenarioCodec.fromJson(Json.parseToJsonElement(file).jsonObject)
+        assertNull(scenario.triggerRow)
+        assertNull(ScenarioCodec.toJson(scenario)["triggerRow"], "the wire format is frozen except additively")
+        assertEquals(file, ScenarioCodec.toJson(scenario).toString())
+    }
+
+    // ----- the examples row a logon runs ------------------------------------------------------------
+
+    /** A logon scenario on one session whose send reads the table's `stream` column. */
+    private fun outline(vararg rows: ExampleRow, triggerRow: String? = null): Scenario =
+        Scenario(
+            id = "sc-r",
+            name = "n",
+            steps = listOf(ScenarioStep.Send("35=B|148=\${stream}|", session = "s")),
+            trigger = RunTrigger.LOGON,
+            examples = if (rows.isEmpty()) null else Examples(listOf("stream"), rows.toList()),
+            triggerRow = triggerRow,
+        )
+
+    @Test
+    fun `a logon scenario with no examples rows runs no row, as before`() {
+        assertNull(outline().logonRow())
+        assertNull(outline().logonTriggerProblem())
+    }
+
+    @Test
+    fun `a logon runs the live row its triggerRow names`() {
+        val scenario = outline(ExampleRow("first", mapOf("stream" to "A")), ExampleRow("second", mapOf("stream" to "B")), triggerRow = "second")
+        assertNull(scenario.logonTriggerProblem())
+        assertEquals(ExampleRow("second", mapOf("stream" to "B")), scenario.logonRow())
+    }
+
+    @Test
+    fun `a logon with one live row and no triggerRow runs that row`() {
+        val scenario = outline(ExampleRow("only", mapOf("stream" to "A")), ExampleRow("parked", mapOf("stream" to "B"), muted = true))
+        assertNull(scenario.logonTriggerProblem())
+        assertEquals("only", scenario.logonRow()?.name)
+    }
+
+    /** Unknown, muted, or a scenario with no rows at all: each is a problem naming the row and the live ones. */
+    @Test
+    fun `a triggerRow that names no live row is a problem that names it and lists the live rows`() {
+        val rows = arrayOf(ExampleRow("first"), ExampleRow("second"), ExampleRow("parked", muted = true))
+        for (asked in listOf("third", "parked")) {
+            val problem = assertNotNull(outline(*rows, triggerRow = asked).logonTriggerProblem(), "'$asked' is not a live row")
+            assertTrue("'$asked'" in problem, "the problem must name the row asked for: $problem")
+            assertTrue("Live rows: 'first', 'second'" in problem, "the problem must list the live rows: $problem")
+            assertNull(outline(*rows, triggerRow = asked).logonRow())
+        }
+        val none = assertNotNull(outline(triggerRow = "third").logonTriggerProblem(), "a scenario with no rows has no 'third'")
+        assertTrue("'third'" in none && "Live rows: none" in none, none)
+    }
+
+    @Test
+    fun `several live rows and no triggerRow is a problem that says a logon needs telling which, and lists them`() {
+        val scenario = outline(ExampleRow("first"), ExampleRow("second"))
+        val problem = assertNotNull(scenario.logonTriggerProblem(), "a logon cannot pick between two rows")
+        assertTrue("must be told which" in problem, "the problem must say a logon needs telling which row: $problem")
+        assertTrue("Live rows: 'first', 'second'" in problem, "the problem must list the live rows: $problem")
+        assertNull(scenario.logonRow())
+    }
+
+    /** Row names may repeat (nothing refuses it), and the first live row of the name runs. */
+    @Test
+    fun `a repeated row name runs the first live row of that name`() {
+        val scenario =
+            outline(
+                ExampleRow("dup", mapOf("stream" to "muted"), muted = true),
+                ExampleRow("dup", mapOf("stream" to "A")),
+                ExampleRow("dup", mapOf("stream" to "B")),
+                triggerRow = "dup",
+            )
+        assertNull(scenario.logonTriggerProblem())
+        assertEquals(mapOf("stream" to "A"), scenario.logonRow()?.values)
     }
 
     /**

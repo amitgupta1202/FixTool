@@ -10,6 +10,8 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -129,6 +131,55 @@ class ScenarioEditorTest {
         composeTestRule.onNodeWithTag("editor-save").performClick()
         composeTestRule.waitForIdle()
         assertEquals(RunTrigger.LOGON, saved!!.trigger)
+    }
+
+    /** A logon scenario on one session whose table has two live rows around a muted one. */
+    private val outline =
+        scenario.copy(
+            steps = scenario.steps.map { it.withSession("QUOTE") },
+            examples = Examples(listOf("stream"), listOf(ExampleRow("first"), ExampleRow("parked", muted = true), ExampleRow("second"))),
+        )
+
+    /**
+     * The row chip shows only while the scenario runs on logon, asks for a row while several are live and none
+     * is named, cycles the live rows on click, keeps its row while the trigger is off, and the save carries it.
+     */
+    @Test
+    fun `the logon row chip cycles the live rows and the save carries the row`() {
+        var saved: Scenario? = null
+        render(initial = outline) { saved = it }
+        val chip = composeTestRule.onNodeWithTag("run-trigger-row-chip")
+        chip.assertDoesNotExist()
+        composeTestRule.onNodeWithTag("run-trigger-chip").performClick()
+        chip.assertTextEquals("ROW: PICK ONE")
+        chip.performClick()
+        chip.assertTextEquals("ROW: first")
+        chip.performClick()
+        chip.assertTextEquals("ROW: second")
+        chip.performClick()
+        chip.assertTextEquals("ROW: first")
+        chip.performClick()
+        composeTestRule.onNodeWithTag("run-trigger-chip").performClick()
+        chip.assertDoesNotExist()
+        composeTestRule.onNodeWithTag("run-trigger-chip").performClick()
+        chip.assertTextEquals("ROW: second")
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(RunTrigger.LOGON to "second", saved!!.trigger to saved!!.triggerRow)
+    }
+
+    /** Renaming the row a logon runs takes the logon with it, rather than leaving it naming a row that is gone. */
+    @Test
+    fun `renaming the row a logon runs keeps the logon on it`() {
+        var saved: Scenario? = null
+        render(initial = outline.copy(trigger = RunTrigger.LOGON, triggerRow = "second")) { saved = it }
+        composeTestRule.onNodeWithTag("run-trigger-row-chip").assertTextEquals("ROW: second")
+        composeTestRule.onNodeWithTag("examples-row-name-2").performTextClearance()
+        composeTestRule.onNodeWithTag("examples-row-name-2").performTextInput("beta")
+        composeTestRule.onNodeWithTag("run-trigger-row-chip").assertTextEquals("ROW: beta")
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("beta", saved!!.triggerRow)
     }
 
     @Test

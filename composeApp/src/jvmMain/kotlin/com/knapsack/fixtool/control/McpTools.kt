@@ -448,7 +448,10 @@ object McpTools {
                     "connection's messages (this_connection) whatever binding says, ends as soon as the session " +
                     "drops, is recorded in run history labelled 'on logon of <session>', and is skipped with " +
                     "'run on logon skipped: <reason>' if another run holds the session. Saving refuses it when " +
-                    "the steps do not all name one session. Default \"manual\". Call fixtool_syntax for the full " +
+                    "the steps do not all name one session. Default \"manual\". A logon runs one examples row: " +
+                    "triggerRow names it (exact name, among the live rows), and with exactly one live row it may " +
+                    "be left out. Saving refuses a triggerRow that is not a live row, and several live rows with " +
+                    "none named. Call fixtool_syntax for the full " +
                     "grammar, or fixtool_capture_scenario to record one that is already correctly templated.",
                 props(
                     "name" to string("scenario name"),
@@ -457,6 +460,7 @@ object McpTools {
                     "userTags" to arraySchema(string(), "organising tags (also used for per-profile filtering)"),
                     "traffic" to enumStr("open", "strict"),
                     "trigger" to enumStr("manual", "logon"),
+                    "triggerRow" to string("the examples row a run started by a logon runs with, by exact name"),
                     "setup" to arraySchema(objectSchema("ScenarioStep run before steps"), "setup steps"),
                     "steps" to arraySchema(objectSchema("ScenarioStep"), "the ordered steps"),
                     "teardown" to arraySchema(objectSchema("ScenarioStep run after steps, even on failure"), "teardown steps"),

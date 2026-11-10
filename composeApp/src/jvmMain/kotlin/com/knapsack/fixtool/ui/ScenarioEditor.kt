@@ -81,6 +81,8 @@ import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.TrafficMode
+import com.knapsack.fixtool.model.scenario.logonRow
+import com.knapsack.fixtool.model.scenario.logonRowProblem
 import com.knapsack.fixtool.model.scenario.logonSession
 import com.knapsack.fixtool.model.scenario.logonTriggerProblem
 import com.knapsack.fixtool.service.MessageIssue
@@ -291,6 +293,7 @@ fun ScenarioEditor(
     var traffic by remember { mutableStateOf(initial.traffic) }
     var binding by remember { mutableStateOf(initial.binding) }
     var trigger by remember { mutableStateOf(initial.trigger) }
+    var triggerRow by remember { mutableStateOf(initial.triggerRow) }
     // One list, three phases, contiguous and in run order: setup, then the flow, then teardown. A setup
     // step is a step, and while it lived only in the header's summary the one way to stop a captured
     // scenario wiping the session log on every run was to edit the file by hand.
@@ -347,6 +350,7 @@ fun ScenarioEditor(
             binding = binding,
             examples = table,
             trigger = trigger,
+            triggerRow = triggerRow,
         )
     // By value, not by every recomposition: an untouched editor emits its seed once and then stays quiet.
     LaunchedEffect(built) { onChange(built) }
@@ -480,8 +484,20 @@ fun ScenarioEditor(
                 trigger,
                 session = built.logonSession(),
                 problem = built.logonTriggerProblem(),
+                rowProblem = built.logonRowProblem() != null,
                 onToggle = { trigger = if (trigger == RunTrigger.MANUAL) RunTrigger.LOGON else RunTrigger.MANUAL },
             )
+            // Beside it, and only while a logon has a row to run or a stale name to clear.
+            val liveRows = table?.live.orEmpty()
+            if (trigger == RunTrigger.LOGON && (liveRows.isNotEmpty() || triggerRow != null)) {
+                TriggerRowChip(
+                    named = triggerRow,
+                    running = built.logonRow(),
+                    problem = built.logonRowProblem(),
+                    live = liveRows.map { it.name }.distinct(),
+                    onPick = { triggerRow = it },
+                )
+            }
             // Setup used to stand on its own row below the header, spending a whole line on one quiet
             // sentence. It rides in the header's empty span now — a reclaimed line — beside Save, where
             // the wipe warning sits next to the button that launches the run it warns about.
@@ -710,7 +726,10 @@ fun ScenarioEditor(
             expanded = tableOpen,
             onExpand = { tableOpen = it },
             onColumns = { columns = it },
-            onRows = { rows = it },
+            onRows = { next ->
+                triggerRow = followRename(triggerRow, rows, next)
+                rows = next
+            },
         )
     }
 }
@@ -1196,7 +1215,14 @@ private fun BindingChip(scope: BindScope, onToggle: () -> Unit) {
  * while the steps do not name that one session, because Save refuses it then.
  */
 @Composable
-private fun TriggerChip(trigger: RunTrigger, session: String?, problem: String?, onToggle: () -> Unit) {
+private fun TriggerChip(
+    trigger: RunTrigger,
+    session: String?,
+    problem: String?,
+    /** Whether [problem] is about the examples row, which the chip beside this one picks. */
+    rowProblem: Boolean,
+    onToggle: () -> Unit,
+) {
     val onLogon = trigger == RunTrigger.LOGON
     val colour =
         when {
@@ -1210,6 +1236,9 @@ private fun TriggerChip(trigger: RunTrigger, session: String?, problem: String?,
                 "Runs when Run is pressed. Click for RUN ON LOGON: it then also runs by itself every time its " +
                     "session logs on, for a counterparty that starts a handshake straight after Logon and " +
                     "disconnects a client that is slow to answer."
+            problem != null && rowProblem ->
+                "RUN ON LOGON cannot be saved like this: $problem. Click ROW beside it to pick the row, or click " +
+                    "here to run it by hand only."
             problem != null -> "RUN ON LOGON cannot be saved like this: $problem. Click to run it by hand only."
             else ->
                 "Runs by itself on every logon of '$session': the first connect, a reconnect and an " +
@@ -1234,6 +1263,67 @@ private fun TriggerChip(trigger: RunTrigger, session: String?, problem: String?,
                     .testTag("run-trigger-chip"),
         )
     }
+}
+
+/**
+ * **Which examples row a logon runs**, beside RUN ON LOGON. A logon starts one run, so it runs one row: the one
+ * [named], or the only live row when none is. A click moves to the next live row (in table order, by name),
+ * and with no live row left it clears a name that no longer points anywhere. It wears the error colour, and
+ * says why, while the logon cannot tell which row to run, because Save refuses it then.
+ */
+@Composable
+private fun TriggerRowChip(
+    /** The row the scenario names for a logon, if it names one. */
+    named: String?,
+    /** The row a logon will run, or null while [problem] says why there is none. */
+    running: ExampleRow?,
+    problem: String?,
+    /** The live rows' names, in table order, each once. */
+    live: List<String>,
+    onPick: (String?) -> Unit,
+) {
+    val colour = if (problem != null) AppTheme.Colors.error else AppTheme.Colors.warning
+    val shown = named ?: running?.name
+    val next = if (live.isEmpty()) null else live[(live.indexOf(shown) + 1) % live.size]
+    AppTooltip(
+        when {
+            problem != null && next == null -> "A logon cannot run this: $problem. Click to clear the row's name."
+            problem != null -> "A logon cannot run this: $problem. Click to pick '$next'."
+            else ->
+                "Each logon runs examples row '$shown': its cells start the run's scope, as they do when that row " +
+                    "is run by hand" + (if (named == null) ". It is the only live row, so it needs no name" else "") +
+                    (if (live.size > 1) ". Click for '$next'." else ".")
+        },
+    ) {
+        Text(
+            "ROW: ${shown ?: "PICK ONE"}",
+            color = colour,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier =
+                Modifier
+                    .padding(start = 8.dp)
+                    .widthIn(max = 160.dp)
+                    .border(1.dp, colour.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                    .clickable { onPick(next) }
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("run-trigger-row-chip"),
+        )
+    }
+}
+
+/**
+ * The row a logon runs once [next] has replaced [rows]: renaming that row takes the name with it, so the chip
+ * keeps pointing at the row the author picked. Only a rename moves it, and only while no other row still has
+ * the old name. A deleted or muted row leaves it where it was, and the chip turns red.
+ */
+private fun followRename(named: String?, rows: List<ExampleRow>, next: List<ExampleRow>): String? {
+    if (named == null || rows.size != next.size) return named
+    val renamed = rows.indices.singleOrNull { rows[it].name != next[it].name } ?: return named
+    return if (rows[renamed].name == named && next.none { it.name == named }) next[renamed].name else named
 }
 
 /** The chip's click order: ANY, THIS RUN, THIS CONNECTION, then back to ANY. */

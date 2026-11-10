@@ -322,6 +322,40 @@ class ControlServerIntegrationTest {
         assertTrue("created" in viaMcp, viaMcp)
     }
 
+    /**
+     * A logon scenario with examples rows says which row a logon runs, with `triggerRow`. Two live rows and none
+     * named is refused at POST /scenarios and fixtool_save_scenario alike, naming the rows, and so is a name
+     * that is not a live row. One live row needs no name, and a named one round-trips through GET.
+     */
+    @Test
+    fun `a run on logon scenario with examples rows is refused until it says which row a logon runs`() {
+        fun outline(triggerRow: String?, vararg rows: String): String =
+            """{"name":"ROWS","trigger":"logon",""" +
+                (triggerRow?.let { """"triggerRow":"$it",""" } ?: "") +
+                """"steps":[{"type":"send","session":"LIVE","raw":"35=1|112=${'$'}{stream}|"}],""" +
+                """"examples":{"columns":["stream"],"rows":[""" +
+                rows.joinToString(",") { """{"name":"$it","values":{"stream":"$it"}}""" } + "]}}"
+
+        val two = obj(post("/scenarios", outline(null, "first", "second")))
+        assertEquals("error", two["status"]!!.jsonPrimitive.content, two.toString())
+        val why = two["error"]!!.jsonPrimitive.content
+        assertTrue("must be told which" in why && "'first', 'second'" in why, "the refusal must name the rows: $why")
+        val viaMcp = mcpCall("fixtool_save_scenario", outline(null, "first", "second"))
+        assertTrue("must be told which" in viaMcp && "'first', 'second'" in viaMcp, "the MCP door refuses it too: $viaMcp")
+
+        val unknown = obj(post("/scenarios", outline("third", "first", "second")))
+        val unknownWhy = unknown["error"]?.jsonPrimitive?.content.orEmpty()
+        assertTrue("'third'" in unknownWhy && "'first', 'second'" in unknownWhy, "a row that is not live is refused: $unknown")
+
+        val one = obj(post("/scenarios", outline(null, "only")))
+        assertEquals("created", one["status"]!!.jsonPrimitive.content, "one live row needs no name: $one")
+
+        val named = obj(post("/scenarios", outline("second", "first", "second")))
+        assertEquals("created", named["status"]!!.jsonPrimitive.content, named.toString())
+        val back = obj(get("/scenarios?id=${named["id"]!!.jsonPrimitive.content}"))
+        assertEquals("second", back["triggerRow"]?.jsonPrimitive?.content, back.toString())
+    }
+
     // ----------------------------------------------------- read / view / filter
 
     @Test

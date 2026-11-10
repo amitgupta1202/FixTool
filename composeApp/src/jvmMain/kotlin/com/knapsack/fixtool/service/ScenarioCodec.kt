@@ -53,6 +53,8 @@ object ScenarioCodec {
             scenario.traffic.takeIf { it != TrafficMode.OPEN }?.let { put("traffic", it.name.lowercase()) }
             scenario.binding.takeIf { it != BindScope.ANY }?.let { put("binding", it.name.lowercase()) }
             scenario.trigger.takeIf { it != RunTrigger.MANUAL }?.let { put("trigger", it.name.lowercase()) }
+            // Whatever the trigger says, so turning it off and on again keeps the row. Written only when set.
+            scenario.triggerRow?.let { put("triggerRow", it) }
             // Additive and default-omitting: a file authored before createdAt existed grows no key by being
             // read and re-saved, so it stays byte-identical (and old FixTools keep loading new files — the
             // key is unknown to them, and an unknown key is ignored, never refused). Version stays 1.
@@ -101,6 +103,7 @@ object ScenarioCodec {
             traffic = trafficFrom(obj["traffic"]?.jsonPrimitive?.contentOrNull),
             binding = bindingFrom(obj["binding"]?.jsonPrimitive?.contentOrNull),
             trigger = triggerFrom(obj["trigger"]?.jsonPrimitive?.contentOrNull),
+            triggerRow = obj["triggerRow"]?.jsonPrimitive?.contentOrNull,
             // Absent = unknown (a file older than the field): read as null, and the rail sorts it by mtime.
             createdAt = obj["createdAt"]?.jsonPrimitive?.longOrNull,
             examples = obj["examples"]?.jsonObject?.let { examplesFromJson(it) },

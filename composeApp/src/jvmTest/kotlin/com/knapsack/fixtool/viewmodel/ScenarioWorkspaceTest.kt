@@ -1,16 +1,20 @@
 package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.RunSetStatus
+import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.RunSets
+import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.ScenarioDoc
@@ -132,6 +136,29 @@ class ScenarioWorkspaceTest {
         assertFalse(viewModel.scenarioDraft("sc-1")!!.dirty, "saved, so there is nothing left to lose")
         assertEquals("renamed", viewModel.scenarioService.load("sc-1")!!.name)
         assertTrue(viewModel.openDocuments.value.isNotEmpty(), "and the tab stays open on it")
+    }
+
+    /**
+     * The editor's Save and the save from JSON refuse a logon scenario with two live rows and none named, as
+     * POST /scenarios does, and say why: a logon runs one row, and nothing in the file says which.
+     */
+    @Test
+    fun `the in-app save doors refuse a logon scenario that does not say which row a logon runs`() {
+        val outline =
+            Scenario(
+                id = "sc-rows",
+                name = "rows",
+                steps = listOf(ScenarioStep.Send("35=1|112=\${stream}|", session = "LIVE")),
+                examples = Examples(listOf("stream"), listOf(ExampleRow("first"), ExampleRow("second"))),
+                trigger = RunTrigger.LOGON,
+            )
+
+        assertFalse(viewModel.saveScenarioDocument(outline), "the editor's Save must refuse it")
+        assertNull(viewModel.saveScenarioJson(ScenarioCodec.toJson(outline).toString()), "the save from JSON must refuse it")
+        assertNull(viewModel.scenarioService.load("sc-rows"), "nothing reached the disk")
+        val said = viewModel.notifications.map { it.message }.filter { "must be told which" in it }
+        assertEquals(2, said.size, "each door says why: ${viewModel.notifications.map { it.message }}")
+        assertTrue(viewModel.saveScenarioDocument(outline.copy(triggerRow = "second")), "naming the row saves it")
     }
 
     /** A view of a file that is gone is a trap: deleting the scenario closes everything looking at it. */

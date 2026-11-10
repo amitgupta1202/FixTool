@@ -55,6 +55,7 @@ import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.VariableSource
+import com.knapsack.fixtool.model.scenario.logonRow
 import com.knapsack.fixtool.model.scenario.logonTriggerProblem
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
@@ -3755,7 +3756,7 @@ class FixMessageViewModel(
         cancelled: () -> Boolean = { false },
         interruption: () -> String? = { null },
         /** A run-level row every entry's report opens with, saying what started it. */
-        startedBy: StepResult? = null,
+        startedBy: ((RunEntry) -> StepResult)? = null,
         /**
          * The stores the set reads its scenarios from and writes its records to, for the whole set. A caller
          * that hands the set to another thread takes them first, see [startRunSet].
@@ -5038,7 +5039,7 @@ class FixMessageViewModel(
         private val scenarios: ScenarioService = scenarioService,
         private val records: RunRecordStore = runRecordStore,
         private val interruption: () -> String? = { null },
-        private val startedBy: StepResult? = null,
+        private val startedBy: ((RunEntry) -> StepResult)? = null,
     ) : RunSetHost {
         override fun scenario(id: String): Scenario? = pinned[id] ?: scenarios.load(id)
 
@@ -5052,7 +5053,7 @@ class FixMessageViewModel(
                     cancelled = cancelled,
                     interruption = interruption,
                 )
-            val row = startedBy ?: return outcome
+            val row = startedBy?.invoke(entry) ?: return outcome
             return outcome.copy(result = outcome.result.copy(steps = listOf(row) + outcome.result.steps))
         }
 
@@ -5096,7 +5097,8 @@ class FixMessageViewModel(
      * any set is, and labelled with the logon that started it.
      *
      * Each entry runs a copy bound as THIS_CONNECTION, whatever its file says, so it never binds a message
-     * from the connection before. It ends as soon as the session drops or logs on again. A logon that finds
+     * from the connection before, and runs the examples row [logonRow] picks, when there is one. It ends as
+     * soon as the session drops or logs on again. A logon that finds
      * the session held by another run starts nothing and says so: by the time that run let go, the moment
      * this one exists for would be gone, and a run started late on a connection it was not started for is
      * worse than none.
@@ -5114,7 +5116,9 @@ class FixMessageViewModel(
                 id = runRecordStore.reserve(RunSets.id(now, label)),
                 label = label,
                 source = RunSource.Logon(session.title, runnable.map { it.id }),
-                entries = runnable.map { RunEntry(it.id, it.name) },
+                // The entry carries its row, as a run of that row by hand does: the row seeds the scope, and
+                // the record and the report name it.
+                entries = runnable.map { RunEntry(it.id, it.name, row = it.logonRow()) },
                 policy = RunPolicy(isolateIterations = false),
             )
         val touched = RunSessions.ofAll(pinned.values.map { touchedBy(it, emptyMap()) })
@@ -5132,7 +5136,7 @@ class FixMessageViewModel(
                 pinned,
                 cancelled = { claim.stop.get() },
                 interruption = { logonRunInterruption(session, stamp) },
-                startedBy = startedByLogon(session, stamp),
+                startedBy = { entry -> startedByLogon(session, stamp, entry) },
             ) { }
         } catch (e: Exception) {
             logger.error("Run on logon of '${session.title}' failed: ${e.message}", e, notifyUser = true)
@@ -5167,11 +5171,12 @@ class FixMessageViewModel(
         }
     }
 
-    /** The row a logon's run opens its report with, so the report says what started it. */
-    private fun startedByLogon(session: FixMessageSession, stamp: Long): StepResult {
+    /** The row a logon's run opens its report with, so it says what started the run and which examples row it runs. */
+    private fun startedByLogon(session: FixMessageSession, stamp: Long, entry: RunEntry): StepResult {
         val at = LocalTime.ofInstant(Instant.ofEpochMilli(stamp / 1_000), ZoneId.systemDefault()).format(LOGON_TIME)
+        val row = entry.row?.let { ", running examples row '${it.name}'" }.orEmpty()
         val detail =
-            "started by the logon of session '${session.title}' at $at, binding this_connection: only what " +
+            "started by the logon of session '${session.title}' at $at$row, binding this_connection: only what " +
                 "this connection received can be bound"
         return StepResult(-1, "trigger", "setup", passed = true, detail = detail)
     }

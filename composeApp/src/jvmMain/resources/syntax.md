@@ -248,8 +248,8 @@ a real field with no value.
 
 ## 5. Scenario shape
 
-`{name, profile?, userTags?, trigger?, setup?: [step], steps: [step], teardown?: [step], examples?}`: `setup`
-runs first, `teardown` always runs, even on failure. A step is `{type, ...}`:
+`{name, profile?, userTags?, trigger?, triggerRow?, setup?: [step], steps: [step], teardown?: [step], examples?}`:
+`setup` runs first, `teardown` always runs, even on failure. A step is `{type, ...}`:
 
 | `type` | Fields |
 | --- | --- |
@@ -268,6 +268,14 @@ logon starts it, and saving refuses it otherwise. Such a run binds as `this_conn
 says, ends as soon as the session drops, and is skipped with `run on logon skipped: <reason>` when another
 run holds the session. Run history records it as `<name> on logon of <session>`. Absent, or `"manual"`, it
 runs only on request. Any other value fails the load, by name.
+
+A scenario with an `examples` table runs one row on each logon, seeded as a run of that row by hand is, and
+named `<scenario> [<row>]` in the record and the report. `"triggerRow": "<row name>"` names it, by exact name
+among the live rows (not muted), and the first live row of that name runs if names repeat. With exactly one
+live row it may be left out, and that row runs. With no live rows and no `triggerRow` the run has no row. A
+`triggerRow` that names no live row, and several live rows with no `triggerRow`, are refused at save, and a
+file that has either is skipped at the logon with `run on logon skipped:` and the reason. `triggerRow` is
+written only when set, and kept with `"trigger": "manual"`, where it does nothing.
 
 ### The examples table — a scenario run once per row
 

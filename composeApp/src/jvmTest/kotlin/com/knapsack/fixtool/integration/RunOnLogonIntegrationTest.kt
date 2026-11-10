@@ -4,6 +4,8 @@ import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchPredicate
@@ -16,6 +18,7 @@ import com.knapsack.fixtool.model.scenario.RunTrigger
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.VariableSource
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
 import org.junit.Before
@@ -92,6 +95,77 @@ class RunOnLogonIntegrationTest {
         val trigger = report.steps.first()
         assertEquals("trigger", trigger.kind, "the report opens with what started it: ${report.steps}")
         assertTrue("logon of session '$client'" in trigger.detail.orEmpty(), "the report names the logon: $trigger")
+    }
+
+    /**
+     * A logon scenario with two live examples rows runs the one `triggerRow` names: the answer carries that
+     * row's cell, and the record and report name the row the way a run of that row by hand does.
+     */
+    @Test
+    fun `a logon runs the examples row the scenario names, and sends that row's value`() {
+        val handshake = server.handshake()
+        save(rowScenario(ExampleRow("first", mapOf("stream" to "ALPHA")), ExampleRow("second", mapOf("stream" to "BETA")), triggerRow = "second"))
+
+        connect()
+
+        val challenge = awaitChallenge(handshake, 1)
+        assertTrue(
+            awaitCondition(5_000) { challenge.answers.isNotEmpty() || challenge.disconnectedForSilence },
+            "the venue should hear an answer or give up on it",
+        )
+        assertTrue(challenge.answeredInTime, "the row's run must answer in time: answers=${challenge.answers}")
+        assertEquals(listOf("ack-BETA"), answerTexts(), "the answer must carry the second row's stream")
+        val run = awaitLogonRuns(1).single()
+        val entry = run.entries.single()
+        assertEquals(RunState.PASSED, entry.state, "the row's run passes: $entry")
+        assertEquals("second", entry.row?.name, "the record keeps the row the logon ran: $entry")
+        assertEquals("Handshake [second]", run.nameOf(0), "the entry is named the way a run of that row by hand is")
+        val report = assertNotNull(viewModel.runRecordStore.readEntry(run.id, 1), "the run is recorded").result
+        val stream = report.variables.single { it.name == "stream" }
+        assertEquals("BETA" to VariableSource.ROW, stream.value to stream.source, "the row seeded the scope: $stream")
+        val trigger = report.steps.first()
+        assertTrue("examples row 'second'" in trigger.detail.orEmpty(), "the trigger row names the row: $trigger")
+    }
+
+    /** One live row and no `triggerRow`: that row is the one a logon runs. */
+    @Test
+    fun `a logon runs the one live examples row when the scenario names none`() {
+        val handshake = server.handshake()
+        save(rowScenario(ExampleRow("only", mapOf("stream" to "GAMMA")), ExampleRow("parked", mapOf("stream" to "DELTA"), muted = true)))
+
+        connect()
+
+        val challenge = awaitChallenge(handshake, 1)
+        assertTrue(
+            awaitCondition(5_000) { challenge.answers.isNotEmpty() || challenge.disconnectedForSilence },
+            "the venue should hear an answer or give up on it",
+        )
+        assertTrue(challenge.answeredInTime, "the row's run must answer in time: answers=${challenge.answers}")
+        assertEquals(listOf("ack-GAMMA"), answerTexts(), "the answer must carry the live row's stream")
+        val entry = awaitLogonRuns(1).single().entries.single()
+        assertEquals(RunState.PASSED to "only", entry.state to entry.row?.name, "the live row ran and passed: $entry")
+    }
+
+    /**
+     * A file with two live rows and no `triggerRow`, written past every save door, does not run at the logon:
+     * the logon starts nothing, and the notification names the scenario and why.
+     */
+    @Test
+    fun `a logon skips a scenario with several live rows and none named, by name`() {
+        val handshake = server.handshake()
+        save(rowScenario(ExampleRow("first", mapOf("stream" to "ALPHA")), ExampleRow("second", mapOf("stream" to "BETA"))))
+
+        connect()
+
+        val challenge = awaitChallenge(handshake, 1)
+        assertTrue(awaitCondition(3_000) { challenge.disconnectedForSilence }, "nothing should answer, so the venue gives up")
+        assertTrue(challenge.answers.isEmpty(), "no run should have answered: ${challenge.answers}")
+        assertTrue(logonRuns().isEmpty(), "no run should have started: ${logonRuns().map { it.label }}")
+        val skipped = viewModel.notifications.map { it.message }.filter { it.startsWith("run on logon skipped:") }
+        assertTrue(skipped.isNotEmpty(), "the skip should be shown: ${viewModel.notifications.map { it.message }}")
+        assertTrue("'Handshake'" in skipped.single(), "the skip should name the scenario: $skipped")
+        assertTrue("must be told which" in skipped.single(), "the skip should say a logon needs telling which row: $skipped")
+        assertTrue("'first', 'second'" in skipped.single(), "the skip should list the live rows: $skipped")
     }
 
     /**
@@ -325,6 +399,22 @@ class RunOnLogonIntegrationTest {
                 ),
             trigger = trigger,
         )
+
+    /** [handshakeScenario] on logon, with an examples table whose `stream` column the answer's text carries. */
+    private fun rowScenario(vararg rows: ExampleRow, triggerRow: String? = null): Scenario {
+        val base = handshakeScenario(RunTrigger.LOGON)
+        return base.copy(
+            steps = base.steps.map { if (it is ScenarioStep.Send) it.copy(raw = "35=B|148=\${reqId}|33=1|58=ack-\${stream}|") else it },
+            examples = Examples(listOf("stream"), rows.toList()),
+            triggerRow = triggerRow,
+        )
+    }
+
+    /** The Text(58) of every News the venue received from the client, in arrival order. */
+    private fun answerTexts(): List<String> =
+        server.applicationMessages
+            .filter { TestFixServer.fieldValue(it, 35) == "B" }
+            .mapNotNull { TestFixServer.fieldValue(it, 58) }
 
     private fun save(scenario: Scenario) {
         assertTrue(viewModel.scenarioService.save(scenario), "the scenario should save")

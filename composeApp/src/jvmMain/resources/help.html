@@ -3454,6 +3454,16 @@ ${incoming["D"].valueOfTag(38)}
     with the logon that started it. <strong>RUN BY HAND</strong>, the default, writes nothing to the
     file.</p>
 
+    <p>A scenario with an examples table runs one row on each logon, and its cells start the run's scope as
+    they do when that row is run by hand. The <strong>ROW</strong> chip beside RUN ON LOGON shows which row
+    that is and picks it (<code>"triggerRow"</code> in the file, the row's exact name). Click it for the next
+    live row. With exactly one live row the scenario needs no name, and that row runs. Save refuses a name
+    that is not a live row (unknown, or muted), and several live rows with none named, and the chip turns red
+    and says why. A file edited by hand into either is skipped at the logon, with <em>run on logon
+    skipped:</em> and why. Renaming the picked row in the table keeps the chip on it. The record and the report name
+    the row as <em>&lt;name&gt; [&lt;row&gt;]</em>, the way a run of that row by hand does, and the report's
+    opening line names it too. The name is kept when RUN ON LOGON is turned off.</p>
+
     <p>Four tools manage them: <code>fixtool_save_scenario</code>, <code>fixtool_list_scenarios</code>,
     <code>fixtool_run_scenario</code>, and <code>fixtool_delete_scenario</code>. A run returns a
     per-step, per-tag pass/fail report; pass <code>format:"junit"</code> to get JUnit XML for CI.</p>

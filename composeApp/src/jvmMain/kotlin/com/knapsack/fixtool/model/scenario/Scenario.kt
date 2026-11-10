@@ -45,9 +45,17 @@ data class Scenario(
     val examples: Examples? = null,
     /**
      * **What starts a run besides Run itself.** [RunTrigger.LOGON] runs the scenario every time its session
-     * logs on (see [logonSession]). Additive and default-omitting on disk, the same bargain as [binding].
+     * logs on (see [logonSession]), with one row of its [examples] when it has any (see [logonRow]). Additive
+     * and default-omitting on disk, the same bargain as [binding].
      */
     val trigger: RunTrigger = RunTrigger.MANUAL,
+    /**
+     * **The name of the [examples] row a run started by a logon runs with**, or null to leave it to the table
+     * (see [logonRow]). Kept whatever [trigger] says, so turning the trigger off and on again keeps it, and
+     * read only when it is [RunTrigger.LOGON]. Additive and default-omitting on disk, the same bargain as
+     * [trigger].
+     */
+    val triggerRow: String? = null,
 )
 
 /**
@@ -62,7 +70,9 @@ fun Scenario.logonSession(): String? = sessionsRunOn().singleOrNull()
  * A logon is one session's event, so a scenario that runs on it has to say which session that is, and it says
  * so by naming that session on every step. A step that names none runs on whatever session is first in the
  * window, which can change under it, and a scenario on two sessions has two logons and no rule for which one
- * starts it. Saving refuses both, and a hand-edited file that has either is skipped at the logon, by name.
+ * starts it. A logon also runs one examples row, so a scenario whose table leaves that open has the problem
+ * [logonRowProblem] names. Saving refuses all of these, and a hand-edited file that has one is skipped at the
+ * logon, by name.
  */
 fun Scenario.logonTriggerProblem(): String? {
     val sessions = sessionsRunOn()
@@ -75,6 +85,46 @@ fun Scenario.logonTriggerProblem(): String? {
         sessions.size > 1 ->
             "a scenario that runs on logon must run on one session, the one whose logon starts it, and its " +
                 "steps run on ${sessions.size}: ${sessions.joinToString()}"
+        else -> logonRowProblem()
+    }
+}
+
+/**
+ * **The examples row a run started by a logon runs with**, or null for none. Its cells seed the run exactly as
+ * a run of that row by hand seeds them.
+ *
+ * Read from the live rows ([Examples.live]) by exact name, as the control API's `rows` reads them: the row
+ * [Scenario.triggerRow] names, the first live one of that name when names repeat, or with no name the one live
+ * row when there is exactly one. Null when the table has no live rows and no row is named, which runs as a
+ * scenario without a table does, and null too while [logonRowProblem] has something to say.
+ */
+fun Scenario.logonRow(): ExampleRow? {
+    val live = examples?.live.orEmpty()
+    val asked = triggerRow ?: return live.singleOrNull()
+    return live.firstOrNull { it.name == asked }
+}
+
+/**
+ * Why a logon cannot tell which examples row to run, or null when it can (see [logonRow]).
+ *
+ * A logon starts one run, so it runs one row. A named row that is not live (unknown, muted, or a table with
+ * no rows) would leave the run's columns unset, and with several live rows and none named any choice would be
+ * a guess. Either way the first step that reads a column would fail on every logon, so this is refused at
+ * save rather than discovered at the counterparty.
+ */
+fun Scenario.logonRowProblem(): String? {
+    val live = examples?.live.orEmpty()
+    val names = if (live.isEmpty()) "none" else live.joinToString { "'${it.name}'" }
+    val asked = triggerRow
+    return when {
+        asked != null && live.none { it.name == asked } -> {
+            val muted = examples?.rows.orEmpty().any { it.muted && it.name == asked }
+            "a scenario that runs on logon names examples row '$asked' for a logon to run, and it has no live " +
+                "row of that name${if (muted) " (a muted row does not run)" else ""}. Live rows: $names"
+        }
+        asked == null && live.size > 1 ->
+            "a scenario that runs on logon with ${live.size} live examples rows must be told which row a logon " +
+                "runs, and it names none. Live rows: $names"
         else -> null
     }
 }
@@ -180,6 +230,10 @@ enum class RunTrigger {
      * run started by a logon is about that connection and must never bind the previous one's messages. It ends
      * as soon as its session drops or logs on again, rather than waiting out its step timeouts. A logon that
      * finds the session held by another run starts nothing, and says so.
+     *
+     * A scenario with an examples table runs one row on each logon, the one [Scenario.logonRow] picks: the live
+     * row [Scenario.triggerRow] names, or the one live row when there is exactly one and none is named. A name
+     * that is not a live row, or several live rows and none named, is a [logonTriggerProblem].
      */
     LOGON,
 }

@@ -1386,6 +1386,59 @@ class FixMessageTemplateTest {
         )
     }
 
+    /**
+     * The editor's check had the fault a scenario's report had: the engine lists every diagnostic in source
+     * order, warnings included, and the check named the first line, so a needless `!!` hid the real error.
+     */
+    @Test
+    fun `the template check names the compile error, not a warning ahead of it`() {
+        assertEquals(
+            listOf("Template error in '\${\"EUR\"!!.noSuchMember()}': Unresolved reference: noSuchMember"),
+            FixMessageTemplate.validateExpressions("\${\"EUR\"!!.noSuchMember()}"),
+        )
+    }
+
+    @Test
+    fun `the template check names an unknown member read through a message accessor after a needless non-null assertion`() {
+        val incoming = mapOf("BW" to createMockFixMessage("BW", 1346 to "REQ-1"))
+
+        val errors = FixMessageTemplate.validateExpressions("\${incoming[\"BW\"]!!.noSuchMember}", incomingMessages = incoming)
+
+        assertEquals(listOf("Template error in '\${incoming[\"BW\"]!!.noSuchMember}': Unresolved reference: noSuchMember"), errors)
+        assertFalse(errors.single().contains("WARNING"), errors.single())
+    }
+
+    /** An expression with only a real error is reported once, in the same words, naming that error. */
+    @Test
+    fun `the template check reports an expression with only a compile error as before`() {
+        val error = FixMessageTemplate.validateExpressions("\${\"EUR\".noSuchMember()}").single()
+
+        assertTrue(error.startsWith("Template error in '\${\"EUR\".noSuchMember()}': "), error)
+        assertTrue(error.contains("Unresolved reference: noSuchMember"), error)
+    }
+
+    /** The reason is the error alone: no severity word, and no position counting lines FixTool wraps it in. */
+    @Test
+    fun `the template check names a compile error without its severity word or script position`() {
+        assertEquals(
+            listOf("Template error in '\${\"EUR\".noSuchMember()}': Unresolved reference: noSuchMember"),
+            FixMessageTemplate.validateExpressions("\${\"EUR\".noSuchMember()}"),
+        )
+    }
+
+    /** A warning alone does not stop a script compiling, so a valid expression with a needless `!!` passes. */
+    @Test
+    fun `the template check passes a valid expression, warning and all`() {
+        assertEquals(emptyList(), FixMessageTemplate.validateExpressions("\${\"EUR\"!!.length}"))
+    }
+
+    @Test
+    fun `the template check reports a script that compiles and throws by its exception`() {
+        val error = FixMessageTemplate.validateExpressions("\${\"EUR\"!!.substring(10)}").single()
+
+        assertTrue(error.startsWith("Template error in '\${\"EUR\"!!.substring(10)}': java.lang.StringIndexOutOfBoundsException"), error)
+    }
+
     @Test
     fun testValidateExpressions_UndefinedVariable_ReturnsError() {
         // Given: A value referencing an undefined variable

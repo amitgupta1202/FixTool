@@ -352,12 +352,7 @@ object FixMessageTemplate {
      */
     private fun reasonOf(e: Throwable): String {
         val root = generateSequence(e) { it.cause?.takeIf { cause -> cause !== it } }.last()
-        val lines =
-            root.message
-                ?.lines()
-                ?.map { it.trim() }
-                ?.filter { it.isNotEmpty() }
-                .orEmpty()
+        val lines = linesOf(root)
         val what =
             when {
                 root is ScriptException -> compileError(lines) ?: "script evaluation failed"
@@ -366,6 +361,14 @@ object FixMessageTemplate {
             }
         return "failed: $what"
     }
+
+    /** The lines of [e]'s message, trimmed, without the blank ones. */
+    private fun linesOf(e: Throwable): List<String> =
+        e.message
+            ?.lines()
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
 
     /**
      * The line of a script engine's report that says why the script did not run.
@@ -653,8 +656,9 @@ object FixMessageTemplate {
                 // Try to evaluate the expression - will throw if invalid
                 validateSingleExpression(expression, incomingMessages, outgoingMessages, vars)
             } catch (e: ScriptException) {
-                // Extract meaningful error message from script exception
-                val errorMsg = e.message?.lines()?.firstOrNull { it.isNotBlank() } ?: "Script evaluation failed"
+                // The first compile error, not a warning the engine listed ahead of it. A script that compiled
+                // and threw has no ERROR line, and its first line names the exception as before.
+                val errorMsg = compileError(linesOf(e)) ?: "Script evaluation failed"
                 errors.add("Template error in '\${$expression}': $errorMsg")
             } catch (e: Exception) {
                 errors.add("Template error in '\${$expression}': ${e.message ?: e.javaClass.simpleName}")
